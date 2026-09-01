@@ -96,8 +96,9 @@ agents/
 │   └── create-role/SKILL.md              ← 创建新角色的 skill
 │
 ├── clarifications/                        ← pb-v1-talk 讨论阶段的澄清记录
-├── docs/                                  ← 产品文档、本文件
-├── plans/                                 ← 任务执行计划（按任务归档）
+├── docs/
+│   ├── iterations/                        ← 迭代产物（每次迭代一个子目录，例如 0001-bootstrap-dev-role/）
+│   └── *.md                               ← 项目文档
 ├── tests/                                 ← 校验脚本测试
 └── tools/
     └── check-role-structure.sh            ← 角色目录结构校验脚本

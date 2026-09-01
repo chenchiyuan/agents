@@ -87,7 +87,7 @@ description: 创建 agents 项目的新角色（roles/<role>/）。通过 AI 反
 ### 5. Reflect
 
 - 验证通过后，把这次反射的完整依据（为什么是这个 identity、否决过的备选方案、用户调整过什么、Verify 阶段发现过什么问题）写一条到 `roles/<role>/data/`
-- 在 `docs/mvp-plan.md` 或对应 `plans/` 计划文件里记录这次创建结果
+- 在 `docs/mvp-plan.md` 或对应 `docs/iterations/` 迭代计划文件里记录这次创建结果
 - 如果这次创建过程本身暴露了反射协议、结构参照或闭环协议的缺陷（不是这个角色本身的问题，是流程本身的问题），回去更新 `principles/meta/agent-design-protocol.md`，保留旧结论被推翻的痕迹
 
 ---

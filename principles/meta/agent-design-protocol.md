@@ -344,7 +344,7 @@ memory.md（记录索引）
 |---|---|---|
 | 角色运行记录 | `roles/<role>/data/` | `.pb-agents/project/roles/<role>/data/` |
 | 角色记录索引 | `roles/<role>/memory.md` | `.pb-agents/project/roles/<role>/memory.md` |
-| 迭代产物（demand.md / prd/ / architecture.md / tasks.md）| 项目根目录下 | `docs/iterations/{编号-迭代名}/`，例如 `docs/iterations/0001-user-auth/` |
+| 迭代产物（task_plan.md / demand.md / prd/ / architecture.md / tasks.md）| `docs/iterations/{编号-迭代名}/`，例如 `docs/iterations/0001-bootstrap-dev-role/` | `docs/iterations/{编号-迭代名}/` |
 | 澄清记录 | `clarifications/` | `docs/iterations/{编号-迭代名}/clarifications/` |
 
 **角色文件里写路径的规则**：
