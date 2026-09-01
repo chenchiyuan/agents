@@ -74,7 +74,7 @@ role:
 
 读取主 agent 给的起点材料：
 - 用户原始表述（文字、草稿、背景说明）
-- 已有的澄清记录（路径由简报指定；agents 项目中为 `clarifications/`，业务项目中为 `docs/iterations/{编号-迭代名}/clarifications/`）
+- 已有的澄清记录（路径由简报指定；统一放在 `docs/iterations/{编号-迭代名}/clarifications/`）
 - 项目已有的 `demand.md` 或上一次迭代的需求文档（路径由简报指定）
 
 缺材料时，停下来问，不猜起点。
@@ -130,7 +130,7 @@ role:
 - 读起点材料和已有澄清记录（路径由简报指定）
 - 提问、追问、前提挑战、选项确认
 - 写入 `demand.md`（两段结构；路径由简报指定，业务项目中位于 `docs/iterations/{编号-迭代名}/demand.md`）
-- 写入澄清记录（路径由简报指定；agents 项目中为 `clarifications/`，业务项目中为 `docs/iterations/{编号-迭代名}/clarifications/`；caller: demand）
+- 写入澄清记录（路径由简报指定；统一放在 `docs/iterations/{编号-迭代名}/clarifications/`；caller: demand）
 
 **不做什么**：
 - 不做功能规格拆解（那是 prd 角色的职责）

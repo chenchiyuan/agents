@@ -11,7 +11,7 @@ updated: 2026-09-01
 
 草稿，等待第一次确认。确认后进入 MVP 阶段拆解（见 `docs/mvp-plan.md`）。
 
-来源依据：`clarifications/` 目录下 4 个维度、共 8 条已确认结论（`mvp-scope`、`protocol-depth`、`subagent-collaboration`、`cross-project-reuse`）。本文档不引入新决策，只整理和结构化已确认的内容。
+来源依据：`docs/iterations/0000-project-design/clarifications/` 目录下 4 个维度、共 8 条已确认结论（`mvp-scope`、`protocol-depth`、`subagent-collaboration`、`cross-project-reuse`）。本文档不引入新决策，只整理和结构化已确认的内容。
 
 ---
 
@@ -28,7 +28,7 @@ updated: 2026-09-01
 
 ### 1.2 现有能力分析（可复用的部分）
 
-从 `powerby-skills` 借鉴，但不迁移、不持续同步（`clarifications/cross-project-reuse/round-1.md` CLR-CR-002）：
+从 `powerby-skills` 借鉴，但不迁移、不持续同步（`docs/iterations/0000-project-design/clarifications/cross-project-reuse/round-1.md` CLR-CR-002）：
 
 | 可借鉴内容 | 来源 | 借鉴方式 |
 |---|---|---|
@@ -62,7 +62,7 @@ updated: 2026-09-01
 
 ## 4. 范围与启动顺序
 
-五层能力都要做，但不同时启动（`clarifications/mvp-scope/round-1.md` CLR-MVP-001）：
+五层能力都要做，但不同时启动（`docs/iterations/0000-project-design/clarifications/mvp-scope/round-1.md` CLR-MVP-001）：
 
 ```
 第一步：跑通一个真实 agent

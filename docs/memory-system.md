@@ -95,9 +95,13 @@ agents/
 ├── .claude/skills/
 │   └── create-role/SKILL.md              ← 创建新角色的 skill
 │
-├── clarifications/                        ← pb-v1-talk 讨论阶段的澄清记录
 ├── docs/
-│   ├── iterations/                        ← 迭代产物（每次迭代一个子目录，例如 0001-bootstrap-dev-role/）
+│   ├── iterations/                        ← 迭代产物（每次迭代一个子目录）
+│   │   ├── 0000-project-design/
+│   │   │   └── clarifications/            ← 框架设计阶段的 pb-v1-talk 澄清记录
+│   │   └── {编号-迭代名}/
+│   │       ├── clarifications/            ← 本次迭代的澄清记录
+│   │       └── *.md                       ← demand/prd/architecture/tasks 等
 │   └── *.md                               ← 项目文档
 ├── tests/                                 ← 校验脚本测试
 └── tools/
@@ -180,7 +184,7 @@ agents 框架被安装到业务项目后，数据按三个维度存放：
 - **retrospective 角色识别**：每次迭代结束后，retrospective 角色扫描 `.pb-agents/project/` 里的新记录，判断是否达到跨角色升级标准（同类踩坑在 3+ 项目中独立出现），产出建议，用户决定是否提 PR
 - **用户主动发起**：开发者判断某条记录对其他项目有普遍价值，直接开 PR
 
-详见 `clarifications/data-storage-protocol/round-1.md`（CLR-DS-001 ~ CLR-DS-005）。
+详见 `docs/iterations/0000-project-design/clarifications/data-storage-protocol/round-1.md`（CLR-DS-001 ~ CLR-DS-005）。
 
 ---
 

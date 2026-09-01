@@ -75,7 +75,7 @@ depends_on: docs/proposal.md
 
 **测试/验证方法**：在一个真实项目里跑安装流程，确认 `.pb-agents/` 结构正确，`.pb-agents/project/` 目录自动初始化（镜像结构空目录），主 agent 能读取角色文件并派发任务
 
-**数据分层协议参考**：`clarifications/data-storage-protocol/round-1.md`，`docs/memory-system.md` 第六节
+**数据分层协议参考**：`docs/iterations/0000-project-design/clarifications/data-storage-protocol/round-1.md`，`docs/memory-system.md` 第六节
 
 **状态**: 未开始
 

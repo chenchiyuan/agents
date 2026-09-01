@@ -165,7 +165,7 @@ Plan-Execute-Verify-Fix-Reflect 闭环，自己能闭环定义好的边界"。
    验证通过后删除临时文件。
 5. `roles/dev/dev.md` 同步改写：去掉 `principles: $ref(...)`，原则章节改为角色自己的独立小节（红线/理解优先/
    简单优先/外科手术式精准/验证优先/失败处理/边界纪律），逐条按 dev 角色场景调整措辞和适用场景说明。
-6. `clarifications/protocol-depth/round-1.md` 的 CLR-PD-004 按台账防腐规矩标记为"修订生效"，保留原引用式
+6. `docs/iterations/0000-project-design/clarifications/protocol-depth/round-1.md` 的 CLR-PD-004 按台账防腐规矩标记为"修订生效"，保留原引用式
    结论的文字，附上修订结论和原因，不直接删除旧结论。
 
 **验证**：
