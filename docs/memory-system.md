@@ -133,10 +133,61 @@ agents/
 
 ---
 
-## 六、关键约束（背下来）
+## 六、跨项目部署：业务项目中的数据分层
+
+agents 框架被安装到业务项目后，数据按三个维度存放：
+
+```
+业务项目/
+├── docs/
+│   └── iterations/
+│       └── {编号-迭代名}/       ← 每次迭代一个目录，例如 0001-user-auth/
+│           ├── demand.md        ← 需求合同
+│           ├── prd.md           ← PRD 索引
+│           ├── prd/             ← 功能规格卡
+│           ├── architecture.md  ← 技术架构
+│           ├── tasks.md         ← 任务图
+│           └── clarifications/  ← 本次迭代的澄清记录
+│
+├── .pb-agents/              ← agents 框架 copy（只读，不可在业务项目中直接修改）
+│   ├── roles/
+│   │   ├── demand/
+│   │   │   └── demand.md    ← 角色定义文件（不含 data/ 和 memory.md）
+│   │   └── ...
+│   ├── principles/          ← 执行原则（必须 copy）
+│   ├── .claude/skills/      ← 可选，创建新角色时用
+│   └── tools/               ← 可选，校验脚本
+│
+└── .pb-agents/project/      ← 项目运行记录（镜像 agents 内部结构）
+    └── roles/
+        ├── demand/
+        │   ├── data/        ← demand 角色在本项目运行时积累的记录
+        │   └── memory.md
+        └── ...
+```
+
+### 三条核心约束
+
+1. **`.pb-agents/` 只读**：不能在业务项目里直接修改。需要修改角色定义或原则时，必须走 agents 项目的 PR 流程，agents 发布后再更新业务项目的 copy
+2. **更新不影响运行记录**：agents 升级后手动更新 `.pb-agents/`（重新安装），`.pb-agents/project/` 完全不受影响
+3. **镜像结构便于归档**：`.pb-agents/project/` 与 agents 内部结构对齐，归档时直接 copy 到 agents PR，无需额外整理
+
+### 归档回 agents 的触发条件
+
+`.pb-agents/project/` 积累的运行记录，满足以下任一条件时归档回 agents PR：
+
+- **retrospective 角色识别**：每次迭代结束后，retrospective 角色扫描 `.pb-agents/project/` 里的新记录，判断是否达到跨角色升级标准（同类踩坑在 3+ 项目中独立出现），产出建议，用户决定是否提 PR
+- **用户主动发起**：开发者判断某条记录对其他项目有普遍价值，直接开 PR
+
+详见 `clarifications/data-storage-protocol/round-1.md`（CLR-DS-001 ~ CLR-DS-005）。
+
+---
+
+## 七、关键约束（背下来）
 
 1. **data/ 只增不减**：是原始凭证，即使被覆盖也不删除原件
 2. **memory.md 主动整理**：可以删不重要的条目，目标是"每行都值得展开"，不是追加日志
 3. **原则内联不引用**：角色的原则章节整段复制写入，不用 `$ref()` 或"遵循 xxx.md"的指针式表达
 4. **升级有门槛**：data/ 升入原则章节，需要在该角色多次任务中验证；原则升入项目级，需要 3+ 角色独立出现
 5. **先搜后记**：写入 data/ 前先 grep 检查是否已有同类记录，重复记录是系统噪音
+6. **copy 只读**：业务项目中的 `.pb-agents/` 不可直接修改，修改走 agents PR 流程

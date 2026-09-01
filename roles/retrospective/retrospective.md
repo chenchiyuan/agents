@@ -90,7 +90,7 @@ role:
 
 - **迭代范围**：这次复盘覆盖哪段时间/哪几个任务/哪个会话
 - **范围内的产出**：做了什么、改了什么、讨论了什么
-- **已有记录**：扫描相关角色/原则的 `memory.md` 和 `data/`，避免重复记录
+- **已有记录**：扫描相关角色/原则的 `memory.md` 和 `data/`，避免重复记录（业务项目中角色记录位于 `.pb-agents/project/roles/<role>/`；agents 项目本身位于 `roles/<role>/`）
 
 范围不明确时停下来问，不猜。
 
@@ -292,7 +292,7 @@ Step 9 产出的总结报告，面向用户决策，按重要性排序，不是�
 
 ## 决策记录
 
-判断标准（是否往 `roles/retrospective/data/` 写记录）：
+判断标准（是否往对应的 `data/` 目录写记录；agents 项目中为 `roles/retrospective/data/`，业务项目中为 `.pb-agents/project/roles/retrospective/data/`）：
 
 - 三问过滤遇到边界情况，当前过滤标准无法裁决 → 记，更新过滤标准
 - Phase 2 讨论出现新的候选处置模式 → 记

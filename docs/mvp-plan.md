@@ -45,7 +45,7 @@ depends_on: docs/proposal.md
 
 **测试/验证方法**：用第二个真实角色实际派发一次真实任务，检验产出是否符合角色边界；同时检验 `verify-role` 是否能独立发现问题（不依赖创建者自报）
 
-**状态**: 机制已确立为 `.claude/skills/create-role/` + `.claude/skills/verify-role/` 两个 skill（详见 `plans/0002-2026-09-01-agent-constructor/task_plan.md`）。此前尝试过脚本驱动（`tools/new-role.sh` + 占位符模板）两版，均被判定"填空不是思考"而推翻，已删除。尚未用新机制实际跑通一个真实角色的完整闭环。
+**状态**: 已完成。用 `create-role` skill 完整走通 5 个新角色（demand/prd/architect/planner/verifier）的 Plan→Execute→Verify→Fix→Reflect 闭环。无上下文子 agent 独立验证 5/5 全部通过（2026-09-01）。验证过程中发现 verifier 的 Verify 阶段有合理语义变形，已记录于 `roles/verifier/data/verify-stage-semantic-variation.md`，供 role-structure-reference.md 未来迭代参考。
 
 ---
 
@@ -65,13 +65,17 @@ depends_on: docs/proposal.md
 
 ## 阶段 4：跨项目复用打包
 
-**目标**：把 `principles/`、`roles/` 等核心文件打包成可安装单元，提供 github clone 后的安装指令。
+**目标**：把 `principles/`、`roles/<role>/<role>.md` 等核心文件打包成可安装单元，在业务项目里按数据分层存储协议（CLR-DS-001~005）落地为 `.pb-agents/` + `.pb-agents/project/` 结构。
 
 **验收标准**：
-- 有一条命令或脚本，能把 agents 项目的核心文件安装到任意目标项目的指定位置
-- 在至少一个其他项目里验证安装后可用
+- 有一条命令或脚本，能把 agents 的核心文件安装到业务项目的 `.pb-agents/`（只读 copy）
+- 安装内容：`roles/<role>/<role>.md`（必须）、`principles/`（必须）、`.claude/skills/`（可选）、`tools/`（可选）；不安装 `data/` 和 `memory.md`
+- 安装脚本幂等：重复执行只更新 `.pb-agents/`，不影响 `.pb-agents/project/`
+- 在至少一个其他项目里验证安装后可用，agent 能正确读取角色定义
 
-**测试/验证方法**：在一个真实的其他项目里跑一次安装流程，确认核心文件到位且可被该项目的 agent 读取
+**测试/验证方法**：在一个真实项目里跑安装流程，确认 `.pb-agents/` 结构正确，`.pb-agents/project/` 目录自动初始化（镜像结构空目录），主 agent 能读取角色文件并派发任务
+
+**数据分层协议参考**：`clarifications/data-storage-protocol/round-1.md`，`docs/memory-system.md` 第六节
 
 **状态**: 未开始
 
@@ -82,3 +86,5 @@ depends_on: docs/proposal.md
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | 0.1.0 | 2026-09-01 | 首次起草，4 个阶段对应 proposal.md 第 4 节的启动顺序，待用户确认 |
+| 0.2.0 | 2026-09-01 | 阶段2状态更新：create-role 机制已跑通，5个新角色（demand/prd/architect/planner/verifier）独立验证5/5通过 |
+| 0.3.0 | 2026-09-01 | 阶段4目标更新：按数据分层存储协议（CLR-DS-001~005）重写验收标准，明确.pb-agents/结构和安装范围 |

@@ -91,7 +91,7 @@ role:
 按下方报告契约回报。
 
 ### 8. 反思沉淀（Reflect）
-按下方「决策记录」判断是否要往 `roles/dev/data/` 写一条记录（包括 Verify 阶段发现过什么问题、Fix 是怎么解决的，如果有）。
+按下方「决策记录」判断是否要往对应的 `data/` 目录写一条记录（agents 项目中为 `roles/dev/data/`，业务项目中为 `.pb-agents/project/roles/dev/data/`；包括 Verify 阶段发现过什么问题、Fix 是怎么解决的，如果有）。
 
 ---
 
@@ -180,7 +180,7 @@ role:
 
 ## 决策记录
 
-判断标准（是否往 `roles/dev/data/` 写记录）：
+判断标准（是否往对应的 `data/` 目录写记录；agents 项目中为 `roles/dev/data/`，业务项目中为 `.pb-agents/project/roles/dev/data/`）：
 - 违反后果严重、且从代码本身看不出为什么要这么做 → 记
 - 简报里的某个假设被证明是错的 → 记
 - 只是常规任务顺利完成，没有意外 → 不记，避免 `data/` 被无信息量的记录淹没

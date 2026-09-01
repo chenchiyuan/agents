@@ -11,3 +11,9 @@
 
 ## cross-project-reuse
 - [Round 1](cross-project-reuse/round-1.md) — 复用形式为 github clone + 安装指令；agents 与 powerby-skills 是独立项目，一次性借鉴初始化，非持续同步 — caller: pb-v1-talk — 2026-09-01
+
+## data-storage-protocol
+- [Round 1](data-storage-protocol/round-1.md) — .pb-agents/（只读copy）+.pb-agents/project/（镜像结构运行记录）+docs/iterations/（迭代产物）三分法；copy单向可更新（agents PR流程）；copy范围：role.md+principles+可选tools/skills；归档由retrospective识别+用户主动双触发 — caller: pb-v1-talk — 2026-09-01
+
+## minimal-role-closure
+- [Round 1](minimal-role-closure/round-1.md) — 6角色闭环：backend=dev重命名；demand.md两段结构（澄清依据+proposal级结论）；无独立reviewer（主agent承担质量门）；prd二级结构（prd.md索引+prd/*.md明细）；verifier由主agent委托触发、反射验证者、结果记录 — caller: pb-v1-talk — 2026-09-01

@@ -336,6 +336,24 @@ memory.md（记录索引）
 - **升入 <role>.md 原则**：已在该角色的真实任务中被验证有效，且预期后续任务还会用到
 - **不进任何层**：顺利完成无意外；与已有记录高度重复
 
+### 路径约定：agents 项目 vs 业务项目
+
+角色文件里涉及写入路径的描述（`data/`、迭代产物输出位置、`clarifications/` 等）在两种运行环境下有不同的实际路径：
+
+| 路径类型 | agents 项目（开发）| 业务项目（部署后）|
+|---|---|---|
+| 角色运行记录 | `roles/<role>/data/` | `.pb-agents/project/roles/<role>/data/` |
+| 角色记录索引 | `roles/<role>/memory.md` | `.pb-agents/project/roles/<role>/memory.md` |
+| 迭代产物（demand.md / prd/ / architecture.md / tasks.md）| 项目根目录下 | `docs/iterations/{编号-迭代名}/`，例如 `docs/iterations/0001-user-auth/` |
+| 澄清记录 | `clarifications/` | `docs/iterations/{编号-迭代名}/clarifications/` |
+
+**角色文件里写路径的规则**：
+- 写 `data/` 路径时，用"对应的 data/ 目录"表达，不硬编码绝对路径。角色文件随 copy 部署，agent 在哪个项目里运行，就往哪个项目的对应 data/ 里写
+- 迭代产物路径写"按项目约定的迭代产物目录"，由主 agent 在派发简报里指定，不在角色文件里假设路径
+- `clarifications/` 同理，写"项目的澄清记录目录"，路径由简报或项目约定决定
+
+详见 `clarifications/data-storage-protocol/round-1.md`（CLR-DS-001~005）和 `docs/memory-system.md` 第六节。
+
 ---
 
 ## 何时更新元原则
