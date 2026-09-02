@@ -21,6 +21,10 @@
 
 **用户确认过程**：identity/relationship/character/Strategy/输出契约反射结果一次性确认通过，无调整。
 
+## 历史遗留问题闭环
+
+`docs/iterations/0004-model-dispatch/project-retrospective.md` P2 条目（"任务与 PR 机械一一对应，8 个任务生成 8 个 PR，没有以独立可合并为首要判断"）在 0004 迭代复盘时被记录为"一次性流程案例，不升级原则"，因为当时 commit-planner 已明确不要求一任务一 PR，只是执行时没做到。本角色的存在直接从根上解决了这个问题——不再有"任务"这个中间产物需要对应 PR，PR 边界直接从架构+代码反射，判断依据是逻辑原子性/可审查性/独立性三条锚点，不是任务数量。
+
 ## 与 planner 的边界确认
 
 pr-planner 处理"PR 之间的边界在哪、依赖在哪"（提交单元之上）；planner 处理"单个 PR 内部任务怎么拆"（提交单元之内），在实现阶段由主 agent 逐 PR 派发、在子 agent 中执行。两者输入范围不同：pr-planner 读全架构+全部 prd，planner 未来会收窄到单个 PR 范围内调用（这一变化记在 workflow-pb 的调度指南里，不改 planner.md 本身）。
