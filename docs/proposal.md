@@ -1,15 +1,15 @@
 ---
-status: 待确认
-version: 0.1.0
+status: 已确认
+version: 0.2.0
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # agents 项目提案
 
 ## 0. 文档状态
 
-草稿，等待第一次确认。确认后进入 MVP 阶段拆解（见 `docs/mvp-plan.md`）。
+已确认。MVP 阶段 1/2 已完成，阶段 3/4 进行中，详见 `docs/mvp-plan.md`。
 
 来源依据：`docs/iterations/0000-project-design/clarifications/` 目录下 4 个维度、共 8 条已确认结论（`mvp-scope`、`protocol-depth`、`subagent-collaboration`、`cross-project-reuse`）。本文档不引入新决策，只整理和结构化已确认的内容。
 
@@ -19,12 +19,7 @@ updated: 2026-09-01
 
 ### 1.1 问题
 
-用户手上有两类沉淀方式，各自不完整：
-
-- `docs/base.md` 描述的"AI 住进项目"工作流——agent、memory、dispatch-protocol 都跟着项目走进 Git，但目前只是一份参考文档，没有落地成可执行的目录和角色文件。
-- `powerby-skills` 项目——用户已经用了一段时间的产品研发生命周期 skill 集合，里面沉淀了执行原则（`consitution.md`）、skill 设计元协议（`skill-design-protocol.md`）、和一批角色 skill（`pb-v1-*`），但这套东西是围绕"产品研发生命周期"设计的，不是通用的 agent 协作框架。
-
-用户想要的是一套**独立于具体产品域**的 agent 协作系统：定义清楚 agent 怎么设计、agent 怎么执行、主子 agent 怎么协作，并能沉淀经验持续迭代，还能被其他项目复用。
+用户需要一套**独立于具体产品域**的 agent 协作系统：定义清楚 agent 怎么设计、agent 怎么执行、主子 agent 怎么协作，并能沉淀经验持续迭代，还能被其他项目复用。
 
 ### 1.2 现有能力分析（可复用的部分）
 
@@ -84,7 +79,7 @@ updated: 2026-09-01
 | 决策 | 结论摘要 | 来源 |
 |---|---|---|
 | 启动顺序 | 顺序启动，不同时铺开五层 | CLR-MVP-001 |
-| 首个验证角色 | pb-v1-implementing（对应 base.md 的 developer 角色） | CLR-MVP-002 |
+| 首个验证角色 | pb-v1-implementing（对应 developer 角色概念） | CLR-MVP-002 |
 | harness loop 产物形态 | 文档约定，非强制代码框架 | CLR-PD-001 |
 | 角色目录结构 | `roles/<role>/{<role>.md, memory.md, data/}` | CLR-PD-002 |
 | 原则分层 | 元原则（设计 agent 用）+ 执行原则（agent 执行时用），不合并 | CLR-PD-003 |
@@ -111,3 +106,4 @@ updated: 2026-09-01
 | 版本 | 日期 | 变更 |
 |---|---|---|
 | 0.1.0 | 2026-09-01 | 首次起草，整合 4 个维度 8 条澄清结论，待用户确认 |
+| 0.2.0 | 2026-09-02 | 确认为已确认状态；移除 base.md 参考（已被实现取代）；阶段 1/2 已完成 |

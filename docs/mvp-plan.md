@@ -1,8 +1,8 @@
 ---
-status: 待确认
-version: 0.1.0
+status: 进行中
+version: 0.4.0
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 depends_on: docs/proposal.md
 ---
 
@@ -10,7 +10,7 @@ depends_on: docs/proposal.md
 
 ## 0. 文档状态
 
-草稿，等待第一次确认。依据 `docs/proposal.md` 第 4 节的启动顺序拆解为可执行阶段。本文档只拆步骤，不做新决策；如执行中发现需要新决策，先回到 `pb-v1-talk` 或 `pb-v1-clarify` 澄清，再回填本文档。
+进行中。阶段 1/2 已完成，阶段 2.5（SCM 工作流层）已完成，阶段 3/4 尚未开始。依据 `docs/proposal.md` 第 4 节的启动顺序拆解为可执行阶段。本文档只拆步骤，不做新决策；如执行中发现需要新决策，先在对应迭代的澄清记录中确认，再回填本文档。
 
 ---
 
@@ -29,7 +29,7 @@ depends_on: docs/proposal.md
 - 派发一个范围明确的真实小任务（不是玩具任务），检查子 agent 产出是否符合 `dev.md` 定义的边界（不写测试用例、不做架构决策等）
 - 检查 `roles/dev/data/` 是否记录了这次任务中"哪条原则被验证、哪条原则不够用"
 
-**状态**: 未开始
+**状态**: 已完成。`roles/dev/dev.md` 从 `pb-v1-implementing` 改写完成，`principles/execution/core-principles.md` 存在，`roles/dev/data/` 有真实决策记录，完整 P-E-V-F-R 闭环跑通（2026-09-01）。
 
 ---
 
@@ -54,12 +54,26 @@ depends_on: docs/proposal.md
 **目标**：定义"什么时候该往 `roles/<role>/data/` 记一条案例，什么时候该回头更新 `principles/`"的判断标准和触发条件。
 
 **验收标准**：
-- 有明确的记录时机（对应 `base.md` 里 constraints/pitfalls 的判断标准：违反后果是否严重、是否反直觉、是否跨多处必须同步）
+- 有明确的记录时机（判断标准：违反后果是否严重、是否反直觉、是否跨多处必须同步）
 - 有明确的"台账防腐"机制——原则更新后，旧结论的痕迹要保留，不能直接抹掉
 
 **测试/验证方法**：用阶段 1、2 积累的真实案例，检验判断标准是否能正确分类（哪些该进 data/，哪些该升级为 principles/ 变更）
 
-**状态**: 未开始
+**状态**: 未开始（retrospective 角色已建立，机制框架已有，待正式迭代落盘定义）
+
+---
+
+## 阶段 2.5：SCM 工作流层（0003-workflow-scm）
+
+**目标**：在 workflow-pb 的产品层之上插入 git 层工作流，规范代码提交的粒度、隔离和流程。
+
+**验收标准**：
+- `roles/workflow-scm/workflow-scm.md` 存在，定义 worktree 隔离和 PR 文件前置两条不变量
+- `roles/commit-planner/commit-planner.md` 存在，能将 tasks.md 自动转化为 prs/ 目录
+- `roles/workflow-pb/workflow-pb.md` 第 5 阶段（提交规划）插入完成
+- workflow-pb（产品层）与 workflow-scm（git 层）在 tasks.md 处握手，各自独立闭环
+
+**状态**: 已完成（2026-09-02）。独立验证 pass，PR 粒度判断框架替换 400 行硬编码指标。
 
 ---
 
@@ -88,3 +102,4 @@ depends_on: docs/proposal.md
 | 0.1.0 | 2026-09-01 | 首次起草，4 个阶段对应 proposal.md 第 4 节的启动顺序，待用户确认 |
 | 0.2.0 | 2026-09-01 | 阶段2状态更新：create-role 机制已跑通，5个新角色（demand/prd/architect/planner/verifier）独立验证5/5通过 |
 | 0.3.0 | 2026-09-01 | 阶段4目标更新：按数据分层存储协议（CLR-DS-001~005）重写验收标准，明确.pb-agents/结构和安装范围 |
+| 0.4.0 | 2026-09-02 | 阶段1状态更新为已完成；新增阶段2.5（SCM工作流层，0003-workflow-scm，已完成）；移除 base.md 引用 |

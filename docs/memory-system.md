@@ -1,7 +1,7 @@
 ---
 title: 文件存储与记忆系统
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # 文件存储与记忆系统
@@ -83,14 +83,13 @@ agents/
 ├── roles/
 │   ├── _template/
 │   │   └── role-structure-reference.md   ← 七层结构说明（非模板）
-│   ├── dev/
-│   │   ├── dev.md
-│   │   ├── memory.md
-│   │   └── data/
-│   └── retrospective/                    ← 负责管理记录升级链路的角色
-│       ├── retrospective.md
-│       ├── memory.md
-│       └── data/
+│   ├── demand/     ├── prd/      ├── architect/
+│   ├── planner/    ├── dev/      ├── verifier/
+│   ├── retrospective/                    ← 负责管理记录升级链路的角色
+│   ├── workflow-pb/                      ← 产品研发生命周期工作流（7 阶段）
+│   ├── workflow-scm/                     ← git 层代码提交管理工作流
+│   └── commit-planner/                   ← 提交规划执行角色（tasks.md → prs/）
+│       （每个角色均含 <role>.md / memory.md / data/）
 │
 ├── .claude/skills/
 │   └── create-role/SKILL.md              ← 创建新角色的 skill
@@ -98,9 +97,10 @@ agents/
 ├── docs/
 │   ├── iterations/                        ← 迭代产物（每次迭代一个子目录）
 │   │   ├── 0000-project-design/
-│   │   │   └── clarifications/            ← 框架设计阶段的 pb-v1-talk 澄清记录
+│   │   │   └── clarifications/            ← 框架设计阶段的澄清记录
 │   │   └── {编号-迭代名}/
 │   │       ├── clarifications/            ← 本次迭代的澄清记录
+│   │       ├── prs/                       ← 阶段 5 产物（PR 上下文文件）
 │   │       └── *.md                       ← demand/prd/architecture/tasks 等
 │   └── *.md                               ← 项目文档
 ├── tests/                                 ← 校验脚本测试

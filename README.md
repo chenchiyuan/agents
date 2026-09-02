@@ -36,7 +36,10 @@
 | **planner** | 任务图分解者。将 architecture.md 转为 DAG 任务图，每条任务有可追溯的验收标准 | 需要将方案拆成可执行任务时 |
 | **dev** | 后端实现者。接收 brief，产出让验证标准通过的最小实现，不做架构决策 | 主 agent 派发具体编码任务时 |
 | **verifier** | 独立验证者。由主 agent 委托触发，反射验证者身份，不接收执行过程上下文 | 需要对产物进行独立质量验证时 |
-| **retrospective** | 记录管理者。判断案例值不值得记、记在哪、何时升级为原则 | 每次迭代 Reflect 阶段 |
+| **retrospective** | 复盘引导者。扫描迭代范围，分析根因，推导原则候选，引导用户讨论确认后归档 | 每次迭代完成后的 Reflect 阶段 |
+| **workflow-pb** | 产品研发生命周期工作流。定义 7 阶段（需求→规格→架构→任务→提交规划→实现→验证）的阶段顺序、输入输出和推进条件 | 迭代全流程编排 |
+| **workflow-scm** | git 层代码提交管理工作流。定义 worktree 隔离、PR 文件前置两条不变量，规范提交粒度判断框架 | 从 tasks.md 到代码合并的全程 |
+| **commit-planner** | 提交规划执行角色。将 tasks.md 中的任务自动分组为 PR 单元，产出 prs/ 目录下的 PR 上下文文件 | workflow-pb 阶段 5（提交规划） |
 
 ---
 
@@ -57,13 +60,13 @@ agents/
 ├── roles/
 │   ├── _template/
 │   │   └── role-structure-reference.md  ← 七层结构说明（不是模板，不渲染）
-│   ├── demand/   ├── prd/   ├── architect/
-│   ├── planner/  ├── dev/   ├── verifier/
-│   └── retrospective/
-│       └── <role>/
-│           ├── <role>.md    ← 角色定义（七层结构）
-│           ├── memory.md    ← 精选索引
-│           └── data/        ← 原始凭证（只增不减）
+│   ├── demand/   ├── prd/      ├── architect/
+│   ├── planner/  ├── dev/      ├── verifier/
+│   ├── retrospective/
+│   ├── workflow-pb/      ← 产品研发生命周期工作流（7 阶段）
+│   ├── workflow-scm/     ← git 层代码提交管理工作流
+│   └── commit-planner/   ← 提交规划执行角色
+│       （每个角色均含 <role>.md / memory.md / data/）
 │
 ├── .claude/skills/
 │   └── create-role/SKILL.md   ← 创建新角色的 skill
@@ -83,6 +86,7 @@ agents/
     │       ├── prd/
     │       ├── architecture.md
     │       ├── tasks.md
+    │       ├── prs/              ← 阶段 5 产物（PR 上下文文件）
     │       └── clarifications/
     ├── memory-system.md   ← 三级记录体系完整说明
     ├── mvp-plan.md        ← 阶段计划与进度
@@ -160,6 +164,7 @@ agents/
 |---|---|---|
 | Phase 1 | 跑通第一个真实 agent（roles/dev）| 已完成 |
 | Phase 2 | 抽象 agent 构造机制（create-role skill + 5 个新角色）| 已完成 |
+| Phase 2.5 | SCM 工作流层（workflow-scm + commit-planner + workflow-pb Phase 5）| 已完成 |
 | Phase 3 | 反思沉淀机制 | 未开始 |
 | Phase 4 | 跨项目复用打包（安装脚本 + .pb-agents/ 结构）| 未开始 |
 
