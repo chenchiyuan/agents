@@ -75,6 +75,8 @@ depends_on: docs/proposal.md
 
 **状态**: 已完成（2026-09-02）。独立验证 pass，PR 粒度判断框架替换 400 行硬编码指标。
 
+**后续变更**：本阶段产出已被 workflow-pb v0.2.0（2026-09-02，见 `roles/workflow-pb/data/workflow-pb-changelog.md`）取代——`workflow-scm.md` 并入 `workflow-pb.md`，`commit-planner` 由 `pr-planner` 取代，`tasks.md` 握手环节被废除。本条目保留作为历史记录，不代表当前系统状态。
+
 ---
 
 ## 阶段 4：跨项目复用打包
@@ -103,3 +105,4 @@ depends_on: docs/proposal.md
 | 0.2.0 | 2026-09-01 | 阶段2状态更新：create-role 机制已跑通，5个新角色（demand/prd/architect/planner/verifier）独立验证5/5通过 |
 | 0.3.0 | 2026-09-01 | 阶段4目标更新：按数据分层存储协议（CLR-DS-001~005）重写验收标准，明确.pb-agents/结构和安装范围 |
 | 0.4.0 | 2026-09-02 | 阶段1状态更新为已完成；新增阶段2.5（SCM工作流层，0003-workflow-scm，已完成）；移除 base.md 引用 |
+| 0.5.0 | 2026-09-02 | 阶段2.5被 workflow-pb v0.2.0 取代：workflow-scm 并入 workflow-pb，commit-planner 由 pr-planner 取代，废除全局 tasks.md，新增依赖解锁式并发调度；workflow-pb v0.2.1 新增 progress-observer 独立进度观测角色，两个新角色均经两轮独立验证通过 |

@@ -37,9 +37,9 @@
 | **dev** | 后端实现者。接收 brief，产出让验证标准通过的最小实现，不做架构决策 | 主 agent 派发具体编码任务时 |
 | **verifier** | 独立验证者。由主 agent 委托触发，反射验证者身份，不接收执行过程上下文 | 需要对产物进行独立质量验证时 |
 | **retrospective** | 复盘引导者。扫描迭代范围，分析根因，推导原则候选，引导用户讨论确认后归档 | 每次迭代完成后的 Reflect 阶段 |
-| **workflow-pb** | 产品研发生命周期工作流。定义 7 阶段（需求→规格→架构→任务→提交规划→实现→验证）的阶段顺序、输入输出和推进条件 | 迭代全流程编排 |
-| **workflow-scm** | git 层代码提交管理工作流。定义 worktree 隔离、PR 文件前置两条不变量，规范提交粒度判断框架 | 从 tasks.md 到代码合并的全程 |
-| **commit-planner** | 提交规划执行角色。将 tasks.md 中的任务自动分组为 PR 单元，产出 prs/ 目录下的 PR 上下文文件 | workflow-pb 阶段 5（提交规划） |
+| **pr-planner** | PR 边界与依赖反射者。从 architecture.md+prd/*.md+代码库现状直接反射出可并行合并的 PR 划分和真实依赖，不经过全局任务图 | workflow-pb 阶段 4（PR 规划） |
+| **progress-observer** | 独立进度观测者。不采信 status.md 或任何角色的自我声明，直接核查 git 一手记录，交叉比对 depends_on 声明，产出客观进度快照，专门发现状态漂移和"可并发但闲置"的 PR | 主 agent 按需或在 PR 合并/阶段推进后自动派发 |
+| **workflow-pb** | 产品研发生命周期工作流。定义 6 阶段（需求→规格→架构→PR规划→PR实现→验证）的阶段顺序、输入输出、推进条件，以及从 PR 到代码合并的提交管理约束和依赖解锁式并发调度契约（原 workflow-scm 已并入） | 迭代全流程编排 |
 
 ---
 
@@ -63,9 +63,9 @@ agents/
 │   ├── demand/   ├── prd/      ├── architect/
 │   ├── planner/  ├── dev/      ├── verifier/
 │   ├── retrospective/
-│   ├── workflow-pb/      ← 产品研发生命周期工作流（7 阶段）
-│   ├── workflow-scm/     ← git 层代码提交管理工作流
-│   └── commit-planner/   ← 提交规划执行角色
+│   ├── pr-planner/        ← PR 边界与依赖反射角色
+│   ├── progress-observer/ ← 独立进度观测角色（不采信自我声明，只信 git 一手记录）
+│   └── workflow-pb/       ← 产品研发生命周期工作流（6 阶段，含提交管理约束）
 │       （每个角色均含 <role>.md / memory.md / data/）
 │
 ├── .claude/skills/
@@ -85,8 +85,8 @@ agents/
     │       ├── demand.md
     │       ├── prd/
     │       ├── architecture.md
-    │       ├── tasks.md
-    │       ├── prs/              ← 阶段 5 产物（PR 上下文文件）
+    │       ├── prs/              ← 阶段 4 产物（PR 边界+依赖）+ 阶段 5 产物（逐 PR 任务文件）
+    │       ├── progress.md       ← progress-observer 产出的客观进度快照（每次覆盖写入）
     │       └── clarifications/
     ├── memory-system.md   ← 三级记录体系完整说明
     ├── mvp-plan.md        ← 阶段计划与进度
@@ -124,7 +124,7 @@ agents/
     ├── demand.md
     ├── prd/
     ├── architecture.md
-    ├── tasks.md
+    ├── prs/
     └── clarifications/
 ```
 
@@ -164,7 +164,7 @@ agents/
 |---|---|---|
 | Phase 1 | 跑通第一个真实 agent（roles/dev）| 已完成 |
 | Phase 2 | 抽象 agent 构造机制（create-role skill + 5 个新角色）| 已完成 |
-| Phase 2.5 | SCM 工作流层（workflow-scm + commit-planner + workflow-pb Phase 5）| 已完成 |
+| Phase 2.5 | SCM 工作流层（已被 workflow-pb v0.2.0 取代，见 `roles/workflow-pb/data/workflow-pb-changelog.md`）| 已完成→已合并 |
 | Phase 3 | 反思沉淀机制 | 未开始 |
 | Phase 4 | 跨项目复用打包（安装脚本 + .pb-agents/ 结构）| 未开始 |
 

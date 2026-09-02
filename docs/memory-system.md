@@ -86,9 +86,8 @@ agents/
 │   ├── demand/     ├── prd/      ├── architect/
 │   ├── planner/    ├── dev/      ├── verifier/
 │   ├── retrospective/                    ← 负责管理记录升级链路的角色
-│   ├── workflow-pb/                      ← 产品研发生命周期工作流（7 阶段）
-│   ├── workflow-scm/                     ← git 层代码提交管理工作流
-│   └── commit-planner/                   ← 提交规划执行角色（tasks.md → prs/）
+│   ├── pr-planner/                       ← PR 边界与依赖反射角色
+│   └── workflow-pb/                      ← 产品研发生命周期工作流（6 阶段，含提交管理约束）
 │       （每个角色均含 <role>.md / memory.md / data/）
 │
 ├── .claude/skills/
