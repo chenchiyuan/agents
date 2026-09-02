@@ -6,3 +6,4 @@
 
 - [[retrospective-changelog]] - retrospective.md 各版本变更历史（v0.1.0 创建 / v0.2.0 从记录管理员重写为复盘引导者）
 - [[retrospective-v02-reflection]] - v0.2.0 重写的反射依据：为什么改定位、三问过滤的设计来源、两阶段模式的来源
+- [[retro-2026-09-02-workflow-pb]] - 4 条候选案例（设计决策未落澄清记录 / 去耦合双类检查 / 批量修改逐一验证 / 边界问题先于方案）——待多次出现后升级为原则
