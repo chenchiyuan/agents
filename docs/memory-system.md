@@ -154,12 +154,14 @@ agents 框架被安装到业务项目后，数据按三个维度存放：
 │           ├── tasks.md         ← 任务图
 │           └── clarifications/  ← 本次迭代的澄清记录
 │
-├── .pb-agents/              ← agents 框架 copy（只读，不可在业务项目中直接修改）
+├── .pb-agents/              ← agents 框架 copy（配置目录除外，其余只读）
 │   ├── roles/
 │   │   ├── demand/
 │   │   │   └── demand.md    ← 角色定义文件（不含 data/ 和 memory.md）
 │   │   └── ...
 │   ├── principles/          ← 执行原则（必须 copy）
+│   ├── config/              ← 业务项目配置例外区（可写，不由安装升级覆盖）
+│   │   └── agent-routing.yaml ← executor/model 路由配置
 │   ├── .claude/skills/      ← 可选，创建新角色时用
 │   └── tools/               ← 可选，校验脚本
 │
@@ -169,13 +171,15 @@ agents 框架被安装到业务项目后，数据按三个维度存放：
         │   ├── data/        ← demand 角色在本项目运行时积累的记录
         │   └── memory.md
         └── ...
-```
+
+项目级模型派发配置固定为 `.pb-agents/config/agent-routing.yaml`，由业务项目维护。它不属于 agents 框架 copy，也不承载运行记录。
 
 ### 三条核心约束
 
-1. **`.pb-agents/` 只读**：不能在业务项目里直接修改。需要修改角色定义或原则时，必须走 agents 项目的 PR 流程，agents 发布后再更新业务项目的 copy
-2. **更新不影响运行记录**：agents 升级后手动更新 `.pb-agents/`（重新安装），`.pb-agents/project/` 完全不受影响
+1. **框架 copy 只读，配置例外区可写**：`.pb-agents/roles/`、`.pb-agents/principles/` 等框架文件不能在业务项目中直接修改；`.pb-agents/config/` 由业务项目维护。需要修改角色定义或原则时，必须走 agents 项目的 PR 流程，agents 发布后再更新业务项目的 copy
+2. **更新不影响配置和运行记录**：agents 升级后手动更新框架 copy，不得覆盖 `.pb-agents/config/` 或 `.pb-agents/project/`
 3. **镜像结构便于归档**：`.pb-agents/project/` 与 agents 内部结构对齐，归档时直接 copy 到 agents PR，无需额外整理
+
 
 ### 归档回 agents 的触发条件
 
@@ -195,4 +199,4 @@ agents 框架被安装到业务项目后，数据按三个维度存放：
 3. **原则内联不引用**：角色的原则章节整段复制写入，不用 `$ref()` 或"遵循 xxx.md"的指针式表达
 4. **升级有门槛**：data/ 升入原则章节，需要在该角色多次任务中验证；原则升入项目级，需要 3+ 角色独立出现
 5. **先搜后记**：写入 data/ 前先 grep 检查是否已有同类记录，重复记录是系统噪音
-6. **copy 只读**：业务项目中的 `.pb-agents/` 不可直接修改，修改走 agents PR 流程
+6. **框架 copy 只读，配置例外区可写**：业务项目中的 `.pb-agents/roles/`、`.pb-agents/principles/` 等框架文件不可直接修改；`.pb-agents/config/` 由业务项目维护，修改角色定义或原则仍须走 agents PR 流程

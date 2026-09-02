@@ -79,15 +79,15 @@ depends_on: docs/proposal.md
 
 ## 阶段 4：跨项目复用打包
 
-**目标**：把 `principles/`、`roles/<role>/<role>.md` 等核心文件打包成可安装单元，在业务项目里按数据分层存储协议（CLR-DS-001~005）落地为 `.pb-agents/` + `.pb-agents/project/` 结构。
+**目标**：把 `principles/`、`roles/<role>/<role>.md` 等核心文件打包成可安装单元，在业务项目里按数据分层存储协议（CLR-DS-001~005、CLR-MD-003）落地为框架 copy、`.pb-agents/config/` 项目配置例外区和 `.pb-agents/project/` 运行记录。
 
 **验收标准**：
-- 有一条命令或脚本，能把 agents 的核心文件安装到业务项目的 `.pb-agents/`（只读 copy）
+- 有一条命令或脚本，能把 agents 的核心文件安装到业务项目的 `.pb-agents/` 框架 copy 区
 - 安装内容：`roles/<role>/<role>.md`（必须）、`principles/`（必须）、`.claude/skills/`（可选）、`tools/`（可选）；不安装 `data/` 和 `memory.md`
-- 安装脚本幂等：重复执行只更新 `.pb-agents/`，不影响 `.pb-agents/project/`
+- 安装脚本幂等：重复执行只更新框架 copy，不影响 `.pb-agents/config/agent-routing.yaml` 和 `.pb-agents/project/`
 - 在至少一个其他项目里验证安装后可用，agent 能正确读取角色定义
 
-**测试/验证方法**：在一个真实项目里跑安装流程，确认 `.pb-agents/` 结构正确，`.pb-agents/project/` 目录自动初始化（镜像结构空目录），主 agent 能读取角色文件并派发任务
+**测试/验证方法**：在一个真实项目里跑安装流程，确认 `.pb-agents/` 框架 copy 结构正确、`.pb-agents/config/agent-routing.yaml` 不被覆盖、`.pb-agents/project/` 目录自动初始化（镜像结构空目录），主 agent 能读取角色文件并派发任务。
 
 **数据分层协议参考**：`docs/iterations/0000-project-design/clarifications/data-storage-protocol/round-1.md`，`docs/memory-system.md` 第六节
 

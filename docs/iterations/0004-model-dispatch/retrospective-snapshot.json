@@ -1,0 +1,64 @@
+{
+  "iteration": "0004-model-dispatch",
+  "version": "0.1.0",
+  "snapshot_at": "2026-09-02T18:15:08+08:00",
+  "process_type": "standard",
+  "artifact_window": {
+    "start": "2026-09-02T17:14:00+08:00",
+    "end": "2026-09-02T18:10:00+08:00",
+    "observed_minutes": 56,
+    "note": "文件系统时间窗口，不等同于实际工作时长"
+  },
+  "workflow_pb": {
+    "phase_1_demand": "completed",
+    "phase_2_prd": "completed",
+    "phase_3_architecture": "completed",
+    "phase_4_tasks": "completed",
+    "phase_5_pr_planning": "completed",
+    "phase_6_implementation": "not_started",
+    "phase_7_independent_verification": "not_started"
+  },
+  "scope": {
+    "features": 7,
+    "architecture_requirements": 8,
+    "tasks": 8,
+    "pr_contexts": 8,
+    "planning_files": 20,
+    "planning_loc": 1502,
+    "runtime_code_files": 0,
+    "test_files": 0,
+    "scope_deviations_caught_and_corrected": 1
+  },
+  "git": {
+    "iteration_docs_tracked_in_main_worktree": 0,
+    "planning_commits_in_worktree": 1,
+    "latest_planning_commit": "4a524a4",
+    "latest_planning_commit_insertions": 211,
+    "latest_planning_commit_deletions": 0,
+    "main_worktree_artifacts_untracked": true
+  },
+  "verification": {
+    "independent_verification_reports": 0,
+    "main_agent_readback_recorded_in_status": true,
+    "tests_run": 0,
+    "release_notes": 0,
+    "review_rounds_recorded": 0,
+    "note": "规划迭代；不可将主 agent 回读视为 workflow-pb Phase 7 独立验证"
+  },
+  "unavailable_metrics": [
+    "total_days",
+    "think_ratio",
+    "plan_ratio",
+    "execute_ratio",
+    "review_ratio",
+    "sessions",
+    "loc_per_session_hour",
+    "test_loc_ratio",
+    "rework_ratio",
+    "review_rounds",
+    "defect_discovery_rate"
+  ],
+  "candidate_count": 3,
+  "principles_updated": false,
+  "archived_to_global_experience": false
+}

@@ -84,11 +84,11 @@ updated: 2026-09-02
 | 角色目录结构 | `roles/<role>/{<role>.md, memory.md, data/}` | CLR-PD-002 |
 | 原则分层 | 元原则（设计 agent 用）+ 执行原则（agent 执行时用），不合并 | CLR-PD-003 |
 | 原则存放层级 | 项目级共享（`principles/meta/`、`principles/execution/`）+ 角色级引用 | CLR-PD-004 |
-| 主子协作机制 | 复用 Claude Code 现有 Agent/Task 工具，不新建协议 | CLR-SC-001 |
+| 主子协作机制 | 复用宿主 Agent/Task 调度，通过 ACP 调用本地 executor CLI，不自建通信层 | CLR-SC-001、CLR-MD-007 |
 | 复用分发形式 | github clone + 安装指令 | CLR-CR-001 |
 | 项目边界 | agents 与 powerby-skills 独立，一次性借鉴初始化 | CLR-CR-002 |
-| 业务项目数据分层 | .pb-agents/（只读copy）+ .pb-agents/project/（运行记录，镜像结构）+ docs/iterations/{编号-迭代名}/（迭代产物，每次迭代独立目录） | CLR-DS-001 |
-| copy 更新协议 | 单向可更新（agents→项目），copy 不可在业务项目直接修改，修改走 agents PR | CLR-DS-002 |
+| 业务项目数据分层 | .pb-agents/ 框架 copy（`.pb-agents/config/` 为项目配置例外区）+ .pb-agents/project/（运行记录，镜像结构）+ docs/iterations/{编号-迭代名}/（迭代产物，每次迭代独立目录） | CLR-DS-001、CLR-MD-003 |
+| copy 更新协议 | 框架 copy 单向可更新（agents→项目），copy 不可在业务项目直接修改；`.pb-agents/config/agent-routing.yaml` 由业务项目维护，安装升级不得覆盖 | CLR-DS-002、CLR-MD-003 |
 | copy 包含范围 | roles/<role>.md + principles/（必须）；.claude/skills/ + tools/（可选）；data/ 和 memory.md 不 copy | CLR-DS-004 |
 
 ---
