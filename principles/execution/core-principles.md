@@ -2,9 +2,9 @@
 name: core-principles
 description: 新建角色时的原则起草库。新角色从这里挑选相关条目整段复制进自己的 <role>.md，写入后归角色自己所有、独立演化——角色运行时不引用本文件（见 principles/meta/agent-design-protocol.md「原则内联，不引用」）。
 type: 执行原则起草库
-version: 0.2.0
+version: 0.3.0
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 source: 提炼自 powerby-skills/docs/consitution.md，一次性借鉴，不持续同步
 ---
 
@@ -74,6 +74,16 @@ source: 提炼自 powerby-skills/docs/consitution.md，一次性借鉴，不持�
 - 受阻时先简化，不要加复杂度
 
 **适用场景**：调试、实现遇阻时。
+
+## 权责分离（开闭原则）
+
+- 协调者（workflow/orchestrator）只描述阶段职责和契约（做什么、交什么、满足什么标准），不引用执行者名称
+- 执行者（role/agent）只描述能力（怎么做），不描述自己在哪个调度关系里
+- 验收标准：两个方向的依赖都不存在——协调者不知道谁来执行，执行者不知道谁在调度它
+
+遇到修改协调者需要同时改执行者（或反过来）的情况，说明还有耦合未解——先找到耦合点，再按上述原则拆开。
+
+**适用场景**：任何涉及"协调"和"执行"分工的设计，包括 workflow/role 分离、主子 agent 分工、skill/executor 分离。这是开闭原则在 agent 协作系统里的具体形式：对扩展开放（可以替换执行者）、对修改关闭（替换执行者不需要改协调者）。
 
 ## 边界纪律
 
