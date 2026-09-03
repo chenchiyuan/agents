@@ -1,8 +1,10 @@
 ---
 name: workflow-pb
 description: |
-  启动并驱动 pb 产品研发工作流（v0.2.1）。主 agent 调度协议：按 6 阶段序列推进、
+  启动并驱动 pb 产品研发工作流（v0.3.0）。主 agent 调度协议：按 6 阶段序列推进、
   逐阶段核查推进条件、阶段 5 依赖解锁式并发 PR 派发、维护 status.md 进度视图。
+  阶段 1（需求收敛）是硬性前置，不可跳过；执行过程中发现的需求变更/错误由执行角色
+  直接搭置记录到 deferred-demand-changes.md，不回退不暂停，本迭代按已落盘需求继续。
   完整规范见 roles/workflow-pb/workflow-pb.md。
   用户说"开始/继续迭代"、"按 workflow-pb 执行"、或直接调用 /workflow-pb 时使用。
 role:
@@ -24,9 +26,9 @@ role:
 
 # workflow-pb
 
-**版本**: 1.2.0（对应规范 workflow-pb v0.2.1）
+**版本**: 1.3.0（对应规范 workflow-pb v0.3.0）
 **完整规范**: `{角色根}/workflow-pb/workflow-pb.md`（角色根路径解析见「§ 角色文件路径解析」）
-**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`
+**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`
 
 ---
 
@@ -38,11 +40,15 @@ role:
 
 **CRITICAL: 派发子 agent 前必须先解析角色文件根路径（`.pb-agents/roles/` 存在则用它，否则用 `roles/`）——违反会在业务项目里派发到不存在的 `roles/<role>/<role>.md`，子 agent 直接失败。**
 
+**CRITICAL: 阶段 1（需求收敛）不可跳过——无论迭代规模多小、需求看起来多清楚，都必须先派发 demand 角色产出 `demand.md` 并通过推进条件，才能进入阶段 2；需求错了后面全错，这是唯一无法事后补救的阶段。**
+
+**CRITICAL: 执行角色发现的需求变更/需求错误，主 agent 不代为处理——按 `{角色根}/workflow-pb/workflow-pb.md`「阶段回退」判断标准，执行角色直接写入 `deferred-demand-changes.md` 并继续，不回退、不暂停；主 agent 只在阶段 6 触发时把该文件路径显式塞进委托，交给 verifier 摘录透传。**
+
 ---
 
 ## Purpose
 
-接收迭代 ID，按 workflow-pb v0.2.1 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
+接收迭代 ID，按 workflow-pb v0.3.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
 
 ## Success criteria
 
@@ -93,6 +99,7 @@ role:
 - 不代替用户做 L1 决策或确认 `model_inferred` 项
 - 不把"执行角色自称完成"等同于"推进条件满足"
 - 不用 `progress-observer` 报告替代阶段 6 独立验证
+- 不跳过阶段 1；不代替执行角色判断"这是需求问题还是技术方案问题"、不代写 `deferred-demand-changes.md`——判断和记录都是执行角色自己的事，主 agent 只调度和验证
 
 ---
 
@@ -103,6 +110,7 @@ role:
 3. **PR-B worktree 必须从已含 PR-A 代码的主分支拉出**——否则 PR-B 的 agent 根本看不到 PR-A 的产物；技术约束，不可绕过
 4. **每次 PR merge 后必须重新扫描完整依赖图**——不能假设"其他 PR 都还没完成"，可能有 PR 在这次 merge 后刚好解锁
 5. **推进条件核查 = 读文件内容**——不是检查文件是否存在，是逐项确认内容满足条件（如 demand.md 两段均非空）
+6. **需求问题不回退不暂停，只搭置**——执行角色发现"要改需求才能解决"的问题时，直接写 `deferred-demand-changes.md` 并按现有 demand.md 继续，不触发用户决策点；只有"pr-planner 报告依赖图有环"这一类结构性错误才硬停
 
 ---
 
@@ -115,6 +123,8 @@ role:
 
 ### Step 1~4: 线性阶段推进
 
+**阶段 1 硬性前置**：不管迭代看起来多简单，必须先实际派发 demand 角色，产出 `demand.md` 并通过推进条件，才能进入阶段 2——不得因"需求很清楚"跳过。
+
 **每次推进前**：读取 `{角色根}/workflow-pb/workflow-pb.md` §阶段定义，逐项核查该阶段"推进条件"列，全部通过才更新 status.md 推进；未全部通过 → 回到执行角色补充，不跳过。
 
 **派发时**：按下方「阶段→角色映射」派发对应角色，brief 内容见下方「Brief 构建规则」。
@@ -124,6 +134,8 @@ role:
 ★ **用户决策点**（阶段 3）：架构方案出现 L1 决策 → 暂停等用户确认后再推进。
 
 ★ **用户决策点**（阶段 1）：执行角色反馈"根本没有问题要解决" → 暂停。
+
+**不是用户决策点**：执行角色（阶段 2~5 任意阶段）发现"需要改需求才能解决"的问题——不暂停、不回退，执行角色直接写入 `deferred-demand-changes.md` 并按现有 demand.md 继续；主 agent 不介入这个判断和记录过程。
 
 ### Gate: 阶段 4 → 5 入口
 
@@ -153,6 +165,8 @@ role:
 主 agent 触发时机：阶段 4 后（**必须**）；产物质量存疑时（按需）；用户要求时（随时）。
 
 传入：产物路径 + 内联验证标准；要求每项 pass/fail/partial/blocked + 文件证据。
+
+若 `docs/iterations/{迭代ID}/deferred-demand-changes.md` 存在，主 agent 必须把该文件路径显式加入委托，要求 verifier 将其内容原文摘录进验证报告——verifier 不会自己扫描目录找这个文件，只读委托里给的路径。
 
 ---
 
@@ -227,6 +241,8 @@ worktree 分支：{分支名}
 | 执行角色报告"阻塞"且无法不修改上游产物解决 | 任意 |
 | 阶段 1 执行角色反馈"根本没有问题要解决" | 阶段 1 |
 
+**不在此列**：执行角色发现"需要改需求才能解决"的问题——不是用户决策点，执行角色直接写 `deferred-demand-changes.md` 并按现有需求继续，不触发暂停。
+
 **暂停格式**：
 ```
 ⛔ 需要你的决策：{触发条件描述}
@@ -254,15 +270,16 @@ worktree 分支：{分支名}
 
 - `{角色根}/workflow-pb/workflow-pb.md`（`{角色根}` 解析见「§ 角色文件路径解析」）— 完整规范，Step 1~4 每次推进前读取「阶段定义」表；派发 brief 时读取输入/输出/推进条件列；阶段 5/6 读取「PR 文件格式规范」「验证目标」「状态追踪协议」
 - `{角色根}/<role>/<role>.md`（见「§ 阶段→角色映射」）— 派发对应执行角色前，确认角色文件路径存在；角色自身的能力边界由角色文件定义，不在本 Skill 内重复
-- `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md` — 历次优化的变更记录与根因
+- `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md` — 历次优化的变更记录与根因
 
 ---
 
 ## Safety
 
 - 推进条件核查不通过 → 回到执行角色补充，不跳过
+- 阶段 1 不可跳过，即使需求看起来很简单
 - 阶段 5 解锁条件是"合并进主分支"，不可降级为"自称完成"
-- 用户决策点必须暂停，不得代为决策
+- 用户决策点必须暂停，不得代为决策；需求变更/错误不是用户决策点，是执行角色直接搭置记录的事项
 - `status.md` 与文件系统不一致时，以文件系统为准修正
 - `batch` 字段仅供人工速览，不用于调度判断
 - 派发子 agent 前角色根路径必须已解析（`roles/` 或 `.pb-agents/roles/`），不得对两种场景都用硬编码 `roles/`
