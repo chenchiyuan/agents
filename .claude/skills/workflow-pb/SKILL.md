@@ -24,8 +24,9 @@ role:
 
 # workflow-pb
 
-**版本**: 1.1.0（对应规范 workflow-pb v0.2.1）
-**完整规范**: `roles/workflow-pb/workflow-pb.md`
+**版本**: 1.2.0（对应规范 workflow-pb v0.2.1）
+**完整规范**: `{角色根}/workflow-pb/workflow-pb.md`（角色根路径解析见「§ 角色文件路径解析」）
+**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`
 
 ---
 
@@ -34,6 +35,8 @@ role:
 **CRITICAL: 阶段 5 只以"合并进主分支"解锁下游依赖——违反会让 PR-B 的 worktree 从未含 PR-A 代码的旧基线拉出，PR-B 的 agent 看不到 PR-A 的产物，调试代价极高。**
 
 **CRITICAL: 遇到用户决策点必须暂停呈现，不得代为决策后继续推进——违反会在用户不知情的情况下锁定不可逆技术判断，修改成本远高于暂停成本。**
+
+**CRITICAL: 派发子 agent 前必须先解析角色文件根路径（`.pb-agents/roles/` 存在则用它，否则用 `roles/`）——违反会在业务项目里派发到不存在的 `roles/<role>/<role>.md`，子 agent 直接失败。**
 
 ---
 
@@ -77,10 +80,11 @@ role:
 ## Tools and capability boundaries
 
 **做什么**：
-- 读取 `roles/workflow-pb/workflow-pb.md`（需要完整规范时）
+- 启动时探测部署环境（`.pb-agents/roles/` 是否存在），解析角色文件根目录（见「§ 角色文件路径解析」）
+- 读取规范文件（解析后的 workflow-pb.md 路径，需要完整规范时）
 - 创建并维护 `docs/iterations/{迭代ID}/status.md`
 - 逐阶段核查推进条件（读文件内容判断，不靠感觉）
-- 用 Agent 工具派发执行角色（传最小 brief，不传整个文档内容）
+- 用 Agent 工具派发执行角色（传最小 brief + 解析后的角色文件具体路径，不传整个文档内容）
 - 阶段 5：读依赖图、管理 worktree 创建、并发派发、merge
 
 **不做什么**：
@@ -106,13 +110,14 @@ role:
 
 ### Step 0: 启动
 
-确认迭代 ID（不确定时问用户，不猜）。检查 `docs/iterations/{迭代ID}/status.md`：不存在 → 创建并初始化（所有阶段 ⬜）；存在 → 读取当前状态，从上次中断处继续。
+1. **解析角色根路径**（见「§ 角色文件路径解析」）：检测 `.pb-agents/roles/` 是否存在 → 存在则本次会话全程用 `.pb-agents/roles/` 作为角色根；不存在则用 `roles/`（agents 项目自身开发场景）。
+2. 确认迭代 ID（不确定时问用户，不猜）。检查 `docs/iterations/{迭代ID}/status.md`：不存在 → 创建并初始化（所有阶段 ⬜）；存在 → 读取当前状态，从上次中断处继续。
 
 ### Step 1~4: 线性阶段推进
 
-**每次推进前**：逐项核查「推进条件速查」对应阶段的清单，全部通过才更新 status.md 推进；未全部通过 → 回到执行角色补充，不跳过。
+**每次推进前**：读取 `{角色根}/workflow-pb/workflow-pb.md` §阶段定义，逐项核查该阶段"推进条件"列，全部通过才更新 status.md 推进；未全部通过 → 回到执行角色补充，不跳过。
 
-**派发时**：用「Brief 模板」构建最小上下文，不传整个文档。
+**派发时**：按下方「阶段→角色映射」派发对应角色，brief 内容见下方「Brief 构建规则」。
 
 ★ **用户决策点**（任意阶段 1~4）：产物出现 `[model_inferred]` 未确认项 → 暂停，用「暂停格式」呈现给用户。
 
@@ -137,7 +142,7 @@ role:
 目标：让无依赖（或依赖已合并）的 PR 始终保持并发推进，不空转等待。
 
 1. 读取所有 `prs/pr-{NNN}.md`，构建 `depends_on` 依赖图，校验无环
-2. 无依赖或依赖均已合并的 PR → 立即并发派发（独立 worktree + planner → dev → 验收 → merge）
+2. 无依赖或依赖均已合并的 PR → 立即并发派发（独立 worktree + 按顺序派发 planner → dev → verifier → merge）
 3. 每个 PR merge 完成后：重新扫描依赖图，新解锁的立即派发；触发 progress-observer
 4. `progress-observer` 报告"可并发但闲置"的 PR → 立即补派发，不等
 
@@ -151,50 +156,54 @@ role:
 
 ---
 
-## § 推进条件速查
+## § 角色文件路径解析
 
-### 阶段 1 — 需求收敛
-输出：`demand.md`（澄清依据 + 带最小边界的结论两段）
-- [ ] `demand.md` 存在
-- [ ] 两段均有实质内容（非空占位符）
-- [ ] 所有 `model_inferred` 标注项经用户确认
-- [ ] 无活跃冲突
+角色文件不是固定路径——本 skill 可能在 agents 项目自身（开发场景）或 copy 到 `.pb-agents/` 的业务项目（部署场景）中运行，两种场景角色根不同：
 
-### 阶段 2 — 功能规格
-输出：`prd.md`（索引）+ `prd/*.md`（每功能点独立卡）
-- [ ] `prd.md` 存在
-- [ ] 每个功能点有独立卡片（含验收标准和边界）
-- [ ] 无 `demand.md` 外新增功能
-- [ ] 架构待定项已标注 `[架构待填]`
+| 运行场景 | 角色根（`{角色根}`） | 判定方式 |
+|---|---|---|
+| agents 项目自身开发 | `roles/` | `.pb-agents/roles/` 不存在 |
+| 业务项目部署后 | `.pb-agents/roles/` | `.pb-agents/roles/` 存在 |
 
-### 阶段 3 — 技术架构
-输出：`architecture.md` + 补全 `prd/*.md` 中 `[架构待填]` 项
-- [ ] `architecture.md` 存在
-- [ ] 所有 `[架构待填]` 项已补全
-- [ ] 所有功能卡有技术路径
-- [ ] 无架构内部冲突
+**解析时机**：Step 0 启动时解析一次，本次会话全程复用，不必每次派发前重新检测。
 
-### 阶段 4 — PR 规划
-输出：`prs/pr-{NNN-描述}.md`（七字段：上下文摘要 / 涉及功能点 / 文件范围 / 验收标准 / 参考资料 / depends_on / batch）
-- [ ] 每个 PR 文件包含七字段
-- [ ] `prd/*.md` 每个功能点被某个 PR 引用
-- [ ] PR 间文件范围无重叠
-- [ ] 依赖图无环
+**解析后**，某角色 `<role>` 的定义文件路径 = `{角色根}/<role>/<role>.md`（例如角色根是 `.pb-agents/roles/` 时，`demand` 角色文件路径是 `.pb-agents/roles/demand/demand.md`）。
+
+**只读约束**：`.pb-agents/roles/` 是 agents 框架的只读 copy（见 `docs/memory-system.md` §六），本 skill 只读取，不修改；角色的 `data/`、`memory.md` 不随 copy 部署，本 skill 也不派发角色去写这两者。
 
 ---
 
-## § Brief 模板（子 agent 派发）
+## § 阶段→角色映射
+
+主 agent 按此映射派发执行角色，角色文件路径 = `{角色根}/<role>/<role>.md`（`{角色根}` 见「§ 角色文件路径解析」）。
+
+| 阶段 # | 阶段名 | 派发角色 |
+|---|---|---|
+| 1 | 需求收敛 | `demand` |
+| 2 | 功能规格 | `prd` |
+| 3 | 技术架构 | `architect` |
+| 4 | PR 规划 | `pr-planner` |
+| 5 (内部) | PR 实现 | `planner` → `dev` → `verifier` |
+| 6 | 独立验证 | `verifier` |
+| — | 进度观测（自动+按需） | `progress-observer` |
+
+阶段 5 内部：每个 PR 的独立 worktree 子 agent 会话中按顺序派发 `planner`（产出该 PR 的 tasks 文件）→ `dev`（实现）→ `verifier`（验收该 PR）。
+
+---
+
+## § Brief 构建规则
 
 每次派发执行角色时，brief **至少**包含：
 
 ```
-工作流规范：roles/workflow-pb/workflow-pb.md
+角色文件路径：{角色根}/<role>/<role>.md（该角色自己的定义，子 agent 从这里读能力边界）
+工作流规范：{角色根}/workflow-pb/workflow-pb.md
 当前迭代 ID：{迭代ID}
 当前阶段：阶段 {N}（{阶段名}）
-任务：{阶段职责，一句话}
-输入：docs/iterations/{迭代ID}/{输入文档}
-输出：docs/iterations/{迭代ID}/{输出文档}
-完成定义：{内联该阶段推进条件清单}
+任务：{阶段职责，一句话，读自 workflow-pb.md §阶段定义"职责描述"列}
+输入：docs/iterations/{迭代ID}/{输入文档，读自 workflow-pb.md §阶段定义"输入"列}
+输出：docs/iterations/{迭代ID}/{输出文档，读自 workflow-pb.md §阶段定义"输出"列}
+完成定义：{内联该阶段推进条件清单，读自 workflow-pb.md §阶段定义"推进条件"列}
 ```
 
 阶段 5 额外必填：
@@ -230,7 +239,7 @@ worktree 分支：{分支名}
 
 ## § status.md 更新时机
 
-格式定义见 `roles/workflow-pb/workflow-pb.md` §状态追踪协议。
+格式定义见 `{角色根}/workflow-pb/workflow-pb.md` §状态追踪协议。
 
 - 启动时：创建，所有阶段 ⬜
 - 每次派发执行角色**前**：对应阶段标记 ⏸
@@ -241,6 +250,14 @@ worktree 分支：{分支名}
 
 ---
 
+## Resources
+
+- `{角色根}/workflow-pb/workflow-pb.md`（`{角色根}` 解析见「§ 角色文件路径解析」）— 完整规范，Step 1~4 每次推进前读取「阶段定义」表；派发 brief 时读取输入/输出/推进条件列；阶段 5/6 读取「PR 文件格式规范」「验证目标」「状态追踪协议」
+- `{角色根}/<role>/<role>.md`（见「§ 阶段→角色映射」）— 派发对应执行角色前，确认角色文件路径存在；角色自身的能力边界由角色文件定义，不在本 Skill 内重复
+- `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md` — 历次优化的变更记录与根因
+
+---
+
 ## Safety
 
 - 推进条件核查不通过 → 回到执行角色补充，不跳过
@@ -248,3 +265,5 @@ worktree 分支：{分支名}
 - 用户决策点必须暂停，不得代为决策
 - `status.md` 与文件系统不一致时，以文件系统为准修正
 - `batch` 字段仅供人工速览，不用于调度判断
+- 派发子 agent 前角色根路径必须已解析（`roles/` 或 `.pb-agents/roles/`），不得对两种场景都用硬编码 `roles/`
+- `.pb-agents/roles/` 只读，不修改其内容，也不派发角色去写它的 `data/`/`memory.md`（这两者不随 copy 部署）
