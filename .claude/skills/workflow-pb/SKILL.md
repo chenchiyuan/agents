@@ -1,7 +1,7 @@
 ---
 name: workflow-pb
 description: |
-  启动并驱动 pb 产品研发工作流（v0.4.0）。主 agent 调度协议：按 6 阶段序列推进、
+  启动并驱动 pb 产品研发工作流（v0.5.0）。主 agent 调度协议：按 6 阶段序列推进、
   逐阶段核查推进条件、阶段 5 依赖解锁式并发 PR 派发（含并发槛位算法）、维护 status.md 进度视图。
   阶段 1（需求收敛）是硬性前置，不可跳过；执行过程中发现的需求变更/错误由执行角色
   直接搭置记录到 deferred-demand-changes.md，不回退不暂停，本迭代按已落盘需求继续。
@@ -26,9 +26,9 @@ role:
 
 # workflow-pb
 
-**版本**: 1.7.0（对应规范 workflow-pb v0.4.0）
+**版本**: 1.8.0（对应规范 workflow-pb v0.5.0）
 **完整规范**: `.pb-agents/roles/workflow-pb/workflow-pb.md`（安装方式见「§ 角色文件路径与安装」）
-**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`
+**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md`
 
 ---
 
@@ -48,11 +48,13 @@ role:
 
 **CRITICAL: 执行角色发现的需求变更/需求错误，主 agent 不代为处理——按 `.pb-agents/roles/workflow-pb/workflow-pb.md`「阶段回退」判断标准，执行角色直接写入 `deferred-demand-changes.md` 并继续，不回退、不暂停；主 agent 只在阶段 6 触发时把该文件路径显式塞进委托，交给 verifier 摘录透传。**
 
+**CRITICAL: 主 agent 不得对失败/阻塞的 PR 执行 `git worktree remove`、`git branch -d` 或等价清理操作——违反会让排查失败原因的现场证据消失，后续只能靠猜。**
+
 ---
 
 ## Purpose
 
-接收迭代 ID，按 workflow-pb v0.4.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
+接收迭代 ID，按 workflow-pb v0.5.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
 
 ## Success criteria
 
@@ -116,7 +118,8 @@ role:
 4. **每次 PR merge 后必须重新扫描完整依赖图**——不能假设"其他 PR 都还没完成"，可能有 PR 在这次 merge 后刚好解锁
 5. **推进条件核查 = 读文件内容**——不是检查文件是否存在，是逐项确认内容满足条件（如 demand.md 两段均非空）
 6. **需求问题不回退不暂停，只搭置**——执行角色发现"要改需求才能解决"的问题时，直接写 `deferred-demand-changes.md` 并按现有 demand.md 继续，不触发用户决策点；只有"pr-planner 报告依赖图有环"这一类结构性错误才硬停
-7. **失败/阻塞 PR 的 worktree 和分支现场原样保留，不自动清理**——这是失败/阻塞状态的固有属性，不需要额外判断"该不该保留"；`progress-observer` 每次生成 `progress.md` 时须对失败/阻塞 PR 核实 worktree 目录和分支是否仍存在于磁盘（`git worktree list` + `git branch` 交叉核对），发现已被清理记入"发现的不一致"
+7. **失败/阻塞 PR 的 worktree 和分支现场原样保留，不自动清理**——主 agent 不得对这类 PR 执行 `git worktree remove`/`git branch -d` 或等价清理操作，这是失败/阻塞状态的固有属性，不需要额外判断"该不该保留"；`progress-observer` 每次生成 `progress.md` 时须对失败/阻塞 PR 核实 worktree 目录和分支是否仍存在于磁盘（`git worktree list` + `git branch` 交叉核对），发现已被清理记入"发现的不一致"
+8. **没有已解锁排队 PR 时槛位空置，不因此放宽解锁条件**——释放出的并发槛位不能成为提前派发依赖未合并 PR 的理由，"合并进主分支才算解锁"这一条件不因槛位空闲而降级
 
 ---
 
@@ -161,13 +164,13 @@ role:
 目标：让无依赖（或依赖已合并）的 PR 始终保持并发推进，不空转等待。
 
 1. 读取所有 `prs/pr-{NNN}.md`，构建 `depends_on` 依赖图，校验无环
-2. 无依赖或依赖均已合并的 PR → 立即并发派发（独立 worktree + 按顺序派发 planner → dev → verifier → merge）——技术手段是主 agent 在同一轮 assistant 响应中连续发起多个 `Agent()` 工具调用，不是逐个顺序调用
+2. 无依赖或依赖均已合并的已解锁 PR → 按当前有效上限取前 N 个立即并发派发（独立 worktree + 按顺序派发 planner → dev → verifier → merge）——技术手段是主 agent 在同一轮 assistant 响应中连续发起多个 `Agent()` 工具调用，不是逐个顺序调用；首批派发和补位派发共用同一条封顶规则，没有已解锁排队 PR 时槛位空置，不因此放宽解锁条件
 3. 每个 PR merge 完成后：重新扫描依赖图，新解锁的立即派发；触发 progress-observer
-4. `progress-observer` 报告"可并发但闲置"的 PR → 立即补派发，不等
+4. `progress-observer` 报告"可并发但闲置"的 PR → 立即补派发，不等；失败/阻塞的 PR 不得执行 `git worktree remove`/`git branch -d` 或等价清理操作，现场原样保留
 
 **解锁条件是合并进主分支**，不是 dev 的完成声明——PR-B 的 worktree 必须从已含 PR-A 代码的主分支拉出（见 Important facts #3）。
 
-**并发槛位算法要点**：起始并发数从 `status.md` 的 `## 并发配置（阶段 5）` 区块读取（默认 3）；每次有 PR 返回成功合并或失败/阻塞判定，触发爬升，`当前有效上限` 按 `min(起始并发数 + 累计成功解锁次数 × 起始并发数, 硬上限)` 重新计算；硬上限固定为 `2 × 起始并发数 - 1`。爬升带来的新增槛位仍只分配给依赖已合并的排队 PR。完整公式见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §「阶段 5」。
+**并发槛位算法要点**：起始并发数从 `status.md` 的 `## 并发配置（阶段 5）` 区块读取（默认 3）；每次有 PR 返回成功合并或失败/阻塞判定，触发爬升，`当前有效上限` 按 `min(起始并发数 + 累计槛位释放次数 × 起始并发数, 硬上限)` 重新计算；硬上限固定为 `2 × 起始并发数 - 1`。爬升带来的新增槛位仍只分配给依赖已合并的排队 PR。完整公式见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §「阶段 5」。
 
 ### Step 6: 独立验证（按需触发）
 
@@ -176,6 +179,8 @@ role:
 传入：产物路径 + 内联验证标准；要求每项 pass/fail/partial/blocked + 文件证据。
 
 若 `docs/iterations/{迭代ID}/deferred-demand-changes.md` 存在，主 agent 必须把该文件路径显式加入委托，要求 verifier 将其内容原文摘录进验证报告——verifier 不会自己扫描目录找这个文件，只读委托里给的路径。
+
+若该迭代 `prs/` 目录产出 ≥2 个 PR 且依赖图有真实并发分支，本次阶段 6 委托必须额外要求 verifier 核查 worktree 时间窗口重叠/并发配置区块真实初始化更新/爬升公式真实触发三项真实执行证据，完整核查内容见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §「并发调度真实执行证据（下一个多 PR 迭代强制核查）」。
 
 ---
 
@@ -326,7 +331,7 @@ worktree 分支：{分支名}
 - 启动时：创建，所有阶段 ⬜
 - 每次派发执行角色**前**：对应阶段标记 ⏸
 - 每次推进条件核查通过**后**：标记 ✅
-- 进入阶段 4→5 时（阶段 5 第一次并发派发之前）：初始化 `## 并发配置（阶段 5）` 区块（起始并发数/硬上限/当前有效上限/累计成功解锁次数/已派发总数）
+- 进入阶段 4→5 时（阶段 5 第一次并发派发之前）：初始化 `## 并发配置（阶段 5）` 区块（起始并发数/硬上限/当前有效上限/累计槛位释放次数/已派发总数）
 - 阶段 5：每个 PR 派发时更新子状态表（含槛位状态列）；merge 后标记"已合并"并重新扫描；失败/阻塞标记为 `❌失败(现场保留)`/`⏸阻塞(现场保留)`，worktree 分支列同步标注 `(保留)`
 - 每次阶段 6 验证通过后：对应阶段"已验证"列标记 ✅
 - 出现待确认项：写入"待确认项"列表；用户确认后勾选
@@ -338,7 +343,7 @@ worktree 分支：{分支名}
 - `.pb-agents/roles/workflow-pb/workflow-pb.md`（安装方式见「§ 角色文件路径与安装」）— 完整规范，Step 1~4 每次推进前读取「阶段定义」表；派发 brief 时读取输入/输出/推进条件列；阶段 5/6 读取「PR 文件格式规范」「验证目标」「状态追踪协议」
 - `.pb-agents/roles/<role>/<role>.md`（见「§ 阶段执行卡片」）— 派发对应执行角色前，确认角色文件路径存在；角色自身的能力边界由角色文件定义，不在本 Skill 内重复
 - 「§ 对外协议」— 宿主无关的协议不变量定义（角色派发契约、人机交互契约、文档协议），切换宿主或质疑"这是不是 Claude Code 专属行为"时优先查阅
-- `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md` — 历次优化的变更记录与根因
+- `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md` — 历次优化的变更记录与根因
 
 ---
 
@@ -346,7 +351,8 @@ worktree 分支：{分支名}
 
 - 推进条件核查不通过 → 回到执行角色补充，不跳过
 - 阶段 1 不可跳过，即使需求看起来很简单
-- 阶段 5 解锁条件是"合并进主分支"，不可降级为"自称完成"
+- 阶段 5 解锁条件是"合并进主分支"，不可降级为"自称完成"；没有排队 PR 时槛位空置也不放宽这条件
+- 失败/阻塞的 PR，不得执行 `git worktree remove`/`git branch -d` 或等价清理操作，现场原样保留
 - 用户决策点必须暂停，不得代为决策；需求变更/错误不是用户决策点，是执行角色直接搭置记录的事项
 - **暂停必须是真实阻塞等待人类输入**（见「§ 对外协议·人机交互契约」）——宿主不具备该能力时必须先在 Step 0 显式声明限制，绝不允许自问自答把 `model_inferred` 顶替成 `user_confirmed`，这条红线不因宿主能力不足而豁免
 - `status.md` 与文件系统不一致时，以文件系统为准修正
