@@ -1,8 +1,9 @@
 ---
 name: workflow-pb
 description: |
-  启动并驱动 pb 产品研发工作流（v0.5.0）。主 agent 调度协议：按 6 阶段序列推进、
+  启动并驱动 pb 产品研发工作流（v0.6.0）。主 agent 调度协议：按 6 阶段序列推进、
   逐阶段核查推进条件、阶段 5 依赖解锁式并发 PR 派发（含并发槛位算法）、维护 status.md 进度视图。
+  派发执行角色时必须读出角色文件全文并显性注入 brief（不是路径引用）。
   阶段 1（需求收敛）是硬性前置，不可跳过；执行过程中发现的需求变更/错误由执行角色
   直接搭置记录到 deferred-demand-changes.md，不回退不暂停，本迭代按已落盘需求继续。
   完整规范见 roles/workflow-pb/workflow-pb.md。
@@ -26,9 +27,9 @@ role:
 
 # workflow-pb
 
-**版本**: 1.8.0（对应规范 workflow-pb v0.5.0）
+**版本**: 1.9.0（对应规范 workflow-pb v0.6.0）
 **完整规范**: `.pb-agents/roles/workflow-pb/workflow-pb.md`（安装方式见「§ 角色文件路径与安装」）
-**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md`
+**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md`、`data/skill-optimization-v1.9.0.md`
 
 ---
 
@@ -54,7 +55,7 @@ role:
 
 ## Purpose
 
-接收迭代 ID，按 workflow-pb v0.5.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
+接收迭代 ID，按 workflow-pb v0.6.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
 
 ## Success criteria
 
@@ -271,11 +272,16 @@ role:
 
 ## § Brief 构建规则
 
-每次派发执行角色时，brief **至少**包含以下字段，且必须逐行以 `字段名：值` 的形式呈现——不得把这些字段揉进自由叙述的任务描述里改写、合并或省略字段名，即使内容语义没有丢失，格式退化本身就违反「§ 对外协议·角色派发契约」的"三元绑定，不可拆分"：
+**role = skill**：角色文件本身就是可被派发/加载的 skill 定义（协议等价性见 `principles/meta/agent-design-protocol.md`「role = skill」章节）。因此每次派发执行角色时，主 agent 必须先读出角色文件全文，将全文内容显性注入 brief——不是只给路径让子 agent 自行决定要不要读、读多细。这确保机械性契约（CRITICAL 清单、报告格式、字段定义、停止条件）的遵循度，不依赖子 agent 的自觉阅读。
+
+brief **至少**包含以下字段，且必须逐行以 `字段名：值` 的形式呈现——不得把这些字段揉进自由叙述的任务描述里改写、合并或省略字段名，即使内容语义没有丢失，格式退化本身就违反「§ 对外协议·角色派发契约」的"三元绑定，不可拆分"：
 
 ```
 角色名：<role>（见「§ 阶段执行卡片」，如 demand/prd/architect，供对外呈现时可辨认角色对应关系）
-角色文件路径：.pb-agents/roles/<role>/<role>.md（该角色自己的定义，子 agent 从这里读能力边界）
+角色定义（全文注入）：
+---
+{读出的 .pb-agents/roles/<role>/<role>.md 完整内容，原样注入，确保子 agent 收到完整 skill 定义，包括 CRITICAL 清单、报告契约字段等机械性规则}
+---
 工作流规范：.pb-agents/roles/workflow-pb/workflow-pb.md
 当前迭代 ID：{迭代ID}
 当前阶段：阶段 {N}（{阶段名}）
@@ -284,6 +290,8 @@ role:
 输出：docs/iterations/{迭代ID}/{输出文档，读自 workflow-pb.md §阶段定义"输出"列}
 完成定义：{内联该阶段推进条件清单，读自 workflow-pb.md §阶段定义"推进条件"列}
 ```
+
+**为什么全文注入而不是路径引用**：机械性契约的遵循度取决于子 agent 是否真的读了角色文件并严格执行。路径引用依赖子 agent 自觉阅读，实践中容易被跳过或只读部分（demand 角色 2026-09-07 的真实案例：六维诊断记录、来源标注等机械项被跳过，虽然语感贴近角色定义）；全文注入确保完整 skill 定义出现在子 agent 的初始指令中，降低遗漏概率。**当前只在 demand 角色验证此机制，验证通过后再推广到其余角色**——其余角色暂时仍可用路径引用，但优先推荐全文注入。
 
 派发时如需给执行实例起名字（宿主工具层要求），实例名不受本协议约束（见「§ 对外协议·角色派发契约」），但不能替代上面的「角色名」字段——两者各自独立存在。
 

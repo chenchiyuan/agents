@@ -1,5 +1,26 @@
 # workflow-pb 变更历史
 
+## v0.6.0（2026-09-07）
+
+**触发**：用户报告实际执行中 demand 角色的指令没有被严格遵循（六维诊断记录、来源标注、方案雏形逐条询问等机械项被跳过，虽然语感贴近 demand 角色）。根因诊断：长角色文件里，叙事性内容（identity/character/判断框架的语感）比结构化强制字段（CRITICAL 清单/报告契约字段列表）更容易被"内化成语气"而不是"逐项对照执行"——原派发协议只把角色文件路径塞进 brief，靠子 agent 自觉阅读，机械性契约（尤其是需要精确对照的清单类内容）在这种"路径引用 + 自由阅读"模式下遵循度不稳定。
+
+**用户提出的方向**：定义的 role 也要有一个对应的 skill，派发任务等价于给 agent 派发指定 skill 执行，skill 是 agent 标准协议，遵循度会更好。
+
+**澄清过程**：最初讨论一度偏向"role 和 skill 是两份文件需要双轨同步"或"迁移到 `.claude/skills/` 目录"，均被用户纠正——role 文件本身就是 skill 定义，是同一份产物，不是两层概念；"skill" 是协议概念（agent 的标准协议单元），不是 Claude Code 的 `.claude/skills/` 文件系统机制；框架必须保持宿主无关，不能因为这次改动变成 Claude Code 专属。
+
+**最终方案**：
+1. **概念澄清**（`principles/meta/agent-design-protocol.md`）：新增"role = skill：协议等价性"章节，明确 role 文件本身就是 skill，"派发角色"和"加载 skill"协议语义等价
+2. **派发机制升级**（`workflow-pb.md` + `SKILL.md`）：将「Brief 构建规则」从"传递角色文件路径，子 agent 自行决定要不要读"改为"主 agent 派发前先读出角色文件全文，将全文内容显性注入 brief"——用"内容前置注入"替代"路径引用+自觉阅读"，提高机械项遵循度
+3. **物理结构不变**：不新建 `.claude/skills/<role>/` 目录，不产出额外文件；`roles/<role>/<role>.md` + `memory.md` + `data/` 三级记录结构原样保留
+
+**验证策略**：先只在 demand 角色的派发路径上验证全文注入机制的效果，下次实际派发 demand 时观察遵循度是否改善，再决定是否推广到其余 8 个角色（prd/architect/planner/pr-planner/dev/verifier/progress-observer/retrospective）。这是刻意的小范围验证，不是一次性全量改动。
+
+**具体改动**：
+- `principles/meta/agent-design-protocol.md` 新增"role = skill"章节
+- `roles/workflow-pb/workflow-pb.md` 新增「派发执行角色时的 brief 构建」一节（在"调度指南"下）
+- `.claude/skills/workflow-pb/SKILL.md` 同步修改「§ Brief 构建规则」，版本号补齐至 v0.6.0（此前落后于完整规范文件，遗留自 v0.4.0/v0.5.0 未同步）
+- 理解记录留痕：`roles/demand/data/demand-skill-migration-understanding.md`
+
 ## v0.5.0（2026-09-06）
 
 **触发**：用户提出优化方向——"planner 拆分 pr 之后必须明确落盘，写清楚 depends_on 和依赖；后续派发执行者必须显式要求多子 agent 执行；每个 agent 独立完成一个 pr"。研究确认这三条在 v0.4.0 文本里已是显式要求，不是缺失机制；真实问题是 `docs/iterations/0005-pr-concurrent-execution/verification-report-stage6.md` 独立验证发现的文本歧义：v0.4.0 允许两种互相矛盾的读法，且协议自 v0.2.0 引入以来从未在真实多 PR 场景里被验证过执行结果。用户采用验证报告"下一迭代候选"给出的方案 B：应用验证报告的具体文字修复，并新增阶段 6 强制检查项。
