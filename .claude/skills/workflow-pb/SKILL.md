@@ -1,7 +1,7 @@
 ---
 name: workflow-pb
 description: |
-  启动并驱动 pb 产品研发工作流（v0.6.0）。主 agent 调度协议：按 6 阶段序列推进、
+  启动并驱动 pb 产品研发工作流（v0.7.0）。主 agent 调度协议：按 6 阶段序列推进、
   逐阶段核查推进条件、阶段 5 依赖解锁式并发 PR 派发（含并发槛位算法）、维护 status.md 进度视图。
   派发执行角色时必须读出角色文件全文并显性注入 brief（不是路径引用）。
   阶段 1（需求收敛）是硬性前置，不可跳过；执行过程中发现的需求变更/错误由执行角色
@@ -27,9 +27,9 @@ role:
 
 # workflow-pb
 
-**版本**: 1.9.0（对应规范 workflow-pb v0.6.0）
+**版本**: 1.10.0（对应规范 workflow-pb v0.7.0）
 **完整规范**: `.pb-agents/roles/workflow-pb/workflow-pb.md`（安装方式见「§ 角色文件路径与安装」）
-**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md`、`data/skill-optimization-v1.9.0.md`
+**变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md`、`data/skill-optimization-v1.9.0.md`、`data/skill-optimization-v1.10.0.md`
 
 ---
 
@@ -55,7 +55,7 @@ role:
 
 ## Purpose
 
-接收迭代 ID，按 workflow-pb v0.6.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
+接收迭代 ID，按 workflow-pb v0.7.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
 
 ## Success criteria
 
@@ -99,6 +99,7 @@ role:
 - 逐阶段核查推进条件（读文件内容判断，不靠感觉）
 - 派发执行角色（派发机制由宿主决定，如 Claude Code 的 Agent 工具；不变量见「§ 对外协议·角色派发契约」——传最小 brief + 解析后的角色文件具体路径，不传整个文档内容）
 - 阶段 5：读依赖图、管理 worktree 创建、并发派发、merge
+- 若 `history` 开启，逐条维护 `history.md`
 
 **不做什么**：
 - 不执行需求 / 设计 / 架构 / 实现工作
@@ -121,6 +122,7 @@ role:
 6. **需求问题不回退不暂停，只搭置**——执行角色发现"要改需求才能解决"的问题时，直接写 `deferred-demand-changes.md` 并按现有 demand.md 继续，不触发用户决策点；只有"pr-planner 报告依赖图有环"这一类结构性错误才硬停
 7. **失败/阻塞 PR 的 worktree 和分支现场原样保留，不自动清理**——主 agent 不得对这类 PR 执行 `git worktree remove`/`git branch -d` 或等价清理操作，这是失败/阻塞状态的固有属性，不需要额外判断"该不该保留"；`progress-observer` 每次生成 `progress.md` 时须对失败/阻塞 PR 核实 worktree 目录和分支是否仍存在于磁盘（`git worktree list` + `git branch` 交叉核对），发现已被清理记入"发现的不一致"
 8. **没有已解锁排队 PR 时槛位空置，不因此放宽解锁条件**——释放出的并发槛位不能成为提前派发依赖未合并 PR 的理由，"合并进主分支才算解锁"这一条件不因槛位空闲而降级
+9. **history.md 与 status.md 并存、格式互不侵入**——history.md 记录顺序即写入顺序，不依赖序号字段
 
 ---
 
@@ -346,6 +348,18 @@ worktree 分支：{分支名}
 
 ---
 
+## § history.md 更新时机
+
+格式定义见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §历史记录协议（history.md），本节只定义"何时写"：
+
+- 启动时：若 `history` 字段为开启，创建仅含标题行的空 `history.md`
+- 每次派发执行角色**前**：追加一条「派发」记录
+- 每次收到执行角色报告**后**：追加一条「收到报告」记录
+- 每次阶段推进核查 / Gate 确认 / 槛位释放爬升 / PR 失败或阻塞判定**后**：追加一条「调度决策」记录
+- `history` 被显式改为"关闭"后：停止追加，不删除已有文件
+
+---
+
 ## Resources
 
 - `.pb-agents/roles/workflow-pb/workflow-pb.md`（安装方式见「§ 角色文件路径与安装」）— 完整规范，Step 1~4 每次推进前读取「阶段定义」表；派发 brief 时读取输入/输出/推进条件列；阶段 5/6 读取「PR 文件格式规范」「验证目标」「状态追踪协议」
@@ -364,6 +378,7 @@ worktree 分支：{分支名}
 - 用户决策点必须暂停，不得代为决策；需求变更/错误不是用户决策点，是执行角色直接搭置记录的事项
 - **暂停必须是真实阻塞等待人类输入**（见「§ 对外协议·人机交互契约」）——宿主不具备该能力时必须先在 Step 0 显式声明限制，绝不允许自问自答把 `model_inferred` 顶替成 `user_confirmed`，这条红线不因宿主能力不足而豁免
 - `status.md` 与文件系统不一致时，以文件系统为准修正
+- `history` 关闭后不得继续追加 history.md，也不删除已存在的 history.md
 - `batch` 字段仅供人工速览，不用于调度判断
 - 派发子 agent 前必须已确认 `.pb-agents/roles/` 存在（见「§ 角色文件路径与安装」），不存在时先停止推进提示安装，不得退回读 `roles/` 源码目录
 - `.pb-agents/roles/` 只读，不修改其内容，也不派发角色去写它的 `data/`/`memory.md`（这两者不随 copy 部署）
