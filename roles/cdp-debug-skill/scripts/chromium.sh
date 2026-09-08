@@ -54,7 +54,7 @@ usage() {
   ensure [-f]   幂等就绪（未装则装；不一致时输出 facts，-f 强制升级）
   install [-f] 安装 CfT known-good Stable（= ensure 强制版）
   verify       磁盘核验 manifest 声明（exe 存在/可执行/sha256 比对）
-  status       安装事实 JSON（纯本地，离线可用）
+  status       安装事实 JSON（纯本地只读，无需联网）
   path         输出可执行文件绝对路径（单行）
 
 参数:
@@ -409,7 +409,7 @@ case "$CMD" in
 esac
 
 if ! /usr/bin/python3 -c 'import json' >/dev/null 2>&1; then
-  die "JSON 解析器（/usr/bin/python3）不可用"
+  die "JSON 解析器（/usr/bin/python3）执行异常"
 fi
 
 case "$CMD" in
@@ -478,7 +478,7 @@ case "$CMD" in
           emit_result
         exit 0
       fi
-      die "CfT known-good 版本清单拉取异常（离线且本地无可用安装）"
+      die "CfT known-good 版本清单拉取异常（curl 无法获取官方版本清单）"
     fi
 
     installed_ok=0
