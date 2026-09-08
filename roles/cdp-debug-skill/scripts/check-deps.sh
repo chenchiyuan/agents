@@ -23,7 +23,8 @@
 #
 # 环境变量：CDP_DEBUG_HOME（chromium 安装面根目录，默认 $HOME/.local/share/cdp-debug-skill）
 # 依赖：/bin/bash 3.2+、/usr/bin/python3（JSON 解析/生成）、ps（进程探测）
-# 说明：chromium 段由 T05 接入 manifest+进程探测前为空态占位（结构键全量存在）
+# 说明：chromium 段安装事实读 chromium.sh 维护的 manifest、运行事实来自进程探测
+#（与 cdp-browser.sh 同一事实源；探测实现见下方 probe_debug_instances）
 
 set -u
 
@@ -58,26 +59,46 @@ esac
 
 CDP_DEBUG_HOME="${CDP_DEBUG_HOME:-$HOME/.local/share/cdp-debug-skill}"
 
-if [ ! -x /usr/bin/python3 ]; then
-  checked_at="$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo '')"
-  cat <<EOF
-{
-  "checked_at": "$checked_at",
-  "mcp": {
-    "playwright": { "configured": false, "scope": null, "command": null, "args": [], "endpoint_arg": null },
-    "chrome_devtools": { "configured": false, "scope": null, "command": null, "args": [], "endpoint_arg": null }
-  },
-  "chromium": { "installed": false, "version": null, "path": null, "running": false, "port": null, "profile_dir": null },
-  "errors": [],
-  "error": "/usr/bin/python3 不可用，无法完成 JSON 处理"
+# === 调试实例探测（与 cdp-browser.sh 中同名函数保持逐字一致：同一事实源，改动须同步两处） ===
+# 确定性规则：进程 args 同时含 --remote-debugging-port=<n> 与 --user-data-dir=<dir>、
+#            不含 --type=（排除子进程）、且可执行路径位于 $CDP_DEBUG_HOME/chromium/
+#            下（CfT 安装面，排除本机 Google Chrome）。
+# 输出：每行 <pid>\t<port>\t<user-data-dir>，按 pid 升序
+probe_debug_instances() {
+  local chromium_prefix
+  chromium_prefix="${CDP_DEBUG_HOME}/chromium/"
+  ps -axo pid=,args= 2>/dev/null | awk -v pfx="$chromium_prefix" '
+    /--remote-debugging-port=[0-9]+/ && /--user-data-dir=/ && !/--type=/ && index($0, pfx) > 0 {
+      line = $0
+      if (match(line, /--user-data-dir=[^ ]+/)) {
+        v = substr(line, RSTART, RLENGTH)
+        sub(/^.*=/, "", v)
+        dir = v
+      } else { next }
+      if (match(line, /--remote-debugging-port=[0-9]+/)) {
+        v = substr(line, RSTART, RLENGTH)
+        sub(/^.*=/, "", v)
+        port = v
+      } else { next }
+      print $1 "\t" port "\t" dir
+    }
+  ' | sort -n -k1,1
 }
-EOF
-  exit 1
+
+# 受管运行实例（取 pid 最小者）→ 供 chromium.running/port/profile_dir 段
+_probe_line="$(probe_debug_instances | head -1)"
+_cdp_probe_pid=""
+_cdp_probe_port=""
+_cdp_probe_dir=""
+if [ -n "$_probe_line" ]; then
+  _cdp_probe_pid="$(printf '%s\n' "$_probe_line" | cut -f1)"
+  _cdp_probe_port="$(printf '%s\n' "$_probe_line" | cut -f2)"
+  _cdp_probe_dir="$(printf '%s\n' "$_probe_line" | cut -f3)"
 fi
 
 cwd_logical="$PWD"
 cwd_physical="$(pwd -P 2>/dev/null || pwd)"
-_py_out="$(/usr/bin/python3 - "$cwd_logical" "$cwd_physical" 2>/dev/null <<'PY'
+_py_out="$(CDP_PROBE_PID="${_cdp_probe_pid}" CDP_PROBE_PORT="${_cdp_probe_port}" CDP_PROBE_DIR="${_cdp_probe_dir}" /usr/bin/python3 - "$cwd_logical" "$cwd_physical" 2>/dev/null <<'PY'
 import json
 import os
 import sys
@@ -248,7 +269,38 @@ def main():
         slot["args"] = rec[2]
         slot["endpoint_arg"] = rec[3]
 
-    # chromium 段：安装/运行事实与 chromium.sh/cdp-browser.sh 同源（T05 接入）
+    # chromium 段：安装事实读 chromium.sh 维护的 manifest（同源规则：manifest 合法
+    # 且 path 存在可执行 → installed）；运行事实来自进程探测（与 cdp-browser.sh
+    # 共用同一探测实现 → 同一时刻值一致）
+    chrom = out["chromium"]
+    mpath = os.path.join(cdp_home, "chromium", ".manifest.json")
+    mf = None
+    if cdp_home and os.path.isfile(mpath):
+        try:
+            with open(mpath, "r", encoding="utf-8") as fh:
+                mf = json.load(fh)
+        except Exception:
+            mf = None
+    if isinstance(mf, dict):
+        ver = mf.get("version")
+        pth = mf.get("path")
+        if (
+            isinstance(ver, str) and ver
+            and isinstance(pth, str) and pth
+            and os.path.isfile(pth) and os.access(pth, os.X_OK)
+        ):
+            chrom["installed"] = True
+            chrom["version"] = ver
+            chrom["path"] = pth
+    probe_pid = os.environ.get("CDP_PROBE_PID", "")
+    if probe_pid:
+        chrom["running"] = True
+        probe_port = os.environ.get("CDP_PROBE_PORT", "")
+        if probe_port.isdigit():
+            chrom["port"] = int(probe_port)
+        probe_dir = os.environ.get("CDP_PROBE_DIR", "")
+        chrom["profile_dir"] = probe_dir if probe_dir else None
+
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 
