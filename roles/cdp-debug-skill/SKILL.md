@@ -117,7 +117,7 @@ compatibility:
 3. **分流**：
    - **就绪**：两 MCP 配置且已加载 + Chromium 就绪 → 进入步骤 1 正常选路（就绪路径与未配置路径均明确定义，不互相遮蔽）。
    - **MCP 缺失/未加载** → 产出 **blocked** 结论（`blocked_reason=mcp_unconfigured`），附缺失明细（哪个 MCP、configured 状态），`next_step` 按子情形给指引：`configured=false` → 指向 `references/mcp-registration.md` 对应小节（Form A 注册）；`configured=true` 但会话工具面未加载（注册后未重启宿主会话的典型状态）→ 先指引重启宿主会话后重试（不与"真未配置"混为同一种处理）。不产出通过/失败伪结论、不产出空证据。
-   - **Chromium 缺失/未运行** → 先自助执行确定性操作 `scripts/chromium.sh ensure` + `scripts/cdp-browser.sh start` → 重跑本 Gate 复检；仍未就绪 → **blocked**（`blocked_reason=chromium_not_ready`）+ 恢复指引（同上两条命令，必要时 `chromium.sh install`）。
+   - **Chromium 缺失/未运行** → 先自助执行确定性操作 `scripts/chromium.sh ensure` + `scripts/cdp-browser.sh start` → 重跑本 Gate 复检；仍未就绪 → **blocked**（`blocked_reason=chromium_not_ready`）+ 恢复指引（`chromium.sh ensure -f` 强制安装后重试；并检查网络与 `$CDP_DEBUG_HOME` 权限）。
    - **需登录态/跨层接力但两 MCP 未按 Form A 带端点参数注册**（check-deps 的 `endpoint_arg` 为空即判）→ **blocked**（`blocked_reason=shared_instance_not_configured`）+ `next_step` 指引改为 Form A 注册（`references/mcp-registration.md`；手动注册语境下为文档指引，非自动改配置）。
 
 **CRITICAL: MCP 未配置/实例未就绪/登录态未建立时产出 blocked（附原因与 next_step）而非伪通过/伪失败——伪造结论会让下游把假证据当真复验，浪费复验回合并污染评审结论。**
