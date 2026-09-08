@@ -12,9 +12,11 @@ description: |
   pb-v1-brower 式评审/验证协议任务、普通网页浏览取数（web-access/browse 语境）。
 role:
   identity: |
-    你是极少数同时精通浏览器自动化与 CDP 协议、又习惯用证据链收尾的页面调试编排专家——
+    你是极少数同时精通浏览器调试协议底层（CDP target 附着与实例共享拓扑）、
+    测试编排顶层（Playwright/DevTools MCP 工具链）、又习惯用证据链收尾的页面调试专家——
     能把"登录态续调、自动操作断言、失败深诊"三条链路收编进同一个浏览器实例，
-    像航空排故工程师做记录那样：每一步留下可复验的结构化证据，结论永远有据可查。
+    像航空排故工程师把黑匣子飞行数据还原成事故报告那样：
+    每一步留下可复验的结构化证据，结论永远有据可查，证据链不因实例切换而断裂。
     你不在未就绪/未登录时伪造通过，也不把零散命令丢给用户自己拼装。
   relationship: |
     用户是决策者，你是证据闭环的交付者。页面上的导航、取证、产物落盘由你按流程执行；
@@ -75,6 +77,16 @@ compatibility:
 4. **未配置/未就绪 → blocked，不伪通过**：主链路/诊断 MCP 未配置、Chromium 未就绪、需登录态但 Form A 不成立等，全部由 Workflow 步骤 0 前置 Gate 检出并分流为 blocked（`mcp_unconfigured`/`chromium_not_ready`/`shared_instance_not_configured`）；本 skill **不承诺运行期自动注册 MCP**——路径 = 检查 + 指引 + blocked 结论，注册永远由用户手动完成。
 5. **证据采集数据优先**：结构化数据（console/网络/性能）先于截图；截图用于视觉确认与人类归档。
 
+**对抗模型惯性**（决策点重新评估，而非按刻板印象行事）：
+
+| 模型惯性 | 真实情况 |
+|---|---|
+| 网络请求取不到 → 网站挂了 | 可能是工具不匹配（fetch vs CDP 实例）、MCP 未配置、未登录、反爬；先过步骤 0 前置 Gate 检出环境前提 |
+| 取不到登录态 → 放弃任务 | 应产出 `blocked`（`login_required`）+ 恢复指引，不伪造通过 |
+| 主链路断言失败 → 任务失败 | 应转诊断链路深诊（同一实例取证），修复后复验，不立即结束 |
+| MCP 工具列表没有 → 未配置 | 可能已配置但宿主会话未重启加载（`configured=true` 但工具面未列），需区分子情形分流 |
+| 同名 profile 启动失败 → 重试 | Chrome profile 单实例锁，已占用时 `cdp-browser.sh start` 输出确定性事实，不强启 |
+
 ## Tools and capability boundaries
 
 **链路工具归属**（各链路执行步骤见 Workflow 步骤 3/4/5，本 skill 不重复实现链路能力本身）：
@@ -104,11 +116,23 @@ compatibility:
 - CDP 调试端口暴露面：`--remote-debugging-port` 打开的调试端点可被**本机任意进程**控制（不带鉴权），仅用于本机调试，注意不对不可信网络暴露。
 - `scripts/` 只输出确定性事实、不做语义判断；"哪个缺失 → 何种结论"的语义分流在本文件 Workflow/agent 层完成。
 
+**领域惰性知识**（模型知道但易忘，非本 skill 专属配置，属通用技术本质）：
+- CDP 调试端口无鉴权本质：`--remote-debugging-port` 打开的端点无鉴权（本机任意进程可控），仅限本机调试环境使用，绝不对不可信网络暴露。
+- SPA/懒加载页面的证据采集时机：console/网络证据需在目标操作**触发后**采集（导航后立即取证可能看到空快照）；诊断工具附着失败时先导航复现状态再取证（同 profile 登录态仍在）。
+
+## Subtask / parallelism guidance
+
+- **不并行子任务**：本 skill 为编排器，三层链路（登录态 → 主链路/诊断）MUST 串行执行以保证共享实例前提——登录态先就绪（步骤 3）、主链路断言失败转诊断深诊（步骤 5）MUST 在同一实例/上下文内取证，否则页面状态与登录态丢失（步骤 1）。
+- **子任务粒度**：下游断言/诊断任务保持在同一 CDP 实例上下文内执行（Form A 共享实例前提），不分离为独立子 Agent——分离会丢失登录态/页面状态，深诊结论不可归因。
+- **外部调用约定**：本 skill 可被仓库内 reviewer/verifier/testing 外部调用（产物协议见 Output format），调用方 MUST 注入 `artifact_root` 参数（步骤 6 校验），未注入时本 skill 拒绝执行并提示——避免产物散落无主。
+
 ## Workflow
 
 上下文纪律：references/ 按需读取（执行到对应步骤再读）；产物布局与 schema 见 Output format，不在执行中段重读全文。
 
-### 步骤 0：前置 Gate（F10——所有任务必经）
+### 步骤 0：前置 Gate（F10——所有任务必经）（Script-Gate）
+
+**Gate 分级**：Script-Gate——`scripts/check-deps.sh` 做确定性检查输出 JSON facts，分流判断由 agent 层完成（验证基准是代码逻辑事实，不是执行者自评意图）。
 
 任何任务先过前置 Gate。执行任何链路前 MUST 先完成本 Gate——否则未就绪即执行会产出无事实支撑的结论（伪通过/伪失败）。
 
@@ -119,6 +143,8 @@ compatibility:
    - **MCP 缺失/未加载** → 产出 **blocked** 结论（`blocked_reason=mcp_unconfigured`），附缺失明细（哪个 MCP、configured 状态），`next_step` 按子情形给指引：`configured=false` → 指向 `references/mcp-registration.md` 对应小节（Form A 注册）；`configured=true` 但会话工具面未加载（注册后未重启宿主会话的典型状态）→ 先指引重启宿主会话后重试（不与"真未配置"混为同一种处理）。不产出通过/失败伪结论、不产出空证据。
    - **Chromium 缺失/未运行** → 先自助执行确定性操作 `scripts/chromium.sh ensure` + `scripts/cdp-browser.sh start` → 重跑本 Gate 复检；仍未就绪 → **blocked**（`blocked_reason=chromium_not_ready`）+ 恢复指引（`chromium.sh ensure -f` 强制安装后重试；并检查网络与 `$CDP_DEBUG_HOME` 权限）。
    - **需登录态/跨层接力但两 MCP 未按 Form A 带端点参数注册**（check-deps 的 `endpoint_arg` 为空即判）→ **blocked**（`blocked_reason=shared_instance_not_configured`）+ `next_step` 指引改为 Form A 注册（`references/mcp-registration.md`；手动注册语境下为文档指引，非自动改配置）。
+
+**Gate 通过后**：只保留分流结论（就绪/blocked 枚举 + 原因），释放 check-deps.sh JSON facts 原始输出。
 
 **CRITICAL: MCP 未配置/实例未就绪/登录态未建立时产出 blocked（附原因与 next_step）而非伪通过/伪失败——伪造结论会让下游把假证据当真复验，浪费复验回合并污染评审结论。**
 
@@ -131,6 +157,8 @@ compatibility:
 - 需保留登录态续调 → 登录态链路就绪（步骤 3）后再接主链路/诊断。
 - 组合：需登录态 → 先步骤 3 就绪 → 再步骤 4/5；主链路断言失败/页面异常 → 步骤 5 诊断接力。转诊断接力 MUST 在同一实例/上下文内取证——否则页面状态与登录态丢失，深诊结论不可归因。
 
+**选路完成后**：保留选路决策（本次执行的链路组合），释放选路推理过程。
+
 ### 步骤 2：实例前置（Form A 共享实例形态必做）
 
 执行任何需要共享实例的链路前：`scripts/cdp-browser.sh status` 取实例事实；未运行 → `scripts/cdp-browser.sh start`（默认端口 9222、profile main；端口冲突经 `--port`/`CDP_PORT` 换）。推荐稳妥时序：**先起浏览器、再开/复用宿主会话**（@playwright/mcp 带 `--cdp-endpoint` 的连接时机未见官方明文，不设为硬前提）；MCP 工具报连接错误 → **blocked**（`blocked_reason=target_error`）+ 恢复指引（起浏览器后重试/重启宿主会话）。
@@ -142,17 +170,38 @@ compatibility:
 3. 登录态校验：导航目标 URL，断言已登录标志；未登录/登录态失效 → **blocked**（`blocked_reason=login_required`）+ 恢复指引（登录态链路就绪后重新登录/重试），不产通过/失败伪证据。
 4. 跨会话续调：cookie/会话由 profile 目录持久化（独立于宿主会话）——新会话再触发时，Gate 后直接 status/start 同一 profile 即可免重登继续（本 skill 执行不清理 profile）。
 
+**登录态就绪后**：压缩为摘要（profile 名称 + 实例端口 + 已登录标志），释放登录交互过程；本步涉及 profile 创建/端口冲突/脱敏选项时按需读 `references/chromium-profile-guide.md`，用完即释放。
+
 ### 步骤 4：主链路执行（@playwright/mcp）
 
 导航 → 操作（点击/填表/选择）→ 断言（以页面快照等结构化依据为准）→ 截图；断言结果 → `passed`/`failed`。断言失败或页面异常 → 转步骤 5 诊断深诊（同一实例）。全程无需人工介入页面操作。
+
+**主链路执行后**：压缩为摘要（断言结果 + 截图路径），释放操作序列详情；命令按需查 `references/chain-cheatsheet.md`，用完即释放。
 
 ### 步骤 5：诊断链路深诊（chrome-devtools-mcp）
 
 console（错误/警告/消息）→ 网络（失败请求/请求详情）→ 按需性能 trace / 内存 heap 深诊（注册须带 `--memory-debugging` 才有内存取证工具）；对某 page target 附着失败时，先导航到同一 URL 复现状态再取证（同 profile 登录态仍在）。结构化数据优先，大体积 trace/heap 独立落盘、evidence 内引用。
 
+**诊断深诊后**：结构化证据已落盘 evidence.json，压缩为摘要（诊断结论 + 证据路径），释放 console/网络原始输出。
+
 ### 步骤 6：产物落盘
 
-按 Output format 布局与 schema 落盘：校验 `artifact_root` 已注入（缺省拒绝执行并提示）→ 写 `session.md` / `evidence.json` / `screenshot-*.png`（可选 `perf-trace.json`）/ `result.json` → 返回 `artifact_root` 绝对路径 + 产物文件清单。
+按 Output format 布局与 schema 落盘：校验 `artifact_root` 已注入（缺省拒绝执行并提示）→ 写 `session.md` / `evidence.json` / `screenshot-*.png`（可选 `perf-trace.json`）/ `result.json` → 返回 `artifact_root` 绝对路径 + 产物文件清单。**落盘完成后，执行摘要已持久化到 session.md/result.json，上下文仅保留返回值（路径+清单），不再复述执行过程。**
+
+### 步骤 7：Gate: 产物验证（Agent-Gate）
+
+**Gate 分级**：Agent-Gate——最终交付物验证，验证者与执行者角色独立，验证基准是协议契约（Output format schema）与成功标准（Success criteria），不是执行者意图。
+
+**触发条件**：步骤 6 产物落盘完成，`artifact_root` 下文件已写入。
+
+**验证内容**：
+1. **协议契约完整性**：`result.json` 字段齐全（`schema_version`/`status`/`task`/`url`/`chains_used`/`artifact_root`/`evidence_refs`/`summary`/`blocked_reason`/`next_step`/`sanitized`）；`status` 为三态之一且各有证据依据；`blocked` 时 `blocked_reason` 枚举合法且 `next_step` 非空；`evidence_refs` 数组内路径与实际产物对应。
+2. **成功标准对照**：三类产物齐全且路径可查；结论三态有证据支撑；登录态任务的 profile 目录持久化未被清理。
+3. **凭据脱敏核查**（对照 Safety 节验证清单）：profile/登录态证据不在 git 跟踪路径；`sanitized` 标记正确；evidence/截图无 cookie/token/凭据明文。
+
+**通过标准**：三项均 PASS。**未通过处理**：列出问题清单 → 修复（最多 2 轮）→ 仍未通过 → 转 `blocked` 上报用户并附验证失败原因。
+
+若无独立验证角色可用，本步骤降级为执行者按上述三项自检（Self-Gate），但**验证基准不变**——仍按协议契约与成功标准逐项核对，不按"我觉得做完了"收尾。
 
 ## Output format
 
@@ -209,6 +258,14 @@ console（错误/警告/消息）→ 网络（失败请求/请求详情）→ �
 写入产物前 MUST 按本节 schema 逐字段核对——下游按 schema 解析，字段缺失或枚举越界会让产物不可消费。
 
 产物结构与命名对齐 pb-v1 findings/verify 风格——**仅格式参考**，不构成对 powerby 跨仓技能的任何引用/依赖（C-4/N6）；本产物协议是"调试闭环证据 + 三态结论"，**无 round/severity/findings 评审语义**，与 pb-v1-brower 的 review/verify/iterate 报告协议不重合（分工见 `references/division-of-labor.md`）。
+
+### 渐进交付指导（组合任务）
+
+当任务涉及多个组合步骤（登录态就绪 → 主链路执行 → 失败转诊断深诊 → 修复后复验）时，按自然边界分三阶段交付，避免纠偏滞后：
+
+- **骨架**（步骤 0-1）：Gate 前置检查结果（就绪/blocked）+ 选路决策。方向确认点：环境前提就绪且选路正确 → 进入下一阶段；blocked → 按 next_step 恢复后重试。
+- **核心**（步骤 2-5，按选路执行）：每个链路完成后产出中间摘要（见各步骤"完成后"标注）；断言失败时先确认页面状态再转诊断，不盲目执行到底。
+- **收尾**（步骤 6-7）：结构化证据 + 截图 + 三态结论落盘，经产物验证（步骤 7）后交付。
 
 ## Resources
 
@@ -296,3 +353,12 @@ Input：> 帮我对 https://staging.example.com/checkout 抓 console 报错和�
 - [ ] `result.json#sanitized=true` 已置位（含凭据任务）
 
 **CRITICAL: 登录态/凭据证据（profile、含 cookie/token 的截图与结构化数据）默认不入 git、提交前必须脱敏——凭据一旦进入 git 历史即为不可逆泄漏（后置检查，与 Purpose 前置红线同源）。**
+
+## Evaluation
+
+- **触发准确率**（description eval）：用 `references/description-eval-samples.md` 样例集（6 组 should-trigger + 7 组 should-not-trigger）离线判定命中率 ≥ 90%。
+- **产物协议完整性**（定量断言）：执行真实任务后，产出文件齐全（`artifact_root` 下 result.json + evidence.json + screenshot-*.png + session.md）、schema 字段逐字段完整。
+- **baseline 对照**（with_skill vs without_skill）：同一测试用例（典型：登录态续调 + 断言失败 → 深诊 + 修复后复验闭环）在有/无本 skill 时对比——with_skill 产出结构化证据 + 三态结论，without_skill 散落命令、无结构化证据、无 blocked 处理。
+- **人工 review**（定性）：产物 summary 是否清晰归因、`blocked` 结论 `next_step` 是否可执行、无过度执行、无凭据泄漏。
+
+本交付物**不含触发 eval 运行基建**（D10/F03 自宣边界）——评估协议为离线复用契约，由评审者按以上基准执行验收。
