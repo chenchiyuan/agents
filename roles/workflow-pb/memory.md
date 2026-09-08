@@ -5,6 +5,7 @@ description: workflow-pb 角色的精选索引。指向 data/ 下每条记录的
 
 # workflow-pb memory
 
+- **v0.8.0（2026-09-08）**：新增独立于 main 的中间分支层"迭代分支"（`iteration/{迭代ID}`），把 `main ← PR worktree 分支` 单层结构改为 `main ← 迭代分支 ← PR worktree 分支` 两层结构——main 应始终代表已完成、已验证的稳定状态。阶段1完成后创建迭代分支，PR worktree base/合并目标改为迭代分支，阶段5解锁判据同步改为"合并进迭代分支"，阶段6独立验证pass后由主agent将迭代分支merge进main并删除。仅从下一迭代起生效，不追溯0005/0007。根因和决策过程见 `data/workflow-pb-changelog.md`。
 - **v0.7.0（2026-09-07）**：新增独立于 status.md 的 history.md 记录产物，覆盖派发/收到报告/调度决策三类事件，按主 agent 单线程写入的物理顺序保真、不引入序号字段；status.md 头部新增 history 开关字段（默认开启）。根因和决策过程见 `data/workflow-pb-changelog.md`。
 - **v0.6.0（2026-09-07）**：demand 角色执行时六维诊断/来源标注等机械项被跳过，根因是"路径引用+子agent自觉阅读"模式下机械性契约遵循度不稳定。用户提出"role即skill，派发=加载skill"方向；澄清后确定 role 文件本身就是 skill 定义（概念等价，非文件迁移），派发机制改为主agent读出角色文件全文并显性注入brief。先在 demand 单点验证，再决定是否推广到其余8个角色。根因和决策过程见 `data/workflow-pb-changelog.md`，理解记录见 `roles/demand/data/demand-skill-migration-understanding.md`。
 - **v0.5.0（2026-09-06）**：修复阶段6验证报告发现的4处文字歧义（首批派发封顶规则、槛位空置负面约束、失败/阻塞PR清理禁令、槛位释放字段改名去掉"成功"），并新增阶段6强制检查项——下一个真实多PR并发迭代必须核查worktree时间窗口重叠等真实执行证据，不能停留在协议文字自洽层级。根因和决策过程见 `data/workflow-pb-changelog.md`。
