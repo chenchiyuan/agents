@@ -148,6 +148,10 @@ export function createRegistry() {
   function recordPendingDelivery({ messageId, toInstance, toSession }) {
     pendingDeliveries.set(messageId, { toInstance, toSession });
   }
+  /** 定向清理单条 pending——投递失败回滚用（Q-1 裁决 pr-004：recordPending 前置后失败分支不留脏）。 */
+  function clearPendingDelivery(messageId) {
+    pendingDeliveries.delete(messageId);
+  }
   /** ack 校验：返回 {acked:true} 或 { error:'UNKNOWN_MESSAGE'|'STALE_SESSION'|'INVALID_ACK_STATUS' }。
    *  本轮仅支持 status='accepted'（§4.3 INVALID_ACK_STATUS）；校验通过才清 pending。 */
   function resolvePendingAck({ messageId, instanceId, sessionId, status }) {
@@ -175,6 +179,7 @@ export function createRegistry() {
     markOffline,
     snapshot,
     recordPendingDelivery,
+    clearPendingDelivery,
     resolvePendingAck,
     clearPendingForInstance,
   };

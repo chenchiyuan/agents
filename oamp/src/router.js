@@ -204,18 +204,23 @@ export default async function startRouter(restArgs) {
           payload: m.payload,
           created_at: new Date().toISOString(),
         };
-        try {
-          await deliverTo(target.connId, full);
-        } catch (err) {
-          // 投递期间目标连接断开 → 发送方收 AGENT_OFFLINE（§4.6 send）
-          sendError(respond, ERR.AGENT_OFFLINE, `deliver failed: target offline (${targetId})`);
-          return;
-        }
+        // Q-1 裁决（pr-004 跨 PR 修复）：pending 在投递前先记录——目标自动受理的 ack 可能与 deliver
+        // 响应同 chunk 到达 Router，若 await deliverTo 后才记 pending，ack 会先于 pending 被处理 →
+        // UNKNOWN_MESSAGE（ack 校验锚点缺失，§5.5）；前置记录保证 ack 恒可关联。
+        // 重复 message_id 仍按 Map 覆盖（D11 无去重状态机语义不变）。
         registry.recordPendingDelivery({
           messageId: full.message_id,
           toInstance: targetId,
           toSession: target.session_id,
         });
+        try {
+          await deliverTo(target.connId, full);
+        } catch (err) {
+          // 投递失败：回滚本次刚记录的 pending（不留脏）；发送方收 AGENT_OFFLINE（§4.6 send）
+          registry.clearPendingDelivery(full.message_id);
+          sendError(respond, ERR.AGENT_OFFLINE, `deliver failed: target offline (${targetId})`);
+          return;
+        }
         logger.event('MESSAGE_DELIVERED', { message_id: full.message_id, from: ident.instance_id, to: targetId });
         if (respond) respond.ok({ accepted: true, message_id: full.message_id, status: 'delivered' });
         return;
