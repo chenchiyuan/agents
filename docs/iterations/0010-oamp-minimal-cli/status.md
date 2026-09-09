@@ -4,7 +4,7 @@
 **迭代**: 0010-oamp-minimal-cli
 **当前阶段**: 全部完成（阶段 6 通过，待用户决定是否合入 main）
 **迭代分支**: iteration/0010-oamp-minimal-cli
-**状态**: 等待确认（合入 main 决策）
+**状态**: 已完成（用户选择保留分支先实测，合入决策待实测后）
 **history**: 开启
 
 ## 阶段状态
@@ -37,9 +37,11 @@
 - [x] P-01~P-09 / M-01~M-03 / 架构开放项（全部 user_confirmed）
 - [x] Q1 scripts.test 形态 / cli.js 透传 / router.js 竞态 跨 PR 裁决（2026-09-09，主 agent）
 - [ ] 是否合入 main（用户决策点——workflow 收尾，不自动合入）
+- [x] 合入决策：用户选择保留分支先实测（2026-09-09，user_confirmed）——分支 iteration/0010-oamp-minimal-cli 保留现状
 
 ## 更新日志
 
 - 2026-09-09: 工作流启动；阶段 1~4 完成。
 - 2026-09-09: 阶段 5 完成——4 PR 合并，npm test 46/46，逐 PR PASS，跨 PR 修正 2 处。
 - 2026-09-09: 阶段 6 收尾验证 FAIL（status.test #1 竞态）→ R1 修复 + R2 README 同步（dedd519）→ rereview PASS。迭代全部阶段 ✅。
+- 2026-09-09: 用户决策：保留分支先实测（不合并 main）。实测指引：node bin/oamp.js router start / agent start（可多终端）→ status → kill 观察 offline；或 oamp/ 下 npm link 后裸用 oamp。
