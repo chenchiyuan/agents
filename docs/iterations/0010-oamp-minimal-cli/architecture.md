@@ -58,6 +58,9 @@ flowchart TB
     CLI --> R
     CLI --> A
     CLI --> ST
+    CFG --> R
+    CFG --> A
+    CFG --> ST
     A --> NC
     ST --> RP
     NC --> RP
@@ -71,7 +74,7 @@ flowchart TB
     R -.监听 UDS.-> UDS
 ```
 
-进程拓扑：Router = 一个前台进程（服务端）；每个 `oamp agent start` = 一个前台进程（客户端）；`oamp status` = 一个短命客户端进程（查完即退）。Router 与每个节点之间是**一条长连接 UDS**（注册后同连接承载心跳/消息/ack）；无节点间直连、无第二类连接。
+进程拓扑：Router = 一个前台进程（服务端）；每个 `oamp agent start` = 一个前台进程（客户端）；`oamp status` = 一个短命客户端进程（查完即退）。Router 与每个节点之间是**一条长连接 UDS**（注册后同连接承载心跳/消息/ack）；无节点间直连、无第二类连接。配置消费关系：`src/config.js` 被 router/agent/status **三个进程入口**消费（读取各自 env 参数默认值与校验，见 §7.2）；`cli.js` 仅做子命令分发、不读配置。
 
 ### 3.2 模块布局（→ AR-01）
 
@@ -107,6 +110,8 @@ oamp/
 可执行入口形态：`bin/oamp.js` 带 `#!/usr/bin/env node` + `chmod +x`，同时 package.json 声明 `bin`（`npm link` 后可裸用 `oamp`）；README 手测两种运行方式（推荐 `npm link` 后用 `oamp`，或 `node bin/oamp.js`）。node:test 测试一律 `node bin/oamp.js …` 子进程方式拉起，不依赖 PATH。
 
 ### 3.3 核心数据流
+
+**配置面数据流**：各进程入口（router/agent/status）启动时经 `src/config.js` 读取并校验 env（`OAMP_SOCKET` / `OAMP_HEARTBEAT_INTERVAL_MS` / `OAMP_HEARTBEAT_TIMEOUT_MS` / `OAMP_HB_LOG_WINDOW_MS`），得到 socket 路径与心跳/节流参数后进入下述流程——此后各流程内的"默认 socket 路径 / 心跳周期 / 租约超时"均指该进程已解析的运行参数（默认值与校验规则见 §7.2）。
 
 **① 注册**（agent 启动）
 

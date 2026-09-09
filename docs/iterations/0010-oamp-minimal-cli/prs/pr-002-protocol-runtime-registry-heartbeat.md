@@ -10,6 +10,7 @@
 - F03（agent-heartbeat.test.js：真实 agent 子进程注册/心跳更新/SIGINT deregister 退出 0/双 agent 并发）
 - F04（agent-heartbeat.test.js：kill→超时→offline 自动判定/正常心跳不误判；判定以 Router 侧 AGENT_OFFLINE 事件行为可测锚点，architecture.md §5.6/§8.1）
 - F06（event-log.test.js：Router/agent 事件行可见、心跳节流 ≤⌈T/W⌉+1、节流不吞状态事件）
+- F07（实现侧共栖，随本 PR 落盘：router.js message.* 分发、registry.js pendingDeliveries、node-client.js send/ack/自动受理、log.js MESSAGE_* 事件——§4.4/§5.5/§6.1/§6.4 定义在同一批文件上；可执行验收载体 = pr-004 契约测试）
 
 ## 文件范围
 
