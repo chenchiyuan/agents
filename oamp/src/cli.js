@@ -81,7 +81,8 @@ export async function main(argv) {
     if (instanceId === undefined) {
       return usageError('错误: missing required argument: instance-id');
     }
-    return loadAndRun('./agent.js', 'agent start', argv.slice(3));
+    // 分发后剩余 argv 透传给 agent 模块：instance-id 归模块 restArgs[0]（O-1 收敛，2026-09-09 主 agent 裁决 A）
+    return loadAndRun('./agent.js', 'agent start', argv.slice(2));
   }
 
   if (cmd === 'status') {
