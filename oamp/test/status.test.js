@@ -85,6 +85,11 @@ test('F05-1/2 + §7.3/D8：多节点表格——四字段齐全、按 instance_i
     what: '两节点均 online',
   });
 
+  // 竞态消除（V1 偏差）：基准快照 base 须在 runStatusCli 之前取得（T_base < T_cli），
+  // 以其 last_heartbeat 作 CLI 输出时间戳的下限——注册表 last_heartbeat 单调不减，断言必然成立。
+  // 不得用更晚的 queryStatus 快照作下限去比较更早的 CLI 输出（晚快照心跳可能已推进越过 CLI 时点）。
+  const base = await queryStatus(router.socketPath);
+
   const res = await runStatusCli(router.socketPath);
   assert.equal(res.code, 0, 'status 成功应退出 0');
   assert.equal(res.stderr, '', '成功路径 stderr 应为空');
@@ -94,19 +99,21 @@ test('F05-1/2 + §7.3/D8：多节点表格——四字段齐全、按 instance_i
   assert.equal(rows[0][0], 'dev-1', '首行应为 instance_id 最小的节点');
   assert.equal(rows[1][0], 'dev-2', '次行应为 instance_id 较大的节点');
 
-  const snap = await queryStatus(router.socketPath);
   for (const [instanceId, row] of [
     ['dev-1', rows[0]],
     ['dev-2', rows[1]],
   ]) {
-    const node = (snap.nodes || []).find((n) => n.instance_id === instanceId);
-    assert.ok(node, `快照应含 ${instanceId}`);
+    const node = (base.nodes || []).find((n) => n.instance_id === instanceId);
+    assert.ok(node, `基准快照应含 ${instanceId}`);
     assert.match(row[1], UUID_RE, 'session_id 应为 36 字符 UUID 形态');
-    assert.equal(row[1], node.session_id, '输出 session_id 应与注册快照一致');
+    assert.equal(row[1], node.session_id, '输出 session_id 应与注册快照一致（测试期间无同 id 重注册，会话稳定）');
     assert.equal(row[2], node.state, '输出 state 应与注册快照一致');
     assert.equal(row[2], 'online');
     assert.match(row[3], ISO_RE, 'last_heartbeat 应为 UTC ISO-8601（毫秒 Z 后缀）');
-    assert.ok(Date.parse(row[3]) >= node.last_heartbeat, '输出 last_heartbeat 不早于快照时点（心跳自然推进）');
+    assert.ok(
+      Date.parse(row[3]) >= node.last_heartbeat,
+      '输出 last_heartbeat 不应早于 CLI 前的基准快照时点（注册表单调不减）',
+    );
   }
 });
 

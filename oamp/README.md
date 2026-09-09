@@ -3,9 +3,9 @@
 零依赖 Node.js v22 ESM 命令行工具：单一入口拉起 Router、拉起 agent 节点、查询拓扑状态。
 运行参数全部经环境变量提供（无 YAML 配置面）；节点与 Router 间为 UDS + JSON-RPC 2.0。
 
-> **当前状态**：本仓库首个落地 PR 交付 CLI 分发骨架与卫生基线；Router/agent/status 的完整能力
-> 随后续 PR 落地。本 PR 阶段执行 `router start` / `agent start <instance-id>` / `status`
-> 会得到"模块尚未实现"的明确提示（预期行为，非故障）。
+> **当前状态**：CLI 分发、Router/agent 运行时与 `status` 只读查询已全部落地可用——
+> `oamp router start`、`oamp agent start <instance-id>`、`oamp status` 三个命令端到端可执行
+> （复现步骤见下方 E2 手测）。
 
 ## 快速开始
 
@@ -28,9 +28,8 @@ node bin/oamp.js --help
 
 ## E2 手测步骤（三终端）
 
-> 以下为完整 E2 复现步骤骨架：Router 终端 + agent 终端 + `oamp status` 查询，
-> 使"节点 online、心跳持续可见、kill 后 offline"可复现。Router/agent 完整能力随后续 PR 落地，
-> 届时按本步骤即可完整执行。
+> 完整 E2 复现：Router 终端 + agent 终端 + `oamp status` 查询，按下列步骤直接执行即可
+> 观察到"节点 online、心跳持续可见、kill 后 offline"。
 
 1. **终端 1（Router）**：`oamp router start` → 等待 stdout 出现就绪行 `ROUTER_READY socket=…`。
 2. **终端 2（agent）**：`oamp agent start dev-1` → 注册成功打印 `REGISTERED`，随后周期心跳。
@@ -57,7 +56,8 @@ node bin/oamp.js --help
 - socket 文件权限 0600（属主访问，无 token 鉴权机制）；默认落点 `oamp/.runtime/router.sock`。
 - 方法面：`agent.register` / `agent.heartbeat`（通知）/ `agent.deregister` /
   `message.send` / `message.deliver` / `message.ack` / `router.status`。
-- 详细协议契约（信封字段、错误码、时序）随后续 PR 代码与文档落地。
+- 详细协议契约（信封字段、错误码、时序）已随实现落地；设计依据见
+  `docs/iterations/0010-oamp-minimal-cli/architecture.md`。
 
 ## 卫生红线声明
 
