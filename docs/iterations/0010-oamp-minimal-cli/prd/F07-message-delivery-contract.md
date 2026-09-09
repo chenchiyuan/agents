@@ -28,7 +28,7 @@
 
 ## 架构维度（阶段 3 已补全，2026-09-09 → architecture.md §4.4~4.6/§5.5/§6.4/§10/D10~D12）
 
-- **信封子集与校验（AR-08 → D10，§4.5）**：`{protocol:"oamp/1"(必), message_id(必：非空≤64 可打印 ASCII，幂等键端到端不变), type(可选预留，Router 不校验), from{Router 代填，发送方自报且与连接身份不符 → INVALID_SENDER}, to{instance_id}(必，点对点), payload{content_type ∈ text/plain|text/markdown|application/json, body}(必), created_at(Router 代填 UTC)}`；违反 → `INVALID_MESSAGE`。
+- **信封子集与校验（AR-08 → D10，§4.5）**：`{protocol:"oamp/1"(必), message_id(必：非空≤64 可打印 ASCII，幂等键端到端不变), type(可选预留，Router 不校验), from{Router 代填，携带任何 from 一律 INVALID_SENDER}, to{instance_id}(必，点对点), payload{content_type ∈ text/plain|text/markdown|application/json, body}(必), created_at(Router 代填 UTC)}`；违反 → `INVALID_MESSAGE`。
 - **send/deliver/ack 映射与 ack 流向（AR-08 → D10/D11，§4.4/§4.6/§5.5）**：send（请求）= **单次投递同步代理**——校验目标 live 后转发 deliver、等目标传输应答再回发送方 `{accepted:true, message_id, status:"delivered"}`（本轮无 queued/异步投递语义，docs/ds queued 依赖 outbox+重试，均 N 掉）；deliver（Router→目标请求）→ 目标回 `{received:true}`（传输层应答），Router 记投递等待集；ack（目标→Router 请求）**流向 = Router 记录，不回发送方**（无 message.status/事件推送）：Router 校验 pending + 会话 + `status:"accepted"` → 回 `{acked:true}`；未知 message_id → `UNKNOWN_MESSAGE`，会话不符 → `STALE_SESSION`。
 - **寻址与未注册/离线 send（AR-08 → D10，§4.4）**：仅按 instance_id 寻址当前唯一 live 会话（替换语义保证映射最新）；目标不在注册表 → `AGENT_NOT_FOUND`，offline/连接已断 → `AGENT_OFFLINE`——**同步拒绝，不排队、不进入重试域**（N1）。发送方连接未注册 → `UNREGISTERED`。
 - **重试/超时重投/幂等去重状态机（AR-09 → D11）**：**不纳入**。裁决理由：重投的唯一消费者是幂等去重表、去重表的唯一消费者是重投——无重投则状态机无触发源（死代码）；message_id 的贯通语义由 Router 单次投递等待集 + ack 校验承担（保证 ack 可关联、防伪）。与"最小冒烟"的张力：E1 冒烟仅承诺 happy path 单次投递成功 + message_id 贯通，重投/去重属故障注入域（docs/ds 06 实施第 2 步），本轮无故障注入用例，纳入即超出冒烟范围。

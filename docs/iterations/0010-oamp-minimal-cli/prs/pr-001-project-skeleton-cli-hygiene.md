@@ -22,9 +22,9 @@
 
 ## 验收标准
 
-- [ ] `oamp/` 下执行 `node --test test/cli.test.js test/hygiene.test.js` 全绿（无需任何本 PR 之外的文件存在；cli.test 覆盖 §10.2 F01 范围：误用/缺参退出码与文案、--help、npm test 载体、零运行时依赖声明核查；hygiene.test 覆盖 §9：`.gitignore` 含 `.runtime/`、对 bin/src/package.json 凭据字段名扫描无命中）
+- [ ] `oamp/` 下执行 `node --test test/cli.test.js test/hygiene.test.js` 全绿（无需任何本 PR 之外的文件存在；cli.test 覆盖 §10.2 F01 范围：误用/缺参退出码与文案、--help、npm test 载体（npm test 即运行 scripts.test：`node --test test/*.test.js`，F01-1）、零运行时依赖声明核查；hygiene.test 覆盖 §9：`.gitignore` 含 `.runtime/`、对 bin/src/package.json 凭据字段名扫描无命中）
 - [ ] 行为抽查（§7.1 argv 表）：`node bin/oamp.js`（空）、未知/非法子命令 → stderr 打印可用子命令用法 + 明确报错，退出码 2，不挂起（M-01/F01-4）；`node bin/oamp.js agent start`（缺 instance-id）→ stderr 明确报错含 instance-id，退出码 2，不挂起（F01-5）；`node bin/oamp.js -h`/`--help` → stdout 用法，退出码 0
-- [ ] 命令核查：`oamp/` 内无任何 YAML 配置文件参与运行（F01-6）；package.json 声明 type=module、bin `oamp:"./bin/oamp.js"`、engines.node>=22、scripts.test=`node --test test/`、dependencies 为空（F01-2）
+- [ ] 命令核查：`oamp/` 内无任何 YAML 配置文件参与运行（F01-6）；package.json 声明 type=module、bin `oamp:"./bin/oamp.js"`、engines.node>=22、scripts.test=`node --test test/*.test.js`、dependencies 为空（F01-2）
 - [ ] `oamp/.gitignore` 含 `.runtime/`；README.md 按 D15 组织（快速开始→E2 手测三步→参数表→协议速览→卫生红线声明），并声明两条红线（F08-3）
 
 ## 参考资料

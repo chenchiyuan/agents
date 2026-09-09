@@ -81,7 +81,9 @@ flowchart TB
 ```
 oamp/
 ├── package.json          # name=oamp, type=module, private, bin:{oamp:"./bin/oamp.js"},
-│                         # engines.node>=22, scripts.test="node --test test/"，零 dependencies
+│                         # engines.node>=22, scripts.test="node --test test/*.test.js"，零 dependencies
+│                         # （glob 形态：Node v22.15 目录形态 node --test test/ 实测失败；
+│                         #    glob 精确选 *.test.js，排除 helpers/ 下仅被 import 的辅助文件）
 ├── bin/oamp.js           # 可执行入口（ESM shebang），仅转发给 src/cli.js
 ├── src/
 │   ├── cli.js            # argv 解析 + 子命令分发 + 用法/报错文案（M-01）
@@ -151,10 +153,11 @@ sequenceDiagram
     participant T as 目标节点(注册节点)
     S->>R: message.send {message{message_id,to,payload,…}}（请求）
     R->>R: 校验信封；校验发送方已注册；to 解析 live 连接
+    R->>R: 先记 pending[message_id]={to,session}（发出前，防同 chunk 竞态；失败回滚见 §5.5）
     R->>T: message.deliver {message（Router 代填 from/created_at）}（请求）
     T->>T: 校验信封；记录 message_id；触发 onDeliver 钩子
     T-->>R: deliver 响应 {received:true, message_id}（传输层应答）
-    R->>R: 记投递等待集 pending[message_id]={to,session}；打 MESSAGE_DELIVERED
+    R->>R: 打 MESSAGE_DELIVERED
     R-->>S: send 响应 {accepted:true, message_id, status:"delivered"}
     T->>R: message.ack {message_id, instance_id, session_id, status:"accepted"}（请求）
     R->>R: 校验 pending+会话 → 清 pending；打 MESSAGE_ACKED
@@ -188,7 +191,7 @@ sequenceDiagram
 ### 4.1 传输与帧（→ AR-12）
 
 - 一条 UDS 长连接 = 一个双向字节流。**帧 = 每行一个 JSON 对象（NDJSON）**，行终止符 `\n`；`JSON.stringify` 不产生裸换行，逐帧完整；接收端按行缓冲解码（处理半包粘包），解析失败回 `-32700 PARSE_ERROR`（无 id 则静默丢弃该帧）。
-- 单帧上限 **1 MiB**，超限丢弃并回错误（`data.code=LIMIT_EXCEEDED`）——防内存滥用；本迭代消息体积极小，阈值宽松。
+- 单帧上限 **1 MiB**，超限丢弃并回错误（`data.code=LIMIT_EXCEEDED`）——防内存滥用；本迭代消息体积极小，阈值宽松。判定口径 = **UTF-16 码元数**（`setEncoding('utf8')` 后按字符串 `.length` 计）：非 ASCII 字符按 1 码元而非其 UTF-8 字节数计，接近上限的非 ASCII 消息实际字节偏大、按码元口径偏松（实现口径，记录在案）。
 - socket 文件权限 0600（监听后 `chmod`，见 D2）。
 
 ### 4.2 通用 JSON-RPC 规则（→ AR-12）
@@ -207,7 +210,7 @@ sequenceDiagram
 | `AGENT_OFFLINE` | 目标已知但 offline / 连接已断（含租约宽限内） | send 目标离线、投递时写失败 |
 | `STALE_SESSION` | 会话不匹配当前 live | 旧 session deregister/ack、register 后旧会话心跳（忽略） |
 | `INVALID_MESSAGE` | 信封校验失败 | send/deliver 信封缺字段/类型错 |
-| `INVALID_SENDER` | 发送方自报 from 与连接身份不符 | send 携带伪造 from |
+| `INVALID_SENDER` | 发送方携带任何 from（一律拒绝，身份由 Router 代填） | send params 带 from 字段 |
 | `UNKNOWN_MESSAGE` | ack 引用的 message_id 无对应待 ack 投递 | ack 未知/已 ack 消息 |
 | `INVALID_ACK_STATUS` | ack status 非本迭代支持值 | 本轮仅 `accepted` |
 | `LIMIT_EXCEEDED` | 帧超限 | 帧层 |
@@ -250,7 +253,7 @@ sequenceDiagram
 | `protocol` | 是 | 恒 `oamp/1`；不符 → `INVALID_MESSAGE` |
 | `message_id` | 是 | 幂等键，端到端不变；非空、≤64、可打印 ASCII（无控制字符，防日志注入） |
 | `type` | 否 | 预留字符串，Router 不校验枚举（本轮无业务类型；docs/ds type 枚举后移） |
-| `from` | Router 代填 | 发送方**不得自报**：send params 中携带且与连接身份不符 → `INVALID_SENDER`；deliver 时由 Router 填 `{instance_id, session_id}`（docs/ds：Router 代填/校验，实例不可自报他人） |
+| `from` | Router 代填 | 发送方**不得自报**：send params 中**携带任何 from（含与连接身份一致者）一律 `INVALID_SENDER`**——身份只由 Router 按连接填写；deliver 时由 Router 填 `{instance_id, session_id}`（docs/ds：Router 代填/校验，实例不可自报他人） |
 | `to` | 是 | 点对点 `{instance_id}`；仅按 instance_id 寻址（N4 无广播/selector；docs/ds 的 agent_id 字段名本轮统一为 instance_id，与 demand P-05 术语一致） |
 | `payload` | 是 | `content_type` ∈ `text/plain`/`text/markdown`/`application/json`（docs/ds MVP 承诺面），`body` 为字符串（application/json 时序列化后存放） |
 | `created_at` | Router 代填 | UTC ISO-8601 |
@@ -259,7 +262,7 @@ send 校验顺序：连接已注册 → 信封合法（protocol/message_id/to/pa
 
 ### 4.6 各方法请求-响应与错误映射细则（→ AR-02/AR-08）
 
-- **register**：`instance_id` 校验（非空、≤64、可打印）；已注册连接重复 register = 幂等更新（同会话续期，不重复建条目）；live 冲突处置见 D4。响应含 Router 授予的 `lease_timeout_ms`（Router 侧 env 配置，非节点自报——节点不可提权租约，docs/ds 方向）。
+- **register**：`instance_id` 校验（非空、≤64、可打印）；已注册连接重复 register = **同连接续期：session 重新签发、条目刷新为 online（不触发替换、不报错）**；live 冲突处置见 D4（仅不同 live session 才替换）。响应含 Router 授予的 `lease_timeout_ms`（Router 侧 env 配置，非节点自报——节点不可提权租约，docs/ds 方向）。
 - **heartbeat**：仅当 `entry.session_id === 上报 session` 且 `state=online` 才更新 `last_heartbeat`；offline/未知/旧会话一律忽略（不产生状态变更、不回错——通知无语义通道；事件日志亦不记录被忽略的旧会话心跳）。
 - **deregister**：会话匹配 → 删除条目 + 清该节点投递等待集 + 打 AGENT_DEREGISTERED；instance 不存在 → `AGENT_NOT_FOUND`；会话不匹配 → `STALE_SESSION`（docs/ds A-11 方向）。
 - **send**：见 §4.4 注；投递期间目标连接断开 → pending 请求被连接关闭拒绝 → 发送方收 `AGENT_OFFLINE`。
@@ -302,7 +305,7 @@ interface RegistryEntry {
 
 **决策：live 冲突时新注册替换旧会话**（不是拒绝）：
 
-1. `register` 时若存在同 id 且 `state=online` 的**不同 session** 条目 → Router 主动关闭旧连接（旧节点进程随即走 CONNECTION_LOST 退出路径），用新 session 覆盖条目（state=online、last_heartbeat=now、connId=新连接），打 `AGENT_REPLACED instance=… old_session=… new_session=…`，新节点注册成功。
+1. `register` 时若存在同 id 且 `state=online` 的**不同 session** 条目 → Router 主动关闭旧连接（旧节点进程随即走 CONNECTION_LOST 退出路径），用新 session 覆盖条目（state=online、last_heartbeat=now、connId=新连接），打 `AGENT_REPLACED instance=… old_session=… new_session=…`，新节点注册成功。`AGENT_REPLACED` **仅在旧连接仍 live（connId 非空）时触发**；连接已断但租约未过时（connId=null、state 仍 online）的同 id 重注册属**普通覆盖复活**（不打 REPLACED、不关连接）。
 2. offline 条目被同 id 重注册 → 直接覆盖复活为新 online session（E1 末节）。
 3. 唯一性不变量（P-07：同一时刻至多一个 live session）由"注册表以 instance_id 为键 + 替换写"结构性保证——任意时刻该键恰一条记录、至多一个非空 connId。
 
@@ -316,7 +319,7 @@ interface RegistryEntry {
 
 ### 5.5 投递等待集与 ack 校验（→ AR-08，D10）
 
-- 每次 deliver 发出且目标传输层应答后，Router 记 `pendingDeliveries.set(message_id, {toInstance, toSession})`。
+- **deliver 发出前** Router 先记 `pendingDeliveries.set(message_id, {toInstance, toSession})`；投递失败（目标连接断开 / 防御性超时 5s，见 D17）→ 回滚 `clearPendingDelivery(message_id)` 后回发送方错误。记录先于发出的原因（**Q-1 竞态裁决**）：ack 与 deliver 的 JSON-RPC 响应可能在同一 TCP chunk 到达 Router——若先应答 deliver 再记 pending，同 chunk 内先被处理的 ack 会查不到 pending 而误报 `UNKNOWN_MESSAGE`；先记后发保证 ack 到达时 pending 必已存在。重复 message_id 的 send 仍为 Map 覆盖（后发覆盖先发；无去重状态机，D11）。
 - `message.ack` 到达：查 pending → 无 → `UNKNOWN_MESSAGE`；有但 instance/session 不匹配 → `STALE_SESSION`；匹配 → 校验 `status==="accepted"` → 清 pending，回 `{acked:true}`。
 - 清理时机（保证有界）：ack 命中即删；目标 offline 判定/删除时清其全部 pending（不会再 ack）。
 - 该集合**仅用于 ack 校验与防伪，不驱动任何重投**（D11：无重试/超时重投定时器）。
@@ -351,7 +354,7 @@ interface RegistryEntry {
 
 1. **启动**：connect 默认 socket（env 覆盖）→ 失败（ECONNREFUSED/ENOENT）→ stderr 明确报错（含 socket 路径与"router 未运行？先执行 oamp router start"）→ 退出码 1（与 M-02 同风格）。
 2. **注册**：`agent.register` 请求，等响应**上限 2s**（防"连上但不答"的悬挂；超时/失败 → 报错退出 1）。成功 → 打 `REGISTERED` 事件（含授予的 lease_timeout_ms）→ 按节点侧 env 间隔启动 `setInterval` 心跳。
-3. **心跳**：周期发 `agent.heartbeat`（通知）。若授予的 `lease_timeout_ms < 2×interval` → 启动时打一条告警事件（建议 timeout ≥ 2×interval，防租约内跳空被误判）。
+3. **心跳**：周期发 `agent.heartbeat`（通知）。若授予的 `lease_timeout_ms < 2×interval` → 启动时打 `LEASE_ALARM` 告警事件（建议 timeout ≥ 2×interval，防租约内跳空被误判）。
 4. **断线行为（N1/N7 无重试、无守护）**：运行中 socket 报错/关闭 → 打 `CONNECTION_LOST` 事件 → **退出码 1**（快速失败，不静默、不重连、不挂起；Router 死则节点随之退出，由用户/外部进程拉起——与 F03 边界"不做心跳/注册重试机制"一致）。
 
 ### 6.3 SIGINT 时序（→ AR-03/F03，D16）
@@ -407,7 +410,7 @@ dev-1         3f2a9c10-7b4e-4d2f-9c8a-1b2c3d4e5f60   online   2026-09-09T12:00:3
 
 - 字段 = P-05 锁定的四字段；`last_heartbeat` UTC ISO-8601；session 全量显示（36 字符 UUID）。
 - Router 运行但零节点 → 表头 + 空行，退出 0（合法状态，非错误）。
-- Router 不可达（connect 失败）→ stderr：`cannot reach oamp router at <path>（router 未运行？）` + 退出 1（M-02，不静默输出空结果）。
+- Router 不可达（connect 失败）→ stderr 中文形态：`oamp: status 失败: 无法连接 oamp router（socket=…；router 未运行？先执行 oamp router start）` + 退出 1（M-02，不静默输出空结果；与 agent.js 启动失败报错同款文案）。
 - 只读无副作用：查询路径不触碰任何状态（F05-4）；连续执行结果一致（last_heartbeat 仅随心跳自然推进）。
 
 ---
@@ -419,7 +422,7 @@ dev-1         3f2a9c10-7b4e-4d2f-9c8a-1b2c3d4e5f60   online   2026-09-09T12:00:3
 事件行 = `[<UTC ISO-8601>] <role> <TOKEN> <key=value …>`（值含空格时引号包裹；id/instance 已被字符集校验排除控制字符，防日志注入）。输出到 **stdout**（错误/用法走 stderr）。事件值不做自由散文，全部 key=value 便于脚本统计（F06-3 观察窗口统计）。
 
 **Router 侧事件**：`ROUTER_READY`、`AGENT_REGISTERED`、`AGENT_REPLACED`、`AGENT_DEREGISTERED`、`AGENT_OFFLINE`、`HEARTBEAT`（节流）、`MESSAGE_DELIVERED`、`MESSAGE_ACKED`、`ROUTER_STOPPING`。
-**agent 侧事件**：`AGENT_START`、`REGISTERED`、`MSG_RECEIVED`、`CONNECTION_LOST`、`DEREGISTERED`。
+**agent 侧事件**：`AGENT_START`、`REGISTERED`、`LEASE_ALARM`、`MSG_RECEIVED`、`CONNECTION_LOST`、`DEREGISTERED`（`LEASE_ALARM` = 心跳间隔超授予 lease_timeout 的自检告警，见 §6.2）。
 示例：`[2026-09-09T04:12:33.123Z] router AGENT_REGISTERED instance=dev-1 session=3f2a9c10-…`
 
 ### 8.2 心跳节流机制与数值
@@ -450,7 +453,7 @@ dev-1         3f2a9c10-7b4e-4d2f-9c8a-1b2c3d4e5f60   online   2026-09-09T12:00:3
 
 ### 10.2 node:test 用例组织（→ AR-12，D13）
 
-- 运行方式：`oamp/` 下 `npm test` = `node --test test/`（node:test 内建发现 `test/*.test.js`；helpers 非 `*.test.js` 不被当用例）。
+- 运行方式：`oamp/` 下 `npm test` = `node --test test/*.test.js`（**glob 形态**——Node v22.15 上目录形态 `node --test test/` 实测失败，裸 `node --test` 会误执行 helpers/ 下非 `*.test.js` 的辅助文件；glob 精确选取 7 个 `*.test.js`，helpers 仅被各用例 import、不直接执行；实现期已裁决并实测 npm test 11/11 全绿）。
 - **harness（test/helpers/harness.js）**：`fs.mkdtemp(os.tmpdir())` 生成每用例独立临时 socket + 缩短 env（interval 30~100ms / timeout 200~400ms / 窗口 ~300ms）→ 子进程拉起 Router → 等 `ROUTER_READY` 行 → 返回句柄；teardown 发 SIGINT、限时等退出、超时 kill 兜底。**测试绝不触碰仓库内 `.runtime/`**（并行文件互不冲突；node --test 文件级并行 + 文件内串行）。
 - **时序断言统一用轮询工具** `waitFor(pred, deadline)`（如"≤ timeout+sweep 上界内 status 变 offline"），宽裕倍数防 CI 抖动；不写裸 sleep 关键路径。
 - 用例文件 ↔ 功能卡映射：
@@ -487,7 +490,7 @@ dev-1         3f2a9c10-7b4e-4d2f-9c8a-1b2c3d4e5f60   online   2026-09-09T12:00:3
 | D14 | 产物落点 `.runtime/` + `oamp/.gitignore` 一行；凭据扫描载体 = hygiene.test.js（静态，排除 test/ 自匹配） | AR-11 | L2 | F08；git 侧核查留阶段 6（需真实 git 状态） |
 | D15 | README 组织：快速开始（npm link/直接 node）→ 三命令手测步骤（E2）→ 参数表 → 协议速览 → 卫生红线声明 | AR-01 | L3 | F01-8/E2 载体 |
 | D16 | 信号与就绪：Router `ROUTER_READY` 行 + SIGINT close/unlink/exit 0；agent SIGINT best-effort deregister(请求语义,≤1s) 后 exit 0；二次 SIGINT 强退 | AR-03/F01/F03 | L2 | F02-8/F03-3 优雅退出确定性；deregister 请求语义与 docs/ds"通知"差异：为可测的注销时序与 Router 侧错误可见性，Router 兼容无 id 通知形态 |
-| D17 | 时钟 = 进程内 `Date.now()`；请求超时仅 3 处设上限：agent.register 2s、agent.deregister 1s、status 2s；**deliver 不设超时**（目标恒为自有 NodeClient，必应答） | AR-04/F04 | L2/L3 | 本机无跨机时钟问题；防启动/查询悬挂而不发明重试域定时器 |
+| D17 | 时钟 = 进程内 `Date.now()`；请求超时：agent.register 2s、agent.deregister 1s、status 2s；**deliver 设防御性超时 5s**（非重试域：超时即单次尝试失败，按 `AGENT_OFFLINE` 回发送方，不重投） | AR-04/F04 | L2/L3 | 本机无跨机时钟问题；deliver 防御性超时防投递悬挂，但单次即止——不发明重试域定时器 |
 
 ### 奥卡姆剃刀检验（组件 ↔ 必需功能）
 
@@ -542,5 +545,5 @@ dev-1         3f2a9c10-7b4e-4d2f-9c8a-1b2c3d4e5f60   online   2026-09-09T12:00:3
 
 1. **prd.md 疑问 2/3 的裁决**见 §13 开放项 1/2（同 id 冲突 = 替换；真实 agent 自动受理 deliver/ack）。两处均归类 L2 并给出理由与可逆改判点——因 prd 曾显式留白，不擅自视为终局，提请主 agent 决定是否转用户复核。
 2. **与 docs/ds 的术语/语义差异（记录在案，docs/ds 为建议、以本迭代实现为准）**：信封 `from`/`to` 用 `instance_id`（docs/ds 用 `agent_id`，demand P-05 统一为 instance_id）；send 同步单次代理（无 queued/异步投递）；deregister 请求语义；心跳通知不携带 state/inflight（无 busy 语义）；错误码以 `data.code` 字符串承载。均为"裁剪到本轮范围"的结果，未来迭代扩展时按 docs/ds 对齐。
-3. **已知限制（不阻塞，文档化）**：send 同步等待目标传输应答期间，若目标进程存活但事件循环卡死（非本迭代客户端可实现的状态），send 会悬挂——本迭代所有节点均为自有 NodeClient（必应答），该场景无现实路径；重试域（D11 裁决不做）是未来迭代解决它的正式机制。offline 墓碑不做 GC（§5.4 理由）。
+3. **已知限制（不阻塞，文档化）**：send 同步等待目标传输应答期间，若目标进程存活但 5s 内不应答（事件循环卡死等非本迭代客户端正常状态），deliver 防御性超时（D17）按 `AGENT_OFFLINE` 回发送方——单次尝试即止、非重试域；正常路径所有节点均为自有 NodeClient（必应答）。重试域（D11 裁决不做）仍是未来迭代引入重投/恢复的正式机制。offline 墓碑不做 GC（§5.4 理由）。
 4. 未发现功能规格存在技术约束无法满足的点；全部 8 卡均有技术路径；未修改 demand.md 与任何 prd 产品维度。

@@ -13,7 +13,7 @@
 - 契约闭环主载体 = **双假节点**（进程内，非子进程，§10.1/D12）；另设一条**真实 CLI agent 子进程**用例证明真实节点受理路径（§10.1/D12 验证锚点；pr-002 `agent start` 栈 + harness）。
 - 测试运行：`oamp/` 下 `node --test`（npm test = `node --test test/*.test.js`；helpers 非 `*.test.js` 不被当用例，§10.2）；Router 一律经 harness 拉起（每用例独立临时 socket + 缩短 env，绝不触碰仓库内 `.runtime/`）。
 - 零第三方依赖；**消息正文不进日志断言**（隐私/日志卫生，§6.4"不回显正文"）。
-- 既有基线 = 5 卡 29 用例全绿（cli 8 / hygiene 4 / router-registry 8 / agent-heartbeat 6 / event-log 7，实测 2026-09-09），`npm test` 不得破坏。
+- 既有基线 = 5 卡 29 用例全绿（cli 8 / hygiene 3 / router-registry 8 / agent-heartbeat 6 / event-log 4 = 29，逐文件实测 2026-09-09），`npm test` 不得破坏。
 
 ## 依赖图
 

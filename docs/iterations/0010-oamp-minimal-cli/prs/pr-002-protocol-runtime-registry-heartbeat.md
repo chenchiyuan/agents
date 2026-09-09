@@ -27,7 +27,7 @@
 
 ## 验收标准
 
-- [ ] `oamp/` 下 `npm test`（或 `node --test test/`）全绿，且 router-registry.test.js / agent-heartbeat.test.js / event-log.test.js 三个文件在缩短 env（interval 30~100ms / timeout 200~400ms / 窗口 ~300ms，§7.2）下通过：注册成功字段、双节点并发各自心跳、同 id live 冲突替换后仅一个 live session（D4）、offline 条目同 id 重注册复活、deregister 后不再 online、socket 文件权限位 stat 为 0600（§5.1）、Router SIGINT 干净退出 0（D16）
+- [ ] `oamp/` 下 `npm test`（或 `node --test test/*.test.js`）全绿，且 router-registry.test.js / agent-heartbeat.test.js / event-log.test.js 三个文件在缩短 env（interval 30~100ms / timeout 200~400ms / 窗口 ~300ms，§7.2）下通过：注册成功字段、双节点并发各自心跳、同 id live 冲突替换后仅一个 live session（D4）、offline 条目同 id 重注册复活、deregister 后不再 online、socket 文件权限位 stat 为 0600（§5.1）、Router SIGINT 干净退出 0（D16）
 - [ ] 真实 CLI agent 子进程（`node bin/oamp.js agent start <id>` + 缩短 env）注册成功、last_heartbeat 随周期心跳推进、SIGINT 后先 deregister 再退出码 0、两个不同 instance_id 子进程同时存活互不影响（F03-1~4）
 - [ ] 强杀 agent 子进程（无 deregister）后，Router 在 timeout+sweep 上界内自动判 offline 并输出 AGENT_OFFLINE 事件行；正常周期心跳期间不误判 offline（F04-2/4；事件行锚点 architecture.md §5.6/§8.1）
 - [ ] Router/agent 终端事件行格式符合 `[<UTC ISO-8601>] <role> <TOKEN> <key=value …>`（§8.1）；观察窗口 T 内单节点 HEARTBEAT 行数 ≤ ⌈T/W⌉+1（M-03 判据数值化），状态变迁事件（AGENT_REGISTERED/AGENT_OFFLINE 等）不被节流吞掉（F06-1~4）
@@ -45,7 +45,7 @@
 - pr-001-project-skeleton-cli-hygiene.md（理由：
   ① router.js/agent.js 消费 pr-001 的 src/config.js——§7.2 配置面定义 Router 侧 OAMP_SOCKET/OAMP_HEARTBEAT_TIMEOUT_MS/OAMP_HB_LOG_WINDOW_MS 与 agent 侧 OAMP_HEARTBEAT_INTERVAL_MS 的默认值/读取/数值校验集中在该叶子模块，模块引用证据 = brief 与 §3.1/§3.3 数据流"config 被 router/agent/status 消费"；
   ② 本 PR 全部进程级测试经 harness 以子进程 `node bin/oamp.js …` 拉起（§3.2 可执行入口形态 + §10.2 harness 职责），bin/oamp.js（转发）+ src/cli.js（`router start`/`agent start` 分发分支，§7.1）属 pr-001——cli.js 分发分支对 './router.js'/'./agent.js' 的延迟模块引用即本 PR 模块被 pr-001 代码消费的反向证据，本 PR 无 pr-001 则子进程入口不存在；
-  ③ package.json（pr-001）的 scripts.test=`node --test test/` 是 §10.2 node:test 用例组织与 F01-1 npm test 载体的运行入口）
+  ③ package.json（pr-001）的 scripts.test=`node --test test/*.test.js` 是 §10.2 node:test 用例组织与 F01-1 npm test 载体的运行入口）
 
 ## batch
 

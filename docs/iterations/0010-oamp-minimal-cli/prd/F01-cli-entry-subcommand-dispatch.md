@@ -35,7 +35,7 @@
 
 ## 架构维度（阶段 3 已补全，2026-09-09 → architecture.md §3.2/§7.1/D15/D16）
 
-- **布局与入口（AR-01 → D1，architecture.md §3.2）**：`oamp/` ESM 工程（`package.json`：type=module、bin=`./bin/oamp.js`、`scripts.test="node --test test/"`、零运行时依赖）；`bin/oamp.js`（shebang + chmod +x）仅转发给 `src/cli.js`；模块 = cli/config/rpc/registry/router/node-client/agent/status/log（见 architecture.md 文件树）。
+- **布局与入口（AR-01 → D1，architecture.md §3.2）**：`oamp/` ESM 工程（`package.json`：type=module、bin=`./bin/oamp.js`、`scripts.test="node --test test/*.test.js"`（glob 形态——Node v22.15 目录形态实测失败，glob 排除 helpers/，实现期已裁决）、零运行时依赖）；`bin/oamp.js`（shebang + chmod +x）仅转发给 `src/cli.js`；模块 = cli/config/rpc/registry/router/node-client/agent/status/log（见 architecture.md 文件树）。
 - **子命令分发（AR-01 → D1，§7.1）**：手写 argv 解析（零依赖）。`router start` / `agent start <instance-id>` / `status` 三种形态；未知/非法子命令或 `agent start` 缺 instance-id → stderr 明确报错 + 用法、退出码 2、不挂起（M-01）；`-h/--help` → stdout 用法、退出 0。
 - **前台长驻与信号处理（AR-01 → D16，§3.3 流程⑤）**：router/agent 均为前台长驻进程（不 daemonize，N7）；Router 就绪以 stdout `ROUTER_READY socket=…` 行为信号（自动化等待点）；SIGINT 优雅退出——agent 先发 deregister（best-effort ≤1s）再退出码 0，Router close 监听 + 关连接 + unlink socket 再退出码 0；二次 SIGINT 强退（130）。
 - **README 组织（AR-01 → D15）**：快速开始（npm link 或 `node bin/oamp.js`）→ E2 手测三步（Router 终端 / agent 终端 / `oamp status`，含 kill 后等 timeout 见 offline）→ 参数表（env）→ 协议速览 → 卫生红线声明（F08-3）。
