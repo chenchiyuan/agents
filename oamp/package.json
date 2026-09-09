@@ -1,0 +1,15 @@
+{
+  "name": "oamp",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "oamp": "./bin/oamp.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {}
+}
