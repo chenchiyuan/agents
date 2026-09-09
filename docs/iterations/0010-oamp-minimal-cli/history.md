@@ -21,3 +21,14 @@
 
 - 角色文件路径：`.pb-agents/roles/demand/demand.md`（全文注入 brief）。
 - 输出目标：`docs/iterations/0010-oamp-minimal-cli/demand.md`（草稿 + 待确认提案清单）。
+### 2026-09-09 13:20:00 · 收到用户消息 · demo 增量需求
+
+- 用户从使用角度新增：主进程（omp 主 agent）连 Router 查活跃 agent 列表；经 Router 指派任务并随时查进度明细。
+
+### 2026-09-09 13:22:00 · 调度决策 · demo 增量三决策（user_confirmed）
+
+- 任务执行体 = Shell 命令执行（用户否决推荐桩）；进度/明细存储 = Router 全内存任务表 + 查询 RPC；增量管理 = 延续 0010 分支。
+
+### 2026-09-09 15:10:00 · 收到执行报告 · demo 增量实现完成
+
+- 信封 type 字段（task.request/update/result/notice）、Registry 任务表、Router task_get/task_list 与 rejected ack 终结、agent shell 执行器、CLI task send/status/list/watch、task.test.js 6 用例、testenv 任务演示；npm test 52/52 三连稳定；真实 CLI 端到端验证 PASS。architecture.md §15 记录（D18~D21）。

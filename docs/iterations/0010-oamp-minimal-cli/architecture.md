@@ -547,3 +547,35 @@ dev-1         3f2a9c10-7b4e-4d2f-9c8a-1b2c3d4e5f60   online   2026-09-09T12:00:3
 2. **与 docs/ds 的术语/语义差异（记录在案，docs/ds 为建议、以本迭代实现为准）**：信封 `from`/`to` 用 `instance_id`（docs/ds 用 `agent_id`，demand P-05 统一为 instance_id）；send 同步单次代理（无 queued/异步投递）；deregister 请求语义；心跳通知不携带 state/inflight（无 busy 语义）；错误码以 `data.code` 字符串承载。均为"裁剪到本轮范围"的结果，未来迭代扩展时按 docs/ds 对齐。
 3. **已知限制（不阻塞，文档化）**：send 同步等待目标传输应答期间，若目标进程存活但 5s 内不应答（事件循环卡死等非本迭代客户端正常状态），deliver 防御性超时（D17）按 `AGENT_OFFLINE` 回发送方——单次尝试即止、非重试域；正常路径所有节点均为自有 NodeClient（必应答）。重试域（D11 裁决不做）仍是未来迭代引入重投/恢复的正式机制。offline 墓碑不做 GC（§5.4 理由）。
 4. 未发现功能规格存在技术约束无法满足的点；全部 8 卡均有技术路径；未修改 demand.md 与任何 prd 产品维度。
+
+---
+
+## 15. demo 任务扩展（主 agent 视角；迭代 0010 收尾后增量，D18~D21）
+
+> 本节为分支上 demo 增量（用户 2026-09-09 决策：延续 0010 分支，Shell 命令执行 + Router 任务表）。不改变 §1~§14 既有决策；向后兼容（无 `type` 的消息行为不变，pr-004 契约测试回归通过）。
+
+### 15.1 目标与语义（D18：Router 任务表，不做业务判断）
+
+主 agent（`main` 身份，R2）指派任务给 agent 并随时查进度/明细。**任务状态存于 Router 全内存任务表**（registry 扩展：`createTask`/`recordTaskUpdate`/`finishTask`/`getTask`/`listTasks`，上限 1000 条明细防膨胀）——Router 只做记录与可见性，不做执行判断；任务由消息驱动。
+
+### 15.2 协议增量
+
+- 信封新增可选 `type` 字段（白名单：`task.request`/`task.update`/`task.result`/`notice`；缺省 = 普通消息，语义同 §4.4）。
+- `message.send`：
+  - `type=task.request` → Router 生成 `task_id`（可自带）建任务（submitted）→ 照常投递；响应含 `task_id`。
+  - `type=task.update|task.result`（执行 agent 上报）→ 先记任务表（update 追加明细；result 置终态 completed/failed）再尽力投递发起者；**发起者离线仅记录（recorded 语义，不视为投递失败）**。
+- `message.ack`：支持 `rejected`（执行器校验失败）；task.request 被 rejected → 任务终态 `failed(rejected_by_agent)`，防 submitted 悬挂（pending 记录携带 taskId，D19）。
+- 新查询 RPC（任意连接可用，同 router.status）：`router.task_get {task_id}` / `router.task_list {state?}`。
+
+### 15.3 agent shell 任务执行器（D20）
+
+真实 CLI agent 挂 `onDeliver`：`task.request`（payload 为 application/json：`{command, args?, timeout_ms?, label?}`）→ 校验（失败 ack rejected）→ 受理（自动 ack accepted）→ spawn（**无 shell**）执行 → stdout/stderr 逐行 `task.update`（每流 ≤200 行，超限截断）→ 结束 `task.result`（state/exit_code/duration_ms）→ 超时 SIGTERM→SIGKILL 报 timeout。
+安全边界（demo）：命令来自 payload，可驱动执行者 = 任何注册节点；鉴权/白名单属后续迭代（N6 已划出）。
+
+### 15.4 CLI 与使用（D21）
+
+`oamp task send <instance-id> '<json>'|@file [--as <id>]`（发送方临时注册默认 `main`）/ `oamp task status <task_id>` / `oamp task list [--state …]` / `oamp task watch <task_id>`（轮询到终态，增量打印明细）。任务与明细存 Router 内存（Router 重启清空，N2 无持久化边界不变）。
+
+### 15.5 验证
+
+test/task.test.js 6 用例（happy/fail/超时/发起者离线 recorded/rejected/终态过滤）；testenv.mjs 集成任务演示；npm test 52/52 三连跑稳定；真实 CLI send/list/status/watch 端到端验证通过。

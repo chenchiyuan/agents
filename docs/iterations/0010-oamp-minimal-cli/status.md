@@ -45,3 +45,4 @@
 - 2026-09-09: 阶段 5 完成——4 PR 合并，npm test 46/46，逐 PR PASS，跨 PR 修正 2 处。
 - 2026-09-09: 阶段 6 收尾验证 FAIL（status.test #1 竞态）→ R1 修复 + R2 README 同步（dedd519）→ rereview PASS。迭代全部阶段 ✅。
 - 2026-09-09: 用户决策：保留分支先实测（不合并 main）。实测指引：node bin/oamp.js router start / agent start（可多终端）→ status → kill 观察 offline；或 oamp/ 下 npm link 后裸用 oamp。
+- 2026-09-09: demo 增量完成（延续分支，用户决策：Shell 命令执行 + Router 任务表）：信封 type 字段、Router 任务表（task_get/task_list + rejected ack 终结）、agent shell 任务执行器（spawn 无 shell/逐行进度/超时）、CLI task send/status/list/watch、testenv 任务演示；npm test 52/52 三连稳定；真实 CLI 端到端验证 PASS；architecture §15 记录（D18~D21）。

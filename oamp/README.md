@@ -3,9 +3,9 @@
 零依赖 Node.js v22 ESM 命令行工具：单一入口拉起 Router、拉起 agent 节点、查询拓扑状态。
 运行参数全部经环境变量提供（无 YAML 配置面）；节点与 Router 间为 UDS + JSON-RPC 2.0。
 
-> **当前状态**：CLI 分发、Router/agent 运行时与 `status` 只读查询已全部落地可用——
-> `oamp router start`、`oamp agent start <instance-id>`、`oamp status` 三个命令端到端可执行
-> （复现步骤见下方 E2 手测）。
+> **当前状态**：CLI 分发、Router/agent 运行时、`status` 只读查询与 **`task` 任务指派/进度查询**均已落地可用——
+> `oamp router start`、`oamp agent start <instance-id>`、`oamp status`、
+> `oamp task send/status/list/watch` 端到端可执行（复现步骤见下方 E2 手测与任务演示）。
 
 ## 快速开始
 
@@ -37,6 +37,37 @@ node bin/oamp.js --help
 4. **终端 3（查询）**：`oamp status` → 对齐表格，`dev-1` 行 `state=online`。
 5. **下线验证**：回到终端 2 按 Ctrl-C（SIGINT）→ 优雅注销 `DEREGISTERED`；或直接 kill agent 进程
    → 等约 `OAMP_HEARTBEAT_TIMEOUT_MS` 后 `oamp status` 中该节点 `state=offline`。
+
+## 任务指派与进度查询（demo：主 agent 视角）
+
+agent 节点内置 **shell 任务执行器**：收到 `task.request` 后受理（ack），无 shell 直启命令
+（spawn，非字符串拼接），逐行 stdout/stderr 上报进度，结束时回报结果。Router 维护全内存
+**任务表**（task_id → 状态 + 明细流），发起方无需常驻即可随时查询。
+
+```sh
+# 前提：Router（终端 1）与 agent（终端 2，`oamp agent start dev-1`）已运行
+
+# 指派任务（任务 JSON 内联或 @文件；发送方以 'main' 身份临时注册）
+oamp task send dev-1 '{"command":"node","args":["-e","console.log(\"step 1\"); console.log(\"step 2\")"],"label":"demo"}'
+# → task_id: task-xxxx…   （记下 task_id）
+
+# 随时查进度与明细（增量输出，直到终态自动退出）
+oamp task watch task-xxxx…
+# → 任务状态: submitted/working … ▶ started … │ step 1 … 任务终态: completed / 结果: exit_code=0 …
+
+# 一次性查详情 / 列列表
+oamp task status task-xxxx…
+oamp task list [--state completed]
+
+# 失败/超时示例
+oamp task send dev-1 '{"command":"node","args":["-e","process.exit(3)"],"label":"失败演示"}'
+oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"],"timeout_ms":300}'
+```
+
+任务 JSON 字段：`command`（必填）/ `args`（字符串数组）/ `timeout_ms`（默认 30000，上限 600000）/
+`label`（可选说明）。任务与明细存于 Router 内存（Router 重启即清空——迭代 0010 N2 无持久化边界）。
+安全边界（demo）：**任务命令来自 payload，任何能向 agent 发消息的注册节点均可驱动执行**——
+鉴权/白名单属后续迭代（迭代 0010 N6 已把鉴权划出范围）。
 
 ## 环境变量参数表
 

@@ -31,8 +31,11 @@ export function createRegistry() {
   const entries = new Map();
   /** @type {Map<number, {instance_id:string, session_id:string}>} */
   const connIdent = new Map();
-  /** @type {Map<string, {toInstance:string, toSession:string}>} */
+  /** @type {Map<string, {toInstance:string, toSession:string, taskId:string|null}>} */
   const pendingDeliveries = new Map();
+  /** @type {Map<string, object>} 任务表（demo 扩展：task.request/update/result 状态与明细，纯内存） */
+  const tasks = new Map();
+  const MAX_TASK_UPDATES = 1000; // 防明细无限膨胀；超出置 updatesTruncated
 
   function getEntry(instanceId) {
     return entries.get(instanceId) || null;
@@ -145,27 +148,109 @@ export function createRegistry() {
 
   // ---- 投递等待集（§5.5；行为验收载体 = pr-004，本 PR 只随注册表完整落盘）----
 
-  function recordPendingDelivery({ messageId, toInstance, toSession }) {
-    pendingDeliveries.set(messageId, { toInstance, toSession });
+  function recordPendingDelivery({ messageId, toInstance, toSession, taskId = null }) {
+    pendingDeliveries.set(messageId, { toInstance, toSession, taskId });
   }
   /** 定向清理单条 pending——投递失败回滚用（Q-1 裁决 pr-004：recordPending 前置后失败分支不留脏）。 */
   function clearPendingDelivery(messageId) {
     pendingDeliveries.delete(messageId);
   }
-  /** ack 校验：返回 {acked:true} 或 { error:'UNKNOWN_MESSAGE'|'STALE_SESSION'|'INVALID_ACK_STATUS' }。
-   *  本轮仅支持 status='accepted'（§4.3 INVALID_ACK_STATUS）；校验通过才清 pending。 */
+  /** ack 校验：返回 {acked:true, status, taskId} 或 { error:'UNKNOWN_MESSAGE'|'STALE_SESSION'|'INVALID_ACK_STATUS' }。
+   *  支持 status='accepted'|'rejected'（demo 扩展：执行器校验失败回 rejected）；校验通过才清 pending；
+   *  taskId 供 Router 在 rejected 时终结对应任务。 */
   function resolvePendingAck({ messageId, instanceId, sessionId, status }) {
     const pend = pendingDeliveries.get(messageId);
     if (!pend) return { error: 'UNKNOWN_MESSAGE' };
     if (pend.toInstance !== instanceId || pend.toSession !== sessionId) return { error: 'STALE_SESSION' };
-    if (status !== 'accepted') return { error: 'INVALID_ACK_STATUS' };
+    if (status !== 'accepted' && status !== 'rejected') return { error: 'INVALID_ACK_STATUS' };
     pendingDeliveries.delete(messageId);
-    return { acked: true };
+    return { acked: true, status, taskId: pend.taskId };
   }
   function clearPendingForInstance(instanceId) {
     for (const [messageId, pend] of pendingDeliveries) {
       if (pend.toInstance === instanceId) pendingDeliveries.delete(messageId);
     }
+  }
+
+  // ---- 任务表（demo 扩展：主 agent 指派任务 → agent 执行 → 进度/明细跟踪）----
+
+  /** 任务条目 schema：{ task_id, from, to, state, label, created_at, updated_at, updates[], result|null } */
+  function createTask({ taskId, from, to, now, label }) {
+    if (tasks.has(taskId)) return { task: tasks.get(taskId), created: false };
+    const task = {
+      task_id: taskId,
+      from,
+      to,
+      state: 'submitted',
+      label: label || null,
+      created_at: now,
+      updated_at: now,
+      updates: [],
+      updatesTruncated: false,
+      result: null,
+    };
+    tasks.set(taskId, task);
+    return { task, created: true };
+  }
+
+  /**
+   * 追加任务明细（task.update / task.result 经 Router 记录）。detail 为结构化对象（原样存，不解析）。
+   * 返回 { task } 或 { error:'TASK_NOT_FOUND' }。
+   */
+  function recordTaskUpdate({ taskId, from, at, state, detail }) {
+    const task = tasks.get(taskId);
+    if (!task) return { error: 'TASK_NOT_FOUND' };
+    if (task.updates.length >= MAX_TASK_UPDATES) {
+      task.updatesTruncated = true;
+    } else {
+      task.updates.push({ at, from, state: state || null, detail });
+    }
+    task.updated_at = at;
+    if (state === 'working' && task.state !== 'completed' && task.state !== 'failed') {
+      task.state = 'working';
+    }
+    return { task };
+  }
+
+  /**
+   * 置任务终态（task.result：state ∈ completed|failed）。已终态幂等返回现有（不覆盖）。
+   * 返回 { task } 或 { error:'TASK_NOT_FOUND'|'TASK_ALREADY_FINAL' }。
+   */
+  function finishTask({ taskId, from, at, state, result }) {
+    const task = tasks.get(taskId);
+    if (!task) return { error: 'TASK_NOT_FOUND' };
+    if (task.state === 'completed' || task.state === 'failed') {
+      return { task, error: 'TASK_ALREADY_FINAL' };
+    }
+    task.state = state;
+    task.result = { ...(result || {}), at };
+    task.updated_at = at;
+    return { task };
+  }
+
+  function getTask(taskId) {
+    return tasks.get(taskId) || null;
+  }
+
+  /** 任务列表投影（按 created_at 倒序）；state 过滤（submitted/working/completed/failed/全部）。 */
+  function listTasks({ state } = {}) {
+    const out = [];
+    for (const task of tasks.values()) {
+      if (state && task.state !== state) continue;
+      out.push({
+        task_id: task.task_id,
+        from: task.from,
+        to: task.to,
+        state: task.state,
+        label: task.label,
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+        updates: task.updates.length,
+        updatesTruncated: task.updatesTruncated,
+      });
+    }
+    out.sort((a, b) => b.created_at - a.created_at);
+    return out;
   }
 
   return {
@@ -182,5 +267,10 @@ export function createRegistry() {
     clearPendingDelivery,
     resolvePendingAck,
     clearPendingForInstance,
+    createTask,
+    recordTaskUpdate,
+    finishTask,
+    getTask,
+    listTasks,
   };
 }

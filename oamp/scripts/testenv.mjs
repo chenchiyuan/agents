@@ -10,6 +10,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startRouter, startAgent, queryStatus, waitFor, stopAll, buildEnv } from '../test/helpers/harness.js';
 import { createClient } from '../src/node-client.js';
+import net from 'node:net';
+import { RpcPeer } from '../src/rpc.js';
 
 const OAMP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(OAMP_ROOT, 'bin', 'oamp.js');
@@ -25,6 +27,20 @@ async function statusViaCli(socketPath) {
 async function snapshot(socketPath) {
   const r = await queryStatus(socketPath);
   return Array.isArray(r) ? r : r.nodes ?? [];
+}
+async function queryTask(socketPath, taskId) {
+  const socket = net.connect(socketPath);
+  await new Promise((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+  const peer = new RpcPeer(socket, { idPrefix: 'demo' });
+  try {
+    const r = await peer.request('router.task_get', { task_id: taskId }, { timeoutMs: 3000 });
+    return r.task;
+  } finally {
+    peer.close();
+  }
 }
 
 async function main() {
@@ -90,8 +106,42 @@ async function main() {
     await sender.deregister().catch(() => info('test-sender deregister 未送达（best-effort）'));
     sender.close();
 
-    // 6. 崩溃 → offline 判定
-    console.log('⑥ SIGKILL verify-1 → Router 判 offline …');
+    // 6. 任务指派与进度（demo：主 agent 视角）
+    console.log('⑥ 任务指派 dev-1（main → dev-1 shell 任务）…');
+    const mainCli = createClient({ socketPath: router.socketPath });
+    await mainCli.connect();
+    await mainCli.register('main');
+    const taskResp = await mainCli.send('dev-1', {
+      protocol: 'oamp/1',
+      message_id: `tsk-demo-${Date.now()}`,
+      type: 'task.request',
+      payload: {
+        content_type: 'application/json',
+        body: JSON.stringify({
+          command: process.execPath,
+          args: ['-e', 'console.log("task step 1"); console.log("task step 2")'],
+          label: 'testenv 任务演示',
+        }),
+      },
+    });
+    const taskId = taskResp.task_id;
+    ok(`task_id=${taskId} 已指派（send 受理）`);
+    await waitFor(async () => {
+      const task = await queryTask(router.socketPath, taskId);
+      return task && (task.state === 'completed' || task.state === 'failed') ? task : null;
+    }, { timeoutMs: 8000, what: `任务 ${taskId} 终态` });
+    const finalTask = await queryTask(router.socketPath, taskId);
+    const stdoutLines = finalTask.updates.filter((u) => u.detail && u.detail.kind === 'stdout').map((u) => u.detail.line);
+    ok(`任务终态 ${finalTask.state} exit_code=${finalTask.result.exit_code}（明细 ${finalTask.updates.length} 条）`);
+    if (stdoutLines.length > 0) info(`stdout: ${stdoutLines.join(' | ')}`);
+    if (finalTask.state !== 'completed' || finalTask.result.exit_code !== 0) {
+      throw new Error(`任务演示失败: state=${finalTask.state} exit=${finalTask.result.exit_code}`);
+    }
+    await mainCli.deregister().catch(() => info('main deregister 未送达（best-effort）'));
+    mainCli.close();
+
+    // 7. 崩溃 → offline 判定
+    console.log('⑦ SIGKILL verify-1 → Router 判 offline …');
     verify1.kill('SIGKILL');
     await router.stdout.waitNth(/AGENT_OFFLINE instance=verify-1/, { timeoutMs: 3000 });
     ok('Router 输出 AGENT_OFFLINE instance=verify-1');
@@ -119,12 +169,14 @@ async function main() {
         └────────────────┘   └────────────────┘`);
     console.log(`最终注册表：${final.map((n) => `${n.instance_id}=${n.state}`).join('  ')}`);
     console.log('');
-    console.log('=== 验证结果: PASS（Router/agent/心跳/status/消息闭环/offline 判定全部可用）===');
+    console.log('=== 验证结果: PASS（Router/agent/心跳/status/消息闭环/offline 判定/任务进度 全部可用）===');
     console.log('');
     console.log('自行实测：三个终端分别执行（生产默认心跳参数）');
     console.log(`  1) node bin/oamp.js router start`);
     console.log(`  2) node bin/oamp.js agent start dev-1`);
     console.log(`  3) node bin/oamp.js status   （另开终端；kill -9 <agent pid> 观察 offline）`);
+    console.log(`  4) 任务演示：node bin/oamp.js task send dev-1 '{"command":"echo","args":["hi"],"label":"x"}'`);
+    console.log(`     → node bin/oamp.js task watch <task_id>（看进度明细）`);
   } catch (err) {
     console.error('');
     console.error(`=== 验证结果: FAIL ===`);

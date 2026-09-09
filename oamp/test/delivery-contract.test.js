@@ -80,7 +80,11 @@ test('F07-1/4：双假节点闭环 register→send→deliver→ack 全链路 + �
     type: 'task.request',
     payload: { content_type: 'text/plain', body: 'hello from closure' },
   });
-  assert.deepEqual(result, { accepted: true, message_id: msgId, status: 'delivered' });
+  // demo 任务扩展：type=task.request → Router 建任务表并返回 task_id
+  assert.equal(result.accepted, true);
+  assert.equal(result.message_id, msgId);
+  assert.equal(result.status, 'delivered');
+  assert.match(result.task_id, /^task-[0-9a-f-]{36}$/);
 
   await waitFor(() => b.deliverCount >= 1, { what: 'B 收到 deliver' });
   // Router 事件（§8.1 / §3.3 流程③顺序：先 MESSAGE_DELIVERED 后 MESSAGE_ACKED）

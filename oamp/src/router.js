@@ -20,11 +20,13 @@ function clampSweepPeriod(timeoutMs) {
 
 const VALID_CONTENT_TYPES = new Set(['text/plain', 'text/markdown', 'application/json']);
 
+const VALID_TYPES = new Set(['task.request', 'task.update', 'task.result', 'notice']);
 /** §4.5 信封校验（send 侧子集，不含 from/created_at——Router 代填）。返回 null 或错误机器码。 */
 function validateSendMessage(m) {
   if (!m || typeof m !== 'object') return ERR.INVALID_MESSAGE;
   if (m.protocol !== 'oamp/1') return ERR.INVALID_MESSAGE;
   if (!isValidMessageId(m.message_id)) return ERR.INVALID_MESSAGE;
+  if (m.type !== undefined && !VALID_TYPES.has(m.type)) return ERR.INVALID_MESSAGE;
   if (!m.to || typeof m.to !== 'object' || !isValidInstanceId(m.to.instance_id)) return ERR.INVALID_MESSAGE;
   const p = m.payload;
   if (!p || typeof p !== 'object' || !VALID_CONTENT_TYPES.has(p.content_type) || typeof p.body !== 'string') {
@@ -185,6 +187,67 @@ export default async function startRouter(restArgs) {
           sendError(respond, ERR.INVALID_SENDER, 'sender must not set from');
           return;
         }
+        const type = m.type;
+        // —— task 上报消息（demo 扩展：执行 agent → 发起者；先记任务表，再尽力投递，发起者离线仅记录）——
+        if (type === 'task.update' || type === 'task.result') {
+          if (typeof m.task_id !== 'string' || !isValidMessageId(m.task_id)) {
+            sendError(respond, ERR.INVALID_PARAMS, 'task.update/result 需携带合法 task_id');
+            return;
+          }
+          if (!registry.getTask(m.task_id)) {
+            sendError(respond, 'TASK_NOT_FOUND', `task not found: ${m.task_id}`);
+            return;
+          }
+          let body = {};
+          try {
+            body = JSON.parse(m.payload.body);
+          } catch {
+            /* 非 JSON body：按空对象记录，仅保留元信息 */
+          }
+          const now = Date.now();
+          if (type === 'task.result') {
+            const state = body.state === 'failed' ? 'failed' : 'completed';
+            registry.finishTask({ taskId: m.task_id, from: ident.instance_id, at: now, state, result: body });
+            logger.event('TASK_RESULT', { task_id: m.task_id, from: ident.instance_id, state });
+          } else {
+            registry.recordTaskUpdate({
+              taskId: m.task_id,
+              from: ident.instance_id,
+              at: now,
+              state: body.state === 'working' ? 'working' : null,
+              detail: body,
+            });
+            logger.event('TASK_UPDATE', { task_id: m.task_id, from: ident.instance_id });
+          }
+          // 尽力转发给发起者：离线/不存在 → 任务表已记录即视为成功（状态经 router.task_get 可查）
+          const originId = m.to.instance_id;
+          const origin = registry.getEntry(originId);
+          if (!origin || origin.state !== 'online' || origin.connId === null) {
+            if (respond) respond.ok({ accepted: true, message_id: m.message_id, status: 'recorded', task_id: m.task_id });
+            return;
+          }
+          const fullUpd = {
+            protocol: 'oamp/1',
+            message_id: m.message_id,
+            type,
+            task_id: m.task_id,
+            from: { instance_id: ident.instance_id, session_id: ident.session_id },
+            to: { instance_id: originId },
+            payload: m.payload,
+            created_at: new Date().toISOString(),
+          };
+          registry.recordPendingDelivery({ messageId: fullUpd.message_id, toInstance: originId, toSession: origin.session_id });
+          try {
+            await deliverTo(origin.connId, fullUpd);
+          } catch {
+            registry.clearPendingDelivery(fullUpd.message_id);
+            if (respond) respond.ok({ accepted: true, message_id: m.message_id, status: 'recorded', task_id: m.task_id });
+            return;
+          }
+          logger.event('MESSAGE_DELIVERED', { message_id: fullUpd.message_id, from: ident.instance_id, to: originId });
+          if (respond) respond.ok({ accepted: true, message_id: m.message_id, status: 'delivered', task_id: m.task_id });
+          return;
+        }
         const targetId = m.to.instance_id;
         const target = registry.getEntry(targetId);
         if (!target) {
@@ -195,10 +258,28 @@ export default async function startRouter(restArgs) {
           sendError(respond, ERR.AGENT_OFFLINE, `target offline: ${targetId}`);
           return;
         }
+        // —— task.request（demo 扩展）：建任务表条目；task_id 缺省由 Router 生成并透传执行 agent ——
+        let taskId = null;
+        if (type === 'task.request') {
+          taskId = m.task_id !== undefined ? m.task_id : `task-${newSessionId()}`;
+          if (typeof taskId !== 'string' || !isValidMessageId(taskId)) {
+            sendError(respond, ERR.INVALID_PARAMS, 'invalid task_id');
+            return;
+          }
+          let label = null;
+          try {
+            label = JSON.parse(m.payload.body).label ?? null;
+          } catch {
+            /* 忽略 */
+          }
+          registry.createTask({ taskId, from: ident.instance_id, to: targetId, now: Date.now(), label });
+          logger.event('TASK_CREATED', { task_id: taskId, from: ident.instance_id, to: targetId });
+        }
         const full = {
           protocol: 'oamp/1',
           message_id: m.message_id,
           ...(m.type !== undefined ? { type: m.type } : {}),
+          ...(taskId ? { task_id: taskId } : {}),
           from: { instance_id: ident.instance_id, session_id: ident.session_id },
           to: { instance_id: targetId },
           payload: m.payload,
@@ -212,6 +293,7 @@ export default async function startRouter(restArgs) {
           messageId: full.message_id,
           toInstance: targetId,
           toSession: target.session_id,
+          taskId: taskId || null,
         });
         try {
           await deliverTo(target.connId, full);
@@ -222,7 +304,9 @@ export default async function startRouter(restArgs) {
           return;
         }
         logger.event('MESSAGE_DELIVERED', { message_id: full.message_id, from: ident.instance_id, to: targetId });
-        if (respond) respond.ok({ accepted: true, message_id: full.message_id, status: 'delivered' });
+        if (respond) {
+          respond.ok({ accepted: true, message_id: full.message_id, status: 'delivered', ...(taskId ? { task_id: taskId } : {}) });
+        }
         return;
       }
 
@@ -231,7 +315,7 @@ export default async function startRouter(restArgs) {
           sendError(respond, ERR.UNREGISTERED, 'acker not registered');
           return;
         }
-        const { acked, error } = registry.resolvePendingAck({
+        const { acked, status, taskId, error } = registry.resolvePendingAck({
           messageId: params.message_id,
           instanceId: params.instance_id,
           sessionId: params.session_id,
@@ -241,14 +325,45 @@ export default async function startRouter(restArgs) {
           sendError(respond, error, `ack failed: ${String(error).toLowerCase()}`);
           return;
         }
-        logger.event('MESSAGE_ACKED', { message_id: params.message_id, instance: ident.instance_id });
-        if (respond) respond.ok({ acked: true, status: 'accepted' });
+        // demo 扩展：task.request 被目标 rejected → 任务终态 failed(rejected_by_agent)，避免 submitted 悬挂
+        if (status === 'rejected' && taskId) {
+          registry.finishTask({
+            taskId,
+            from: ident.instance_id,
+            at: Date.now(),
+            state: 'failed',
+            result: { error: 'rejected_by_agent' },
+          });
+          logger.event('TASK_RESULT', { task_id: taskId, state: 'failed', error: 'rejected_by_agent' });
+        }
+        logger.event('MESSAGE_ACKED', { message_id: params.message_id, instance: ident.instance_id, status: status || 'accepted' });
+        if (respond) respond.ok({ acked: true, status: status || 'accepted' });
         return;
       }
 
       case 'router.status': {
         // §4.4：任意连接可用（无需注册身份），4 字段快照按 instance_id 排序
         if (respond) respond.ok({ nodes: registry.snapshot() });
+        return;
+      }
+      case 'router.task_get': {
+        // demo 扩展：任务状态 + 明细查询（任意连接可用，同 router.status 无需注册身份）
+        const taskId = params.task_id;
+        if (typeof taskId !== 'string' || !isValidMessageId(taskId)) {
+          sendError(respond, ERR.INVALID_PARAMS, 'task_get 需携带合法 task_id');
+          return;
+        }
+        if (respond) respond.ok({ task: registry.getTask(taskId) });
+        return;
+      }
+
+      case 'router.task_list': {
+        const state = params.state === undefined ? undefined : String(params.state);
+        if (state && !['submitted', 'working', 'completed', 'failed'].includes(state)) {
+          sendError(respond, ERR.INVALID_PARAMS, `invalid state filter: ${state}`);
+          return;
+        }
+        if (respond) respond.ok({ tasks: registry.listTasks({ state }) });
         return;
       }
 
