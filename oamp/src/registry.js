@@ -36,11 +36,6 @@ export function createRegistry() {
   /** @type {Map<string, object>} 任务表（demo 扩展：task.request/update/result 状态与明细，纯内存） */
   const tasks = new Map();
   const MAX_TASK_UPDATES = 1000; // 防明细无限膨胀；超出置 updatesTruncated
-  /** @type {Map<string, object>} 会话表（web 控制台：话题会话 → 消息流；消息按 message_id 关联任务） */
-  const chats = new Map();
-  /** @type {Map<string, object>} message_id → task 索引（chat 详情 join 用，O(1)） */
-  const tasksByMessage = new Map();
-
   function getEntry(instanceId) {
     return entries.get(instanceId) || null;
   }
@@ -195,7 +190,6 @@ export function createRegistry() {
       result: null,
     };
     tasks.set(taskId, task);
-    if (messageId) tasksByMessage.set(messageId, task);
     return { task, created: true };
   }
 
@@ -259,81 +253,6 @@ export function createRegistry() {
     return out;
   }
 
-  // ---- 会话表（web 控制台：话题会话 + 消息流）----
-
-  /** 创建会话：title 由首条消息截断而来（空则「新对话」）。 */
-  function createChat({ chatId, agentId, title, now }) {
-    const chat = {
-      chat_id: chatId,
-      title: title && title.length > 0 ? title : '新对话',
-      agent_id: agentId,
-      created_at: now,
-      updated_at: now,
-      messages: [],
-    };
-    chats.set(chatId, chat);
-    return chat;
-  }
-
-  /** 追加一条会话消息（role: 'user'；message_id 用于 join 任务明细）。 */
-  function appendChatMessage({ chatId, role, text, at, messageId = null }) {
-    const chat = chats.get(chatId);
-    if (!chat) return { error: 'CHAT_NOT_FOUND' };
-    const message = { message_id: messageId, role, text, at };
-    chat.messages.push(message);
-    chat.updated_at = at;
-    return { chat, message };
-  }
-
-  function getChat(chatId) {
-    return chats.get(chatId) || null;
-  }
-
-  /** 会话详情：消息流 + 按 message_id join 的任务明细（web 端一次取全）。 */
-  function chatDetail(chatId) {
-    const chat = chats.get(chatId);
-    if (!chat) return null;
-    return {
-      chat_id: chat.chat_id,
-      title: chat.title,
-      agent_id: chat.agent_id,
-      created_at: chat.created_at,
-      updated_at: chat.updated_at,
-      messages: chat.messages.map((m) => ({
-        ...m,
-        task: m.message_id ? tasksByMessage.get(m.message_id) || null : null,
-      })),
-    };
-  }
-
-  /** 会话摘要列表（updated_at 倒序）；state = 最近一条带任务消息的任务状态（无则 idle）。 */
-  function listChats() {
-    const out = [];
-    for (const chat of chats.values()) {
-      let state = 'idle';
-      for (let i = chat.messages.length - 1; i >= 0; i -= 1) {
-        const mid = chat.messages[i].message_id;
-        if (!mid) continue;
-        const task = tasksByMessage.get(mid);
-        if (task) {
-          state = task.state;
-          break;
-        }
-      }
-      out.push({
-        chat_id: chat.chat_id,
-        title: chat.title,
-        agent_id: chat.agent_id,
-        state,
-        created_at: chat.created_at,
-        updated_at: chat.updated_at,
-        message_count: chat.messages.length,
-      });
-    }
-    out.sort((a, b) => b.updated_at - a.updated_at);
-    return out;
-  }
-
   return {
     getEntry,
     identityOf,
@@ -353,10 +272,5 @@ export function createRegistry() {
     finishTask,
     getTask,
     listTasks,
-    createChat,
-    appendChatMessage,
-    getChat,
-    chatDetail,
-    listChats,
   };
 }

@@ -1,11 +1,14 @@
 # oamp — 本机多智能体运行时 CLI
 
-零依赖 Node.js v22 ESM 命令行工具：单一入口拉起 Router、拉起 agent 节点、查询拓扑状态。
-运行参数全部经环境变量提供（无 YAML 配置面）；节点与 Router 间为 UDS + JSON-RPC 2.0。
+零依赖 Node.js v22 ESM 命令行工具：单一入口拉起 Router、拉起 agent 节点、查询拓扑状态、运行对话式 Web 控制台。
+运行参数经环境变量 + 可选配置文件 `oamp/config.json`（库路径 / 默认模型 / 上下文上限三键）提供；
+节点与 Router 间为 UDS + JSON-RPC 2.0；对话历史落 SQLite（`node:sqlite`，仍为零第三方依赖），实时增量走 SSE。
 
-> **当前状态**：CLI 分发、Router/agent 运行时、`status` 只读查询与 **`task` 任务指派/进度查询**均已落地可用——
+> **当前状态**：CLI 分发、Router/agent 运行时、`status` 只读查询、`task` 任务指派/进度查询与
+> **`web` 对话控制台（持久化 + 实时推送 + 常驻上下文）**均已落地可用——
 > `oamp router start`、`oamp agent start <instance-id>`、`oamp status`、
-> `oamp task send/status/list/watch` 端到端可执行（复现步骤见下方 E2 手测与任务演示）。
+> `oamp task send/status/list/watch`、`oamp web start` 端到端可执行
+> （复现步骤见下方 E2 手测、任务演示与 Web 控制台）。
 
 ## 快速开始
 
@@ -79,6 +82,12 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_HB_LOG_WINDOW_MS` | Router | `60000` | 心跳日志节流窗口（毫秒）；正整数 |
 | `OAMP_RECONNECT` | agent | `1` | 断线/连接失败后自动重连重注册（自愈，D22）；`0` = 旧行为（断线即退） |
 | `OAMP_RECONNECT_MAX_MS` | agent | `10000` | 重连退避上限（毫秒）；退避 500ms 起指数增长至该上限 |
+| `OAMP_CONFIG` | 全部 | `<包根>/config.json` | 配置文件路径（见「配置面」） |
+| `OAMP_DB` | web | `<包根>/data/sql.db` | 对话库路径；相对路径基准 = 包根 |
+| `OAMP_OMP_MODEL` | agent | `openai/gpt-5.6-luna` | 默认模型（请求未指定 `model` 时生效） |
+| `OAMP_CTX_MAX` | agent | `8` | 常驻上下文进程上限（超出按 LRU 淘汰）；正整数 |
+| `OAMP_WEB_PORT` | web | `7788` | Web 控制台端口（命令行 `--port` 优先） |
+| `OAMP_OMP_BIN` | agent | `omp` | omp 可执行路径（测试注入 fake omp 用） |
 
 数值类 env 一律要求正整数，非法值启动即报错退出（快速失败）。自动化测试将 interval 缩到
 30–100ms、timeout 缩到 200–400ms、日志窗口缩到 ~300ms，使全链路秒级完成。
@@ -94,8 +103,8 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 
 ## 卫生红线声明
 
-- **运行时产物不入 git**：socket 等运行时产物的唯一落点 `oamp/.runtime/` 已被 `.gitignore`
-  忽略；测试用 socket 全部位于系统临时目录，永不落仓库。
+- **运行时产物不入 git**：socket 落点 `oamp/.runtime/` 与对话库落点 `oamp/data/` 均已被
+  `.gitignore` 忽略；测试用 socket 与临时库全部位于系统临时目录，永不落仓库。
 - **代码与配置零凭据字段**：`oamp/` 代码与配置中不出现 token / api_key / secret / password /
   credential / authorization / private_key 等赋值形态字段；本工具无鉴权凭据概念
   （本地 UDS 属主访问），仓库保持可 clone、可共享。
@@ -107,26 +116,79 @@ oamp web start [--port 7788]      # 默认 http://127.0.0.1:7788（env OAMP_WEB_
 ```
 
 浏览器打开后：
-- **左栏**：对话列表（按 TODAY/OLDER 分组，条目标题 + 状态徽标 + @agent + 时间；All/Working/Completed 过滤）
-- **右栏**：对话详情——你的消息与 agent 执行块（状态徽标 / 耗时 / 命令 / 输出明细（stderr 标红）/ exit_code 结果行；输出超 8 行折叠可展开）
-- **输入框**：`@agent 命令` —— 输入 `@` 弹出全部 agent 列表（↑↓ 选择、Enter 补全）；Enter 发送、Shift+Enter 换行
+- **左栏**：对话列表（＋ New chat；All / Working / Completed 过滤；条目标题 + 状态徽标 + @agent + 时间）
+- **右栏**：对话详情——消息流（你的输入 / agent 回答，含耗时与错误提示）与「关闭对话」按钮
+- **输入框**：`@agent 提问` —— 输入 `@` 弹出全部 agent 列表（↑↓ 选择、Enter 补全）；Enter 发送、Shift+Enter 换行；
+  输入框下方可选 **模型**（留空用默认链）与 **一次性**（勾选即不累积上下文）
 
-**消息即命令（demo 语义）**：消息文本去掉 `@agent` 前缀后以 `/bin/sh -c` 在目标 agent 上执行，输出经任务明细回流到对话。
-Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不直连 UDS。会话与消息存于 Router 内存（重启即清空）。
+**三种提交形态（互不干扰，判定顺序：`!` → 一次性 → 默认常驻）**：
+
+| 输入 | 走哪条路 | 上下文 |
+|---|---|---|
+| 普通提问（默认） | 常驻 `omp acp` 进程（`omp-daemon`） | **同对话累积**；新对话互不可见 |
+| 勾选「一次性」 | `omp -p --no-session`（0010 原样） | 不累积，也不复用常驻上下文 |
+| 以 `!` 开头 | `/bin/sh -c` shell 执行（0010 原样） | 无上下文 |
+
+Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不直连 UDS。
 安全边界：监听 127.0.0.1，无鉴权；命令由输入文本决定（迭代 0010 N6 边界）。
+
+## 对话持久化、历史查询与实时推送（0011）
+
+- **历史真源 = SQLite**：`chats` / `messages` 两张表（`node:sqlite`，零第三方依赖），路径由配置面 `data.db` 决定
+  （默认 `<包根>/data/sql.db`，`OAMP_DB` 可覆盖）。一次问答**恰两条**记录（`in` + `out`），
+  流式增量 / 心跳 / 日志等过程**永不入库**；输入先落盘再派发，派发失败或进程中断按失败轮次如实补 `out` 记录。
+- **HTTP API**：
+
+  | 方法与路径 | 说明 |
+  |---|---|
+  | `GET /api/agents` | 在线 agent 列表（Router 拓扑快照） |
+  | `GET /api/chats` | 对话列表；`q`（标题或消息文本）/ `agent` / `state` / `from` / `to` 过滤，`limit`（默认 50、上限 200）+ `offset` 分页 |
+  | `GET /api/chats/<chat_id>` | 对话详情（消息按时间升序；未知对话 → 404） |
+  | `POST /api/messages` | `{chat_id?, agent_id, text, model?, one_shot?}`：落库 + 派发；已关闭对话 → 409 |
+  | `POST /api/chats/<chat_id>/close` | 关闭对话（幂等）：只读、拒绝新输入、**不删数据**，并通知 agent 释放上下文 |
+  | `GET /api/stream?chat_id=<id>` | SSE 实时流 |
+
+- **SSE 四类事件**：`message`（已落盘的输入/输出）/ `task_update`（流式增量，仅运行时、不入库）/ `chat_state`（状态变化）/
+  `notice`（上下文释放·重置提示）。断线由浏览器自动重连，重连或刷新时以 `GET /api/chats/<id>` 全量补齐（断线期间增量不补发）。
+- **对话状态**：`working` → `completed`（成功）/ `failed`（失败轮或派发失败）；关闭后为 `closed`（终态、不可重开）。
+  web 启动时把上次遗留的 `working` 对话置 `failed`（不补记录）。
+
+## 常驻上下文与关闭（0011）
+
+- 默认路径按 **「对话 × agent」各一个常驻 `omp acp` 子进程 + 一个 ACP session** 维护上下文：
+  同一对话多轮记得前文，**不同对话相互隔离**，同一对话的不同 agent 也互不串扰。
+- 同一对话的轮次**串行**（单次在飞，FIFO 排队上限 8，超出以 `context_busy` 失败）；不同对话可并发；
+  常驻进程总数上限 `context.max` / `OAMP_CTX_MAX`（默认 8），超出按 **LRU 淘汰**最久未用者并推送 `notice{context_reset}` 提示。
+- **关闭对话即释放上下文**：web 向该对话涉及的各 agent 发 `context_release`，agent 结束该对话的常驻进程，在飞轮次按失败收尾；
+  关闭后只读、拒绝新输入（409）、**不提供重开**。
+- agent 进程重启会丢失全部常驻上下文（后续轮次以新的 `context_id` 重建）；**web 重启不影响**上下文（它活在 agent 进程内），历史照旧可查。
 
 ## 真实消息处理（omp / LLM 执行器）
 
-agent 的任务执行器支持两种 executor（由任务 payload 路由）：
+agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提交形态」决定走哪条）：
 
 | executor | payload | 行为 |
 |---|---|---|
-| **omp**（默认，Web 控制台走这条） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p --no-session [--no-tools] [--model X] <prompt>`——**真实 omp agent（默认 gpt 模型）处理**，输出逐行回流为任务明细 |
-| shell（向后兼容） | `{command, args?, timeout_ms?, label?}` | spawn 直启命令（原行为） |
+| **omp-daemon**（默认；Web 普通提问走这条） | `{executor:"omp-daemon", chat_id, prompt:"…", model?, timeout_ms?}` | 常驻 `omp acp` 子进程 + ACP session 多轮：回答以流式增量实时回流，上下文按「对话 × agent」累积 |
+| **omp**（显式一次性；Web 勾选「一次性」） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p --no-session [--no-tools] [--model X] <prompt>`——单次执行，不累积也不复用上下文 |
+| shell（向后兼容；Web 以 `!` 开头） | `{command, args?, timeout_ms?, label?}` | spawn 直启命令（原行为，无上下文） |
 
-- Web 控制台：普通消息 = 交给 omp 回答（`@dev-1 推荐一部日本动漫，并给出理由`）；**以 `!` 开头** = 按 shell 命令执行（`@dev-1 !ls -la`）。
-- 默认 `--no-tools`（纯问答更安全/更快）；需要 agent 干活时 payload 传 `tools:true` 放开工具。
+- **模型解析链**（每轮独立）：请求 payload `model` > `OAMP_OMP_MODEL` > 配置文件 `defaults.model` > 内置 `openai/gpt-5.6-luna`；
+  Web 侧不注入默认值（未指定即回默认链）。对话详情里的 `model` 记录的是 **ACP 实报的生效模型**（不是请求回显）。
+- 默认 `--no-tools`（纯问答更安全/更快）；需要 agent 干活时 payload 传 `tools:true` 放开工具（仅一次性路径）。
 - omp 默认超时 300s（`timeout_ms` 可覆盖，上限 600s）；omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
 - 输出经 ANSI 清理后回流；回答在对话里以浅色可读排版展示（区别于 shell 的终端块）。
 
 > 安全边界（demo）：`tools:true` 时 omp 可调用工具操作本机；`--no-tools` 不放开。鉴权仍属后续迭代（N6 边界）。
+
+## 配置面（oamp/config.json）
+
+可选 JSON 文件（默认 `<包根>/config.json`，`OAMP_CONFIG` 可改路径）；文件不存在则全部走内置默认：
+
+```json
+{ "data": { "db": "data/sql.db" }, "defaults": { "model": "openai/gpt-5.6-luna" }, "context": { "max": 8 } }
+```
+
+- 逐键优先级 **env > 配置文件 > 内置默认**（对应 `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX`）；相对路径基准 = 包根（与 cwd 无关）。
+- 文件缺失 → 正常启动；JSON 非法或类型不符 → 启动即报错退出 1（快速失败）；未知键忽略；无热重载。
+- 运行时产物落点：socket → `oamp/.runtime/`，对话库 → `oamp/data/`（均已 `.gitignore`）。
