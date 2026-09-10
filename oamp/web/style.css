@@ -110,6 +110,7 @@ html, body {
 .badge-working { background: #fef3c7; color: var(--amber); }
 .badge-completed { background: var(--green-soft); color: var(--green); }
 .badge-failed { background: #fee2e2; color: var(--red); }
+.badge-closed { background: #eef0ee; color: var(--muted); }
 
 /* ── 右栏 ── */
 .detail { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg-sub); }
@@ -238,3 +239,41 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-fa
 }
 .answer-line { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
 .answer-line.stderr { color: var(--red); }
+/* 0011：关闭 / 模型 / 一次性 / 系统提示条（架构 §9.2 新增最小控件） */
+.chat-close {
+  margin-left: auto;
+  align-self: center;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.chat-close:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+.chat-close:disabled { opacity: 0.5; cursor: default; }
+.composer-tools { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.model-input {
+  flex: 0 0 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+}
+.model-input:focus { outline: none; border-color: var(--green); }
+.oneshot { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); cursor: pointer; user-select: none; }
+.msg-meta { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.model-chip { background: var(--code-bg); border-radius: 4px; padding: 1px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.err-chip { color: var(--red); }
+.notice-bar {
+  margin: 6px 0 18px;
+  padding: 7px 12px;
+  border-left: 3px solid var(--amber);
+  background: #fef3c7;
+  border-radius: 0 6px 6px 0;
+  color: var(--amber);
+  font-size: 12px;
+}

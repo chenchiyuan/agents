@@ -1,12 +1,15 @@
-// src/web.js — `oamp web start [--port N]` 内建 Web 控制台（demo）
+// src/web.js — `oamp web start [--port N]` 内建 Web 控制台
 // 形态：Node 内置 http 服务（零新依赖）serve 静态单页 + JSON API；进程内以 'web' 身份
-//       经 NodeClient/RpcPeer 连 Router（UDS）桥接——浏览器不直连 UDS。
+//       经 NodeClient/RpcPeer 连 Router（UDS）——浏览器不直连 UDS；历史真源 = SQLite（src/persist.js）。
 // API：
 //   GET  /api/agents                 → Router 拓扑快照（活跃 agent 列表）
-//   GET  /api/chats                  → 会话摘要列表
-//   GET  /api/chats/<chat_id>        → 会话详情（消息流 + join 任务明细）
-//   POST /api/messages               → {chat_id?, agent_id, text} 写入会话 + 派发命令任务（消息即命令）
-// 语义（用户确认）：消息即命令——文本经 `/bin/sh -c` 交目标 agent 执行，输出/exit/耗时回流为任务明细。
+//   GET  /api/chats                  → chat 列表（读库；q/agent/state/from/to/limit/offset）
+//   GET  /api/chats/<chat_id>        → chat 详情（读库；消息 created_at ASC, id ASC）
+//   POST /api/messages               → {chat_id?, agent_id, text, model?, one_shot?} 落库 + 派发任务
+//   POST /api/chats/<chat_id>/close  → 关闭 chat（幂等）+ 通知 agent 释放该 chat 上下文
+//   GET  /api/stream?chat_id=<id>    → SSE（message / task_update / chat_state / notice 四类事件）
+// 语义（0011 迭代，architecture §4/§5/§9.1）：一次提问 = 恰一条 in + 一条 out（过程不入库）；
+//   执行路径判定顺序：`!` → shell（0010 原样）｜one_shot:true → omp 一次性（0010 原样）｜默认 → omp-daemon 常驻上下文。
 // 安全边界（demo）：监听 127.0.0.1；无鉴权（迭代 0010 N6 边界）；命令由输入文本决定。
 
 import http from 'node:http';
@@ -18,11 +21,15 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { RpcPeer } from './rpc.js';
 import { NodeClient } from './node-client.js';
+import { openDb } from './persist.js';
+import { createSseTransport } from './transport.js';
 
 const WEB_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const SENDER_ID = 'web'; // web 服务作为常驻发送方身份（R2：客户端节点）
 const DEFAULT_PORT = 7788;
 const QUERY_TIMEOUT_MS = 3000;
+const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/; // §7.2 模型标识形态（web 侧校验，非法 → 400）
+const LABEL_MAX = 60; // task label 截断（沿用 0010 web 既有值）
 
 const STATIC_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -32,33 +39,46 @@ const STATIC_TYPES = {
   '.png': 'image/png',
 };
 
-function sendJson(res, status, body) {
+function sendJson(res, status, body, headers = null) {
   const text = JSON.stringify(body);
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...(headers || {}) });
   res.end(text);
 }
 
+/** 读请求体（≤limit）。失败错误带 `status`：畸形 JSON → 400、超限 → 413（调用方据此响应，不落 502）。 */
 function readBody(req, limit = 64 * 1024) {
   return new Promise((resolve, reject) => {
     let size = 0;
+    let settled = false;
     const chunks = [];
+    const fail = (status, message) => {
+      if (settled) return;
+      settled = true;
+      const err = new Error(message);
+      err.status = status;
+      reject(err);
+    };
     req.on('data', (c) => {
+      if (settled) return; // 已判错：丢弃后续数据（不缓冲，防内存膨胀）
       size += c.length;
       if (size > limit) {
-        reject(new Error('request body too large'));
-        req.destroy();
+        fail(413, `请求体过大（上限 ${limit} 字节）`);
         return;
       }
       chunks.push(c);
     });
     req.on('end', () => {
+      if (settled) return;
+      settled = true;
       try {
         resolve(chunks.length === 0 ? {} : JSON.parse(Buffer.concat(chunks).toString('utf8')));
       } catch (err) {
-        reject(new Error(`invalid JSON body: ${err.message}`));
+        const e = new Error(`请求体非法 JSON: ${err.message}`);
+        e.status = 400;
+        reject(e);
       }
     });
-    req.on('error', reject);
+    req.on('error', (err) => fail(err.status || 400, err.message));
   });
 }
 
@@ -84,6 +104,17 @@ async function queryOnce(socketPath, method, params) {
     return await peer.request(method, params, { timeoutMs: QUERY_TIMEOUT_MS });
   } finally {
     peer.close();
+  }
+}
+
+/** 解 agent 回传信封（task.update / task.result / notice）的 JSON body；坏帧 → null（忽略，不抛）。 */
+function parseMessageBody(payload) {
+  if (!payload || payload.content_type !== 'application/json') return null;
+  try {
+    const body = JSON.parse(payload.body);
+    return body && typeof body === 'object' ? body : null;
+  } catch {
+    return null;
   }
 }
 
@@ -125,6 +156,84 @@ export default async function startWeb(restArgs) {
     return 1;
   }
 
+  // 持久层 = 历史真源（§4.2）：启动时打开，打不开 → 打错误并退出非 0（不静默降级）；
+  // 启动扫尾把本次启动前遗留的 working 置 failed（§4.3「进程中断」行，不补记录）。
+  let db;
+  try {
+    db = openDb(config.dbPath);
+  } catch (err) {
+    process.stderr.write(`oamp web: 无法打开数据库 ${config.dbPath}: ${err && err.message ? err.message : err}\n`);
+    return 1;
+  }
+  db.startupSweep();
+
+  // §5.1 替换点：换另一种实时传输 = 换这一行构造（不引入 transport 配置项）
+  const transport = createSseTransport();
+
+  // task_id → { chatId, agentId, lines }：agent 侧的 task.update/task.result body 不带 chat_id，
+  // 派发时登记、终态时清除；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
+  const tasks = new Map();
+
+  const publishMessage = (chatId, message) =>
+    transport.publish(chatId, { type: 'message', data: { chat_id: chatId, message } });
+  const publishState = (chatId, state) =>
+    transport.publish(chatId, { type: 'chat_state', data: { chat_id: chatId, state } });
+
+  /** 终态落盘：恰一条 out 记录 + `message`(out) + `chat_state`（状态取库值，closed 哨兵不被迟到结果覆盖）。 */
+  const finishTask = (entry, body) => {
+    const failed = !body || body.state === 'failed';
+    const nowMs = Date.now();
+    const model = body && typeof body.model === 'string' ? body.model : null; // §7.4：ACP 实报生效值
+    const error = failed ? (body && typeof body.error === 'string' ? body.error : 'task_failed') : null;
+    const durationMs = body && Number.isFinite(body.duration_ms) ? body.duration_ms : null;
+    const text =
+      body && typeof body.text === 'string' && body.text !== ''
+        ? body.text
+        : entry.lines.length > 0
+          ? entry.lines.join('\n')
+          : failed
+            ? `执行失败：${error}`
+            : '';
+    const meta =
+      body && (body.context_id !== undefined || body.pid !== undefined)
+        ? { context_id: body.context_id ?? null, pid: body.pid ?? null }
+        : null;
+    const { message_id } = db.insertOutput({ chatId: entry.chatId, text, agentId: entry.agentId, model, durationMs, error, meta, nowMs });
+    publishMessage(entry.chatId, { id: message_id, direction: 'out', agent_id: entry.agentId, text, model, duration_ms: durationMs, error, created_at: nowMs });
+    const chat = db.getChat(entry.chatId);
+    if (chat) publishState(entry.chatId, chat.chat.state);
+  };
+
+  /** agent 回传消费（§5.3 推送链）：task.update → SSE task_update（不入库）；task.result → 落盘 + 推送；notice → 转发。 */
+  const handleDeliver = (message) => {
+    if (message.type === 'notice') {
+      // SSE 侧提示 kind（§5.2）：context_released = chat 关闭释放；context_reset = 崩溃/超时/淘汰。
+      // agent 负责产出提示，web 只转发（不自行 publish，避免双条）。
+      const body = parseMessageBody(message.payload);
+      const chatId = body && typeof body.chat_id === 'string' ? body.chat_id : null;
+      if (!chatId || (body.kind !== 'context_released' && body.kind !== 'context_reset')) return;
+      transport.publish(chatId, { type: 'notice', data: { chat_id: chatId, kind: body.kind, text: typeof body.text === 'string' ? body.text : '' } });
+      return;
+    }
+    const entry = tasks.get(message.task_id);
+    if (!entry) return;
+    const body = parseMessageBody(message.payload);
+    if (!body) return;
+    if (message.type === 'task.update') {
+      if (typeof body.kind !== 'string') return; // started/truncated 等非过程增量条目（§5.2 只定义 chunk/stdout/stderr）
+      if (body.kind === 'stdout' && typeof body.line === 'string') entry.lines.push(body.line);
+      transport.publish(entry.chatId, {
+        type: 'task_update',
+        data: { chat_id: entry.chatId, task_id: message.task_id, kind: body.kind, text: body.text, line: body.line },
+      });
+      return;
+    }
+    if (message.type === 'task.result') {
+      tasks.delete(message.task_id);
+      finishTask(entry, body);
+    }
+  };
+
   // 常驻发送方（懒连接：Router 尚未就绪/断开时，发送路径报错但查询路径仍可用）。
   // 注册后必须维持心跳：否则租约超时被判 offline，后续 send 得 UNREGISTERED。
   let sender = null;
@@ -132,6 +241,7 @@ export default async function startWeb(restArgs) {
   const ensureSender = async () => {
     if (sender && !sender.closed) return sender;
     const client = new NodeClient({ socketPath: config.socketPath });
+    client.onDeliver = handleDeliver; // agent 回传的过程增量/终态/提示经此转 SSE
     await client.connect();
     await client.register(SENDER_ID);
     client.startHeartbeat(heartbeatMs);
@@ -141,8 +251,8 @@ export default async function startWeb(restArgs) {
     sender = client;
     return sender;
   };
-  /** 发送任务；失败（连接失效/被替换等）失效 sender 并重试一次。 */
-  const sendTask = async (agentId, messageId, payloadBody) => {
+  /** 发送任务（task_id 由 web 预生成并透传，§4.3 meta.task_id 与之同值）；失败重试一次。 */
+  const sendTask = async (agentId, messageId, taskId, payloadBody) => {
     let lastErr = null;
     for (let i = 0; i < 2; i += 1) {
       try {
@@ -150,6 +260,7 @@ export default async function startWeb(restArgs) {
         return await client.send(agentId, {
           protocol: 'oamp/1',
           message_id: messageId,
+          task_id: taskId,
           type: 'task.request',
           payload: { content_type: 'application/json', body: JSON.stringify(payloadBody) },
         });
@@ -160,10 +271,25 @@ export default async function startWeb(restArgs) {
     }
     throw lastErr;
   };
+  /** web → agent 控制消息：`notice{kind:'context_release', chat_id}`（§6.4；best-effort，失败忽略）。 */
+  const sendControlNotice = async (agentId, body) => {
+    const client = await ensureSender();
+    return client.send(agentId, {
+      protocol: 'oamp/1',
+      message_id: `ntc-${randomUUID()}`,
+      type: 'notice',
+      payload: { content_type: 'application/json', body: JSON.stringify(body) },
+    });
+  };
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     const p = url.pathname;
+    const qs = url.searchParams;
+    const num = (key) => {
+      const raw = qs.get(key);
+      return raw === null || raw === '' ? undefined : Number(raw);
+    };
     try {
       if (req.method === 'GET' && p === '/api/agents') {
         const r = await queryOnce(config.socketPath, 'router.status', {});
@@ -171,18 +297,74 @@ export default async function startWeb(restArgs) {
         return;
       }
       if (req.method === 'GET' && p === '/api/chats') {
-        const r = await queryOnce(config.socketPath, 'router.chat_list', {});
+        let r;
+        try {
+          r = db.listChats({
+            q: qs.get('q') ?? undefined,
+            agent: qs.get('agent') ?? undefined,
+            state: qs.get('state') ?? undefined,
+            from: num('from'),
+            to: num('to'),
+            limit: num('limit'),
+            offset: num('offset'),
+          });
+        } catch (err) {
+          sendJson(res, 400, { error: err && err.message ? err.message : String(err) });
+          return;
+        }
         sendJson(res, 200, r);
         return;
       }
       if (req.method === 'GET' && p.startsWith('/api/chats/')) {
         const chatId = decodeURIComponent(p.slice('/api/chats/'.length));
-        const r = await queryOnce(config.socketPath, 'router.chat_get', { chat_id: chatId });
+        const r = db.getChat(chatId);
+        if (!r) {
+          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          return;
+        }
         sendJson(res, 200, r);
         return;
       }
+      if (req.method === 'POST' && p.startsWith('/api/chats/') && p.endsWith('/close')) {
+        const chatId = decodeURIComponent(p.slice('/api/chats/'.length, -'/close'.length));
+        const found = db.getChat(chatId);
+        if (!found) {
+          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          return;
+        }
+        if (found.chat.state === 'closed') {
+          sendJson(res, 200, { chat_id: chatId, state: 'closed' }); // 幂等：不再重复发控制消息
+          return;
+        }
+        db.closeChat(chatId);
+        publishState(chatId, 'closed');
+        // §10.2：向该 chat 出现过的各 DISTINCT agent 发 context_release（agent 离线忽略）
+        const agents = new Set();
+        if (found.chat.agent_id) agents.add(found.chat.agent_id);
+        for (const m of found.messages) if (m.agent_id) agents.add(m.agent_id);
+        for (const agentId of agents) sendControlNotice(agentId, { kind: 'context_release', chat_id: chatId }).catch(() => {});
+        sendJson(res, 200, { chat_id: chatId, state: 'closed' });
+        return;
+      }
+      if (req.method === 'GET' && p === '/api/stream') {
+        const chatId = qs.get('chat_id');
+        if (!chatId) {
+          sendJson(res, 400, { error: '需要 chat_id（不做全局订阅）' });
+          return;
+        }
+        transport.handle(req, res, { chatId });
+        return;
+      }
       if (req.method === 'POST' && p === '/api/messages') {
-        const body = await readBody(req);
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          // 客户端错误（畸形 JSON → 400 / 超限 → 413）：明确响应；超限时关闭连接，不留悬挂
+          const status = err.status || 400;
+          sendJson(res, status, { error: err.message }, status === 413 ? { connection: 'close' } : null);
+          return;
+        }
         const text = typeof body.text === 'string' ? body.text.trim() : '';
         let agentId = typeof body.agent_id === 'string' ? body.agent_id : '';
         // 兜底解析 "@agent 剩余文本"（前端已解析时 agent_id 直接给出）
@@ -198,31 +380,50 @@ export default async function startWeb(restArgs) {
           sendJson(res, 400, { error: '消息不能为空' });
           return;
         }
-        // 消息文本 = 去掉 @agent 前缀后的剩余内容
+        const model = typeof body.model === 'string' && body.model !== '' ? body.model : null;
+        if (model !== null && !MODEL_RE.test(model)) {
+          sendJson(res, 400, { error: `model 非法（需匹配 ${MODEL_RE}）` });
+          return;
+        }
+        const chatId = typeof body.chat_id === 'string' && body.chat_id ? body.chat_id : `chat-${randomUUID()}`;
+        const existing = db.getChat(chatId);
+        if (existing && existing.chat.state === 'closed') {
+          sendJson(res, 409, { error: 'chat 已关闭，不接受新输入' });
+          return;
+        }
+        // 消息文本 = 去掉 @agent 前缀后的剩余内容（入库 text 仍为原文，§4.3）
         const messageText = text.replace(/^@[^\s@]+\s+/, '') || text;
-        // 路由：默认交给 omp（真实 LLM 处理）；`!命令` 前缀走 shell（demo 保留能力）
-        const payloadBody = messageText.startsWith('!')
-          ? { command: '/bin/sh', args: ['-c', messageText.slice(1).trim()], label: messageText.slice(0, 60) }
-          : { executor: 'omp', prompt: messageText, label: messageText.slice(0, 60) };
+        const taskId = `task-${randomUUID()}`;
         const messageId = `msg-${randomUUID()}`;
-        // 1) 先记录消息（保证即使派发失败，对话流仍完整）
-        const chatResp = await queryOnce(config.socketPath, 'router.chat_message', {
-          chat_id: typeof body.chat_id === 'string' && body.chat_id ? body.chat_id : undefined,
-          agent_id: agentId,
-          text,
-          message_id: messageId,
-        });
-        const chatId = chatResp.chat_id;
-        // 2) 派发命令任务（/bin/sh -c 执行整条文本；输出经任务明细回流）
-        let taskId = null;
+        // 1) 先落输入（§4.3：校验通过后、派发之前）+ 推 message(in)/chat_state(working)
+        const inAt = Date.now();
+        const input = db.insertInput({ chatId, text, agentId, meta: { task_id: taskId }, nowMs: inAt });
+        publishMessage(chatId, { id: input.message_id, direction: 'in', agent_id: agentId, text, model: null, duration_ms: null, error: null, created_at: inAt });
+        publishState(chatId, 'working');
+        // 2) 派发（§9.1 判定顺序：`!` → shell；one_shot → omp 一次性；否则 omp-daemon 常驻上下文）
+        const label = messageText.slice(0, LABEL_MAX);
+        const payloadBody = messageText.startsWith('!')
+          ? { command: '/bin/sh', args: ['-c', messageText.slice(1).trim()], label }
+          : body.one_shot === true
+            ? { executor: 'omp', prompt: messageText, label, ...(model === null ? {} : { model }) }
+            : { executor: 'omp-daemon', chat_id: chatId, prompt: messageText, label, ...(model === null ? {} : { model }) };
+        let dispatched = null;
         let warning = null;
         try {
-          const resp = await sendTask(agentId, messageId, payloadBody);
-          taskId = resp.task_id;
+          const resp = await sendTask(agentId, messageId, taskId, payloadBody);
+          dispatched = resp.task_id;
+          tasks.set(dispatched, { chatId, agentId, lines: [] });
         } catch (err) {
-          warning = `派发失败（${(err && err.dataCode) || (err && err.message) || err}）——消息已记录，agent 恢复后可重发`;
+          const reason = (err && err.dataCode) || (err && err.message) || String(err);
+          warning = `派发失败（${reason}）——消息已记录，agent 恢复后可重发`;
+          const outAt = Date.now();
+          const outText = `派发失败：${reason}`;
+          const out = db.insertOutput({ chatId, text: outText, agentId, error: 'dispatch_failed', nowMs: outAt });
+          publishMessage(chatId, { id: out.message_id, direction: 'out', agent_id: agentId, text: outText, model: null, duration_ms: null, error: 'dispatch_failed', created_at: outAt });
+          const chat = db.getChat(chatId);
+          if (chat) publishState(chatId, chat.chat.state);
         }
-        sendJson(res, 200, { chat_id: chatId, task_id: taskId, warning });
+        sendJson(res, 200, { chat_id: chatId, task_id: dispatched, message_id: messageId, warning });
         return;
       }
       if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
@@ -251,6 +452,8 @@ export default async function startWeb(restArgs) {
       sigint += 1;
       if (sigint >= 2) process.exit(130);
       server.close(() => {
+        transport.closeAll();
+        db.close();
         if (sender) sender.close();
         resolve(0);
       });
