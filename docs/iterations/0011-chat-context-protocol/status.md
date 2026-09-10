@@ -23,17 +23,17 @@
 - **起始并发数**：3
 - **硬上限**：5（2×3-1）
 - **当前有效上限**：3
-- **累计槛位释放次数**：0
-- **已派发总数**：0
+- **累计槛位释放次数**：2
+- **已派发总数**：3
 
 ## PR 实现子状态（阶段 5 展开）
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-config-surface-and-persistence.md | （无） | ⏸ | 待创建 | ⬜ | 占用 |
-| pr-002-sse-transport-abstraction.md | （无） | ⏸ | 待创建 | ⬜ | 占用 |
-| pr-003-context-pool-acp-daemon.md | pr-001 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-004-web-api-and-console.md | pr-001+002+003 | ⬜ | | ⬜ | 排队(依赖未满足) |
+| pr-001-config-surface-and-persistence.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
+| pr-002-sse-transport-abstraction.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
+| pr-003-context-pool-acp-daemon.md | pr-001 | ⏸ | feat/0011-pr-003-context | ⬜ | 占用 |
+| pr-004-web-api-and-console.md | pr-001+002+003 | ⬜ | | ⬜ | 排队(依赖 pr-003) |
 | pr-005-cleanup-e2e-and-docs.md | pr-004(+001/002/003) | ⬜ | | ⬜ | 排队(依赖未满足) |
 
 ## 待确认项

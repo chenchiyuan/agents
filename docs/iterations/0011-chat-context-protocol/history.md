@@ -46,3 +46,10 @@
 
 - verify-20260910-130941：8 项判定全 PASS，8 条偏差（文档同步类）经 architect/pr-planner 收口；主 agent 补记阶段 2~4 history 与阶段 5 并发配置。
 - 进入阶段 5：首批并发派发 pr-001 ∥ pr-002。
+
+### 2026-09-10 07:30:00 · 阶段 5 首批并发（pr-001 ∥ pr-002）
+
+- 双 worktree 并发派发；两 PR 均 planner+dev 两段执行体完成；独立 verifier 双双 PASS（verify-20260910-133635 / 132211；pr-001 5 条/pr-002 4 条偏差均文档类）。
+- pr-001 执行期曾用相对路径误写主仓库 config.js，已 `git checkout` 复原；主 agent 独立核验：主仓库工作区干净、config.js 46 行原样、零新增特征（净零确认）。
+- 两 PR 合并（2baa6ee / 86d7a62）；合并后全量 npm test **112/112**。槛位释放 2，有效上限 5。
+- pr-003 解锁并派发（feat/0011-pr-003-context，核心 PR：ACP 客户端 + 上下文池 + agent 执行器 + fake ACP 测试）。
