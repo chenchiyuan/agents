@@ -234,7 +234,9 @@ export function createSseTransport({ heartbeatMs = 15000 } = {}) {
 | `message` | `{ chat_id, message:{id,direction,agent_id,text,model,duration_ms,error,created_at} }` | 输入/输出落盘后（一次问答恰好 2 次） |
 | `task_update` | `{ chat_id, task_id, kind:'chunk'|'stdout'|'stderr', text?, line? }` | agent 过程增量到达 web 时（**不入库**） |
 | `chat_state` | `{ chat_id, state }` | `working/completed/failed/closed` 变更 |
-| `notice` | `{ chat_id, kind:'context_released'|'context_reset', text }` | agent 上下文事件（释放/重建，**不入库**，F05-7） |
+| `notice` | `{ chat_id, kind:'context_released'\|'context_reset', text }` | agent 上下文事件（**SSE 侧** kind：`context_released` = chat 关闭释放、`context_reset` = 崩溃/超时/容量淘汰；**不入库**，F05-7） |
+
+- **命名区分（勿混用）**：web → agent 的**控制消息** kind = `context_release`（语义"请释放该 chat 的上下文"，§6.4）；**SSE 事件** kind = `context_released`（语义"已释放"，给用户看，§6.3）；崩溃 / 超时 / 淘汰 = `context_reset`。三者分别属于「控制请求 / 已被动释放的用户提示 / 重置提示」，不共用一个 token。
 
 - 端点：`GET /api/stream?chat_id=<id>`（`text/event-stream`；必须带 `chat_id`，不做全局订阅——无卡要求）。
 - 保活与重连：响应头写 `retry: 1000`；每 15s 写 `: keepalive` 注释行。
@@ -295,7 +297,7 @@ omp acp --(session/update.agent_message_chunk)--> acp-client（拼接 + 立即�
 - **不主动 TTL 回收**（用户决策 2026-09-10）：进程存活至 chat 关闭或超上限。
 - 提示形态（**关键裁决**）：淘汰 / 崩溃后，agent 向 web 发一条 `notice`（`kind:'context_reset'`），web 转成 SSE `notice` 事件，前端在对话流内插一条**系统提示条**（"上下文已释放 / 已重置，本对话后续回复不再记得此前内容"）。
   **该提示不入库**——F02-5/E-5 明令"仅两类记录"，若落成消息行会直接违反 E-5；F05-7 只要求"对话内明确提示"，运行时事件满足语义。
-- 提示触发点只有两个：`context_reset`（崩溃/超时重建、容量淘汰）、`context_released`（chat 关闭）。不静默丢失。
+- 提示触发点只有两个：`context_reset`（崩溃 / 超时重建 / 容量淘汰）、`context_released`（chat 关闭导致的释放）。不静默丢失。**注意**：这里的 `context_released` 是 **SSE 侧**（给用户看的提示 kind）；触发它的 **web → agent 控制消息** kind 是 `context_release`（§6.4），两者不可混用。
 
 ### 6.4 释放时机与重启边界（AR-12）
 
@@ -303,7 +305,7 @@ omp acp --(session/update.agent_message_chunk)--> acp-client（拼接 + 立即�
 |---|---|---|
 | chat 关闭 | web 查该 chat 出现过的 `DISTINCT agent_id`，向每个 agent 发 `notice{kind:'context_release', chat_id}`（best-effort，失败忽略）→ agent kill 该 chat 的进程并移除键 | F01-5 + F05 AR |
 | chat 已关闭后再提问 | **拒绝**：`POST /api/messages` 返回 409 + 提示；因此不存在"重开后上下文从哪来"的问题（F01 边界：不做重开语义） | F01-5、AR-03 |
-| 关闭时该 chat 正在处理 | 立即释放（kill）；在飞轮次以 `context_crashed`/`context_released` 失败收尾（走 §6.5 崩溃路径），web 落一条失败 out 记录；chat 状态仍为 `closed`（`state!='closed'` 哨兵） | §4.3 |
+| 关闭时该 chat 正在处理 | 立即释放（kill）；在飞轮次走 §6.5 崩溃路径收尾，错误码沿用 `context_crashed`（**不另立 `context_released` 错误码**，避免与提示 kind 混淆），web 落一条失败 out 记录；chat 状态仍为 `closed`（`state!='closed'` 哨兵） | §4.3 |
 | **web 重启** | 上下文**不受影响**（上下文在 agent 进程里）；历史从 SQLite 读回；遗留 `working` 状态由启动扫尾置 `failed` | E-3 / F02-6 |
 | **agent 重启** | 该 agent 的上下文**全部丢失**（池在内存）；后续轮次按新键创建 → 新 `context_id`/`pid`（可从 out 记录 meta 观察到变化）。**不做主动提示**：agent 重启后无从知道历史上服务过哪些 chat，主动提示需要持久化 chat 清单——超出 N-5/需求范围 | F05 边界（不承诺重启恢复） |
 | agent SIGINT（优雅退出） | `pool.dispose()`：全部 kill；退出流程其余部分沿用 0010 | 0010 既有 |
@@ -636,29 +638,43 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 
 **未新增其它 L1**：模型切换方式（D-07）、增量推送链（D-08）、提示不入库（D-09）、删除 Router chat 面（D-12）均在既有技术栈与既有协议面内，属 L2 自主决策。
 
-> **保留 v0.2.0 §9 用户确认记录**（2026-09-10，user_confirmed）：① 数据库位置 = 配置文件驱动（默认 `data/sql.db`，`OAMP_DB` 可覆盖）；② 空闲回收 = **不主动 TTL**，仅受全局上限约束；③ 默认模型 = `openai/gpt-5.6-luna`；④ 流程 = 先审方案（`architecture.md` + `demand.md` 经用户审阅确认后开工），实施在新分支 `iteration/0011-chat-context-protocol`（PR-1..4）。①②③ 分别对应本表 L1-1 / L1-2（回收策略落在 §6.3）/ L1-5；④ 属流程约定，不在 L1 表内。
+> **保留 v0.2.0 §9 用户确认记录**（2026-09-10，user_confirmed）：① 数据库位置 = 配置文件驱动（默认 `data/sql.db`，`OAMP_DB` 可覆盖）；② 空闲回收 = **不主动 TTL**，仅受全局上限约束；③ 默认模型 = `openai/gpt-5.6-luna`；④ 流程 = 先审方案（`architecture.md` + `demand.md` 经用户审阅确认后开工），实施在新分支 `iteration/0011-chat-context-protocol`（PR-1..4 = v0.2.0 方案稿的编号；实际布局已重切为 pr-001~pr-005，见 §16.1）。①②③ 分别对应本表 L1-1 / L1-2（回收策略落在 §6.3）/ L1-5；④ 属流程约定，不在 L1 表内。
 
 ---
 
 ## 16. 实施步骤与边界（阶段 4 pr-planner 的输入）
 
-### 16.1 PR 划分（细化 v0.2.0 §7）
+### 16.1 PR 划分（与 `prs/` 实际布局一致；v0.2.0 §7 的 4-PR 建议已被重切）
 
 | PR | 内容（含文件范围） | 依赖 | 验收（可执行断言） |
 |---|---|---|---|
-| **PR-1** 配置面 + 持久层 | `src/config.js` 扩展（JSON 文件/env/默认/非法失败）+ `src/persist.js`（schema/建库/`insertInput`/`insertOutput`/查询/close/启动扫尾）+ `.gitignore`(+`data/`) + `test/config-file.test.js` + `test/persist.test.js` | — | 默认路径=`oamp/data/sql.db`；`OAMP_DB` 覆盖生效；非法 JSON 退出 1；缺失正常启动；写入后重启可读回（E-3 落盘侧）；一次问答记录恰 2 条且 `direction∈{in,out}`（E-5）；排序/过滤/分页/转义断言（F03） |
-| **PR-2** 传输层 + web 读库 + 前端实时 | `src/transport.js` + `src/web.js` 路由改造（chats/detail/stream/close/messages）+ `web/{app.js,index.html,style.css}` + `test/transport.test.js` | PR-1 | SSE 建连与事件到达；`task_update` 在 `message(out)` 之前到达且分段（E-4；用 fake ACP 注入可控节奏的增量）；断线重连后全量拉取内容完整（F04-7）；关闭后 `POST /api/messages` → 409（F01-5）；列表含已关闭 chat（F03-1） |
-| **PR-3** 上下文池 + ACP 客户端 + daemon 执行器 | `src/acp-client.js` + `src/context-pool.js` + `src/agent.js`（`omp-daemon` 分支 + `notice` 处理 + SIGINT dispose）+ `test/context-pool.test.js`（fake ACP: `OAMP_OMP_BIN`） | — | 同 chat 两轮记忆 42 且 `meta.context_id`/`pid` 相等（E-1/F05-2）；新 chat 不含 42（E-2）；同 chat 两 agent 互不串扰（F05-4）；超上限 LRU 淘汰 + `notice`（F05-7）；子进程崩溃 → 该轮 failed + 下轮重建；`set_config_option` 未知模型 → `model_unavailable`（F06-4） |
-| **PR-4** 端到端串接 + 回归 | `src/web.js`（预生成 task_id/chat_id、payload 判定、`onDeliver` 收 task.update/result/notice、落盘与状态机、关闭释放）+ `registry.js`/`router.js` 删除 + `web/app.js` 交互补齐（模型/一次性/关闭/提示条）+ **重写 `test/web.test.js`** + `test/acp-daemon.test.js` + README/文档更新 | PR-1..3 | E-1~E-5 全绿（真实 Router+agent+web 子进程，fake ACP 注入）；`!命令` 与显式 `one_shot` 路径行为不变（F08-1/2）；既有 10 个测试文件原样全绿（F08-3）；`npm test` 全量通过 |
+| **pr-001** 配置面 + 持久层 | `src/config.js`（JSON 配置文件层 + `dbPath`/`defaultModel`/`contextMax`）+ `src/persist.js`（新建：schema/建库/`insertInput`/`insertOutput`/查询/close/启动扫尾）+ `.gitignore`(+`data/`) + `test/config-file.test.js` + `test/persist.test.js`。**只交付模块与单测，不接线消费方** | 无（首批） | `loadConfig()` 无配置时返回 `<包根>/data/sql.db`、`openai/gpt-5.6-luna`、`8`，既有键不变；逐键优先级 env > 文件 > 默认；缺失不失败、非法抛错（入口退出 1）；`mkdir -p` + 幂等建表；一次问答恰 2 行且 `direction∈{in,out}`；排序/分页/时间闭区间/关键词转义/agent 相关性；`WHERE state!='closed'` 哨兵；关闭连接重开内容一致（E-3 落盘侧）（F02/F03/F07） |
+| **pr-002** SSE 传输抽象 | `src/transport.js`（新建：`createSseTransport()`）+ `test/transport.test.js`。**只交付模块与单测，不接线 web**（`/api/stream` 与 `onDeliver → publish` 接线归 pr-004） | 无（首批） | 接口形状 `{kind:'sse',handle,publish,closeAll}`；`handle` 写 `text/event-stream` + `retry: 1000`；`publish` 按 `event:`/`data:` 帧且同连接 FIFO；无订阅者不抛错不缓存；连接 close 后订阅移除、`closeAll()` 结束全部；心跳按可注入 `heartbeatMs`（生产默认 15000）（F04-6） |
+| **pr-003** 上下文池 + ACP 客户端 + daemon 执行器 | `src/acp-client.js` + `src/context-pool.js`（新建）+ `src/agent.js`（`omp-daemon` 分支 + `notice` 处理 + SIGINT `pool.dispose()`）+ `test/context-pool.test.js`（fake ACP: `OAMP_OMP_BIN`） | **pr-001** | 同 chat 两轮记忆 42 且 `meta.context_id`/`pid` 相等（E-1/F05-2）；新 chat 不含 42（E-2）；同 chat 两 agent 互不串扰（F05-4）；同键串行 + 队列上限 8（超出 `context_busy`）；超 `contextMax` LRU 淘汰 + `notice{context_reset}`；崩溃 → 该轮 `context_crashed` + `notice{context_reset}` + 下轮重建；未知模型 → `model_unavailable`（不回退）；`model` 取自 ACP `currentValue`；缺 `chat_id` → 拒收；shell/`omp` 一次性分支不回归（F05/F06/F08） |
+| **pr-004** web HTTP 层 + 控制台前端 | `src/web.js`（读库路由、`/api/stream`、`/api/chats/:id/close`、预生成 `chat_id`/`task_id`、payload 判定、`onDeliver` 收 `task.update`/`task.result`/`notice`、落盘与状态机、启动扫尾、打开库）+ `web/{app.js,index.html,style.css}`（SSE 订阅 + 关闭/模型/一次性/提示条；移除 1.5s 轮询）+ `test/web.test.js`（等价重写）。**本 PR 是 `web.js`/前端/`web.test.js` 的唯一所有者** | **pr-001 + pr-002 + pr-003** | `GET /api/chats`（含已关闭、四类过滤可组合、分页与 400 面）；`GET /api/chats/:id`（升序 + 未知 chat 明确错误）；`POST /api/messages` 落 `in`+`working` → 推 `message`/`chat_state` → 终态落 `out`+`completed`（恰 2 行）；已关闭 → 409；派发失败 → `out(error='dispatch_failed')`；`close` 幂等 + 向 `DISTINCT agent_id` 发 `notice{kind:'context_release'}`；SSE 端点与三类推送（`task_update` 不入库）；E-4 判据（`message(out)` 前 ≥2 个 `task_update` 且文本递增）；断线/刷新全量拉取（F04-7）；重写后的 `web.test.js` 逐条覆盖 F08-a~d 且另加落盘/SSE/关闭断言（F01~F06、F08） |
+| **pr-005** 会话面清理 + 端到端契约 + 文档同步 | `src/router.js`（删 `chat_message`/`chat_get`/`chat_list` 三个 case）+ `src/registry.js`（删 `chats`/`tasksByMessage` 与 5 个会话函数及导出）+ `test/acp-daemon.test.js`（新建）+ `oamp/README.md`（更新失效描述） | **pr-004**（并依赖 pr-001/002/003 的产物） | 删除面全仓无残留引用；其余 10 个既有测试文件**未被修改**且原样全绿（F08-3）；`test/acp-daemon.test.js`（真实 Router + agent + `oamp web` + 临时 `OAMP_DB` + fake ACP）断言 E-1~E-5 全绿；两形态不回归（`!`→shell、`one_shot`→`omp -p`）；`npm test` 全量通过；README 无"会话存于 Router 内存"失效描述（R-13/R-14） |
 
-### 16.2 实施顺序与并行度
+**重切理由（相对 v0.2.0 §7 的 4-PR 建议）**：
+1. **`web.js` 与其前端拆不开**：二者是同一 HTTP 契约的两端（路由 / 事件名 / 字段名任一侧单独改动都会让另一侧失效），故 `web.js` + `web/*` + `test/web.test.js` 同属 pr-004；v0.2.0 把它们拆在 PR-2（前端实时）与 PR-4（串接）两侧，会造成中间态不可独立验收。
+2. **`transport.js` 提前独立**：F04-6 要求"替换实现时外部行为不变"，接口本身就是被要求的产物，模块可脱离 web 单独验收 → 独立为 pr-002（v0.2.0 把它与 web 实时改造合在 PR-2）。
+3. **pr-003 必须依赖 pr-001**：`agent.js` 的 daemon 分支消费 `loadConfig()` 的新键（`defaultModel`/`contextMax`）。代码证据：`oamp/src/agent.js:8` 已 `import { loadConfig } from './config.js'`，而现行 `oamp/src/config.js:30-44` 的返回值只有 `socketPath`/心跳/重连，**没有**这两键 → 不先合入 pr-001，默认模型与池上限会解析为 `undefined`（v0.2.0 曾误判"PR-1 与上下文池互相独立"）。
+4. **清理与端到端同属 pr-005**：删除面（`router.chat_*`、registry 会话表）以"web 已不再调用"为解锁条件（现行 `oamp/src/web.js:174/180/209` 仍在调用），与 e2e（需 pr-004 的全链路）共享同一解锁集，故合并交付。
 
-- PR-1 与 PR-3 **互相独立**（不同进程、不同文件），可并行；PR-2 依赖 PR-1；PR-4 依赖 PR-1..3。
-- 每个 PR 内部先落模块测试（fake 注入），最后再串端到端。
+### 16.2 实施顺序与并行度（批次 = `prs/` 的 `batch` 字段）
+
+| 批次 | PR | 说明 |
+|---|---|---|
+| 1（并行） | **pr-001 ∥ pr-002** | 两者均无依赖、文件不相交（config/persist vs transport），且都只交付"模块 + 单测、不接线消费方"，可同时开工同时合并 |
+| 2 | **pr-003** | 依赖 pr-001（消费 `defaultModel`/`contextMax`）；与 pr-002 无直接关系，按 `prs/` 的 batch 排入第二批 |
+| 3 | **pr-004** | 依赖 pr-001 + pr-002 + pr-003（读库 / SSE 接线 / daemon payload 三面齐备才可验收） |
+| 4 | **pr-005** | 依赖 pr-004（删除面解锁）+ pr-001/002/003（e2e 断言需要持久层、SSE 端点与上下文池） |
+
+- 每个 PR 内部先落模块单测（fake 注入），再串该 PR 的验收断言；端到端只在 pr-005 做一次。
+- 跨批次**不并行**：pr-004 的验收断言以 pr-001~003 的导出契约（`persist` 函数、`createSseTransport`、`omp-daemon` 受理面）为前提，提前开工会产生"半成品导致的幻影失败"。
 
 ### 16.3 开工前置（沿用 v0.2.0）
 
-1. `oamp/config.json` 加载器 + 单测（PR-1 首个提交）。
+1. `oamp/config.json` 加载器 + 单测（pr-001 的首批交付内容）。
 2. `.gitignore` 增 `data/`。
 3. 分支 `iteration/0011-chat-context-protocol` 从 0010 拉出。
 

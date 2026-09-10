@@ -25,6 +25,7 @@
 - [ ] 配置文件不存在 → 正常返回默认值不抛错；非法 JSON / 顶层非对象 / 键类型错 / `context.max` 非正整数 → `loadConfig` 抛错且信息含 `OAMP 配置错误`（web/agent 入口既有 try/catch 的退出码 1 行为不变，见 `oamp/src/web.js` 启动段与 `oamp/src/agent.js:8` 的既有调用面）
 - [ ] `persist` 打开目标目录不存在的路径时自动 `mkdir -p` 后建库；重复打开同一路径幂等（`CREATE TABLE/INDEX IF NOT EXISTS` + `PRAGMA foreign_keys=ON`）
 - [ ] 写接口只导出 `insertInput()`/`insertOutput()`，`direction` 不由调用方传入（结构上无法产生第三类）；一次 `insertInput` + `insertOutput` 后 `messages` 恰 2 行且 `SELECT DISTINCT direction` 为 `{in,out}`（E-5 结构面）
+- [ ] `messages.meta` 的落盘与读回：`insertInput` 写 `{task_id}`、`insertOutput` 写 `{context_id, pid}`（架构 §4.1/§4.3），详情查询读回后可 `JSON.parse` 还原为同一对象——F05-2/E-1 的「两轮 `context_id`/`pid` 相等」判定依赖该字段（pr-005 的端到端断言消费此契约）
 - [ ] 查询断言：默认排序 `updated_at DESC, chat_id DESC`；`limit` 默认 50 / 上限 200 + `offset` 分页稳定；时间过滤作用于 `updated_at` 闭区间；关键词命中 `chats.title` 或 `messages.text`，且 `%`/`_`/`\` 被转义（构造含 `%` 的关键词只命中字面量）；agent 相关 = `chats.agent_id` 命中或存在参与过该 chat 的 `messages.agent_id`
 - [ ] 状态写入带 `WHERE state!='closed'` 哨兵（已 closed 的 chat 不被迟到结果改写）；关闭幂等；启动扫尾把遗留 `working` 置 `failed`
 - [ ] 关闭连接后用同一路径重开，此前写入的 chat 与输入/输出内容一致可读回（E-3 落盘侧）

@@ -23,6 +23,7 @@
 ## 验收标准
 
 - [ ] `oamp/src/router.js` 中 `chat_message`/`chat_get`/`chat_list` 三个 case 删除；`oamp/src/registry.js` 中 `chats`/`tasksByMessage` 与 5 个会话函数及其 export 删除；全仓（`src/`、`test/`、`web/`）grep 无残留引用
+- [ ] `messageId` 死参数归属**显式声明为保留不删**：只删 `tasksByMessage` 映射（`oamp/src/registry.js:198`）与两张会话表，`createTask` 的 `messageId` 形参、`oamp/src/router.js:296` 的实参、registry 任务条目的 `message_id` 字段（`oamp/src/registry.js:190`）保持原样。理由：架构 §9.3「不动（回归边界）」明列「Router 任务表与 `oamp task` CLI」不动、§16.4 把「Router 任务表改造」排除在本迭代范围外，而删除该字段会改变 `router.task_get` 的输出形状（协议可见面，被 `oamp task` CLI 消费）。残留事实如实记录：该字段在本迭代后失去唯一读者（原仅 `tasksByMessage` 会话 join 读取）
 - [ ] 其余 10 个既有测试文件（`agent-heartbeat`/`cli`/`delivery-contract`/`event-log`/`hygiene`/`omp-executor`/`reconnect`/`router-registry`/`status`/`task`）**文件未被修改**且原样全绿（F08-3）
 - [ ] `oamp/test/acp-daemon.test.js`（真实 Router + agent + `oamp web` 子进程、临时 `OAMP_DB`、fake ACP 经 `OAMP_OMP_BIN` 注入）断言通过：E-1（同 chat 两轮记忆 42 且两轮 out 记录 `meta.context_id`/`pid` 相等）、E-2（新 chat 不含 42）、E-3（重启 web 后列表与详情读回一致）、E-4（`message(out)` 前收到 ≥2 个 `task_update` 且文本递增）、E-5（一次含多段增量的问答后该 chat 恰 2 条记录且 `direction ∈ {in,out}`）
 - [ ] 两形态不回归：`!命令` 走 shell、显式 `one_shot` 走 `omp -p` 一次性路径，两者行为与 0010 一致且不累积/不复用上下文（F08-1/F08-2）
@@ -33,8 +34,8 @@
 
 - docs/iterations/0011-chat-context-protocol/architecture.md §9.3（删除清单与理由）、§16.1（PR-4 收尾面）、§17（端到端测试层与回归口径）、§18 R-13/R-14、§19 裁决 2（F08-3 口径）
 - docs/iterations/0011-chat-context-protocol/prd/F08-baseline-compatibility-regression.md（等价覆盖 a~d 与既有测试口径）、F01/F02/F03/F05
-- oamp/src/router.js:23（`VALID_TYPES` 已含 `notice`，删除面不涉及信封协议）、:392/425/435（三个待删 case）、:290-297（`createTask` 的 `messageId` 参数随会话表一并失去用途）
-- oamp/src/registry.js:40/42（待删表）、:198（`tasksByMessage` 写入）、:265-320（5 个会话函数）、:356-360（导出）
+- oamp/src/router.js:23（`VALID_TYPES` 已含 `notice`，删除面不涉及信封协议）、:392/425/435（三个待删 case）、:296（`createTask` 的 `messageId` 实参：失去唯一读者但按「验收标准」的归属声明保留）
+- oamp/src/registry.js:39-42（会话表注释与 `chats` :40 / `tasksByMessage` :42 待删）、:198（`tasksByMessage.set`，随表删除）、:262-335（会话表区块：`createChat` :265 → `listChats` 止于 :335）、:356-360（`listTasks` 之后的 6 个会话导出待删）、:337（导出对象起始）；`:182` 的 `createTask({…, messageId = null})` 形参与 `:190` 的任务条目 `message_id` 字段**保留**（归属声明见「验收标准」）
 - oamp/README.md:115（"会话与消息存于 Router 内存"）、oamp/test/helpers/harness.js（进程级测试范式）
 
 ## depends_on

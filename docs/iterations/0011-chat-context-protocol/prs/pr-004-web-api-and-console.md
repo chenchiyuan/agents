@@ -29,6 +29,7 @@
 - [ ] `POST /api/messages`：新 chat 预生成 `chat-<uuid>` 与 `task-<uuid>`，`title = text.trim().slice(0,40)`，落 `messages(in)` + `chats(working)` 后立即向订阅者推 `message`/`chat_state`；成功终态再落 `messages(out)` + `completed`；库中一次问答恰 2 行
 - [ ] 已关闭 chat 提交 → 409；派发失败 → 落一条 `out`（`error='dispatch_failed'`）+ `failed`；缺 agent 标识、空文本 → 400；`@agent 文本` 服务端兜底解析保留
 - [ ] `POST /api/chats/:id/close` → `{chat_id,state:'closed'}` 幂等，并向该 chat 出现过的各 `DISTINCT agent_id` 发 `notice{kind:'context_release',chat_id}`（agent 离线忽略）
+- [ ] 模型透传与每轮审计（F06）：请求携带 `model` 时派发 payload 含该值，该轮 `messages(out).model` 落盘为**实际生效**模型且 `GET /api/chats/:id` 可读到（F06-3）；未携带 `model` 时 payload 不带该键、交 agent 侧解析默认链（架构 §7.1/§7.2，web 不做二次解析、不注入默认值）；输出气泡元信息行展示该模型
 - [ ] `GET /api/stream?chat_id=` 建立 SSE；`onDeliver` 收到 `task.update` → 推 `task_update`（不入库）、`task.result` → 落盘 + `message(out)` + `chat_state`、`notice` → 推 `notice`（不入库）；无订阅者丢弃；连接 close 清理订阅
 - [ ] E-4：fake ACP 注入下，该轮 `message(out)` 事件之前收到 ≥2 个 `task_update` 且文本长度递增
 - [ ] 断线/刷新恢复：页面加载与 `onopen` 全量拉取 `GET /api/chats/:id`，已落盘输入/输出完整呈现（F04-7）
