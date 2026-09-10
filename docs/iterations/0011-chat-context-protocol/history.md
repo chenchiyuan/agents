@@ -53,3 +53,12 @@
 - pr-001 执行期曾用相对路径误写主仓库 config.js，已 `git checkout` 复原；主 agent 独立核验：主仓库工作区干净、config.js 46 行原样、零新增特征（净零确认）。
 - 两 PR 合并（2baa6ee / 86d7a62）；合并后全量 npm test **112/112**。槛位释放 2，有效上限 5。
 - pr-003 解锁并派发（feat/0011-pr-003-context，核心 PR：ACP 客户端 + 上下文池 + agent 执行器 + fake ACP 测试）。
+
+### 2026-09-10 08:30:00 · pr-003 完成 + 独立验证 FAIL → Fix → 复审 PASS
+
+- pr-003（核心 PR：acp-client 310 行 / context-pool 208 行 / agent.js +154 / 测试 517 行 15 用例）；全量 127/127。
+- **独立验证抓到真实 bug**（verify-20260910-140754 FAIL 1）：readCurrentModel 按对象形态读 ACP configOptions，真实 omp 返回数组 → model 恒 null、审计退化为请求回显；fake ACP 同错形态掩盖之。
+- Fix（5970a07）：数组优先读取 + 禁回显冒充 + fake 对齐真实形态 + 审计锁定用例（请求 A、ACP 实报 B → 结果必须 B）；真实 omp 复现通过。
+- 复审 PASS（verify-20260910-140754-rereview）：A/B 对照独立复现（修复前 ghost/model-x 回显、修复后 deepseek 真值）；128/128（9 次中 2 次 127/128 为既有 web.test.js E2E 计时 flake，非本 PR）。
+- 主 agent 裁定 pr-003 的 MI-1~MI-10 全部采纳（notice 寻址=最近发起者；chat 关闭由 agent 回发 context_released、web 不自 publish；崩溃/淘汰语义；队列口径=1 在飞+8 排队；增量事件 kind='chunk'+text；首轮模型比对；daemon 带 --no-session 等）。
+- pr-003 合并（3e4c8d7）；全量 128/128；pr-004 解锁并派发（feat/0011-pr-004-web，含 8 条对接契约）。
