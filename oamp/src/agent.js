@@ -291,7 +291,7 @@ function runDaemonTask(client, logger, message, task, ctx) {
         state: 'completed',
         executor: 'omp-daemon',
         text: result.text,
-        model: result.model || model,
+        model: result.model, // §7.4：审计值 = ACP currentValue（实际生效模型）；读不到即 null，不用请求参数冒充
         context_id: result.context_id,
         pid: result.pid,
         stop_reason: result.stop_reason,
@@ -308,7 +308,7 @@ function runDaemonTask(client, logger, message, task, ctx) {
         executor: 'omp-daemon',
         error: code,
         text: code === 'model_unavailable' ? `模型不可用：${model}` : err && err.message ? err.message : '上下文执行失败',
-        model,
+        model: session.model, // §7.4：失败轮同样只报 ACP 实报的生效模型（不可用模型只出现在 text 里）
         context_id: session.contextId,
         pid: session.pid,
         duration_ms: Date.now() - startedAt,

@@ -29,9 +29,17 @@ export class AcpError extends Error {
   }
 }
 
-/** 读 ACP session 配置里的模型生效值（§7.4 审计面：model 取自 currentValue，不是请求回显）。 */
+/**
+ * 读 ACP session 配置里的模型生效值（§7.4 审计面：model 取自 `currentValue`，不是请求回显）。
+ * 实测 omp 18.0.11 的 `session/new` / `session/set_config_option` 返回 **数组**形态
+ * （`configOptions: [{id, category, currentValue, options}]`）；对象形态 `{model:{currentValue}}` 一并兼容。
+ * 读不到 → null（调用方不得用请求参数冒充生效模型）。
+ */
 function readCurrentModel(result) {
-  const value = result && result.configOptions && result.configOptions.model && result.configOptions.model.currentValue;
+  const options = result && result.configOptions;
+  const value = Array.isArray(options)
+    ? options.find((option) => option && option.id === 'model')?.currentValue
+    : options && options.model && options.model.currentValue;
   return typeof value === 'string' && value !== '' ? value : null;
 }
 

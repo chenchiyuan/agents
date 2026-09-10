@@ -3,7 +3,7 @@
 **来源输入**：`prs/pr-003-context-pool-acp-daemon.md`（文件范围 4 文件 / 验收 10 条 / batch 2 / depends_on pr-001）、`architecture.md` §6（含 §6.1 键与实例标识、§6.2 串行并发、§6.3 上限与淘汰、§6.4 释放与重启、§6.5 崩溃超时取消、§6.6 ACP 客户端细则）、§7.1~§7.4（模型优先级链 / 传递形态 / 错误面 / 审计）、§9.1（执行路径路由表）、§10.1~§10.3（核心数据流）、§12（AR-11/AR-12/AR-16）、§5.2（事件模型与 §5.3 推送链）、§14（为何必需两模块）、§16.1 pr-003 行、§16.2 批次 2、§17（fake ACP 集成层）、§18（R-1/R-2/R-9）、§19 裁决 3~6、`prd/F05-context-per-chat-agent.md`、`prd/F06-model-selection-default.md`、`prd/F08-baseline-compatibility-regression.md`
 **生成角色**：planner（阶段 5）
 **日期**：2026-09-10
-**修订记录**：初版。
+**修订记录**：初版；2026-09-10 独立验证 Fix 循环（verify-20260910-140754）——① `configOptions` 按**真实形态**（数组 `[{id,category,currentValue,options}]`，实测 omp 18.0.11）读取并兼容对象形态；② `task.result.model` **只**取 ACP `currentValue`，读不到即 `null`，不得用请求参数回显冒充（T2-4/T5-2）；③ fake ACP 对齐真实数组形态并新增审计锁定用例（T6-17）。
 
 ## 范围声明
 
@@ -60,7 +60,7 @@ flowchart LR
 1. 增量取 `update.sessionUpdate==='agent_message_chunk'` 且 `content.type==='text'` 的 `text` 逐块回调，其余 update 类型忽略；最终 `text` = 各块拼接。（§6.6「prompt」+ §5.3 推送链首跳；载体 = T6 用例 1 的 `task.update` 序列与 `task.result.text`）。
 2. `session/prompt` 的请求-响应给出 `stopReason`，客户端组装 `{text, model, stop_reason, usage?, pid}`，由池层补 `context_id` 后随每轮 `task.result` 上报（形状 = `{text, model, stop_reason, usage?, context_id, pid}`）。（§6.6「结果组装」；载体 = T6 用例 1/2 的 `task.result` 字段断言）。
 3. 模型设置：目标模型与 `currentValue` 不同（含首轮 `currentValue` 缺失/不一致，见 MI-7）→ `set_config_option`；返回 JSON-RPC error → 该轮以 `model_unavailable` 失败、**不**改用默认模型、**不**重建进程（后续轮次仍可用）。（§6.6 模型行 + §7.3 + F06-4；载体 = T6 用例 8）。
-4. 生效模型回读：成功轮次的 `model` 值取自 ACP 侧 `currentValue`（`session/new` 或 `set_config_option` 响应中的 `configOptions.model.currentValue`），不是请求回显。（§7.4 审计形态；载体 = T6 用例 8 的 `task.result.model` 断言）。
+4. 生效模型回读：成功轮次的 `model` 值取自 ACP 侧 `currentValue`——**真实形态 = `configOptions` 数组** `[{id,category,currentValue,options}]`（实测 omp 18.0.11），对象形态 `{model:{currentValue}}` 兼容读取；读不到即 `null`（**不得**以请求参数冒充生效模型）。（§7.4 审计形态 + Fix 循环裁定；载体 = T6 用例 8 与用例 17 的 `task.result.model` 断言）。
 5. 超时路径：`timeoutMs` 到期 → `session/cancel` 通知 → 等 ≤2s → 收不到收尾响应则 kill 进程并以错误码 `timeout` 失败（kill 后该 session 不可复用）。（§6.5 第 2 行；载体 = T6 用例 10）。
 6. 静态：`src/acp-client.js` 只 import `node:` 内置与（如需要）`src/` 内的错误码常量模块；不 import `context-pool.js`/`agent.js`/`web.js`（§14 模块边界；静态核查）。
 
@@ -106,7 +106,7 @@ flowchart LR
 **前置依赖**：T2、T3、T4
 **验收标准**（可测试 / 可追溯）：
 1. 受理面：`{executor:'omp-daemon', chat_id, prompt, model?}` 被受理并执行；缺 `chat_id`（或空/非字符串）→ ack rejected；`model` 不匹配 `^[A-Za-z0-9._/-]{1,128}$` → 拒收；空 prompt → 拒收。（PR 卡验收 8 + §7.2 校验行 + §9.1 末段；载体 = T6 用例 13）。
-2. 终态：成功轮 `task.result{state:'completed', text:<完整回答>, model:<生效模型>, context_id, pid, exit_code:0}`；失败轮 `state:'failed'` + `error`（`context_busy`/`context_crashed`/`model_unavailable`/`timeout` 之一）+ 可读 `text`。（§6.6 结果组装 + §7.3 错误面 + PR 卡验收 1/3/4/5/6；载体 = T6 用例 1/4/7/8/9/10）。
+2. 终态：成功轮 `task.result{state:'completed', text:<完整回答>, model:<ACP 实报生效模型>, context_id, pid, exit_code:0}`；失败轮 `state:'failed'` + `error`（`context_busy`/`context_crashed`/`model_unavailable`/`timeout` 之一）+ 可读 `text`——**两态的 `model` 一律取 ACP `currentValue`**（读不到即 `null`），不可用/未生效模型只出现在 `text`（如「模型不可用：<model>」）中。（§6.6 结果组装 + §7.3/§7.4 错误面与审计 + PR 卡验收 1/3/4/5/6；载体 = T6 用例 1/4/7/8/9/10/17）。
 3. 流式：每 chunk 一条 `task.update{state:'working', kind:'chunk', text}`（经 Router 投递到发起者，不入库语义沿用 0010）。（§5.3 推送链 + §5.2 事件模型 kind 取值；载体 = T6 用例 1 的 updates 断言；见 MI-6）。
 4. 模型链：`payload.model` > `OAMP_OMP_MODEL`（已由 `config.defaultModel` 折叠）> 内置默认；**每轮独立解析**，一轮显式指定不影响同 chat 后续未指定轮次（回到默认）。（§7.1 + F06-2/3；载体 = T6 用例 8）。
 5. `notice{kind:'context_release', chat_id}` 被受理 → 释放该 chat 键（ack accepted，不执行任务）；其他/残缺 notice 不误伤（不释放、不报错）。（§6.4 第 1 行 + §5.2 命名区分；载体 = T6 用例 11）。
@@ -138,6 +138,7 @@ flowchart LR
 14. **一次性路径不回归（T5-7）**：同 fake bin 下 `{executor:'omp'}` 走 `-p` 一次式（fake 记录 argv 含 `-p` 且不含 `acp`）→ completed；shell 分支照常。
 15. 用例之间独立启停（每测试独立 router/agent/临时目录），无端口/文件/进程残留；`node --test test/context-pool.test.js` 独立全绿且不依赖外网。（§17「不依赖真实 LLM/外网」「不写真实 `oamp/data/sql.db`」）
 16. `[model_inferred→待主 agent 确认 MI-9]`：一次性路径不回归用例复用同一 fake 脚本的 `-p` 分支（PR 卡参考写"`oamp/test/omp-executor.test.js`（fake omp 注入）"范式，未要求另建 fake）。
+17. **审计锁定（Fix 循环新增）**：fake ACP 的 `session/new`/`session/set_config_option` 按真实数组形态回 `configOptions`；并断言"请求 model=A 而 ACP `currentValue` 保持 B → `task.result.model` 必须为 B（≠ 请求值）"，杜绝"实现与测试同错"的假阳性。（§7.4 + T2-4；载体 = T6 用例 17）。
 
 ### T7 — PR-003 集成验收
 

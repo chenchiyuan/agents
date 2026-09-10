@@ -114,6 +114,11 @@ class ContextSession {
     return this.client ? this.client.pid : null;
   }
 
+  /** ACP 侧回读的实际生效模型（§7.4 审计面）；未建实例 / 未回读时为 null（不以请求参数冒充）。 */
+  get model() {
+    return this.client ? this.client.currentModel : null;
+  }
+
   /**
    * 入队一轮（同键串行）。立即回绝的场景：键已释放（context_crashed）、队列已满（context_busy）。
    * 排队轮次的 timeoutMs 从实际开始执行时计时（§6.2）。

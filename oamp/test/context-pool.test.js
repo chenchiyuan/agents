@@ -18,9 +18,10 @@ import { startFakeNode } from './helpers/fake-node.js';
 
 // —— fake omp：同一脚本两种形态（`acp` 常驻 JSON-RPC / `-p` 一次式）——
 // acp 形态实现 initialize / session/new / set_config_option / session/prompt（流式 chunk + per-session 记忆），
-// 并以 env 编排失败模式：FAKE_ACP_SLEEP_MS（每轮耗时）/ FAKE_ACP_HANG（不响应）/ FAKE_ACP_CRASH_ON_PROMPT（第 N 轮退出）/
-// FAKE_ACP_UNKNOWN_MODEL（set_config_option 返回 JSON-RPC error，模拟 V-7）。
-// 观测面：FAKE_ACP_EVENTS_LOG（prompt_start/prompt_end + pid，供串行/并发断言）、FAKE_ACP_PIDFILE、FAKE_ACP_ARGS_LOG。
+// 配置面按**真实形态**回（`configOptions` = 数组 `[{id,category,currentValue,options}]`，实测 omp 18.0.11）；
+// 失败模式经 env 编排：FAKE_ACP_SLEEP_MS（每轮耗时）/ FAKE_ACP_HANG（不响应）/ FAKE_ACP_CRASH_ON_PROMPT（第 N 轮退出）/
+// FAKE_ACP_UNKNOWN_MODEL（set_config_option 返回 JSON-RPC error，模拟 V-7）/ FAKE_ACP_STICKY_MODEL（接受但未生效，锁审计面）。
+// 观测面：FAKE_ACP_EVENTS_LOG（prompt_start/prompt_end + pid，供串行/并发断言）、FAKE_ACP_ARGS_LOG（启动参数集）。
 const FAKE_ACP_SOURCE = `#!/usr/bin/env node
 const readline = require('node:readline');
 const fs = require('node:fs');
@@ -81,7 +82,7 @@ rl.on('line', async (line) => {
     sessionSeq += 1;
     const sessionId = 'sess-' + sessionSeq;
     sessions.set(sessionId, { model: spawnModel, remembered: null });
-    reply(msg.id, { sessionId, configOptions: { model: { currentValue: spawnModel, options: [] } } });
+    reply(msg.id, { sessionId, configOptions: [{ id: 'model', category: 'model', currentValue: spawnModel, options: [] }] });
     // omp 启动期会灌初始化通知（§6.6/V-11）：静默窗口应在其后收敛
     setTimeout(() => {
       for (let i = 0; i < 2; i += 1) {
@@ -96,8 +97,10 @@ rl.on('line', async (line) => {
       return;
     }
     const session = sessions.get(msg.params.sessionId);
-    if (session) session.model = msg.params.value;
-    reply(msg.id, { configOptions: { model: { currentValue: msg.params.value, options: [] } } });
+    // sticky：回 ok 但不改 currentValue（锁"审计值 = ACP 实报值，不是请求回显"）
+    const sticky = process.env.FAKE_ACP_STICKY_MODEL === '1';
+    if (session && !sticky) session.model = msg.params.value;
+    reply(msg.id, { configOptions: [{ id: 'model', category: 'model', currentValue: sticky ? spawnModel : msg.params.value, options: [] }] });
     return;
   }
   if (msg.method === 'session/prompt') {
@@ -417,6 +420,8 @@ test('§7.3/§7.4：未知模型 → model_unavailable（不回退）；指定�
   assert.equal(unknown.result.state, 'failed');
   assert.equal(unknown.result.error, 'model_unavailable');
   assert.ok(unknown.result.text.includes('ghost/model-x'), '错误面应点名不可用模型');
+  assert.equal(unknown.result.model, 'openai/gpt-5.6-luna', '失败轮的 model 亦只报 ACP 实报生效值');
+  assert.notEqual(unknown.result.model, 'ghost/model-x', '不得以请求参数回显冒充');
   assert.equal(web.notices('context_reset').length, 0, '模型不可用不应重置上下文');
 
   const switched = await turn(web, 'dev-1', { chat_id: 'chat-model', prompt: '数字是多少', model: 'deepseek/deepseek-v4-flash' });
@@ -428,6 +433,22 @@ test('§7.3/§7.4：未知模型 → model_unavailable（不回退）；指定�
   const backToDefault = await turn(web, 'dev-1', { chat_id: 'chat-model', prompt: '数字是多少' });
   assert.equal(backToDefault.result.model, 'openai/gpt-5.6-luna', '未指定轮次回到默认模型');
   assert.ok(backToDefault.result.text.includes('42'));
+});
+
+test('§7.4：task.result.model 取自 ACP currentValue（不得用请求回显冒充）', async (t) => {
+  // sticky 模式：ACP 对 set_config_option 回 ok 但不改 currentValue（模拟"接受但未生效"）
+  const { web } = await setup(t, { env: { FAKE_ACP_STICKY_MODEL: '1' } });
+
+  const first = await turn(web, 'dev-1', { chat_id: 'chat-audit', prompt: '请记住数字 42', model: 'alpha/model-a' });
+  assert.equal(first.result.state, 'completed');
+  assert.equal(first.result.model, 'alpha/model-a', '首轮生效模型来自 ACP 回读（--model 生效值）');
+
+  const second = await turn(web, 'dev-1', { chat_id: 'chat-audit', prompt: '数字是多少', model: 'beta/model-b' });
+  assert.equal(second.result.state, 'completed');
+  assert.equal(second.result.model, 'alpha/model-a', 'ACP 未生效时，审计值必须是 ACP 实报 currentValue');
+  assert.notEqual(second.result.model, 'beta/model-b', '不得以请求参数回显冒充实际生效模型');
+  assert.equal(second.result.pid, first.result.pid);
+  assert.ok(second.result.text.includes('42'));
 });
 
 test('§6.4/§5.2：notice{context_release} → 释放该 chat + 回发 context_released', async (t) => {
