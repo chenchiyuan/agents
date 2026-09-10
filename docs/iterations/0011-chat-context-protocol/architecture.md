@@ -28,7 +28,7 @@
 | `src/config.js` | env 覆盖 + 默认值（叶子模块，零依赖） | 扩展：JSON 配置文件 + 数据/模型/容量键 |
 | `web/{index.html,app.js,style.css}` | 原生 JS 前端：1.5s 轮询、@ 补全、`!` 命令、消息列表 | 改造：SSE 订阅、关闭/模型/一次性交互 |
 | `src/{task,status,cli,log}.js`、`scripts/`、`bin/` | CLI 与运行态工具 | 不改 |
-| `test/*.test.js`（11 个）+ `test/helpers/harness.js` | 64 个用例；fake 二进制注入模式（`OAMP_OMP_BIN`） | 仅 `web.test.js` 按新契约重写（见 §9.3） |
+| `test/*.test.js`（16 个 = 0010 既有 11 个（含 web.test.js）+ 本迭代新增 5 个（config-file/persist/transport/context-pool/acp-daemon））+ `test/helpers/harness.js` | 64 个用例；fake 二进制注入模式（`OAMP_OMP_BIN`） | 仅 `web.test.js` 按新契约重写（见 §9.3） |
 
 ### 1.2 可直接复用的既有能力（决定了本方案"少造东西"）
 
@@ -155,7 +155,7 @@ CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 
 | 场景 | 何时写 | 写什么 | chat 状态 |
 |---|---|---|---|
-| 输入 | `POST /api/messages` 中，**校验通过后、派发之前**（同步 await） | 1 条 `direction='in'`（text=原文；`meta={task_id}` 用 web 预生成的 task_id） | → `working`，`updated_at=now` |
+| 输入 | `POST /api/messages` 中，**校验通过后、派发之前**（同步 await） | 1 条 `direction='in'`（text=原文；`meta={task_id}` 用 web 预生成的 task_id；chat 行不存在时由 `insertInput` 内部防御性建行） | → `working`，`updated_at=now` |
 | 输出（成功） | web 收到 `task.result` 且 `state!=='failed'` 时 | 1 条 `direction='out'`（text=最终答复；model / duration_ms / meta） | → `completed`，`updated_at=now` |
 | 输出（B 失败） | web 收到 `task.result{state:'failed'}` 时 | **1 条 `direction='out'`**：text=可见错误摘要，`error`=机器码，`model` 照记 | → `failed` |
 | 派发失败 | `message.send` 抛错（目标离线/UNREGISTERED）时 | **1 条 `direction='out'`**：text=`派发失败：<原因>`，`error='dispatch_failed'` | → `failed` |
@@ -164,6 +164,9 @@ CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 
 - 状态写入统一带哨兵：`UPDATE chats SET state=?, updated_at=? WHERE chat_id=? AND state!='closed'` —— `closed` 是终态，不会被迟到结果覆盖（§4.7）。
 - 每条写库后触发一次 SSE 事件（`message` / `chat_state`）。
+- **chat 行的唯一创建者 = `insertInput` 的防御性建行**（`persist.js` 的 `ensureChat`：`INSERT … ON CONFLICT(chat_id) DO NOTHING`，title 取输入前 40 字符）——输入先落盘（F02-3）不因缺 chat 行失败；**`upsertChat` 是导出面里唯一会 `DO UPDATE` 改写 title/agent_id 的函数，约定只用于新建 chat、不得用于改标题**（AR-02「后续输入不改标题」由 `ensureChat` 的 `DO NOTHING` 保证）。
+- **校验错误的层级**：`limit` / `state` / `from>to` 等非法参数由 **`persist` 层直接抛 JS `Error`**（不返回错误码），**HTTP 400 由 web 层映射**；请求体本身畸形 JSON → **400**、请求体 > 64KB → **413**（附 `connection: close`），三者同属 web 层错误面（§4.5）。
+- **派发登记时序**（pr-006 修复后定稿）：web 在 `sendTask` **之前**登记 `task_id → {chatId, agentId, lines}`——agent 的首个 `task.update` 可能与 `send` 响应落在同一 socket read，登记晚于 await 会丢弃首片（终态落盘不受影响，仅实时增量少首片）；派发失败分支定向 `tasks.delete(taskId)` 清理登记。
 
 ### 4.4 失败轮次的记录形态（裁决 F02-4、prd 疑问 5）
 
@@ -180,11 +183,12 @@ CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 | `GET /api/chats` | `q`、`agent`、`state`、`from`、`to`、`limit`（默认 50，上限 200）、`offset`（默认 0） | `{ chats:[{chat_id,title,agent_id,state,created_at,updated_at,message_count}], total, limit, offset }` |
 | `GET /api/chats/:id` | — | `{ chat:{…}, messages:[{id,direction,agent_id,text,model,duration_ms,error,created_at,meta}] }`（**升序**：`created_at ASC, id ASC`） |
 | `POST /api/chats/:id/close` | — | `{ chat_id, state:'closed' }`（幂等：已关闭再关仍返回 closed） |
-| `POST /api/messages` | `{chat_id?, agent_id, text, model?, one_shot?}` | `{ chat_id, task_id, message_id?, warning? }`；chat 已关闭 → **409** `{error:'chat 已关闭'}` |
+| `POST /api/messages` | `{chat_id?, agent_id, text, model?, one_shot?}` | `{ chat_id, task_id, message_id?, warning? }`；chat 已关闭 → **409**、缺 agent/空文本/model 非法 → **400**、畸形 JSON → **400**、请求体 > 64KB → **413**（附 `connection: close`） |
 
 - **默认排序**（M-04）：`ORDER BY updated_at DESC, chat_id DESC`（第二键保证同毫秒稳定分页）。
 - **分页**：`limit` + `offset`（不做游标——数据量为个人本地使用，offset 足够且实现最短）；`limit` 非法（非正整数 / >200）→ 400。
 - **不再提供** v0.2.0 设想的 `GET /api/search`：F03 的"关键词过滤"由 `GET /api/chats?q=` 完全覆盖，独立检索端点无卡要求（奥卡姆，删除）。
+- **错误面的分层（实现为准）**：参数校验在 `persist` 层抛 `Error` → web 映射 **400**；请求体解析 / 尺寸错误在 `readBody` 内直接给出 **400 / 413**（`err.status` 透传；413 追加 `connection: close` 并停止缓冲）——`persist` 不返回错误码，web 不猜错误语义。
 
 ### 4.6 时间过滤与关键词匹配（AR-07）
 
@@ -203,7 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 
 ### 4.7 只落"两类"的工程保障（F02-5 / E-5）
 
-- `persist.js` 是唯一 SQL 出口，导出的写函数只有两个：`insertInput()` / `insertOutput()`，且 `direction` 由函数内部写死（不暴露参数）→ 结构上无法插入第三类。
+- `persist.js` 是唯一 SQL 出口；**能写 `messages` 的函数只有两个**：`insertInput()` / `insertOutput()`，且 `direction` 由函数内部写死（不暴露参数）→ 结构上无法插入第三类 `messages`。同模块另导出 `upsertChat` / `closeChat` / `startupSweep`（连同 `listChats` / `getChat` / `close`），它们**只写 `chats` 状态**、不写 `messages`，因而不构成"第三类记录"的入口。
 - 过程数据只经过 `transport.publish()`，不接触 `persist`（模块边界即约束）。
 - 测试断言（E-5）：一次含 ≥3 段增量输出的问答后 `SELECT COUNT(*) FROM messages` 为 2，且 `SELECT DISTINCT direction` 恰好 `{in,out}`。
 
@@ -218,14 +222,16 @@ CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 export function createSseTransport({ heartbeatMs = 15000 } = {}) {
   return {
     kind: 'sse',
-    handle(req, res, { chatId }),  // 建立该 chat 的订阅（写 header、注册到订阅集合、发 retry/心跳）
+    handle(req, res, { chatId }),  // 建立该 chat 的订阅（写 header、注册到订阅集合、发 retry 首帧/心跳）
     publish(chatId, event),        // event: { type, data }；无订阅者 → 直接丢弃（不缓存、不补发）
-    closeAll(),                    // 进程退出时结束所有连接
+    close(chatId),                 // 移除该 chat 的全部订阅并结束其连接（避免 chat 关闭后浏览器挂着空闲 SSE）
+    closeAll(),                    // 结束全部连接（进程退出 / 测试用）
   };
 }
 ```
 - **替换方式 = web.js 里一行构造**（`const transport = createSseTransport()`）。**不引入 `transport` 配置项**：只有一种实现时，配置项是纯负债（F04-6 只要求"换实现时外部行为不变"，不要求运行期可切换）。
-- 未来 WS 实现同接口（`handle/publish/closeAll`），前端订阅 URL 由 web 下发（`GET /api/config` 或在 index.html 注入），届时再定。
+- **冻结成员（F04-6 的替换契约）= `kind` / `handle` / `publish` / `close` / `closeAll`**——将来 WS 实现必须实现全部五个。`close(chatId)` 的语义 = "移除订阅 **+ 结束该 chat 的连接**"；**当前 web 侧未调用它**（chat 关闭只推 `chat_state`，连接由客户端/页面关闭释放），实现与单测已就位，供后续需要主动断开时使用。
+- 未来 WS 实现同接口，前端订阅 URL 由 web 下发（`GET /api/config` 或在 index.html 注入），届时再定。
 
 ### 5.2 事件模型（AR-08）
 
@@ -239,7 +245,8 @@ export function createSseTransport({ heartbeatMs = 15000 } = {}) {
 - **命名区分（勿混用）**：web → agent 的**控制消息** kind = `context_release`（语义"请释放该 chat 的上下文"，§6.4）；**SSE 事件** kind = `context_released`（语义"已释放"，给用户看，§6.3）；崩溃 / 超时 / 淘汰 = `context_reset`。三者分别属于「控制请求 / 已被动释放的用户提示 / 重置提示」，不共用一个 token。
 
 - 端点：`GET /api/stream?chat_id=<id>`（`text/event-stream`；必须带 `chat_id`，不做全局订阅——无卡要求）。
-- 保活与重连：响应头写 `retry: 1000`；每 15s 写 `: keepalive` 注释行。
+- 响应头（实现为准）：`content-type: text/event-stream; charset=utf-8`、`cache-control: no-store`、`connection: keep-alive`。
+- 保活与重连：**`retry: 1000` 是事件流首帧**（SSE 规范字段，不在 HTTP 响应头里）；每 15s 写一条注释帧 `: keepalive\n\n`（注释行 + 空行终止）。
 - 顺序：单连接 FIFO 写（Node http 的顺序语义）保证 F04-4「多轮不失序」；不引入 `seq` 字段（无消费方）。
 - 序列化：`event: <type>\ndata: <json>\n\n`。
 
@@ -258,6 +265,7 @@ omp acp --(session/update.agent_message_chunk)--> acp-client（拼接 + 立即�
 - **E-4 判定落地**：SSE 客户端在收到该轮的 `message`（out）事件**之前**，必须已收到 **≥2 个 `task_update`**，且其间文本长度**递增**（"终态到达前内容已增长"）。
 - 前端渲染：输出气泡在首个 `task_update` 出现时创建（占位），后续 chunk 追加；收到 `message`(out) 时以落盘文本为准替换（去抖，避免流式拼接与最终文本不一致）。
 - 过程增量不做节流（问答场景 chunk 量级为十~百）；若实测刷屏，实施期再加 50ms 合帧（记为实施检查项，不预先设计）。
+- web 侧只把带 `kind` 的条目上推为 `task_update`（`started` / `truncated` 等非过程增量条目不上推）；未知 `task_id` 的 `task.update` / `task.result` 静默丢弃（见 §10.4）。
 
 ### 5.4 断线重连与兜底（AR-10）
 
@@ -287,13 +295,13 @@ omp acp --(session/update.agent_message_chunk)--> acp-client（拼接 + 立即�
 ### 6.2 同键串行 / 异键并发（AR-11）
 
 - 每键一个 FIFO 队列：**同一时刻至多 1 个 in-flight prompt**（ACP session 本身不支持并发 prompt）；后续轮次排队依次执行。
-- **队列上限 8**（同键），超出 → 该轮立即以 `context_busy` 失败（chat 状态 failed + out 记录），不做无界堆积（防"连点 100 次"内存膨胀）。
+- **队列上限 8 = 等待队列长度**（实现口径，`context-pool.js` `QUEUE_LIMIT`）：同键同时最多 **1 个在飞 + 8 个排队**（合计 ≤9 个未完成轮次），第 10 个立即以 `context_busy` 失败（chat 状态 failed + out 记录），不做无界堆积（防"连点 100 次"内存膨胀）。
 - 不同键之间完全并发（各自独立进程），池不做全局串行。
 - 排队时长不设额外超时：入队轮次的 `timeout_ms` 从**实际开始执行**时计时（用户看到的是"处理中"）。
 
 ### 6.3 上限、淘汰与用户可见提示（AR-11、F05-7）
 
-- 全局上限 `OAMP_CTX_MAX`（默认 8，配置键 `context.max`）：超过则 **LRU 淘汰最久未使用**的 ContextSession（kill 子进程，其上下文随之丢弃）。
+- 全局上限 `OAMP_CTX_MAX`（默认 8，配置键 `context.max`）：超过则 **LRU 淘汰最久未使用**的 ContextSession（kill 子进程，其上下文随之丢弃）。**LRU 触碰点 = `getOrCreate`**（每轮 agent 先取/建会话再 prompt，真实链路上"最近使用"语义成立）；直接持有 session 反复 `prompt()` 不会刷新淘汰序（当前无此调用方，实现与文档均已记录）。
 - **不主动 TTL 回收**（用户决策 2026-09-10）：进程存活至 chat 关闭或超上限。
 - 提示形态（**关键裁决**）：淘汰 / 崩溃后，agent 向 web 发一条 `notice`（`kind:'context_reset'`），web 转成 SSE `notice` 事件，前端在对话流内插一条**系统提示条**（"上下文已释放 / 已重置，本对话后续回复不再记得此前内容"）。
   **该提示不入库**——F02-5/E-5 明令"仅两类记录"，若落成消息行会直接违反 E-5；F05-7 只要求"对话内明确提示"，运行时事件满足语义。
@@ -329,7 +337,7 @@ omp acp --(session/update.agent_message_chunk)--> acp-client（拼接 + 立即�
   - **不追加 `--thinking off`**：V-9 的两条路径对照表明挂起源于上游 provider 而非 ACP；关闭思考链是质量代价，不作为默认（`--thinking off` 仅作为诊断手段留档，见 §7.5 的对照复测步骤）。
 - 初始化序列：`initialize{protocolVersion:1}` → `session/new{cwd: process.cwd(), mcpServers: []}` → **等待静默**（无通知 ≥300ms 或硬上限 5s）→ 首次 `session/prompt`。仅在建键时发生一次（R-4 冷启动 ~1-3s）。
 - prompt：`session/prompt{sessionId, prompt:[{type:'text', text}]}`；增量取 `session/update.update.sessionUpdate==='agent_message_chunk'` 且 `content.type==='text'` 的文本，逐块回调；请求响应给出 `stopReason`。
-- 模型：每轮解析出目标模型，若与当前 session 的 `currentValue` 不同 → `session/set_config_option{sessionId, configId:'model', value}`（失败即该轮 `model_unavailable`，**不回退默认**）。
+- 模型：每轮解析出目标模型，若与当前 session 的 `currentValue` 不同 → `session/set_config_option{sessionId, configId:'model', value}`（失败即该轮 `model_unavailable`，**不回退默认**）。生效值从返回的 `configOptions` **数组**读取（`find(o => o.id === 'model')?.currentValue`；对象形态一并兼容——实测 omp 18.0.11 为数组形态）。
 - 结果组装：`{text: 拼接文本, model: 生效模型, stop_reason, usage?, context_id, pid}`。
 - 容量/内存实测：上线前量单进程内存（R-1）。
 
@@ -359,11 +367,11 @@ payload.model  >  OAMP_OMP_MODEL（env）  >  config.defaults.model（文件） 
 - 判定：`session/set_config_option` 返回 JSON-RPC error（V-7 实测 `Unknown ACP model: <x>`）；**不需要预置可用清单**。
 - 错误面：该轮 `task.result{state:'failed', error:'model_unavailable', text:'模型不可用：<model>'}` → chat 状态 `failed` + 一条失败 out 记录（§4.4）。
 - **绝不静默回退**默认模型（F06-4 的明文要求）。
-- 澄清 F06-5「可用取值来源」：可用清单 = **omp 自身模型注册表**（`~/.omp`），本系统不解析、不复制；如需下拉清单，ACP `session/new` 的 `configOptions.model.options` 天然提供（本次实测 63 项），**本迭代不做清单接口/下拉**（无卡要求，奥卡姆）。
+- 澄清 F06-5「可用取值来源」：可用清单 = **omp 自身模型注册表**（`~/.omp`），本系统不解析、不复制；如需下拉清单，ACP `session/new` 返回的 `configOptions` **数组**中 `id === 'model'` 项的 `.options` 天然提供（本次实测 63 项；读取须按数组形态 `find`，见 §6.6），**本迭代不做清单接口/下拉**（无卡要求，奥卡姆）。
 
 ### 7.4 审计形态（F06-3 判定依据）
 
-- 每条 out 记录的 `model` 字段 = 该轮**实际生效**的模型标识（agent 从 ACP session 的 `currentValue` 回读后上报，不是用户输入的回显）。
+- 每条 out 记录的 `model` 字段 = 该轮**实际生效**的模型标识（agent 从 ACP session 返回的 `configOptions` 数组里 `id === 'model'` 的 `currentValue` 回读后上报，**不是用户输入的回显**）。**回读失败时该字段为 `null`**（不用请求参数顶替）——前端元信息行可能为空，属受控降级（可观测性增强见 §18 NC-1）。
 - 前端在输出气泡元信息行显示该模型（与 `ctx` 标识同行），F06-3"两轮可观察到使用了不同模型"即由此判定。
 
 ### 7.5 ✅ 已确认（2026-09-10 用户选择 (a)）：默认模型可用性取舍（L1-6）
@@ -406,12 +414,14 @@ payload.model  >  OAMP_OMP_MODEL（env）  >  config.defaults.model（文件） 
   context.max    OAMP_CTX_MAX   > config.context.max    > 8
 ```
 
+- **空值语义（实现为准，pr-001 D-2）**：**env 侧**的空串 / 纯空白视为"未提供"、继续向下一级取值（沿用既有 `env.X || 默认` 的"空即未设"风格——故 `OAMP_DB='  '` 会取文件值，而不是把包根当成库路径）；**配置文件侧**相反——键存在但不是非空字符串 → **直接快速失败**（`data.db` / `defaults.model` 均如此；`context.max` 存在但非正整数同样抛错），仅"键缺失"才回落默认。`OAMP_CONFIG` 自身亦按前者处理（空串 → 用默认路径）。
+
 ### 8.3 缺失与非法（F07-3 / F07-4）
 
 | 情形 | 行为 |
 |---|---|
 | 文件不存在 | **正常启动**，全部用默认值（不告警退出） |
-| 非法 JSON / 非对象 / 键类型错 / `max` 非正整数 | **快速失败**：加载器抛错 → 进程入口打印 `OAMP 配置错误: <原因>` 并退出码 1（与既有 `readPositiveInt` 的失败风格一致，web.js 已有该 try/catch） |
+| 非法 JSON / 非对象 / 键类型错 / 键存在但为空串或纯空白 / `context.max` 非正整数 | **快速失败**：加载器抛错 → 进程入口打印 `OAMP 配置错误: <原因>` 并退出码 1（与既有 `readPositiveInt` 的失败风格一致，web.js 已有该 try/catch）；**env 侧的空串不属此列**（视为未提供，见 §8.2） |
 | 未知键 | 忽略（不报错）——避免为"未来键"做 schema 校验 |
 | 相对路径基准 | **包根 `oamp/`**（与既有 `config.js` 的 `PKG_ROOT` socket 推导同法，**与 cwd 无关**）→ 默认落 `oamp/data/sql.db` |
 | 目录不存在 | 打开库前 `mkdir -p` |
@@ -462,6 +472,7 @@ export function loadConfig(env = process.env) {
 | `@agent 文本` 服务端兜底解析 | 不变（web.js 既有正则保留） |
 | `!` 开头命令式提交 | 不变（仍是 shell 执行器） |
 | 消息/详情展示样式 | 保留 0010 视觉（左列表/右详情/时间分组）；**新增**最小控件：关闭按钮、模型输入框、一次性开关、系统提示条 |
+| `/api/agents` 与 `@` 补全的取值面 | **行为变更（已记录，不修）**：web 现在以 `web` 身份常驻注册（`SENDER_ID='web'`，为经 `NodeClient.onDeliver` 收 agent 回传所必需）→ `GET /api/agents` 返回集合含 `web` 自身，前端"N agents online"计数与 `@` 补全列表都会出现 `web`（对 `@web` 的派发会被 Router 受理但无人执行，该 chat 停在 `working` 直至启动扫尾）。属 0010→0011 的连带效果而非代码回归，是否过滤自身留待后续迭代（§18 NC-5） |
 | 1.5s 轮询 | **移除**，改 SSE（F04-2 要求流式可见；轮询无法满足"终态前可见增量"的判定） |
 
 ### 9.3 改造影响面盘点（阶段 4 PR 规划依据）
@@ -482,12 +493,12 @@ export function loadConfig(env = process.env) {
 - 理由：web 不再使用 Router 内存会话表（真源迁 SQLite）；持久层的任务↔消息关联改用 `task_id`（web 预生成），不再需要 `message_id → task` 的内存 join。
 
 **不动（回归边界）**
-- `src/{rpc,node-client,task,status,cli,log}.js`、`bin/`、`scripts/`、`package.json`（**零新依赖**）、`test/` 中除 `web.test.js` 外的 10 个测试文件（`test/` 共 11 个）、协议信封与错误码、心跳/租约/替换语义、Router 任务表与 `oamp task` CLI。
+- `src/{rpc,node-client,task,status,cli,log}.js`、`bin/`、`scripts/`、`package.json`（**零新依赖**）、`test/` 中除 `web.test.js` 外的 10 个测试文件（`test/` 现共 16 个）、协议信封与错误码、心跳/租约/替换语义、Router 任务表与 `oamp task` CLI。
 
 **既有测试的处置（F08-3 的落地口径）**
 - `web.test.js` 的**消息路径**必须重写：它的断言建立在"Router 内存会话 + `message_id` join 任务明细 + 真实 omp 一次性执行"之上，而这些正是本迭代被替换的行为（进程不落盘、消息真源迁库、默认执行器换 daemon）。
 - 重写口径 = **同一批用户可见能力的等价覆盖**：静态页/`/api/agents`、发送→落盘→终态、追加到既有 chat、错误面（缺 agent/空消息/未知 chat/已关闭 chat）、@ 解析、`!` 命令路径；外加新增能力的 SSE/落盘/隔离断言。
-- 其余 10 个测试文件（`test/` 共 11 个，除 `web.test.js`）**保持原样全绿**（回归判据）。
+- 其余 10 个测试文件（既有非 web 的十个；`test/` 现共 16 个）**保持原样全绿**（回归判据）。
 - 因此 F08-3"既有测试全绿"的准确口径 = **除 `web.test.js`（其被测行为按本迭代契约变更并等价重写）外，既有测试集合全部不变且全绿**（见 §19 疑问 2）。
 
 ---
@@ -540,7 +551,7 @@ omp acp 子进程 exit（非主动释放）或 prompt 超时（cancel 后仍无 
 ### 10.4 重启
 
 ```
-web 重启：历史从 SQLite 读回（E-3）；启动扫尾把遗留 working → failed；上下文不受影响（在 agent 进程内）
+web 重启：历史从 SQLite 读回（E-3）；启动扫尾把遗留 working → failed；上下文不受影响（在 agent 进程内）；**在飞轮次的终态丢失**——`task_id → {chatId, agentId, lines}` 关联表是 web 进程内内存（未知 task_id 的 task.update/result 静默丢弃），重启后无法把该轮结果落盘，只能由启动扫尾置 failed，待用户重发
 agent 重启：上下文全丢；后续轮次新 context_id；不做主动提示（边界见 §6.4）
 router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 连接自愈沿用 0010（D22）
 ```
@@ -558,7 +569,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | **F05** 上下文规范（同 chat 累积/新 chat 隔离/agent 自管） | 同 chat 累积、同一常驻实例、新 chat 隔离、多 agent 隔离、反例禁止、B 自管、异常可告知 | `src/context-pool.js`（键 `(chat_id, agent_id)`、LRU、串行队列、上限）+ `src/acp-client.js`（多轮 `session/prompt`）+ `agent.js`（`omp-daemon` 分支）+ out 记录 `meta.context_id/pid` + `notice` 提示 | 键=chat→1 进程；`context_id`/`pid` 写进每轮 out 的 meta（F05-2 判据）；同键串行（队列上限 8）、异键并发；`OAMP_CTX_MAX`（默认 8）LRU；无 TTL；释放/崩溃 → 运行时 `notice`（不入库，§6.3）；A 侧只传本轮输入（C-6） |
 | **F06** 模型指定与默认 | 默认 gpt-5.6、可指定、指定优于默认、不可用明确失败、清单来源 | `config.js`（`defaults.model`）+ payload `model` + `acp-client.js: session/set_config_option` + out 记录 `model` 字段 + `web/app.js` 模型输入框 | 优先级 payload > env > config > 内置；模型是 **ACP session 级**（切换不丢上下文，V-8）；未知模型 → `model_unavailable` 明确失败（V-7）；`model` 回读自 ACP `currentValue` 写审计；不提供清单接口；默认模型可用性取舍见 §7.5（L1-6） |
 | **F07** 配置面（数据位置可配置） | 默认 `data/sql.db`、配置文件可指定、缺失不失败、非法即失败、覆盖优先级、生效可观察 | `src/config.js` 扩展（JSON 文件 + env + 默认）+ `persist.js` 用 `dbPath` 打开 + `.gitignore` 加 `data/` | 文件 `oamp/config.json`；默认相对**包根**；`OAMP_DB` > 文件 > 默认；非法 JSON/类型 → 抛错退出 1；无热重载；`mkdir -p` 建目录；空库启动 |
-| **F08** 基线兼容与回归 | 一次性执行可用、两形态可区分、既有测试全绿、既有交互保留 | `agent.js` 保留 `runOmpTask`（`executor:'omp'`）与 `runShellTask`（`!` 命令）+ `web.js` 判定顺序（§9.1）+ `web/app.js` 一次性开关 | daemon 是**默认**、显式 payload 决定路径；daemon 不入上下文、不复用上下文；@ 补全/`!` 提交/视觉保留；既有 10 个测试文件不动（`test/` 共 11 个），`web.test.js` 等价重写（§9.3） |
+| **F08** 基线兼容与回归 | 一次性执行可用、两形态可区分、既有测试全绿、既有交互保留 | `agent.js` 保留 `runOmpTask`（`executor:'omp'`）与 `runShellTask`（`!` 命令）+ `web.js` 判定顺序（§9.1）+ `web/app.js` 一次性开关 | daemon 是**默认**、显式 payload 决定路径；daemon 不入上下文、不复用上下文；@ 补全/`!` 提交/视觉保留；既有 10 个测试文件不动（`test/` 现共 16 个），`web.test.js` 等价重写（§9.3） |
 
 ---
 
@@ -580,7 +591,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | **AR-12** | F05 | chat 关闭 → **立即**释放（web 发 `context_release` → agent kill + 移除键），在飞轮次按崩溃路径失败收尾；已关闭 chat 拒绝新输入（409）；**web 重启**上下文不受影响（在 agent 进程内）；**agent 重启**上下文全丢、后续新 `context_id`、不做主动提示（无持久 chat 清单，超出 N-5 范围）；agent SIGINT → `pool.dispose()` | §6.4、§10.2~§10.4 |
 | **AR-13** | F06 | 传递形态 = payload `model`（校验 `^[A-Za-z0-9._/-]{1,128}$`）→ agent 解析 → 首轮 `--model` / 后续 `session/set_config_option`；优先级 payload > `OAMP_OMP_MODEL` > `config.defaults.model` > 内置 `openai/gpt-5.6-luna`（每轮独立解析，未指定即回默认）；不可用判定 = ACP `set_config_option` 的 error（V-7 `Unknown ACP model`）→ 该轮 `failed(model_unavailable)`，**不回退**；审计 = out 记录 `model` 取自 ACP `currentValue`（实际生效值）；L1-6 默认模型可用性取舍**已定稿**（保持现值 + 复测门禁，§7.5） | §7 |
 | **AR-14** | F07 | 文件 = `oamp/config.json`（JSON，`OAMP_CONFIG` 可改路径），三键 `data.db`/`defaults.model`/`context.max`；缺失 → 全默认正常启动；非法 JSON/类型 → 抛错退出 1；env 名 = `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX`；优先级 env > 文件 > 默认（逐键）；默认路径相对**包根**；`data/` 加入 `.gitignore`；无热重载 | §8 |
-| **AR-15** | F08 | 路由 = web 判定（`!`→shell、`one_shot`→`omp` 一次性、否则 `omp-daemon`），daemon 为默认但显式路径行为不变（F08-1/2）；影响面 = 新增 4 模块 + 5 个新测试文件（回归：其余 10 个既有测试文件不动（`test/` 共 11 个））、改造 `web.js`/`agent.js`/`config.js`/前端 3 文件、删除 Router `chat_*` 与 registry 会话表、其余全不动；`web.test.js` 等价重写 | §9 |
+| **AR-15** | F08 | 路由 = web 判定（`!`→shell、`one_shot`→`omp` 一次性、否则 `omp-daemon`），daemon 为默认但显式路径行为不变（F08-1/2）；影响面 = 新增 4 模块 + 5 个新测试文件（回归：其余 10 个既有测试文件零修改且全绿；`test/` 现共 16 个（0010 既有 11 + 本迭代新增 5））、改造 `web.js`/`agent.js`/`config.js`/前端 3 文件、删除 Router `chat_*` 与 registry 会话表、其余全不动；`web.test.js` 等价重写 | §9 |
 | **AR-16** | 全局 | V-5/V-11 初始化等待 = `--no-skills --no-rules`（通知降到 1 条）+ 静默 300ms/上限 5s；V-3 持久化 = `node:sqlite`（无 flag，仅实验警告）+ 幂等建表（不引入版本表）；工具模式 = daemon 固定 `--no-tools`，`tools:true` 仅走一次性 `executor:'omp'`（**本版不做 ACP 权限应答**）；另：`--no-session`；默认模型可用性见 §7.5（L1-6） | §6.5/§6.6、§9.1、§2 |
 
 **覆盖核对**：16/16 条 AR 均已给出落地结论；L1-6（默认模型可用性取舍）已由用户确认（选择 (a)，2026-09-10）；AR-11/AR-12 的"提示不入库"等裁决已由主 agent 确认（§19 裁决记录 3~6）。
@@ -652,7 +663,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | **pr-002** SSE 传输抽象 | `src/transport.js`（新建：`createSseTransport()`）+ `test/transport.test.js`。**只交付模块与单测，不接线 web**（`/api/stream` 与 `onDeliver → publish` 接线归 pr-004） | 无（首批） | 接口形状 `{kind:'sse',handle,publish,closeAll}`；`handle` 写 `text/event-stream` + `retry: 1000`；`publish` 按 `event:`/`data:` 帧且同连接 FIFO；无订阅者不抛错不缓存；连接 close 后订阅移除、`closeAll()` 结束全部；心跳按可注入 `heartbeatMs`（生产默认 15000）（F04-6） |
 | **pr-003** 上下文池 + ACP 客户端 + daemon 执行器 | `src/acp-client.js` + `src/context-pool.js`（新建）+ `src/agent.js`（`omp-daemon` 分支 + `notice` 处理 + SIGINT `pool.dispose()`）+ `test/context-pool.test.js`（fake ACP: `OAMP_OMP_BIN`） | **pr-001** | 同 chat 两轮记忆 42 且 `meta.context_id`/`pid` 相等（E-1/F05-2）；新 chat 不含 42（E-2）；同 chat 两 agent 互不串扰（F05-4）；同键串行 + 队列上限 8（超出 `context_busy`）；超 `contextMax` LRU 淘汰 + `notice{context_reset}`；崩溃 → 该轮 `context_crashed` + `notice{context_reset}` + 下轮重建；未知模型 → `model_unavailable`（不回退）；`model` 取自 ACP `currentValue`；缺 `chat_id` → 拒收；shell/`omp` 一次性分支不回归（F05/F06/F08） |
 | **pr-004** web HTTP 层 + 控制台前端 | `src/web.js`（读库路由、`/api/stream`、`/api/chats/:id/close`、预生成 `chat_id`/`task_id`、payload 判定、`onDeliver` 收 `task.update`/`task.result`/`notice`、落盘与状态机、启动扫尾、打开库）+ `web/{app.js,index.html,style.css}`（SSE 订阅 + 关闭/模型/一次性/提示条；移除 1.5s 轮询）+ `test/web.test.js`（等价重写）。**本 PR 是 `web.js`/前端/`web.test.js` 的唯一所有者** | **pr-001 + pr-002 + pr-003** | `GET /api/chats`（含已关闭、四类过滤可组合、分页与 400 面）；`GET /api/chats/:id`（升序 + 未知 chat 明确错误）；`POST /api/messages` 落 `in`+`working` → 推 `message`/`chat_state` → 终态落 `out`+`completed`（恰 2 行）；已关闭 → 409；派发失败 → `out(error='dispatch_failed')`；`close` 幂等 + 向 `DISTINCT agent_id` 发 `notice{kind:'context_release'}`；SSE 端点与三类推送（`task_update` 不入库）；E-4 判据（`message(out)` 前 ≥2 个 `task_update` 且文本递增）；断线/刷新全量拉取（F04-7）；重写后的 `web.test.js` 逐条覆盖 F08-a~d 且另加落盘/SSE/关闭断言（F01~F06、F08） |
-| **pr-005** 会话面清理 + 端到端契约 + 文档同步 | `src/router.js`（删 `chat_message`/`chat_get`/`chat_list` 三个 case）+ `src/registry.js`（删 `chats`/`tasksByMessage` 与 5 个会话函数及导出）+ `test/acp-daemon.test.js`（新建）+ `oamp/README.md`（更新失效描述） | **pr-004**（并依赖 pr-001/002/003 的产物） | 删除面全仓无残留引用；其余 10 个既有测试文件**未被修改**且原样全绿（F08-3）；`test/acp-daemon.test.js`（真实 Router + agent + `oamp web` + 临时 `OAMP_DB` + fake ACP）断言 E-1~E-5 全绿；两形态不回归（`!`→shell、`one_shot`→`omp -p`）；`npm test` 全量通过；README 无"会话存于 Router 内存"失效描述（R-13/R-14） |
+| **pr-005** 会话面清理 + 端到端契约 + 文档同步 | `src/router.js`（删 `chat_message`/`chat_get`/`chat_list` 三个 case）+ `src/registry.js`（删 `chats`/`tasksByMessage` 与 5 个会话函数及导出）+ `test/acp-daemon.test.js`（新建）+ `oamp/README.md`（更新失效描述） | **pr-004**（并依赖 pr-001/002/003 的产物） | 删除面全仓无残留引用；其余 10 个既有测试文件**未被修改**且原样全绿（F08-3；`test/` 现共 16 个）；`test/acp-daemon.test.js`（真实 Router + agent + `oamp web` + 临时 `OAMP_DB` + fake ACP）断言 E-1~E-5 全绿；两形态不回归（`!`→shell、`one_shot`→`omp -p`）；`npm test` 全量通过；README 无"会话存于 Router 内存"失效描述（R-13/R-14） |
 
 **重切理由（相对 v0.2.0 §7 的 4-PR 建议）**：
 1. **`web.js` 与其前端拆不开**：二者是同一 HTTP 契约的两端（路由 / 事件名 / 字段名任一侧单独改动都会让另一侧失效），故 `web.js` + `web/*` + `test/web.test.js` 同属 pr-004；v0.2.0 把它们拆在 PR-2（前端实时）与 PR-4（串接）两侧，会造成中间态不可独立验收。
@@ -692,7 +703,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | 集成（进程内） | fake ACP server（`OAMP_OMP_BIN` 指向一段 node 脚本，实现 `initialize`/`session/new`/`set_config_option`/`session/prompt` 流式 + per-session 记忆 + 可编排的"崩溃/慢响应/未知模型"） | context-pool 全部行为（复用/隔离/串行/队列上限/LRU/崩溃重建/模型切换/超时取消） |
 | 端到端 | harness 起 Router + agent + `oamp web`（随机端口、临时 `OAMP_DB`），fetch + SSE 客户端断言 | E-1~E-5、F01~F08 的用户可见行为、既有交互回归 |
 | 手工（真实 LLM） | 真实 `omp acp` + 真实模型 | 用户案例：数字记忆 42 + 新 chat 隔离；模型切换前后记忆保持（V-8 手法）；**默认模型稳定性复测（§7.5 步骤，L1-6 判据）** |
-| 回归 | `npm test`（`node --test test/*.test.js`） | 除 `web.test.js` 外 10 个文件（`test/` 共 11 个）原样全绿（F08-3） |
+| 回归 | `npm test`（`node --test test/*.test.js`） | 0010 既有的 10 个非 `web.test.js` 测试文件零修改且原样全绿（`web.test.js` 等价重写；本迭代新增 5 个测试文件；`test/` 现共 16 个）（F08-3） |
 
 - **不依赖真实 LLM/外网**：所有自动化用例经 fake ACP。
 - 测试不得写真实 `oamp/data/sql.db`：一律 `OAMP_DB` 指到临时目录（沿用 harness `makeTempSocketDir` 模式）。
@@ -714,17 +725,41 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | R-13 | 旧内存会话数据 | 0010 的 Router 内存会话不迁移 | 新库空启动（N-5）；Router 会话表随 D-12 删除 |
 | R-14 | 0010 文档一致性 | 0010 `architecture.md §15.7` 描述"Router 内存会话表 + web 轮询" | 本迭代删除该面；由实现阶段同步更新 `oamp/README.md`（不在本迭代新增文档） |
 
+### 18.1 下一迭代候选（阶段 5/6 独立验证报告汇总，2026-09-10；本迭代**不实现**）
+
+> 来源：6 个 PR 的验证/复审报告的「偏差记录」与「下一迭代候选」。已在本迭代闭环的项不重复列出（如 pr-001 D-1/D-3/D-4/D-5 已写入 §4.3/§4.5/§4.7，pr-002 偏差 1~4 已写入 §5.1/§5.2，pr-003 D1~D3 已写入 §6.2/§6.3/§6.6/§7.3，pr-004 偏差 1 已写入计数口径、候选 C1/C2 已闭环并写入 §4.5，pr-006 竞态修复已写入 §4.3）。
+
+| # | 候选 | 来源 | 备注 |
+|---|---|---|---|
+| NC-1 | **模型回读失败的可观测性**：`readCurrentModel` 得 `null` 时补一条事件（如 `MODEL_UNREADABLE`），避免 `out.model` 静默为空 | pr-003 偏差 2 / 复审 | 当前行为已在 §7.4 显式记录为受控降级；若未来 omp 改 `configOptions` 字段名/形态，可观测性是唯一早期信号 |
+| NC-2 | 一次性（`executor:'omp'`）与 `!` shell 路径的 `out.model` 恒为 `null`（两条路径不经 ACP session）；若要"每轮都有模型审计"，需 agent 侧一次性路径也回读模型 | pr-004 C3 | 跨 PR 范围；F06 只要求 daemon 路径审计 |
+| NC-3 | web 重启期间在飞轮次的终态丢失（`task_id → chat_id` 关联为进程内内存） | pr-004 C4 | 已在 §10.4 显式写明；若要保留需持久化关联表或由 Router 补投递 |
+| NC-4 | `notice` 提示条不持久（刷新即消失） | pr-004 C5 | 与"提示不入库（E-5）"冲突，属产品取舍 |
+| NC-5 | `/api/agents` 与 `@` 补全含 `web` 自身（前端过滤非 agent 节点，或 Router 节点类型标注） | pr-004 偏差 2 | 已在 §9.2 记录为"行为变更、已记录、不修" |
+| NC-6 | `message_id` / `messageId` 死参数的最终处置（删字段 + `router.task_get` 形状变更需协议版本策略，或显式冻结）；连带更新 `router.js` 标注行内注释与 `registry.js` 任务条目 schema 注释 | pr-005 偏差 1/2/3 | §16.4 已把"Router 任务表改造"排除在本迭代外 |
+| NC-7 | `direction` / `state` 缺 schema 级 `CHECK` 约束（当前"仅两类"由模块 API 结构保证） | pr-001 候选 | 纵深防御，非 E-5 的必要条件 |
+| NC-8 | `readBody` 未监听 `aborted`/`close`（客户端中途断连时 Promise 可能不 settle） | pr-004 复审 | 实测用户可见影响为零 |
+| NC-9 | 测试/前端 `pickPort()` 无 `EADDRINUSE` 回退 | pr-005/pr-006 候选 | 并发或端口占用时有 flake 概率 |
+| NC-10 | Router 侧若改为自分配/改写 `task_id`，web 的登记键会静默失配（建议 `dispatched !== taskId` 告警）；`tasks` Map 无 TTL / 兜底清理 | pr-006 候选 | 与上下文池淘汰机制可一并评估 |
+| NC-11 | 二次 SIGINT（退出码 130）路径未实测 | pr-003 候选 | 首次 SIGINT 路径已实测覆盖 `pool.dispose()` |
+| NC-12 | 常驻进程内存实测（单进程 + N=8 总量）与**默认模型两路径对照复测** | R-1 / R-9、§7.5 门禁 | 后者是 L1-6 的落地条件，属上线前必测 |
+| NC-13 | `notice{context_release}` 无发送方鉴权（任意注册节点可令 agent 释放任意 chat 的上下文） | pr-003 候选 | 沿用 0010 N6 信任边界；引入鉴权时须一并覆盖该控制消息 |
+| NC-14 | 历史文档中已删符号的标注（0010 `architecture.md §15.7`、0011 §1.1/§9.3 对 `chat_*` 的叙述）如需对外交付可加"（已删除）" | pr-005 候选 | 均为描述"删除动作/历史基线"的正文 |
+| NC-15 | 流程留痕：`prs/pr-006-*.md` 卡片缺失、PR-006 补丁的提交与 `status.md` 回填 | pr-006 偏差 1/2/3 | 属 workflow-pb 规则 B 的前置，由主 agent 处理 |
+| NC-16 | **E-4 断言的守护定位**：实测 E-4（"终态前收到 ≥2 个递增 `task_update`"）对 pr-006 的首片竞态**无区分力**（对照组 3/3 通过）；若将来要建"回归守护清单"，应把 pr-006 新增用例（而非 E-4 断言）登记为该竞态的守护用例，避免误以为 E-4 已覆盖它 | pr-006 候选 | 本次修复的守护证据在 pr-006 报告（红 5/5、绿 5/5 双向对照）中留痕 |
+
 ---
 
 ## 19. 疑问与越界（裁决记录，2026-09-10）
 
 1. **L1-6：默认模型可用性取舍 —— 已定稿（2026-09-10 用户选择 (a)）**。V-9 实测：默认模型 `openai/gpt-5.6-luna` 在本机间歇性无响应（ACP 与一次性路径同时段同现象 → 上游 provider；对照组 `deepseek/deepseek-v4-flash` 稳定）。**裁定：内置默认保持 `openai/gpt-5.6-luna`**（配置面 `defaults.model` / `OAMP_OMP_MODEL` 可一行覆盖），保留**上线前复测门禁**（§7.5 第 4 条两条路径对照复测；若仍高频挂起再由用户决定切换备选 (b)）；§6.5 的超时兜底（cancel → kill → `context_reset` 提示）为必做项；**不采用 `--thinking off` 规避**。本迭代已无待拍板技术项。
-2. **F08-3 口径 —— 已裁定（2026-09-10 主 agent）：采纳"既有能力回归"口径**。即 **除 `web.test.js` 等价重写外，其余 10 个既有测试文件（`test/` 共 11 个，除 `web.test.js`）原样全绿；`web.test.js` 所覆盖的既有用户可见能力由重写用例等价覆盖**。原句"既有测试全绿"物理上不可字面成立（其被测行为正是本迭代被替换的对象，见 §9.3）；F08 卡片的措辞由 prd 角色同步修订，本文件与 §9.3 / §16.1 的落地口径按此执行。
+2. **F08-3 口径 —— 已裁定（2026-09-10 主 agent）：采纳"既有能力回归"口径**。即 **除 `web.test.js` 等价重写外，其余 10 个既有测试文件零修改且原样全绿（`test/` 现共 16 个）；`web.test.js` 所覆盖的既有用户可见能力由重写用例等价覆盖**。原句"既有测试全绿"物理上不可字面成立（其被测行为正是本迭代被替换的对象，见 §9.3）；F08 卡片的措辞由 prd 角色同步修订，本文件与 §9.3 / §16.1 的落地口径按此执行。
 3. **F05-7 的提示形态与 E-5 的张力 —— 已确认（2026-09-10 主 agent 裁定）**：上下文释放/重置提示**不入库**（仅 SSE 运行时事件），否则违反 F02-5/E-5"仅两类记录"。代价：刷新页面后该提示不重现（提示只要求"对话内明确告知"，已在发生时刻告知）。
 4. **F02-4 失败轮次的落盘口径 —— 已确认（2026-09-10 主 agent 裁定）**：落一条 `direction='out'` 的错误记录（text=可见摘要、error=机器码）；派发失败同样补一条失败 out 记录——保 F02-1 的"一一对应"，不改类目数。
 5. **关闭语义 / 标题截断 / 状态集合 —— 已确认（2026-09-10 主 agent 裁定）**：关闭 = **立即释放上下文 + 只读 + 拒绝新输入（409）+ 不提供重开**（AR-03/§6.4）；标题截断 = **40 字符**（沿用 0010 `registry.createChat` 的既有 `slice(0,40)`，demand 未定值；产品侧若另有期望值改配置常量即可）；chat 状态集合 = `working/completed/failed/closed`（**去掉 idle** —— 创建与首条输入同步发生，idle 不可观测）。
 6. **M-07 / M-08 越界候选 —— 已裁定：保留（2026-09-10 主 agent）**。F07（配置面）依据 = 用户"基于配置文件"的决策；F08（基线兼容）依据 = N-5 与回归保护。本架构按两卡存在落地：F07 → §8，F08 → §9。
 7. **未修改任何卡的产品维度**：`prd/*.md` 仅回填 `[架构待填]`（见下）；`demand.md`、`architecture.md` v0.2.0 的产品结论未被推翻。
+8. **阶段 5/6 验证报告的待办已归口**：各 PR「偏差记录」中属文档同步的部分已吸收进本文件（§4.3/§4.5/§4.7/§5.1/§5.2/§6.2/§6.3/§6.6/§7.3/§7.4/§9.2/§10.4 与计数口径）；**不属文档吸收、留给下一迭代的项（含"回读失败 model 可观测事件""一次性路径无模型审计"等）统一登记在 §18.1 NC-1~NC-15**，本迭代不实现。
 
 ### prd/*.md 回填清单（仅架构维度）
 

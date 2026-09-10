@@ -62,3 +62,15 @@
 - 复审 PASS（verify-20260910-140754-rereview）：A/B 对照独立复现（修复前 ghost/model-x 回显、修复后 deepseek 真值）；128/128（9 次中 2 次 127/128 为既有 web.test.js E2E 计时 flake，非本 PR）。
 - 主 agent 裁定 pr-003 的 MI-1~MI-10 全部采纳（notice 寻址=最近发起者；chat 关闭由 agent 回发 context_released、web 不自 publish；崩溃/淘汰语义；队列口径=1 在飞+8 排队；增量事件 kind='chunk'+text；首轮模型比对；daemon 带 --no-session 等）。
 - pr-003 合并（3e4c8d7）；全量 128/128；pr-004 解锁并派发（feat/0011-pr-004-web，含 8 条对接契约）。
+
+### 2026-09-10 09:30:00 · 阶段 5 完成（6 PR 全合并）
+
+- pr-004（web 读库 API + SSE + 前端改造 + web.test.js 重写 16 用例；含 400/413 错误面收尾）→ 合并；pr-005（会话面清理 + E-1~E-5 端到端 + README）→ 合并；pr-006（首片竞态补丁：对照 8/8 红 → 8/8 绿）→ 合并。
+- 全量 npm test 146/146；每 PR 均经独立 verifier（pr-003 一次 FAIL→Fix→rereview PASS；pr-004 1 partial→修复→rereview PASS）。
+
+### 2026-09-10 10:30:00 · 阶段 6 迭代级独立验证 PASS
+
+- verify-20260910-1556：E-1（同 chat 累积，真实 LLM 对照 chat A 答出前文作品名 vs chat B 隔离）/E-2/E-3（真实 web 重启 pid 99499→99689 后读回）/E-4（自建 SSE 客户端逐帧，累积文本与落盘逐字相等）/E-5（直读 SQLite：process 片 189/206/39 但仅 2 行）/V6（146/146 两次）全 pass。
+- 2 partial（V7/V8）为流程留痕/提交面：已由主 agent 补齐（pr-006 卡、status/history 终态、提交）；偏差 #7（L1-6 上线前复测门禁）记入待办。
+- 环境重启加载 0011 代码（router/agent/web；web 用 SQLite；oamp/data/sql.db 已建）；agents 自愈重连 online。
+- 迭代全阶段完成。合入 main 决策交用户（本迭代按用户要求保留分支）。
