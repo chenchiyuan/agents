@@ -10,8 +10,10 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { startRouter, startAgent, waitFor, stopAll, buildEnv } from './helpers/harness.js';
+import { startFakeNode } from './helpers/fake-node.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'oamp.js');
@@ -593,6 +595,7 @@ test('Web：SSE 事件序列 + E-4（终态前 ≥2 个 task_update 且文本递
   assert.ok(idxIn >= 0 && idxIn < idxFirstUpdate, 'message(in) 应先于过程增量');
   assert.ok(idxLastUpdate < idxOut, 'E-4：全部 task_update 必须在 message(out) 之前');
   assert.ok(updates.length >= 2, `E-4：终态前应有 ≥2 个 task_update（实得 ${updates.length}）`);
+  assert.equal(updates[0].data.text, '收', '首片（第一个 chunk）必须到达——少一帧增量即在此暴露');
   assert.ok(updates.every((u) => u.data.chat_id === chatId && u.data.task_id === sent.body.task_id));
   assert.ok(updates.every((u) => u.data.kind === 'chunk' && typeof u.data.text === 'string'), 'task_update 应为 kind=chunk + text');
   let acc = 0;
@@ -608,6 +611,74 @@ test('Web：SSE 事件序列 + E-4（终态前 ≥2 个 task_update 且文本递
   const detail = await detailOf(web, chatId);
   assert.equal(detail.messages.length, 4, '过程增量不入库（该轮仍恰 2 行）');
   assert.match(detail.messages[3].text, /收到：流式检查第二轮/, '终态以落盘文本为准');
+});
+
+// ────────────────────────── pr-006：首片竞态（登记先于派发） ──────────────────────────
+test('Web：派发响应与首个 task.update 同批到达时首片不丢（登记先于派发）', async (t) => {
+  // 最坏交错（pr-006 记录的首片竞态）：假节点把 deliver 受理应答与首个 task.update 凑进**同一次写出**
+  // （cork/uncork → 单次 writev）→ Router 的帧循环先处理 task.update（同步写出给 web 的 deliver）、
+  // 后处理受理应答（其续段是 microtask，send 响应因此晚于 deliver 写出）→ web 侧同一 socket read 内
+  // deliver 先于 send 响应到达。修复前：handleDeliver 查不到登记 → 首片被丢弃（SSE 无该 task_update）；
+  // 修复后：登记已在派发前完成 → 首片照常上推。后续增量/终态走常规时点，终态落盘两种情况下都成立。
+  const { router, web } = await setup(t, { withAgent: false });
+  const envelope = (taskId, type, body) => ({
+    protocol: 'oamp/1',
+    message_id: `tup-${randomUUID()}`,
+    type,
+    task_id: taskId,
+    payload: { content_type: 'application/json', body: JSON.stringify(body) },
+  });
+  const node = await startFakeNode({
+    socketPath: router.socketPath,
+    instanceId: 'race-dev',
+    onDeliver: (msg) => {
+      if (msg.type !== 'task.request') return undefined;
+      const origin = msg.from.instance_id;
+      const taskId = msg.task_id;
+      // 首片与受理应答同批 flush（同一次 socket read 到达 Router）
+      node.client.send(origin, envelope(taskId, 'task.update', { state: 'working', kind: 'chunk', text: '首片' })).catch(() => {});
+      process.nextTick(() => node.client.peer.socket.uncork());
+      // 尾片与终态：常规时点（首片是否上推不影响终态落盘）
+      setTimeout(() => {
+        node.client.send(origin, envelope(taskId, 'task.update', { state: 'working', kind: 'chunk', text: '尾片' })).catch(() => {});
+        setTimeout(() => {
+          node.client.send(origin, envelope(taskId, 'task.result', { state: 'completed', text: '首片尾片' })).catch(() => {});
+        }, 30);
+      }, 30);
+      return undefined;
+    },
+  });
+  t.after(() => node.stop());
+
+  // 先建 chat（新 chat 的 chat_id 只在 POST 响应中可得），再订阅 SSE 打第二轮
+  const first = await sendAndWait(web, { agent_id: 'race-dev', text: '第一轮建 chat' });
+  const chatId = first.chatId;
+
+  const sse = await openSse(web.base, chatId);
+  t.after(() => sse.close());
+
+  node.client.peer.socket.cork(); // 第二轮：本节点写入先进同批缓冲，受理应答与首片一起 flush
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'race-dev', text: '竞态第二轮' });
+  assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
+
+  await waitFor(() => sse.events.some((e) => e.type === 'message' && e.data.message.direction === 'out'), {
+    timeoutMs: 8000,
+    what: 'SSE message(out)',
+  });
+
+  const events = sse.events;
+  const updates = events.filter((e) => e.type === 'task_update');
+  const idxOut = events.findIndex((e) => e.type === 'message' && e.data.message.direction === 'out');
+  assert.ok(updates.length >= 1, `首个 task.update 不应被丢弃（实得 ${updates.length} 条）`);
+  assert.equal(updates[0].data.text, '首片', '同批到达的首片必须是第一个 task_update');
+  assert.equal(updates[0].data.kind, 'chunk');
+  assert.ok(events.map((e) => e.type).lastIndexOf('task_update') < idxOut, '全部 task_update 仍在 message(out) 之前');
+  assert.ok(updates.every((u) => u.data.chat_id === chatId && u.data.task_id === sent.body.task_id));
+  assert.equal(updates.map((u) => u.data.text).join(''), '首片尾片', '全部增量到达且顺序拼接完整');
+
+  const detail = await detailOf(web, chatId);
+  assert.equal(detail.messages.length, 4, '过程增量不入库（该轮仍恰 2 行）');
+  assert.equal(detail.messages[3].text, '首片尾片', '增量拼接 = 落盘文本');
 });
 
 test('Web：/api/stream 缺 chat_id → 400；无订阅者时发送不受影响', async (t) => {
