@@ -389,54 +389,6 @@ export default async function startRouter(restArgs) {
         return;
       }
 
-      case 'router.chat_message': {
-        // web 控制台写入：创建或追加会话消息（Router 只存储，不代发任务——由 web 服务自行 send）
-        const agentId = params.agent_id;
-        if (!isValidInstanceId(agentId)) {
-          sendError(respond, ERR.INVALID_PARAMS, 'chat_message 需携带合法 agent_id');
-          return;
-        }
-        const text = params.text;
-        if (typeof text !== 'string' || text.length === 0) {
-          sendError(respond, ERR.INVALID_PARAMS, 'chat_message 需携带非空 text');
-          return;
-        }
-        const messageId = params.message_id === undefined ? null : params.message_id;
-        if (messageId !== null && !isValidMessageId(messageId)) {
-          sendError(respond, ERR.INVALID_PARAMS, 'invalid message_id');
-          return;
-        }
-        const now = Date.now();
-        let chatId = params.chat_id === undefined ? null : params.chat_id;
-        if (chatId === null) {
-          chatId = `chat-${newSessionId()}`;
-          const title = typeof params.title === 'string' && params.title.length > 0 ? params.title : text.slice(0, 40);
-          registry.createChat({ chatId, agentId, title, now });
-          logger.event('CHAT_CREATED', { chat_id: chatId, agent: agentId });
-        } else if (!registry.getChat(chatId)) {
-          sendError(respond, 'CHAT_NOT_FOUND', `chat not found: ${chatId}`);
-          return;
-        }
-        registry.appendChatMessage({ chatId, role: 'user', text, at: now, messageId });
-        if (respond) respond.ok({ chat_id: chatId });
-        return;
-      }
-
-      case 'router.chat_get': {
-        const chatId = params.chat_id;
-        if (typeof chatId !== 'string' || chatId.length === 0 || chatId.length > 128) {
-          sendError(respond, ERR.INVALID_PARAMS, 'chat_get 需携带合法 chat_id');
-          return;
-        }
-        if (respond) respond.ok({ chat: registry.chatDetail(chatId) });
-        return;
-      }
-
-      case 'router.chat_list': {
-        if (respond) respond.ok({ chats: registry.listChats() });
-        return;
-      }
-
       default: {
         if (respond) respond.error(JSONRPC_CODE.METHOD_NOT_FOUND, `method not found: ${method}`);
         return;
