@@ -93,3 +93,11 @@
 
 - 迭代 0011 全部阶段完成（7 PR / 151-151 / 真实 LLM E-1·E-2 验证）；用户选择保留分支先实测，合入 main 待实测后决定。
 - 实测环境已就绪：router/agent(dev-1,verify-1)/web(7788) 均运行 0011 代码；web 数据落 oamp/data/sql.db。
+
+### 2026-09-10 14:00:00 · 用户实测反馈"请求卡住" → 定位与两项修复（pr-008/009）
+
+- 用户报告 chat-8da1a988 卡住；诊断：**请求实际已完成**（《静夜思》），model=openai/gpt-5.6-luna、duration 246s；Router 任务表 37 updates 显示首个 chunk @+242724ms（首 token 延迟 242s，36 chunk 挤在最后 3.6s）→ 属 L1-6（V-13），非代码缺陷；UI 无计时导致误判卡死。
+- 用户决策：① 默认模型改 deepseek/deepseek-v4-flash（推翻原 L1-6 选项 a）② 加 UI 等待计时与慢模型提示。
+- pr-008（等待计时 + >30s 慢模型提示；浏览器实测：计时起点逐毫秒命中 in.created_at、MutationObserver #messages 零变更、阈值与三路径停表；152/152）→ 合并。
+- pr-009（内置默认 MODEL_DEFAULT 改 deepseek + config-file/context-pool 断言与 prs 同步；无 env 实测 defaultModel=deepseek；152/152）→ 合并；端到端冒烟：不指定模型 → deepseek，1.74s 完成。
+- 文档：architecture（L1-6 🔄 改选 b、V-13、§16.5 补丁记录、NC-20）/README/prd F06/F07 同步。
