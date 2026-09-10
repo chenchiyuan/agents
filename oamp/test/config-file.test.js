@@ -12,7 +12,7 @@ import { loadConfig } from '../src/config.js';
 
 const OAMP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEFAULT_DB = path.join(OAMP_ROOT, 'data', 'sql.db');
-const DEFAULT_MODEL = 'openai/gpt-5.6-luna';
+const DEFAULT_MODEL = 'deepseek/deepseek-v4-flash';
 
 // 每个用例独立临时目录：写文件用 writeConfig，缺失场景用 missingConfig
 function configDir() {

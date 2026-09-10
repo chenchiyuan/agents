@@ -46,7 +46,7 @@ if (argv.includes('-p')) {
 }
 
 const modelIdx = argv.indexOf('--model');
-const spawnModel = modelIdx >= 0 ? argv[modelIdx + 1] : 'openai/gpt-5.6-luna';
+const spawnModel = modelIdx >= 0 ? argv[modelIdx + 1] : 'deepseek/deepseek-v4-flash';
 const UNKNOWN_MODEL = process.env.FAKE_ACP_UNKNOWN_MODEL || 'ghost/model-x';
 const sleepMs = Number(process.env.FAKE_ACP_SLEEP_MS || 0);
 const hang = process.env.FAKE_ACP_HANG === '1';
@@ -241,7 +241,7 @@ test('E-1/F05-1/2：同 chat 两轮上下文累积，第二轮记得 42 且 cont
   const chunks = second.updates.filter((u) => u.kind === 'chunk').map((u) => u.text);
   assert.ok(chunks.length >= 2, `应有 ≥2 个增量块，实际 ${chunks.length}`);
   assert.equal(chunks.join(''), second.result.text);
-  assert.equal(second.result.model, 'openai/gpt-5.6-luna', 'model 取自 ACP currentValue');
+  assert.equal(second.result.model, 'deepseek/deepseek-v4-flash', 'model 取自 ACP currentValue');
 });
 
 test('E-2/F05-3：新 chat → 新键新进程，答不出旧 chat 的设定值', async (t) => {
@@ -414,24 +414,24 @@ test('§7.3/§7.4：未知模型 → model_unavailable（不回退）；指定�
 
   const first = await turn(web, 'dev-1', { chat_id: 'chat-model', prompt: '请记住数字 42' });
   assert.equal(first.result.text, '记住');
-  assert.equal(first.result.model, 'openai/gpt-5.6-luna');
+  assert.equal(first.result.model, 'deepseek/deepseek-v4-flash');
 
   const unknown = await turn(web, 'dev-1', { chat_id: 'chat-model', prompt: '数字是多少', model: 'ghost/model-x' });
   assert.equal(unknown.result.state, 'failed');
   assert.equal(unknown.result.error, 'model_unavailable');
   assert.ok(unknown.result.text.includes('ghost/model-x'), '错误面应点名不可用模型');
-  assert.equal(unknown.result.model, 'openai/gpt-5.6-luna', '失败轮的 model 亦只报 ACP 实报生效值');
+  assert.equal(unknown.result.model, 'deepseek/deepseek-v4-flash', '失败轮的 model 亦只报 ACP 实报生效值');
   assert.notEqual(unknown.result.model, 'ghost/model-x', '不得以请求参数回显冒充');
   assert.equal(web.notices('context_reset').length, 0, '模型不可用不应重置上下文');
 
-  const switched = await turn(web, 'dev-1', { chat_id: 'chat-model', prompt: '数字是多少', model: 'deepseek/deepseek-v4-flash' });
+  const switched = await turn(web, 'dev-1', { chat_id: 'chat-model', prompt: '数字是多少', model: 'alpha/model-a' });
   assert.equal(switched.result.state, 'completed');
-  assert.equal(switched.result.model, 'deepseek/deepseek-v4-flash', 'model 回读自 ACP currentValue');
+  assert.equal(switched.result.model, 'alpha/model-a', 'model 回读自 ACP currentValue');
   assert.equal(switched.result.pid, first.result.pid, '切换模型不重建进程');
   assert.ok(switched.result.text.includes('42'), '切换模型不丢上下文');
 
   const backToDefault = await turn(web, 'dev-1', { chat_id: 'chat-model', prompt: '数字是多少' });
-  assert.equal(backToDefault.result.model, 'openai/gpt-5.6-luna', '未指定轮次回到默认模型');
+  assert.equal(backToDefault.result.model, 'deepseek/deepseek-v4-flash', '未指定轮次回到默认模型');
   assert.ok(backToDefault.result.text.includes('42'));
 });
 
@@ -534,5 +534,5 @@ test('§6.6：daemon 启动参数含 acp 固定集（--no-skills/--no-rules/--no
     assert.ok(acp.includes(flag), `启动参数应含 ${flag}`);
   }
   assert.ok(acp.includes('--model'));
-  assert.equal(acp[acp.indexOf('--model') + 1], 'openai/gpt-5.6-luna');
+  assert.equal(acp[acp.indexOf('--model') + 1], 'deepseek/deepseek-v4-flash');
 });

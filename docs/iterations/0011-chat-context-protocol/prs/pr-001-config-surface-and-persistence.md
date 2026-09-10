@@ -20,7 +20,7 @@
 
 ## 验收标准
 
-- [ ] `loadConfig()` 在无配置文件时返回 `dbPath = <包根>/data/sql.db`（绝对路径，与 cwd 无关）、`defaultModel = 'openai/gpt-5.6-luna'`、`contextMax = 8`；既有键（`socketPath`/心跳/重连）取值与现在一致（`oamp/test/config-file.test.js` 断言）
+- [ ] `loadConfig()` 在无配置文件时返回 `dbPath = <包根>/data/sql.db`（绝对路径，与 cwd 无关）、`defaultModel = 'deepseek/deepseek-v4-flash'`（2026-09-10 用户修订，依据 V-13；gpt-5.6-luna 保留为可指定值）、`contextMax = 8`；既有键（`socketPath`/心跳/重连）取值与现在一致（`oamp/test/config-file.test.js` 断言）
 - [ ] 优先级逐键生效：`OAMP_DB` &gt; `config.data.db` &gt; 默认、`OAMP_OMP_MODEL` &gt; `config.defaults.model` &gt; 默认、`OAMP_CTX_MAX` &gt; `config.context.max` &gt; 默认（`OAMP_CONFIG` 指向临时配置文件）
 - [ ] 配置文件不存在 → 正常返回默认值不抛错；非法 JSON / 顶层非对象 / 键类型错 / `context.max` 非正整数 → `loadConfig` 抛错且信息含 `OAMP 配置错误`（web/agent 入口既有 try/catch 的退出码 1 行为不变，见 `oamp/src/web.js` 启动段与 `oamp/src/agent.js:8` 的既有调用面）
 - [ ] `persist` 打开目标目录不存在的路径时自动 `mkdir -p` 后建库；重复打开同一路径幂等（`CREATE TABLE/INDEX IF NOT EXISTS` + `PRAGMA foreign_keys=ON`）

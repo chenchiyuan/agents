@@ -12,7 +12,8 @@ const CONFIG_FILE = path.join(PKG_ROOT, 'config.json');
 
 // 配置文件三键的内置默认（§8.2）：data.db → F07、defaults.model → F06、context.max → F05
 const DB_DEFAULT = 'data/sql.db';
-const MODEL_DEFAULT = 'openai/gpt-5.6-luna';
+// 默认模型取值：2026-09-10 用户修订（依据 V-13：原值首字延迟 ≈242s 且间歇无响应）——原值 openai/gpt-5.6-luna 保留为可指定值
+const MODEL_DEFAULT = 'deepseek/deepseek-v4-flash';
 const CONTEXT_MAX_DEFAULT = 8;
 
 const NUMERIC_DEFAULTS = {

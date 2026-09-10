@@ -64,14 +64,14 @@ flowchart LR
 
 ### T3 — oamp/README.md：删除失效描述 + 补新能力文档
 
-**描述**：修正 R-14 点名的失效描述（"会话与消息存于 Router 内存（重启即清空）"、"executor `omp`（默认，Web 控制台走这条）"），补齐本迭代交付的能力面文档：SQLite 持久化与历史查询、SSE 实时事件、上下文规范（同 chat 累积 / 新 chat 隔离 / 关闭即释放）、执行路径三形态与默认切换、模型指定与默认 `openai/gpt-5.6-luna`、配置面（`oamp/config.json` 三键 + env 覆盖）。**依既有结构就地修改**（不新增文档，R-14 / §16.4）。
+**描述**：修正 R-14 点名的失效描述（"会话与消息存于 Router 内存（重启即清空）"、"executor `omp`（默认，Web 控制台走这条）"），补齐本迭代交付的能力面文档：SQLite 持久化与历史查询、SSE 实时事件、上下文规范（同 chat 累积 / 新 chat 隔离 / 关闭即释放）、执行路径三形态与默认切换、模型指定与默认 `deepseek/deepseek-v4-flash`（2026-09-10 用户修订，依据 V-13；gpt-5.6-luna 保留为可指定值）、配置面（`oamp/config.json` 三键 + env 覆盖）。**依既有结构就地修改**（不新增文档，R-14 / §16.4）。
 
 **涉及文件**：`oamp/README.md`（更新）
 **优先级**：P1（文档一致性；不阻断功能验收）
 **前置依赖**：无（描述的是 pr-004 已落地的行为面）
 **验收标准**（可测试 / 可追溯）：
 1. README 中不再出现"会话与消息存于 Router 内存"或"重启即清空"的**会话面**表述（PR 卡验收 7 + R-14；载体 = 静态核查）。**范围说明（见 MI-3）**：`oamp task` 一节的"任务与明细存于 Router 内存（Router 重启即清空）"描述的是 **Router 任务表**，该面本迭代按 §9.3「不动」保留、描述**属实**，不改写（改写它会与实现不符）。
-2. 新增章节覆盖（PR 卡验收 7 明列 4 项 + 文件范围括注）：① 配置面 `oamp/config.json` 三键（`data.db`/`defaults.model`/`context.max`）与 env 覆盖（`OAMP_DB`/`OAMP_OMP_MODEL`/`OAMP_CTX_MAX`）+ 默认路径相对包根（§8 / AR-14）；② web API 与 SSE（`/api/chats`、`/api/chats/:id`、`POST /api/messages`、`POST /api/chats/:id/close`、`GET /api/stream` 与四类事件）（§4.5/§5.2 / AR-06/AR-08）；③ 上下文键与上限（per-`chat_id`+agent 常驻、同 chat 累积 / 新 chat 隔离、`OAMP_CTX_MAX` 默认 8 与 LRU 淘汰提示）（§6 / AR-11/AR-12）；④ 模型指定与默认（payload `model` > `OAMP_OMP_MODEL` > `config.defaults.model` > `openai/gpt-5.6-luna`）（§7.1 / AR-13）；⑤ 执行路径表更新为三形态（默认 `omp-daemon`；`one_shot:true` → `omp -p`；`!` → shell）（§9.1 / AR-15）；⑥ 关闭语义（释放上下文 + 只读 + 拒绝新输入 409 + 不重开）（§6.4 / AR-03）。
+2. 新增章节覆盖（PR 卡验收 7 明列 4 项 + 文件范围括注）：① 配置面 `oamp/config.json` 三键（`data.db`/`defaults.model`/`context.max`）与 env 覆盖（`OAMP_DB`/`OAMP_OMP_MODEL`/`OAMP_CTX_MAX`）+ 默认路径相对包根（§8 / AR-14）；② web API 与 SSE（`/api/chats`、`/api/chats/:id`、`POST /api/messages`、`POST /api/chats/:id/close`、`GET /api/stream` 与四类事件）（§4.5/§5.2 / AR-06/AR-08）；③ 上下文键与上限（per-`chat_id`+agent 常驻、同 chat 累积 / 新 chat 隔离、`OAMP_CTX_MAX` 默认 8 与 LRU 淘汰提示）（§6 / AR-11/AR-12）；④ 模型指定与默认（payload `model` > `OAMP_OMP_MODEL` > `config.defaults.model` > `deepseek/deepseek-v4-flash`）（§7.1 / AR-13；2026-09-10 用户修订，依据 V-13；gpt-5.6-luna 保留为可指定值）；⑤ 执行路径表更新为三形态（默认 `omp-daemon`；`one_shot:true` → `omp -p`；`!` → shell）（§9.1 / AR-15）；⑥ 关闭语义（释放上下文 + 只读 + 拒绝新输入 409 + 不重开）（§6.4 / AR-03）。
 3. 文档与实现一致：README 中出现的 env 名/接口路径/默认值逐项可在 `src/config.js`、`src/web.js` 中找到对应（载体 = 静态核对，无"文档里的接口不存在"）。
 4. 不新增文档文件、不改动 README 的历史章节结构（安全边界声明、卫生红线声明保留）（R-14「不在本迭代新增文档」）。
 

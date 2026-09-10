@@ -43,7 +43,7 @@ if (argv.includes('-p')) {
 }
 
 const modelIdx = argv.indexOf('--model');
-const spawnModel = modelIdx >= 0 ? argv[modelIdx + 1] : 'openai/gpt-5.6-luna';
+const spawnModel = modelIdx >= 0 ? argv[modelIdx + 1] : 'deepseek/deepseek-v4-flash';
 
 let sessionSeq = 0;
 const sessions = new Map();
