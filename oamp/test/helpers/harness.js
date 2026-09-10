@@ -103,9 +103,10 @@ export async function queryStatus(socketPath) {
  * 返回句柄：{ child, socketPath, tmpDir, stdout, stderr, waitRouterLine(re, n?/opts?),
  *   stop(), kill(), cleanup() }
  */
-export async function startRouter({ envExtra = {}, readyTimeoutMs = 5000 } = {}) {
-  const tmpDir = makeTempSocketDir();
-  const socketPath = path.join(tmpDir, 'router.sock');
+export async function startRouter({ envExtra = {}, readyTimeoutMs = 5000, socketPath: reuseSocketPath = null } = {}) {
+  // socketPath 提供时复用（Router 重启自愈用例：同路径重新监听）；否则独立临时目录
+  const tmpDir = reuseSocketPath ? null : makeTempSocketDir();
+  const socketPath = reuseSocketPath || path.join(tmpDir, 'router.sock');
   const env = buildEnv(socketPath, envExtra);
   const child = spawn(process.execPath, [BIN, 'router', 'start'], { cwd: OAMP_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   const stdout = collectStream(child.stdout);
@@ -141,6 +142,7 @@ export async function startRouter({ envExtra = {}, readyTimeoutMs = 5000 } = {})
     stop,
     kill: (signal = 'SIGKILL') => child.kill(signal),
     cleanup: () => {
+      if (!tmpDir) return; // 复用 socketPath 模式：目录归创建方管理
       try {
         fs.rmSync(tmpDir, { recursive: true, force: true });
       } catch {

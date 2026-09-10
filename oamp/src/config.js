@@ -12,6 +12,7 @@ const NUMERIC_DEFAULTS = {
   OAMP_HEARTBEAT_INTERVAL_MS: 10000,
   OAMP_HEARTBEAT_TIMEOUT_MS: 30000,
   OAMP_HB_LOG_WINDOW_MS: 60000,
+  OAMP_RECONNECT_MAX_MS: 10000,
 };
 
 function readPositiveInt(name, env) {
@@ -27,11 +28,18 @@ function readPositiveInt(name, env) {
 }
 
 export function loadConfig(env = process.env) {
+  const reconnectRaw = env.OAMP_RECONNECT === undefined ? '1' : String(env.OAMP_RECONNECT);
+  if (reconnectRaw !== '0' && reconnectRaw !== '1') {
+    throw new Error(`OAMP 配置错误: OAMP_RECONNECT 仅支持 0/1（当前值 "${env.OAMP_RECONNECT}"）`);
+  }
   return {
     socketPath: env.OAMP_SOCKET || path.join(PKG_ROOT, '.runtime', 'router.sock'),
     heartbeatIntervalMs: readPositiveInt('OAMP_HEARTBEAT_INTERVAL_MS', env),
     heartbeatTimeoutMs: readPositiveInt('OAMP_HEARTBEAT_TIMEOUT_MS', env),
     hbLogWindowMs: readPositiveInt('OAMP_HB_LOG_WINDOW_MS', env),
+    // D22（demo 自愈）：断线/连接失败后自动重连重注册（0 = 旧行为：断线即退）；退避上限
+    reconnect: reconnectRaw === '1',
+    reconnectMaxMs: readPositiveInt('OAMP_RECONNECT_MAX_MS', env),
   };
 }
 

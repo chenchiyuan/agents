@@ -32,3 +32,14 @@
 ### 2026-09-09 15:10:00 · 收到执行报告 · demo 增量实现完成
 
 - 信封 type 字段（task.request/update/result/notice）、Registry 任务表、Router task_get/task_list 与 rejected ack 终结、agent shell 执行器、CLI task send/status/list/watch、task.test.js 6 用例、testenv 任务演示；npm test 52/52 三连稳定；真实 CLI 端到端验证 PASS。architecture.md §15 记录（D18~D21）。
+
+### 2026-09-10 02:20:00 · 收到报告 · 常驻 agent 反复掉线（休眠场景）
+
+- 现场：dev-1/verify-1 两次同刻 CONNECTION_LOST（14:11、14:20 UTC）；Router 日志心跳静默约 100s 后双判 AGENT_OFFLINE。pmset 证实本机电池维护休眠（Maintenance Sleep/DarkWake）。
+- 结论：非代码缺陷——"断线即退"（N7）在系统休眠场景无自愈。
+
+### 2026-09-10 02:30:00 · 调度决策 · 用户授权"请继续"→ 实施 A+B 组合
+
+- A（根治）：agent 自动重连自愈（D22）；B（环境）：caffeinate -dims 包裹常驻进程。
+- 实现：config 增 OAMP_RECONNECT/OAMP_RECONNECT_MAX_MS；agent 主循环重写（退避重连、被顶替不重连）；router 替换前发 agent.replaced；reconnect.test.js 4 用例；全量 56/56 三连稳定。
+- 真实验证：hub 停 Router → agent CONNECTION_LOST + 退避 RECONNECT_WAIT（进程存活）→ 重启 Router → 3s 内两 agent 自动 online（新 session）。

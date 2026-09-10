@@ -121,11 +121,26 @@ export default async function startRouter(restArgs) {
           const oldHolder = peersByConnId.get(replaced.connId);
           if (oldHolder) {
             peersByConnId.delete(replaced.connId);
+            // 先通知被顶替者（agent.replaced）再断连：旧节点据此退出而非重连（防同 id 互踢）
             try {
-              oldHolder.socket.destroy();
+              if (oldHolder.peer) {
+                oldHolder.peer.notify('agent.replaced', {
+                  instance_id: instanceId,
+                  old_session: replaced.session_id,
+                  new_session: sessionId,
+                });
+              }
             } catch {
-              /* 忽略 */
+              /* 忽略：通知尽力而为 */
             }
+            // 给通知一次 flush 机会后再销毁
+            setTimeout(() => {
+              try {
+                oldHolder.socket.destroy();
+              } catch {
+                /* 忽略 */
+              }
+            }, 50).unref?.();
           }
         }
         logger.event('AGENT_REGISTERED', { instance: instanceId, session: sessionId, state: entry.state });

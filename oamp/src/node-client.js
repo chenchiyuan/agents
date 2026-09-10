@@ -31,8 +31,10 @@ export class NodeClient {
     this.sessionId = null;
     this._hbTimer = null;
     this._closed = false;
-    this.onClose = null; // (err) => void；断线通知（agent 层据此退出）
+    this.onClose = null; // (err) => void；断线通知（agent 层据此重连/退出）
     this.onDeliver = null; // (message) => Promise|false|void；deliver 受理钩子
+    this.replaced = false; // Router 通知 agent.replaced 后置真：本会话已被替换
+    this.onReplaced = null; // (params) => void；被替换通知回调
   }
 
   /** 建立 UDS 连接并初始化 peer。失败 reject（ECONNREFUSED/ENOENT 等由调用方呈现）。 */
@@ -73,6 +75,13 @@ export class NodeClient {
   }
 
   _handleIncoming(method, params, respond) {
+    if (method === 'agent.replaced') {
+      // Router 通知：本连接已被同 instance_id 的新会话替换（D4 latest-wins）。
+      // 标记 replaced → agent 层收到 close 时退出而非重连（防同 id 互踢）。
+      this.replaced = true;
+      if (typeof this.onReplaced === 'function') this.onReplaced(params || {});
+      return;
+    }
     if (method === 'message.deliver') {
       // §6.4 deliver 自动受理：校验 → 回 {received:true} → 随即自动 ack(accepted)
       const message = params && params.message;

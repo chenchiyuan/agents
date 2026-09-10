@@ -579,3 +579,17 @@ dev-1         3f2a9c10-7b4e-4d2f-9c8a-1b2c3d4e5f60   online   2026-09-09T12:00:3
 ### 15.5 验证
 
 test/task.test.js 6 用例（happy/fail/超时/发起者离线 recorded/rejected/终态过滤）；testenv.mjs 集成任务演示；npm test 52/52 三连跑稳定；真实 CLI send/list/status/watch 端到端验证通过。
+
+### 15.6 agent 自愈：断线自动重连（D22，2026-09-10）
+
+**背景**：demo 常驻场景暴露——系统维护休眠/进程挂起会让 agent 心跳停摆超租约，Router 按设计判 offline 断连；原"断线即退"（N7/§6.3）语义使 agent 无法自愈，需人工重启。
+
+**决策（D22，推翻 N7 的"断线即退"）**：agent 默认自动重连（`OAMP_RECONNECT=1`）：
+- 连接失败或会话断线 → `CONNECTION_LOST`/`CONNECT_FAILED` 事件 → `RECONNECT_WAIT` 指数退避（500ms×2ⁿ，上限 `OAMP_RECONNECT_MAX_MS` 默认 10s，无限重试）→ 重新 connect + register（同 instance_id、**新 session**，覆盖 offline 墓碑复活）。
+- 启动时 Router 未就绪同样进入重连等待（常驻启动弹性），不再 exit 1。
+- **被顶替不重连**：Router 在替换旧连接前发 `agent.replaced` 通知（先通知后 50ms destroy），旧 agent 打 `REPLACED` 退出 1——避免同 id 两进程重连互踢。
+- `OAMP_RECONNECT=0` 保留旧行为（断线即退 1），供既有语义/测试使用；SIGINT 优雅退出路径不变。
+
+**影响**：config 新增 `OAMP_RECONNECT`/`OAMP_RECONNECT_MAX_MS`；NodeClient 新增 `replaced`/`onReplaced`；router 替换路径先通知；测试 test/reconnect.test.js 4 用例 + 既有 F02-4/连接失败用例适配；npm test 56/56。
+
+**环境协同**：常驻 demo 进程用 `caffeinate -dims` 包裹启动，减少系统维护休眠导致的心跳停摆。

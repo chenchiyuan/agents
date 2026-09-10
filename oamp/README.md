@@ -77,6 +77,8 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_HEARTBEAT_INTERVAL_MS` | agent | `10000` | 心跳周期（毫秒）；正整数 |
 | `OAMP_HEARTBEAT_TIMEOUT_MS` | Router | `30000` | 租约超时（毫秒）；正整数；建议 ≥ 2×interval |
 | `OAMP_HB_LOG_WINDOW_MS` | Router | `60000` | 心跳日志节流窗口（毫秒）；正整数 |
+| `OAMP_RECONNECT` | agent | `1` | 断线/连接失败后自动重连重注册（自愈，D22）；`0` = 旧行为（断线即退） |
+| `OAMP_RECONNECT_MAX_MS` | agent | `10000` | 重连退避上限（毫秒）；退避 500ms 起指数增长至该上限 |
 
 数值类 env 一律要求正整数，非法值启动即报错退出（快速失败）。自动化测试将 interval 缩到
 30–100ms、timeout 缩到 200–400ms、日志窗口缩到 ~300ms，使全链路秒级完成。

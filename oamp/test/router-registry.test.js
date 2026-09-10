@@ -74,7 +74,8 @@ test('F02-4/D4：同 id live 冲突——AGENT_REPLACED + 替换后仅一个 liv
   const newSession = replacedLine.match(/new_session=([0-9a-f-]{36})/)[1];
   assert.equal(replacedLine.match(/old_session=([0-9a-f-]{36})/)[1], firstSession);
 
-  // 旧进程被 Router 关连接 → CONNECTION_LOST 退出 1
+  // 旧进程被 Router 顶替：收到 agent.replaced 通知 → 打 REPLACED 并退出 1（不重连，防同 id 互踢）
+  await a1.waitAgentLine(/REPLACED instance=dev-1/);
   const oldExit = await waitFor(() => a1.getExitInfo(), { what: '旧 agent 退出' });
   assert.equal(oldExit.code, 1);
 
@@ -140,20 +141,21 @@ test('F02-8/D16：Router SIGINT 干净退出 0、不悬挂、socket 文件被删
   assert.equal(fs.existsSync(sockPath), false, '退出后 socket 文件应被删除');
 });
 
-test('F02（进程级）：agent connect 失败（Router 未运行）→ stderr 含 socket 路径提示 + 退出 1', async (t) => {
+test('F02（进程级）：agent connect 失败（Router 未运行）+ OAMP_RECONNECT=0 → stderr 含 socket 路径提示 + 退出 1', async (t) => {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-test-'));
   const sock = path.join(tmpDir, 'nope.sock');
   t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const child = spawn(process.execPath, [path.join(root, 'bin', 'oamp.js'), 'agent', 'start', 'dev-x'], {
     cwd: root,
-    env: { ...process.env, OAMP_SOCKET: sock },
+    // OAMP_RECONNECT=0：本用例固定"旧行为"（断线/连接失败即退）——默认自愈行为由 reconnect.test.js 覆盖
+    env: { ...process.env, OAMP_SOCKET: sock, OAMP_RECONNECT: '0' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let err = '';
   child.stderr.on('data', (d) => (err += d));
   const code = await new Promise((res) => child.once('exit', (c) => res(c)));
   assert.equal(code, 1);
-  assert.match(err, /无法连接 oamp router/);
+  assert.match(err, /无法连接\/注册 oamp router/);
   assert.ok(err.includes(sock), 'stderr 应含 socket 路径');
 });

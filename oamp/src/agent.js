@@ -206,94 +206,116 @@ export default async function startAgent(restArgs) {
   const logger = createEventLog({ role: 'agent' });
   logger.event('AGENT_START', { instance: instanceId });
 
-  const client = new NodeClient({
-    socketPath: config.socketPath,
-    logger,
-    registerTimeoutMs: 2000, // D17：agent.register 响应上限 2s
-    deregisterTimeoutMs: 1000, // D17：agent.deregister 响应上限 1s
+  // —— 常驻主循环（D22 自愈）：连接/注册/运行；断线或连接失败 → 退避重连重注册 ——
+  // OAMP_RECONNECT=0 恢复旧行为（断线即退 1）。被 Router 通知 agent.replaced（同 id 新会话顶替）
+  // 时退出而非重连，避免同 id 互踢。
+  let activeClient = null;
+  let shuttingDown = false;
+  let sigintCount = 0;
+  let shutdownResolve;
+  const shutdownPromise = new Promise((resolve) => {
+    shutdownResolve = resolve;
   });
 
-  // —— 连接（§6.2 步骤 1）——
+  const onSigint = () => {
+    sigintCount += 1;
+    if (sigintCount >= 2) {
+      process.exit(130); // 二次 SIGINT → 立即退出（D16）
+    }
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const c = activeClient;
+    if (!c || c.closed) {
+      shutdownResolve(0);
+      return;
+    }
+    // §6.3：停心跳 → deregister（请求语义，等响应 ≤1s，best-effort）→ 退出 0
+    c.stopHeartbeat();
+    c.deregister()
+      .then(() => {
+        logger.event('DEREGISTERED', { instance: instanceId });
+      })
+      .catch(() => {
+        // Router 已不在：跳过事件，仍优雅退出 0
+      })
+      .finally(() => {
+        c.close();
+        shutdownResolve(0);
+      });
+  };
+  process.on('SIGINT', onSigint);
+
+  const sleepInterruptible = (ms) => Promise.race([new Promise((r) => setTimeout(r, ms)), shutdownPromise]);
+  const backoffMs = (attempt) => Math.min(500 * 2 ** Math.max(0, attempt - 1), config.reconnectMaxMs);
+
+  let attempt = 0;
   try {
-    await client.connect();
-  } catch {
-    process.stderr.write(
-      `oamp: agent start 失败: 无法连接 oamp router（socket=${config.socketPath}；router 未运行？先执行 oamp router start）\n`,
-    );
-    return 1;
-  }
+    while (!shuttingDown) {
+      const client = new NodeClient({
+        socketPath: config.socketPath,
+        logger,
+        registerTimeoutMs: 2000, // D17：agent.register 响应上限 2s
+        deregisterTimeoutMs: 1000, // D17：agent.deregister 响应上限 1s
+      });
+      client.onDeliver = createTaskDeliverHandler(client, logger);
+      activeClient = client;
 
-  // —— 注册（§6.2 步骤 2）——
-  let registered;
-  try {
-    registered = await client.register(instanceId);
-  } catch (err) {
-    const dataCode = err && err.dataCode ? err.dataCode : 'register-failed';
-    process.stderr.write(`oamp: agent start 失败: 注册被拒（${dataCode}）: ${err && err.message ? err.message : err}\n`);
-    client.close();
-    return 1;
-  }
-  const leaseTimeoutMs = registered.lease_timeout_ms;
-  logger.event('REGISTERED', { instance: instanceId, session: registered.session_id, lease_timeout_ms: leaseTimeoutMs });
-
-  // §6.2 步骤 3：授予 lease < 2×interval → 启动打一条告警事件（建议 timeout ≥ 2×interval 防跳空误判）
-  if (leaseTimeoutMs < 2 * config.heartbeatIntervalMs) {
-    logger.event('LEASE_ALARM', {
-      instance: instanceId,
-      note: 'lease_timeout_ms < 2 x heartbeat_interval_ms（建议 timeout >= 2 x interval）',
-    });
-  }
-
-  // —— 周期心跳 ——
-  client.startHeartbeat(config.heartbeatIntervalMs);
-  // —— 任务执行器（demo 扩展：接收 task.request → 校验/受理 → shell 执行 → 进度上报）——
-  client.onDeliver = createTaskDeliverHandler(client, logger);
-
-  // —— 信号与退出 ——
-  return await new Promise((resolve) => {
-    let settled = false;
-    let shuttingDown = false;
-    let sigintCount = 0;
-
-    const finish = (code) => {
-      if (settled) return;
-      settled = true;
-      client.onClose = null;
-      process.removeListener('SIGINT', onSigint);
-      resolve(code);
-    };
-
-    const onSigint = () => {
-      sigintCount += 1;
-      if (sigintCount >= 2) {
-        // 二次 SIGINT → 立即退出 130（D16）
-        process.exit(130);
+      // —— 连接 + 注册（§6.2 步骤 1/2）——
+      let registered;
+      try {
+        await client.connect();
+        registered = await client.register(instanceId);
+      } catch (err) {
+        client.close();
+        const dataCode = err && err.dataCode ? err.dataCode : 'CONNECT_FAILED';
+        if (!config.reconnect) {
+          process.stderr.write(
+            `oamp: agent start 失败: 无法连接/注册 oamp router（socket=${config.socketPath}；router 未运行？先执行 oamp router start）: ${dataCode}\n`,
+          );
+          return 1;
+        }
+        attempt += 1;
+        const delay = backoffMs(attempt);
+        logger.event('RECONNECT_WAIT', { instance: instanceId, attempt, delay_ms: delay, error: dataCode });
+        await sleepInterruptible(delay);
+        continue;
       }
-      if (shuttingDown || settled) return;
-      shuttingDown = true;
-      // §6.3：停心跳 → deregister（请求语义，等响应 ≤1s，best-effort）→ 退出 0
-      client.stopHeartbeat();
-      client
-        .deregister()
-        .then(() => {
-          logger.event('DEREGISTERED', { instance: instanceId });
-          client.close();
-          finish(0);
-        })
-        .catch(() => {
-          // Router 已不在等情况：跳过事件（§6.3），仍优雅退出 0
-          client.close();
-          finish(0);
+
+      // —— 会话运行 ——
+      attempt = 0; // 注册成功：下次断线从短退避重来
+      const leaseTimeoutMs = registered.lease_timeout_ms;
+      logger.event('REGISTERED', { instance: instanceId, session: registered.session_id, lease_timeout_ms: leaseTimeoutMs });
+      if (leaseTimeoutMs < 2 * config.heartbeatIntervalMs) {
+        logger.event('LEASE_ALARM', {
+          instance: instanceId,
+          note: 'lease_timeout_ms < 2 x heartbeat_interval_ms（建议 timeout >= 2 x interval）',
         });
-    };
+      }
+      client.startHeartbeat(config.heartbeatIntervalMs);
 
-    // 运行中断线（非关闭流程中）→ CONNECTION_LOST → 退出 1
-    client.onClose = () => {
-      if (shuttingDown || settled) return;
+      const outcome = await new Promise((resolve) => {
+        client.onClose = () => resolve(shuttingDown ? 'shutdown' : client.replaced ? 'replaced' : 'lost');
+        shutdownPromise.then(() => resolve('shutdown'));
+      });
+
+      if (outcome === 'shutdown') break;
+
+      if (outcome === 'replaced') {
+        // 被同 id 新会话顶替（Router 已通知 agent.replaced）：退出而非重连
+        logger.event('REPLACED', { instance: instanceId });
+        return 1;
+      }
+
+      // outcome === 'lost'：断线（Router 重启/崩溃/连接被关/系统休眠后判 offline）
       logger.event('CONNECTION_LOST', { instance: instanceId });
-      finish(1);
-    };
-
-    process.on('SIGINT', onSigint);
-  });
+      if (!config.reconnect) return 1;
+      attempt += 1;
+      const delay = backoffMs(attempt);
+      logger.event('RECONNECT_WAIT', { instance: instanceId, attempt, delay_ms: delay, error: 'CONNECTION_LOST' });
+      await sleepInterruptible(delay);
+    }
+    return await shutdownPromise;
+  } finally {
+    process.removeListener('SIGINT', onSigint);
+  }
 }
