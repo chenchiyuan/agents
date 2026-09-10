@@ -74,3 +74,10 @@
 - 2 partial（V7/V8）为流程留痕/提交面：已由主 agent 补齐（pr-006 卡、status/history 终态、提交）；偏差 #7（L1-6 上线前复测门禁）记入待办。
 - 环境重启加载 0011 代码（router/agent/web；web 用 SQLite；oamp/data/sql.db 已建）；agents 自愈重连 online。
 - 迭代全阶段完成。合入 main 决策交用户（本迭代按用户要求保留分支）。
+
+### 2026-09-10 11:30:00 · 交付演示发现缺陷 → pr-007 对账补拉（3 轮验证）
+
+- 演示实测：agent 成功 + Router 任务表 completed 但 result 投递未达 web（1/5 复现）→ 对话缺回复。
+- pr-007：web 侧对账补拉（快速 6×5s → 30s 低频续查 → 30min 软 TTL；landed 幂等；SIGINT 清理）。
+- 验证三轮：初验 FAIL（对账达上限删登记 → >30s 长任务合法 result 被丢，因果隔离证明）→ Fix（上限只停轮询不删登记）→ PASS → 终审 PASS（D-1 低频续查 + D-2 软 TTL 根治：35s 长任务 + 投递丢失双故障 60s 补落）。
+- 合并 66a616f；全量 151/151。文档同步：architecture §4.3/§8.2 + README（3 个对账 env，D-3）+ NC-17/NC-18 登记；pr-007 卡补录（D-4）。

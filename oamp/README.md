@@ -87,6 +87,9 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_OMP_MODEL` | agent | `openai/gpt-5.6-luna` | 默认模型（请求未指定 `model` 时生效） |
 | `OAMP_CTX_MAX` | agent | `8` | 常驻上下文进程上限（超出按 LRU 淘汰）；正整数 |
 | `OAMP_WEB_PORT` | web | `7788` | Web 控制台端口（命令行 `--port` 优先） |
+| `OAMP_WEB_RECONCILE_INTERVAL_MS` | web | `5000` | 任务对账首查与间隔（毫秒，快速预算 6 次）；缺省/非法回退默认（运维/测试可调） |
+| `OAMP_WEB_RECONCILE_SLOW_MS` | web | `30000` | 快速预算用尽后的低频续查间隔（毫秒）；缺省/非法回退默认 |
+| `OAMP_WEB_RECONCILE_TTL_MS` | web | `1800000` | 对账登记软 TTL（毫秒，默认 30 分钟）：超时清理孤儿条目；缺省/非法回退默认 |
 | `OAMP_OMP_BIN` | agent | `omp` | omp 可执行路径（测试注入 fake omp 用） |
 
 数值类 env 一律要求正整数，非法值启动即报错退出（快速失败）。自动化测试将 interval 缩到
@@ -152,6 +155,9 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
   `notice`（上下文释放·重置提示）。断线由浏览器自动重连，重连或刷新时以 `GET /api/chats/<id>` 全量补齐（断线期间增量不补发）。
 - **对话状态**：`working` → `completed`（成功）/ `failed`（失败轮或派发失败）；关闭后为 `closed`（终态、不可重开）。
   web 启动时把上次遗留的 `working` 对话置 `failed`（不补记录）。
+- **终态对账补拉**：若 agent 已执行完、Router 任务表已是终态，但 `task.result` 投递丢失（发起者离线窗口/投递竞态），
+  web 按 `router.task_get` 定时对账补落该轮 `out`（快速 5s、6 次用尽转 30s 低频续查、登记软 TTL 30min 清理；落库即停，恰一条 `out`）。
+  三个间隔可用 `OAMP_WEB_RECONCILE_*` 覆盖（运维/测试用，不进配置文件）。
 
 ## 常驻上下文与关闭（0011）
 
@@ -192,3 +198,4 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
 - 逐键优先级 **env > 配置文件 > 内置默认**（对应 `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX`）；相对路径基准 = 包根（与 cwd 无关）。
 - 文件缺失 → 正常启动；JSON 非法或类型不符 → 启动即报错退出 1（快速失败）；未知键忽略；无热重载。
 - 运行时产物落点：socket → `oamp/.runtime/`，对话库 → `oamp/data/`（均已 `.gitignore`）。
+- **不进配置文件的环境变量**：web 的任务对账间隔（`OAMP_WEB_RECONCILE_*`，见上表）属运行期兜底参数，仅由 env 覆盖、非法值回退内置默认。
