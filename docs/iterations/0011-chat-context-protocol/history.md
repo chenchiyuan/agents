@@ -88,3 +88,8 @@
 - E-2：新 chat 问同一暗号 → 「我没有收到过任何暗号…上下文中不存在你之前让我记的内容」（隔离成立）。
 - 缺失率抽查 8 次新建 chat 首发：7/8 completed+out=1；1 例（#8）为 NC-19 边界（>8 活跃 chat → LRU 淘汰与在飞请求交互，Router state=working 悬挂至 prompt 超时），已在 architecture §6.3/§18.1 登记 NC-19。
 - 环境：router/agent/web 已重启加载 0011 全部改动；web 用 SQLite（oamp/data/sql.db）。
+
+### 2026-09-10 13:00:00 · 用户决策 · 保留分支先实测
+
+- 迭代 0011 全部阶段完成（7 PR / 151-151 / 真实 LLM E-1·E-2 验证）；用户选择保留分支先实测，合入 main 待实测后决定。
+- 实测环境已就绪：router/agent(dev-1,verify-1)/web(7788) 均运行 0011 代码；web 数据落 oamp/data/sql.db。
