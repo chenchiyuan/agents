@@ -303,7 +303,7 @@ omp acp --(session/update.agent_message_chunk)--> acp-client（拼接 + 立即�
 ### 6.3 上限、淘汰与用户可见提示（AR-11、F05-7）
 
 - 全局上限 `OAMP_CTX_MAX`（默认 8，配置键 `context.max`）：超过则 **LRU 淘汰最久未使用**的 ContextSession（kill 子进程，其上下文随之丢弃）。**LRU 触碰点 = `getOrCreate`**（每轮 agent 先取/建会话再 prompt，真实链路上"最近使用"语义成立）；直接持有 session 反复 `prompt()` 不会刷新淘汰序（当前无此调用方，实现与文档均已记录）。
-- **已知边界（NC-19）**：出现淘汰时，**在飞轮次的失败可能延迟到该轮 prompt 超时**（omp-daemon 默认 300s）才收尾——即"淘汰命中在飞轮次 → 该轮立即以 `context_crashed` 失败"的设计语义在当前实现下未即时生效；触发条件为活跃 chat 数接近 `OAMP_CTX_MAX`（默认 8）。详见 §18.1 NC-19。
+- **已知边界（NC-19）**：出现淘汰时，**该轮可能永久悬挂**——实测被淘汰/被 kill 的 session 所属轮次在 Router 中 `working` 持续 **>1 小时**未收尾（远超前预期的"悬挂至 300s prompt 超时"），即 prompt 超时**未覆盖被淘汰/被 kill 的 session**；触发条件为活跃 chat 数接近 `OAMP_CTX_MAX`（默认 8）。详见 §18.1 NC-19。
 - **不主动 TTL 回收**（用户决策 2026-09-10）：进程存活至 chat 关闭或超上限。
 - 提示形态（**关键裁决**）：淘汰 / 崩溃后，agent 向 web 发一条 `notice`（`kind:'context_reset'`），web 转成 SSE `notice` 事件，前端在对话流内插一条**系统提示条**（"上下文已释放 / 已重置，本对话后续回复不再记得此前内容"）。
   **该提示不入库**——F02-5/E-5 明令"仅两类记录"，若落成消息行会直接违反 E-5；F05-7 只要求"对话内明确提示"，运行时事件满足语义。
@@ -760,7 +760,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | NC-16 | **E-4 断言的守护定位**：实测 E-4（"终态前收到 ≥2 个递增 `task_update`"）对 pr-006 的首片竞态**无区分力**（对照组 3/3 通过）；若将来要建"回归守护清单"，应把 pr-006 新增用例（而非 E-4 断言）登记为该竞态的守护用例，避免误以为 E-4 已覆盖它 | pr-006 候选 | 本次修复的守护证据在 pr-006 报告（红 5/5、绿 5/5 双向对照）中留痕 |
 | NC-17 | **永不终态的任务 → chat 停在 `working` 无终态兜底**：对账会把登记保留到软 TTL（默认 30min）后清理，此后若该轮真正的终态才到达则不再被认领；之后只有"下次 web 启动扫尾"才会把它置 `failed`（期间前端一直显示"处理中"）。彻底兜底需要"`working` 超时自动置 `failed`"的状态机（或放宽 TTL） | pr-007 对账引入的边界 | 当前处置：软 TTL 默认 30min，配 §6.5 的 agent 侧超时（默认 300s、上限 600s）实际不会走到 |
 | NC-18 | **软 TTL 到期后的迟到投递不再认领**：TTL 清理后 `tasks` 无登记 → 该 `task.result` 被静默丢弃（§10.4 的"未知 task_id 丢弃"）。边界正确（孤儿条目必须清理），默认 30min ≫ agent 最大 600s 超时，故**无实害** | pr-007 对账引入的边界 | 若将来放宽 agent 超时上限或引入长时任务，需同步复核 `OAMP_WEB_RECONCILE_TTL_MS` |
-| NC-19 | **LRU 淘汰命中"在飞轮次"时失败语义未即时生效**：连续创建 8 个 chat 各发一条请求后，第 8 个 chat 的任务在 Router 长时间停留 `working`（实测 **>75s，updates=1**），库中只有 `in` 无 `out`。Router 任务表 `state=working` ⇒ **不是投递丢失**（pr-007 对账不适用）；而是 agent 侧上下文池达 `OAMP_CTX_MAX=8` 后，淘汰与被淘汰/竞争中的 ACP prompt **未按 pr-003 设计**（MI-3/MI-4："淘汰命中在飞轮次 → 该轮以 `context_crashed` 失败"）及时失败，悬挂至 agent 侧 `timeout_ms`（omp-daemon 默认 300000ms = 5min）才收尾。待办：复核 `context-pool` 淘汰路径与 `acp-client` 的 prompt 中止（cancel/kill）是否覆盖"被淘汰 key 的在飞 session"；并评估 `OAMP_CTX_MAX` 与并发 chat 数的关系（演示中 8+ 活跃 chat 即触达上限） | 交付演示实测（主 agent，2026-09-10） | 影响面：活跃 chat 数接近上限时用户会看到"处理中"长时间不结束（最长 5min）；临时规避 = 调高 `OAMP_CTX_MAX` 或等超时收尾；§6.3 已标注该已知边界 |
+| NC-19 | **LRU 淘汰命中"在飞轮次"时失败语义未即时生效，且该轮可能永久悬挂**：交付演示实测（主 agent，2026-09-10）——连续创建 8 个 chat 各发一条请求后，第 8 个 chat（`task-4a887dd0` / `chat-ec37caf2`）的任务在 Router 停留 `working` **>1 小时**（远超"悬挂至 300s prompt 超时"的预期），库中只有 `in` 无 `out`。Router 任务表 `state=working` ⇒ **不是投递丢失**（pr-007 对账不适用）；归因 = agent 侧上下文池达 `OAMP_CTX_MAX=8` 后，淘汰与被淘汰/竞争中的 ACP prompt **未按 pr-003 设计**（MI-3/MI-4："淘汰命中在飞轮次 → 该轮以 `context_crashed` 失败"）及时失败，且 **agent 侧 `timeout_ms`（omp-daemon 默认 300000ms）对被淘汰 / 被 kill 的 session 未生效 → 该轮可能永久悬挂**（非"延迟收尾"）。待办：① 复核 `context-pool` 淘汰路径与 `acp-client` 的 prompt 中止（cancel/kill）是否覆盖"被淘汰 key 的在飞 session"；② **核查 `acp-client` 中 prompt 请求的 Promise 在 session 被 kill/淘汰后是否 reject（其超时定时器是否随之失效或被清除）**；③ 评估 `OAMP_CTX_MAX` 与并发 chat 数的关系（演示中 8+ 活跃 chat 即触达上限） | 交付演示实测（主 agent，2026-09-10；含 >1h 滞留复核） | 影响面：活跃 chat 数接近上限时该轮会**永久**显示"处理中"且无终态——web 对账在软 TTL（30min）后停止续查，chat 将永久停留 `working`；临时清理手段 = **重启 web**（startupSweep 置 `failed`），临时规避 = 调高 `OAMP_CTX_MAX`；§6.3 已按此修正已知边界 |
 
 ---
 
