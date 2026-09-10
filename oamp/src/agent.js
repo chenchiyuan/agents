@@ -4,10 +4,13 @@
 //   → register（请求，2s 上限；失败退出 1）→ REGISTERED（含授予 lease_timeout_ms）
 //   → 周期心跳（通知）→ SIGINT：停心跳 → deregister（best-effort ≤1s）→ DEREGISTERED → 退出 0；二次 SIGINT → 130。
 // 运行中断线（Router 死/连接被关）→ CONNECTION_LOST → 退出 1（不重连、不挂起）。
+// 任务执行面（D6/D16/D17 + F03/F05/F06/F08）：executor='omp-daemon'（默认，同 chat 上下文累积）/
+//   'omp'（一次性 `omp -p`）/ 缺省（shell 命令）三条路径互不干扰（architecture §9.1）。
 
 import { loadConfig } from './config.js';
 import { NodeClient } from './node-client.js';
 import { createEventLog } from './log.js';
+import { ContextPool } from './context-pool.js';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 
@@ -20,6 +23,8 @@ const DEFAULT_TASK_TIMEOUT_MS = 30000; // shell 任务默认
 const DEFAULT_OMP_TIMEOUT_MS = 300000; // omp（LLM）任务默认：给足推理时间
 const MAX_TIMEOUT_MS = 600000;
 const OMP_BIN = () => process.env.OAMP_OMP_BIN || 'omp';
+// §7.2 模型标识校验（daemon 路径；风格同 0010 payload 校验）
+const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/;
 
 /** 去掉 ANSI 转义（omp/子进程输出可能带色码，回流与存储都应是干净文本）。 */
 function stripAnsi(s) {
@@ -30,6 +35,7 @@ function stripAnsi(s) {
 /**
  * 解析任务 payload（executor 路由）。返回 { ok:true, task } 或 { ok:false, reason }。
  *   executor='omp'（真实 LLM 处理）：{ executor:'omp', prompt, model?, tools?, timeout_ms? }
+ *   executor='omp-daemon'（常驻上下文，默认路径）：{ executor:'omp-daemon', chat_id, prompt, model?, timeout_ms? }
  *   缺省（shell）：{ command, args?, timeout_ms?, label? }（向后兼容）
  */
 function parseTaskBody(payload) {
@@ -61,6 +67,34 @@ function parseTaskBody(payload) {
     return {
       ok: true,
       task: { executor: 'omp', prompt: body.prompt, model, tools, timeoutMs, label: label || body.prompt.slice(0, 60) },
+    };
+  }
+
+  if (body.executor === 'omp-daemon') {
+    // §9.1：默认路径（同 chat 上下文累积）；缺 chat_id → 拒收（web 侧落失败 out 记录）
+    if (typeof body.chat_id !== 'string' || body.chat_id.trim().length === 0) {
+      return { ok: false, reason: 'omp-daemon 任务需要非空 chat_id' };
+    }
+    if (typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {
+      return { ok: false, reason: 'omp-daemon 任务需要非空 prompt' };
+    }
+    if (body.model !== undefined && (typeof body.model !== 'string' || !MODEL_RE.test(body.model))) {
+      return { ok: false, reason: 'model 需为 1~128 位 [A-Za-z0-9._/-] 字符' };
+    }
+    const timeoutMs = body.timeout_ms === undefined ? DEFAULT_OMP_TIMEOUT_MS : body.timeout_ms;
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+      return { ok: false, reason: 'timeout_ms 需为 1~600000 正整数' };
+    }
+    return {
+      ok: true,
+      task: {
+        executor: 'omp-daemon',
+        chatId: body.chat_id,
+        prompt: body.prompt,
+        model: typeof body.model === 'string' ? body.model : null,
+        timeoutMs,
+        label: label || body.prompt.slice(0, 60),
+      },
     };
   }
 
@@ -207,9 +241,87 @@ function runOmpTask(client, logger, message, task) {
   });
 }
 
-/** 任务执行分派：executor='omp' → 真实 LLM；缺省 → shell。 */
-function runTask(client, logger, message, task) {
+/** 发 notice（上下文释放/重置提示，§5.2/§6.3；不入库）给发起者；失败静默（同 task.update 语义）。 */
+function sendNotice(client, logger, { chatId, kind, text, origin }) {
+  if (!client || !client.peer || !origin) return;
+  client
+    .send(origin, {
+      protocol: 'oamp/1',
+      message_id: `ntc-${randomUUID()}`,
+      type: 'notice',
+      payload: { content_type: 'application/json', body: JSON.stringify({ chat_id: chatId, kind, text }) },
+    })
+    .catch(() => {});
+  logger.event('CONTEXT_NOTICE', { chat_id: chatId, kind, to: origin });
+}
+
+/**
+ * 执行一条常驻上下文（omp-daemon）任务：池内键复用 → ACP 多轮 prompt（流式回流）→ 终态上报。
+ * 模型解析链（§7.1，每轮独立）：payload.model > OAMP_OMP_MODEL > config.defaults.model > 内置默认
+ * ——后三者已由 loadConfig() 折叠进 defaultModel。
+ */
+function runDaemonTask(client, logger, message, task, ctx) {
+  const taskId = message.task_id;
+  const origin = message.from.instance_id;
+  const startedAt = Date.now();
+  const model = task.model || ctx.defaultModel;
+  const sendUpdate = (state, detail) =>
+    sendTaskMessage(client, origin, `tup-${randomUUID()}`, 'task.update', taskId, { state, ...detail });
+
+  logger.event('TASK_STARTED', {
+    task_id: taskId,
+    executor: 'omp-daemon',
+    from: origin,
+    chat_id: task.chatId,
+    model,
+    label: task.label || '',
+  });
+  sendUpdate('working', { event: 'started', executor: 'omp-daemon', chat_id: task.chatId, model }).catch(() => {});
+
+  const session = ctx.pool.getOrCreate(task.chatId, ctx.instanceId, { origin });
+  return session
+    .prompt(task.prompt, {
+      model,
+      timeoutMs: task.timeoutMs,
+      origin,
+      onChunk: (text) => sendUpdate('working', { kind: 'chunk', text }).catch(() => {}),
+    })
+    .then((result) => {
+      const body = {
+        state: 'completed',
+        executor: 'omp-daemon',
+        text: result.text,
+        model: result.model || model,
+        context_id: result.context_id,
+        pid: result.pid,
+        stop_reason: result.stop_reason,
+        duration_ms: Date.now() - startedAt,
+        exit_code: 0,
+      };
+      sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
+      logger.event('TASK_RESULT', { task_id: taskId, state: 'completed', context_id: body.context_id, model: body.model });
+    })
+    .catch((err) => {
+      const code = err && err.code ? err.code : 'context_crashed';
+      const body = {
+        state: 'failed',
+        executor: 'omp-daemon',
+        error: code,
+        text: code === 'model_unavailable' ? `模型不可用：${model}` : err && err.message ? err.message : '上下文执行失败',
+        model,
+        context_id: session.contextId,
+        pid: session.pid,
+        duration_ms: Date.now() - startedAt,
+      };
+      sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
+      logger.event('TASK_RESULT', { task_id: taskId, state: 'failed', error: code });
+    });
+}
+
+/** 任务执行分派：executor='omp' → 一次性 LLM；'omp-daemon' → 常驻上下文（默认）；缺省 → shell。 */
+function runTask(client, logger, message, task, ctx) {
   if (task.executor === 'omp') return runOmpTask(client, logger, message, task);
+  if (task.executor === 'omp-daemon') return runDaemonTask(client, logger, message, task, ctx);
   return runShellTask(client, logger, message, task);
 }
 
@@ -304,10 +416,15 @@ function runShellTask(client, logger, message, task) {
 /**
  * 生成 deliver 受理钩子（挂 client.onDeliver）：
  * task.request → 校验（失败 ack rejected）→ 执行（fire-and-forget，受理 = node-client 自动 ack accepted）；
+ * notice（web → agent 控制消息，kind='context_release'）→ 释放该 chat 常驻上下文（§6.4）；
  * 其他类型消息 → 默认自动受理（返回 undefined）。
  */
-function createTaskDeliverHandler(client, logger) {
+function createTaskDeliverHandler(client, logger, ctx) {
   return function handleDeliver(message) {
+    if (message.type === 'notice') {
+      handleNotice(logger, message, ctx.pool);
+      return undefined; // 自动 ack accepted = 受理
+    }
     if (message.type !== 'task.request') return undefined;
     const parsed = parseTaskBody(message.payload);
     if (!parsed.ok) {
@@ -315,9 +432,25 @@ function createTaskDeliverHandler(client, logger) {
       logger.event('TASK_REJECTED', { task_id: message.task_id || '', reason: parsed.reason, from: message.from.instance_id });
       return false; // 阻止 node-client 自动 ack accepted（已回 rejected）
     }
-    runTask(client, logger, message, parsed.task).catch(() => {});
+    runTask(client, logger, message, parsed.task, ctx).catch(() => {});
     return undefined; // 自动 ack accepted = 受理
   };
+}
+
+/**
+ * web → agent 控制消息：`notice{kind:'context_release', chat_id}` → 释放该 chat 的全部常驻上下文。
+ * 命名区分（§5.2）：控制消息 kind = `context_release`；SSE 侧提示 kind = `context_released`（由本侧回发 notice）。
+ */
+function handleNotice(logger, message, pool) {
+  let body = null;
+  try {
+    body = JSON.parse(message.payload && message.payload.body);
+  } catch {
+    body = null;
+  }
+  if (!body || body.kind !== 'context_release' || typeof body.chat_id !== 'string' || body.chat_id === '') return;
+  const released = pool.release(body.chat_id, { origin: message.from.instance_id });
+  logger.event('CONTEXT_RELEASE', { chat_id: body.chat_id, released, from: message.from.instance_id });
 }
 
 // §4.6 instance_id 校验（非空、≤64、可打印 ASCII）
@@ -348,6 +481,15 @@ export default async function startAgent(restArgs) {
   // OAMP_RECONNECT=0 恢复旧行为（断线即退 1）。被 Router 通知 agent.replaced（同 id 新会话顶替）
   // 时退出而非重连，避免同 id 互踢。
   let activeClient = null;
+  // §6.1~§6.4：chat 维度常驻上下文池（omp-daemon 路径）；提示出口 = 当前连接（重连后自动指向新 client）
+  const pool = new ContextPool({
+    max: config.contextMax,
+    bin: OMP_BIN(),
+    cwd: process.cwd(),
+    logger,
+    onNotice: (notice) => sendNotice(activeClient, logger, notice),
+  });
+  const taskCtx = { pool, instanceId, defaultModel: config.defaultModel };
   let shuttingDown = false;
   let sigintCount = 0;
   let shutdownResolve;
@@ -358,6 +500,7 @@ export default async function startAgent(restArgs) {
   const onSigint = () => {
     sigintCount += 1;
     if (sigintCount >= 2) {
+      pool.dispose(); // 二次 SIGINT 硬退出：同样不留常驻子进程
       process.exit(130); // 二次 SIGINT → 立即退出（D16）
     }
     if (shuttingDown) return;
@@ -395,7 +538,7 @@ export default async function startAgent(restArgs) {
         registerTimeoutMs: 2000, // D17：agent.register 响应上限 2s
         deregisterTimeoutMs: 1000, // D17：agent.deregister 响应上限 1s
       });
-      client.onDeliver = createTaskDeliverHandler(client, logger);
+      client.onDeliver = createTaskDeliverHandler(client, logger, taskCtx);
       activeClient = client;
 
       // —— 连接 + 注册（§6.2 步骤 1/2）——
@@ -455,5 +598,6 @@ export default async function startAgent(restArgs) {
     return await shutdownPromise;
   } finally {
     process.removeListener('SIGINT', onSigint);
+    pool.dispose(); // §6.4：优雅退出（SIGINT/断线退 1/被顶替）→ 全部常驻上下文回收
   }
 }
