@@ -200,7 +200,7 @@ async function openSse(base, chatId) {
   return { events, close: () => ac.abort(), pump };
 }
 
-async function setup(t, { env = {}, agentId = 'dev-1', withAgent = true } = {}) {
+async function setup(t, { env = {}, agentId = 'dev-1', withAgent = true, webEnv = {} } = {}) {
   const router = await startRouter({ envExtra: LEASE_ENV });
   t.after(() => stopAll([router]));
   if (withAgent) {
@@ -218,7 +218,7 @@ async function setup(t, { env = {}, agentId = 'dev-1', withAgent = true } = {}) 
     }
   });
   const dbPath = path.join(dbDir, 'sql.db');
-  const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: dbPath });
+  const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: dbPath, ...webEnv });
   t.after(() => web.stop());
   return { router, web, dbPath };
 }
@@ -679,6 +679,233 @@ test('Web：派发响应与首个 task.update 同批到达时首片不丢（登�
   const detail = await detailOf(web, chatId);
   assert.equal(detail.messages.length, 4, '过程增量不入库（该轮仍恰 2 行）');
   assert.equal(detail.messages[3].text, '首片尾片', '增量拼接 = 落盘文本');
+});
+
+// ────────────────────────── pr-007：task.result 投递丢失 → web 侧对账补拉 ──────────────────────────
+/** task.update / task.result 信封（pr-007 用例自用，与 pr-006 用例同形）。 */
+const envelope = (taskId, type, body) => ({
+  protocol: 'oamp/1',
+  message_id: `${type === 'task.result' ? 'trs' : 'tup'}-${randomUUID()}`,
+  type,
+  task_id: taskId,
+  payload: { content_type: 'application/json', body: JSON.stringify(body) },
+});
+
+test('Web：task.result 投递丢失（Router 已终态而 web 未收）→ 对账补落 out + SSE', async (t) => {
+  // 复现 pr-007 的间歇缺陷：agent 执行完 + Router 任务表已 completed（recorded），但 result 投递未达 web
+  // → 对话缺回复。此处用假节点把终态发给**未注册**的 ghost（Router「recorded」语义：只记任务表、不投递
+  // web），从而确定性地构造「web 收不到投递」；修复后由 web 侧对账定时器 queryOnce(router.task_get) 补落。
+  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '200' } });
+  const chatId = 'chat-reconcile-lost';
+  const sse = await openSse(web.base, chatId);
+  t.after(() => sse.close());
+
+  const node = await startFakeNode({
+    socketPath: router.socketPath,
+    instanceId: 'lossy-dev',
+    onDeliver: (msg) => {
+      if (msg.type !== 'task.request') return undefined;
+      setTimeout(() => {
+        node.client
+          .send(
+            'ghost-node', // 未注册：Router 只记任务表（status=recorded），web 永远收不到这条投递
+            envelope(msg.task_id, 'task.result', {
+              state: 'completed',
+              text: '对账补拉的回复',
+              model: 'openai/gpt-5.6-luna',
+              duration_ms: 321,
+              context_id: 'ctx-reconcile',
+              pid: 4242,
+            }),
+          )
+          .catch(() => {});
+      }, 30);
+      return undefined;
+    },
+  });
+  t.after(() => node.stop());
+
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'lossy-dev', text: '投递丢失轮' });
+  assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
+
+  await waitFor(
+    async () => {
+      const d = await detailOf(web, chatId);
+      return d && d.messages.some((m) => m.direction === 'out') ? d : null;
+    },
+    { timeoutMs: 6000, what: '对账定时器补落 out' },
+  );
+
+  const detail = await detailOf(web, chatId);
+  assert.equal(detail.messages.length, 2, '恰一条 in + 一条 out');
+  const out = detail.messages[1];
+  assert.equal(out.direction, 'out');
+  assert.equal(out.text, '对账补拉的回复', '终态 body 的 text 落盘');
+  assert.equal(out.model, 'openai/gpt-5.6-luna');
+  assert.equal(out.duration_ms, 321);
+  assert.equal(out.error, null);
+  assert.deepEqual(out.meta, { context_id: 'ctx-reconcile', pid: 4242 });
+  assert.equal(detail.chat.state, 'completed');
+
+  await waitFor(() => sse.events.some((e) => e.type === 'message' && e.data.message.direction === 'out'), {
+    timeoutMs: 3000,
+    what: 'SSE message(out)',
+  });
+  await waitFor(() => sse.events.some((e) => e.type === 'chat_state' && e.data.state === 'completed'), {
+    timeoutMs: 3000,
+    what: 'SSE chat_state(completed)',
+  });
+
+  // 幂等：越过多个对账间隔仍恰一条 out（落库后定时器已清、登记已删）
+  await new Promise((r) => setTimeout(r, 701));
+  assert.equal((await detailOf(web, chatId)).messages.length, 2, '对账不得重复落行');
+});
+
+test('Web：对账顺延 + 重复投递都不重复落行（幂等）', async (t) => {
+  // 对账首个 tick 落在任务非终态（working）时只顺延重查（不落行）；随后正常投递 + 同一终态被重复投递
+  // → 全程仍恰一条 out。
+  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '200' } });
+  const chatId = 'chat-reconcile-race';
+  const node = await startFakeNode({
+    socketPath: router.socketPath,
+    instanceId: 'echo-dev',
+    onDeliver: (msg) => {
+      if (msg.type !== 'task.request') return undefined;
+      const origin = msg.from.instance_id;
+      setTimeout(() => {
+        node.client.send(origin, envelope(msg.task_id, 'task.update', { state: 'working', kind: 'stdout', line: '第1片' })).catch(() => {});
+        // 终态晚于首个对账 tick（该 tick 读到 working → 顺延，不落行）
+        setTimeout(() => {
+          node.client.send(origin, envelope(msg.task_id, 'task.result', { state: 'completed' })).catch(() => {});
+          setTimeout(() => {
+            node.client.send(origin, envelope(msg.task_id, 'task.result', { state: 'completed' })).catch(() => {}); // 重复投递
+          }, 60);
+        }, 260);
+      }, 20);
+      return undefined;
+    },
+  });
+  t.after(() => node.stop());
+
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'echo-dev', text: '竞态轮' });
+  assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
+
+  const detail = await waitFor(
+    async () => {
+      const d = await detailOf(web, chatId);
+      return d && d.messages.some((m) => m.direction === 'out') ? d : null;
+    },
+    { timeoutMs: 6000, what: '终态落 out' },
+  );
+  assert.equal(detail.messages[1].text, '第1片', '终态 body 无 text → 用 stdout 增量组装');
+
+  await new Promise((r) => setTimeout(r, 700));
+  const after = await detailOf(web, chatId);
+  assert.equal(after.messages.length, 2, '对账顺延与重复投递都不得重复落行');
+  assert.equal(after.chat.state, 'completed');
+});
+
+test('Web：任务时长超过快速预算后，晚到的 task.result 仍能落 out（降频不夺走投递凭据）', async (t) => {
+  // 回归：对账快速预算用尽只能降频续查、不能删登记——登记同时是投递入口的认领凭据（handleDeliver 靠它认出
+  // task.result），删掉会让长任务（时长 > 上限）的合法终态被静默丢弃、chat 永久 working。
+  // 时间轴压缩：间隔 100ms → 6 次上限 ≈ 600ms；任务在 ~1.5s 才回终态（远晚于上限）。
+  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '4000' } });
+  const chatId = 'chat-reconcile-overrun';
+  const node = await startFakeNode({
+    socketPath: router.socketPath,
+    instanceId: 'slow-dev',
+    heartbeatMs: 500, // 假节点须在 Router 租约（LEASE_ENV 3000ms）内保活，否则 1.5s 的终态 send 会被判 UNREGISTERED
+    onDeliver: (msg) => {
+      if (msg.type !== 'task.request') return undefined;
+      const origin = msg.from.instance_id;
+      setTimeout(() => {
+        node.client.send(origin, envelope(msg.task_id, 'task.result', { state: 'completed', text: '长任务回复' })).catch(() => {});
+      }, 1500);
+      return undefined;
+    },
+  });
+  t.after(() => node.stop());
+
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'slow-dev', text: '超上限轮' });
+  assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
+
+  const detail = await waitFor(
+    async () => {
+      const d = await detailOf(web, chatId);
+      return d && d.messages.some((m) => m.direction === 'out') ? d : null;
+    },
+    { timeoutMs: 3000, what: '超上限任务仍落 out' },
+  );
+  assert.equal(detail.messages.length, 2, '恰一条 in + 一条 out');
+  assert.equal(detail.messages[1].text, '长任务回复', '该 out 来自晚到的投递');
+  assert.equal(detail.chat.state, 'completed');
+  // slow 间隔 4000ms > 本用例 3s 观察窗 → 断言通过即证明落库来自投递路径（低频续查还在等待中）
+  assert.match(web.stderr(), /转入低频续查/, '对账确已转低频续查 → 本用例走的必须是投递路径');
+});
+
+test('Web：跨快速预算 + 投递丢失双故障 → 低频续查补落 out（chat 不永久 working）', async (t) => {
+  // D-1 回归：快速预算用尽后必须转低频续查而非放弃——任务时长跨预算（> 6×interval）且投递丢失时，
+  // 唯一能救回这条 out 的就是低频续查（登记保留 + 继续 query）。修复前（达上限即停）：本用例必红。
+  // 时间轴压缩：interval 100ms（预算 ≈600ms）+ slow 300ms；任务 ~1.2s 才在 Router 终态，且终态只发给 ghost。
+  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '300' } });
+  const chatId = 'chat-reconcile-slow';
+  const node = await startFakeNode({
+    socketPath: router.socketPath,
+    instanceId: 'slow-lossy-dev',
+    heartbeatMs: 500,
+    onDeliver: (msg) => {
+      if (msg.type !== 'task.request') return undefined;
+      setTimeout(() => {
+        // 终态只发给未注册 ghost：web 收不到投递（双故障的第二重）
+        node.client.send('ghost-node', envelope(msg.task_id, 'task.result', { state: 'completed', text: '低频续查补落' })).catch(() => {});
+      }, 1200);
+      return undefined;
+    },
+  });
+  t.after(() => node.stop());
+
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'slow-lossy-dev', text: '双故障轮' });
+  assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
+
+  const detail = await waitFor(
+    async () => {
+      const d = await detailOf(web, chatId);
+      return d && d.messages.some((m) => m.direction === 'out') ? d : null;
+    },
+    { timeoutMs: 6000, what: '低频续查补落 out' },
+  );
+  assert.equal(detail.messages.length, 2, '恰一条 in + 一条 out');
+  assert.equal(detail.messages[1].text, '低频续查补落');
+  assert.equal(detail.chat.state, 'completed');
+  assert.match(web.stderr(), /转入低频续查/, '必然发生过"转低频续查"（快速预算已用尽）');
+  assert.match(web.stderr(), /转 1s\/次/, '间隔文案下限 1s（slow=300ms 也不得显示成 "0s/次"）');
+  assert.doesNotMatch(web.stderr(), /对账放弃/, '"放弃"语义已取消');
+});
+
+test('Web：登记软 TTL 到期清理 + 恰一条 warn（防孤儿条目常驻）', async (t) => {
+  // D-2：任务永不终态 + 投递丢失（最坏孤儿场景）时，登记须在软 TTL 后清理且只 warn 一条（不刷屏）。
+  const { router, web } = await setup(t, {
+    withAgent: false,
+    webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '200', OAMP_WEB_RECONCILE_TTL_MS: '700' },
+  });
+  const chatId = 'chat-reconcile-ttl';
+  const node = await startFakeNode({
+    socketPath: router.socketPath,
+    instanceId: 'dead-dev',
+    heartbeatMs: 500,
+    onDeliver: () => undefined, // 永不回终态
+  });
+  t.after(() => node.stop());
+
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'dead-dev', text: '孤儿登记轮' });
+  assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
+
+  await waitFor(() => /对账登记超时清理/.test(web.stderr()), { timeoutMs: 5000, what: 'TTL 清理 warn' });
+  await new Promise((r) => setTimeout(r, 600)); // 再等数个（低频）轮询间隔
+  assert.equal((web.stderr().match(/对账登记超时清理/g) || []).length, 1, 'TTL 清理 warn 只一条（不刷屏）');
+  const detail = await detailOf(web, chatId);
+  assert.equal(detail.messages.filter((m) => m.direction === 'out').length, 0, '未终态不得落 out');
+  assert.equal(detail.chat.state, 'working', '未终态保持 working');
 });
 
 test('Web：/api/stream 缺 chat_id → 400；无订阅者时发送不受影响', async (t) => {
