@@ -171,7 +171,7 @@ export default async function startWeb(restArgs) {
   const transport = createSseTransport();
 
   // task_id → { chatId, agentId, lines }：agent 侧的 task.update/task.result body 不带 chat_id，
-  // 派发时登记、终态时清除；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
+  // 派发前登记、终态时清除；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
   const tasks = new Map();
 
   const publishMessage = (chatId, message) =>
@@ -409,11 +409,15 @@ export default async function startWeb(restArgs) {
             : { executor: 'omp-daemon', chat_id: chatId, prompt: messageText, label, ...(model === null ? {} : { model }) };
         let dispatched = null;
         let warning = null;
+        // 登记先于派发（task_id 由 web 预生成并随信封透传，§4.3）：agent 的首个 task.update 可能与
+        // send 响应落在同一 socket read（同一次帧循环里 deliver 先被处理）→ 若登记晚于 await，
+        // handleDeliver 查不到登记而丢弃首片（终态落盘不受影响，仅实时增量少首片）；失败分支定向清理。
+        tasks.set(taskId, { chatId, agentId, lines: [] });
         try {
           const resp = await sendTask(agentId, messageId, taskId, payloadBody);
           dispatched = resp.task_id;
-          tasks.set(dispatched, { chatId, agentId, lines: [] });
         } catch (err) {
+          tasks.delete(taskId);
           const reason = (err && err.dataCode) || (err && err.message) || String(err);
           warning = `派发失败（${reason}）——消息已记录，agent 恢复后可重发`;
           const outAt = Date.now();
