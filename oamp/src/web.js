@@ -30,6 +30,21 @@ const DEFAULT_PORT = 7788;
 const QUERY_TIMEOUT_MS = 3000;
 const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/; // §7.2 模型标识形态（web 侧校验，非法 → 400）
 const LABEL_MAX = 60; // task label 截断（沿用 0010 web 既有值）
+// pr-007 对账补拉：task.result 的投递可能丢失（发起者离线窗口/投递竞态）——此时 agent 已执行完、
+// Router 任务表已终态，而 web 未落 out（对话缺回复）；Router 任务表是权威运行态，故 web 侧轮询兜底补落。
+const RECONCILE_DEFAULT_MS = 5000; // 快速对账首查与间隔同值（默认 5s）
+const RECONCILE_MAX_ATTEMPTS = 6; // 快速预算：快速频率下 6 次（默认约 30s）用尽后转低频续查
+const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，持续到终态或 shutdown）
+const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟，覆盖 agent 侧 300s 超时上限有余）
+
+/** 读正数毫秒环境变量（`OAMP_WEB_RECONCILE_*` 供测试压缩时间轴）；缺省/非法回退 fallback。 */
+function readPositiveMs(name, fallback) {
+  const raw = Number(process.env[name]);
+  return Number.isFinite(raw) && raw > 0 ? raw : fallback;
+}
+
+/** 毫秒 → 日志展示用秒（下限 1，低压/测试用的亚秒配置不该显示成 "0s"）。 */
+const toSec = (ms) => Math.max(1, Math.round(ms / 1000));
 
 const STATIC_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -170,9 +185,15 @@ export default async function startWeb(restArgs) {
   // §5.1 替换点：换另一种实时传输 = 换这一行构造（不引入 transport 配置项）
   const transport = createSseTransport();
 
-  // task_id → { chatId, agentId, lines }：agent 侧的 task.update/task.result body 不带 chat_id，
-  // 派发前登记、终态时清除；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
+  // task_id → { chatId, agentId, lines, landed, attempts, slow, registeredAt, timer }：agent 侧的
+  // task.update/task.result body 不带 chat_id，派发前登记；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
+  // landed = 该 task 已落过 out（投递路径与对账路径共用，保证恰一条 out）；attempts / slow = 对账进度（快速预算
+  // 用尽转低频续查）；registeredAt / timer = 登记时刻与对账定时器（软 TTL 判据）。pr-007。
+  // 登记只在落库（landed）或软 TTL 到期后删除：转低频续查时保留登记，晚到的投递仍能认领。
   const tasks = new Map();
+  const reconcileIntervalMs = readPositiveMs('OAMP_WEB_RECONCILE_INTERVAL_MS', RECONCILE_DEFAULT_MS);
+  const reconcileSlowMs = readPositiveMs('OAMP_WEB_RECONCILE_SLOW_MS', RECONCILE_SLOW_DEFAULT_MS);
+  const reconcileTtlMs = readPositiveMs('OAMP_WEB_RECONCILE_TTL_MS', RECONCILE_TTL_DEFAULT_MS);
 
   const publishMessage = (chatId, message) =>
     transport.publish(chatId, { type: 'message', data: { chat_id: chatId, message } });
@@ -204,6 +225,55 @@ export default async function startWeb(restArgs) {
     if (chat) publishState(entry.chatId, chat.chat.state);
   };
 
+  /**
+   * 对账补拉（pr-007）：Router 任务表是权威运行态，但 task.result 的投递可能丢失（发起者离线窗口/
+   * 投递竞态）→ 终态已 recorded 而 web 未落 out。定时 queryOnce(router.task_get) 兜底补落。
+   * 幂等：`entry.landed` 同步检查+置位（Node 单线程，无 await 间隙），投递路径与对账路径竞争时恰落一条 out。
+   */
+  const reconcileTask = async (taskId) => {
+    const entry = tasks.get(taskId);
+    if (!entry || entry.landed) return;
+    entry.timer = null;
+    // 软 TTL（D-2）：登记久未终态 → 清理（防孤儿条目常驻内存），一条 warn
+    if (Date.now() - entry.registeredAt >= reconcileTtlMs) {
+      tasks.delete(taskId);
+      process.stderr.write(`oamp web: 对账登记超时清理 task=${taskId}（${toSec(reconcileTtlMs)}s 未终态）\n`);
+      return;
+    }
+    let task = null;
+    try {
+      const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: taskId });
+      task = r && r.task ? r.task : null;
+    } catch {
+      task = null; // Router 暂不可达（重启/瞬时）：本轮不计终态，顺延重试
+    }
+    const current = tasks.get(taskId);
+    if (!current || current.landed) return; // 查询在途期间投递路径已落库 → 不重复写
+    if (task && (task.state === 'completed' || task.state === 'failed')) {
+      current.landed = true;
+      tasks.delete(taskId);
+      // 状态以任务表为准（result.state 仅执行 agent 自报），文本/模型/耗时等沿用终态 body
+      finishTask(current, { ...(task.result || {}), state: task.state });
+      return;
+    }
+    current.attempts += 1;
+    if (current.attempts === RECONCILE_MAX_ATTEMPTS) {
+      // 快速预算用尽 → 转低频续查（不放弃、不删登记）：登记同时是投递入口的认领凭据，删掉会让长任务
+      // 晚到的终态被静默丢弃（chat 永久 working）；低频续查持续到终态 / 软 TTL / shutdown。warn 只此一条。
+      current.slow = true;
+      process.stderr.write(`oamp web: 对账转入低频续查 task=${taskId}（${RECONCILE_MAX_ATTEMPTS} 次未终态，转 ${toSec(reconcileSlowMs)}s/次）\n`);
+    }
+    scheduleReconcile(taskId, current);
+  };
+
+  /** 挂/续对账定时器（快速频率；转低频续查后按 slow 间隔）；重复调用只保留一个。 */
+  const scheduleReconcile = (taskId, entry) => {
+    clearTimeout(entry.timer);
+    entry.timer = setTimeout(() => {
+      reconcileTask(taskId).catch(() => {});
+    }, entry.slow ? reconcileSlowMs : reconcileIntervalMs);
+  };
+
   /** agent 回传消费（§5.3 推送链）：task.update → SSE task_update（不入库）；task.result → 落盘 + 推送；notice → 转发。 */
   const handleDeliver = (message) => {
     if (message.type === 'notice') {
@@ -229,6 +299,9 @@ export default async function startWeb(restArgs) {
       return;
     }
     if (message.type === 'task.result') {
+      if (entry.landed) return; // 对账已补落：迟到/重复投递不再写（恰一条 out）
+      entry.landed = true;
+      clearTimeout(entry.timer);
       tasks.delete(message.task_id);
       finishTask(entry, body);
     }
@@ -412,10 +485,12 @@ export default async function startWeb(restArgs) {
         // 登记先于派发（task_id 由 web 预生成并随信封透传，§4.3）：agent 的首个 task.update 可能与
         // send 响应落在同一 socket read（同一次帧循环里 deliver 先被处理）→ 若登记晚于 await，
         // handleDeliver 查不到登记而丢弃首片（终态落盘不受影响，仅实时增量少首片）；失败分支定向清理。
-        tasks.set(taskId, { chatId, agentId, lines: [] });
+        const entry = { chatId, agentId, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null };
+        tasks.set(taskId, entry);
         try {
           const resp = await sendTask(agentId, messageId, taskId, payloadBody);
           dispatched = resp.task_id;
+          scheduleReconcile(taskId, entry); // 派发成功即挂对账（收到投递则随之清除）
         } catch (err) {
           tasks.delete(taskId);
           const reason = (err && err.dataCode) || (err && err.message) || String(err);
@@ -455,6 +530,8 @@ export default async function startWeb(restArgs) {
     const onSigint = () => {
       sigint += 1;
       if (sigint >= 2) process.exit(130);
+      for (const entry of tasks.values()) clearTimeout(entry.timer); // 退出不留悬挂对账定时器
+      tasks.clear();
       server.close(() => {
         transport.closeAll();
         db.close();
