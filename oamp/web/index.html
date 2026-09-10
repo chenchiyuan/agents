@@ -41,14 +41,14 @@
         <div id="messages" class="messages">
           <div class="empty" id="empty-hint">
             左侧选择对话，或在下方输入框以 <code>@agent 命令</code> 开始<br />
-            <span class="muted">消息即命令：内容将以 /bin/sh -c 在目标 agent 上执行（demo）</span>
+            <span class="muted">默认交给 omp（真实 LLM）处理；以 ! 开头则按 shell 命令执行</span>
           </div>
         </div>
 
         <footer class="composer">
           <div id="status-line" class="status-line"></div>
           <div class="composer-box">
-            <textarea id="input" rows="2" placeholder="Message @agent · @ to mention · Enter 发送 / Shift+Enter 换行"></textarea>
+            <textarea id="input" rows="2" placeholder="问 @agent 任意问题（真实 omp/LLM 处理）· ! 开头走 shell · @ 列出 agents"></textarea>
             <div id="mention" class="mention hidden"></div>
             <button id="btn-send" class="send">发送</button>
           </div>

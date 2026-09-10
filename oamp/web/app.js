@@ -91,7 +91,7 @@ function renderChat() {
   if (!chat) {
     $('detail-title').textContent = '选择或新建一个对话';
     $('detail-meta').textContent = '';
-    messages.innerHTML = `<div class="empty">左侧选择对话，或在下方输入框以 <code>@agent 命令</code> 开始<br /><span class="muted">消息即命令：内容将以 /bin/sh -c 在目标 agent 上执行（demo）</span></div>`;
+    messages.innerHTML = `<div class="empty">左侧选择对话，或在下方输入框以 <code>@agent 命令</code> 开始<br /><span class="muted">默认交给 omp（真实 LLM）处理；以 ! 开头按 shell 命令执行</span></div>`;
     renderStatusLine();
     return;
   }
@@ -135,18 +135,24 @@ function renderMessage(chatId, m) {
   if (task) {
     const result = task.result || null;
     const duration = result && result.duration_ms !== undefined ? ` · ${(result.duration_ms / 1000).toFixed(2)}s` : '';
-    // agent 执行头部：角色 + working/completed + 耗时
+    const started = task.updates.find((u) => u.detail && u.detail.event === 'started');
+    const isOmp = Boolean(started && started.detail.executor === 'omp');
+    // agent 执行头部：角色 + working/completed + 耗时（omp 任务标注 LLM 执行）
     html += `<div class="msg-head" style="margin-top:8px"><span class="avatar avatar-agent">@</span>
-        <span class="msg-role">${escapeHtml(task.to)}</span>${badge(task.state)}<span class="msg-time">${duration}</span></div>`;
-    // 命令
-    html += `<div class="cmd-line"><span class="prompt">$ </span>${escapeHtml(stripSh(bodyText))}</div>`;
-    // 输出明细
+        <span class="msg-role">${escapeHtml(task.to)}</span>${badge(task.state)}${isOmp ? '<span class="badge badge-omp">omp</span>' : ''}<span class="msg-time">${duration}</span></div>`;
+    // 输入（omp：提问引用；shell：命令行）
+    const promptText = isOmp && started.detail.prompt ? started.detail.prompt : stripSh(bodyText);
+    html += isOmp
+      ? `<div class="prompt-line"><span class="prompt">❯ </span>${escapeHtml(promptText)}</div>`
+      : `<div class="cmd-line"><span class="prompt">$ </span>${escapeHtml(promptText)}</div>`;
+    // 输出明细（omp 回答用浅色可读排版；shell 用终端风格）
     const lines = task.updates.filter((u) => u.detail && (u.detail.kind === 'stdout' || u.detail.kind === 'stderr'));
     const key = `${chatId}:${m.message_id}`;
     const expanded = state.expanded.has(key);
     const shown = expanded || lines.length <= COLLAPSE_LINES ? lines : lines.slice(-COLLAPSE_LINES);
     if (shown.length > 0) {
-      html += `<div class="output">${shown.map((u) => `<div class="output-line${u.detail.kind === 'stderr' ? ' stderr' : ''}">${escapeHtml(u.detail.line)}</div>`).join('')}</div>`;
+      const cls = isOmp ? 'answer' : 'output';
+      html += `<div class="${cls}">${shown.map((u) => `<div class="${isOmp ? 'answer-line' : 'output-line'}${u.detail.kind === 'stderr' ? ' stderr' : ''}">${escapeHtml(u.detail.line)}</div>`).join('')}</div>`;
       if (lines.length > COLLAPSE_LINES) {
         html += `<div class="output-toggle" data-key="${key}">${expanded ? '▴ 收起' : `▾ 展开全部 ${lines.length} 行输出`}</div>`;
       }
@@ -172,7 +178,7 @@ function renderStatusLine() {
   const chat = state.chat;
   if (!chat) {
     el.innerHTML = '';
-    $('hint').textContent = '消息即命令：内容将以 /bin/sh -c 在目标 agent 上执行（demo）';
+    $('hint').textContent = '默认交给 omp（真实 LLM）处理；以 ! 开头按 shell 命令执行';
     return;
   }
   const task = [...chat.messages].reverse().map((m) => m.task).find(Boolean);

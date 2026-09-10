@@ -602,3 +602,16 @@ test/task.test.js 6 用例（happy/fail/超时/发起者离线 recorded/rejected
 **Router 增量**：registry 会话表（`createChat`/`appendChatMessage`/`getChat`/`chatDetail`/`listChats`，消息按 `message_id` join 任务明细，`tasksByMessage` O(1) 索引）；`createTask` 记录 `message_id`；新 RPC `router.chat_message`（创建/追加，Router 只存储不代发）、`router.chat_get`、`router.chat_list`。
 **API**：`GET /api/agents` `GET /api/chats` `GET /api/chats/<id>` `POST /api/messages {chat_id?, agent_id, text}`。
 **验证**：test/web.test.js 4 用例（静态页/发送→任务→回流/追加/错误面）；browser 实际驱动 UI（@补全、发送、渲染、列表更新）；npm test 60/60。
+
+### 15.8 真实消息处理：omp（LLM）执行器（D23，2026-09-10）
+
+**目标**（用户确认）：`@agent` 经协议把消息交给**真实 omp agent（默认 gpt 模型）**处理，回答回流对话；测试案例"推荐一部日本动漫，并给出理由"。
+
+**执行器路由**（agent.js `parseTaskBody`）：payload 的 `executor` 字段选择执行器——
+- `executor:"omp"` → `runOmpTask`：`spawn omp -p --no-session [--no-tools] [--model X] <prompt>`，stdout/stderr 逐行 ANSI 清理后回流 `task.update`，结束发 `task.result{executor:"omp"}`；默认超时 300s；`tools` 默认 false（`--no-tools`）。
+- 缺省 → `runShellTask`（原行为，向后兼容）。
+`OAMP_OMP_BIN` 覆盖 omp 可执行路径（契约测试注入 fake omp，不依赖外网/真实 LLM）。
+
+**Web 路由**：消息文本以 `!` 开头 → shell payload（`/bin/sh -c`）；否则 → `{executor:"omp", prompt}`。前端按 started 事件的 `executor` 区分渲染：omp = `❯ 提问` + 浅色回答块 + `omp` 徽标；shell = `$ 命令` + 终端深色输出块。
+
+**验证**：test/omp-executor.test.js 4 用例（路由/缺 prompt 拒收/超时/shell 兼容）；真实端到端——Web 提问"推荐一部日本动漫，并给出理由"→ omp（gpt）4.99s 完成，回答逐行回流并在浏览器渲染通过；npm test 64/64。

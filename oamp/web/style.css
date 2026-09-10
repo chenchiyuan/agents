@@ -215,3 +215,26 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-fa
 .mention-item .name { color: var(--text); }
 .mention-item .state { font-size: 11px; color: var(--muted); }
 .mention-item.offline .name { color: var(--muted); }
+
+/* omp（真实 LLM）问答样式 */
+.badge-omp { background: #eef2ff; color: #4f46e5; }
+.prompt-line {
+  margin: 6px 0;
+  border-left: 3px solid var(--green);
+  background: var(--green-soft);
+  border-radius: 0 6px 6px 0;
+  padding: 6px 10px;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.prompt-line .prompt { color: var(--green); user-select: none; }
+.answer {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-top: 6px;
+}
+.answer-line { white-space: pre-wrap; word-break: break-word; line-height: 1.7; }
+.answer-line.stderr { color: var(--red); }

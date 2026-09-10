@@ -142,7 +142,7 @@ export default async function startWeb(restArgs) {
     return sender;
   };
   /** 发送任务；失败（连接失效/被替换等）失效 sender 并重试一次。 */
-  const sendTask = async (agentId, messageId, commandText) => {
+  const sendTask = async (agentId, messageId, payloadBody) => {
     let lastErr = null;
     for (let i = 0; i < 2; i += 1) {
       try {
@@ -151,10 +151,7 @@ export default async function startWeb(restArgs) {
           protocol: 'oamp/1',
           message_id: messageId,
           type: 'task.request',
-          payload: {
-            content_type: 'application/json',
-            body: JSON.stringify({ command: '/bin/sh', args: ['-c', commandText], label: commandText.slice(0, 60) }),
-          },
+          payload: { content_type: 'application/json', body: JSON.stringify(payloadBody) },
         });
       } catch (err) {
         lastErr = err;
@@ -201,8 +198,12 @@ export default async function startWeb(restArgs) {
           sendJson(res, 400, { error: '消息不能为空' });
           return;
         }
-        // 命令文本 = 去掉 @agent 前缀后的剩余内容（消息即命令）
-        const commandText = text.replace(/^@[^\s@]+\s+/, '') || text;
+        // 消息文本 = 去掉 @agent 前缀后的剩余内容
+        const messageText = text.replace(/^@[^\s@]+\s+/, '') || text;
+        // 路由：默认交给 omp（真实 LLM 处理）；`!命令` 前缀走 shell（demo 保留能力）
+        const payloadBody = messageText.startsWith('!')
+          ? { command: '/bin/sh', args: ['-c', messageText.slice(1).trim()], label: messageText.slice(0, 60) }
+          : { executor: 'omp', prompt: messageText, label: messageText.slice(0, 60) };
         const messageId = `msg-${randomUUID()}`;
         // 1) 先记录消息（保证即使派发失败，对话流仍完整）
         const chatResp = await queryOnce(config.socketPath, 'router.chat_message', {
@@ -216,7 +217,7 @@ export default async function startWeb(restArgs) {
         let taskId = null;
         let warning = null;
         try {
-          const resp = await sendTask(agentId, messageId, commandText);
+          const resp = await sendTask(agentId, messageId, payloadBody);
           taskId = resp.task_id;
         } catch (err) {
           warning = `派发失败（${(err && err.dataCode) || (err && err.message) || err}）——消息已记录，agent 恢复后可重发`;

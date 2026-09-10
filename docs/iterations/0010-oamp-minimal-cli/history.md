@@ -50,3 +50,10 @@
 - 确认：消息即命令（shell 执行）；`oamp web` 内建服务（Node http）；按话题分会话。
 - 实现：Router 会话表 + 3 个 chat RPC；src/web.js（HTTP+静态页+常驻 web 身份桥接，心跳保活修复）；web/ 前端三件套；test/web.test.js 4 用例；browser 驱动验证（@补全/发送/渲染/列表）。
 - npm test 60/60 两连稳定。
+
+### 2026-09-10 03:40:00 · 调度决策 · 真实消息处理（omp LLM 执行器）
+
+- 用户要求：@agent 经协议真实传递，agent 用真实 omp（默认 gpt）处理；测试案例=推荐一部日本动漫并给理由。
+- 探查：omp v18.0.11，`omp -p --no-tools --no-session "<prompt>"` 非交互，实测 5.8s 返回质量回答。
+- 实现：agent 执行器路由（executor=omp 分支，spawn omp -p/逐行回流/ANSI 清理/默认 300s 超时/`OAMP_OMP_BIN` 可注入）；Web 默认走 omp 提问（! 前缀走 shell）；前端 omp 渲染区分（❯ 提问 + 浅色回答 + omp 徽标）。
+- 验证：omp-executor.test.js 4 用例绿；真实端到端 4.99s 回答回流 + 浏览器渲染通过；npm test 64/64。

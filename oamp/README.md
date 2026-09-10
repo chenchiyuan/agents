@@ -114,3 +114,19 @@ oamp web start [--port 7788]      # 默认 http://127.0.0.1:7788（env OAMP_WEB_
 **消息即命令（demo 语义）**：消息文本去掉 `@agent` 前缀后以 `/bin/sh -c` 在目标 agent 上执行，输出经任务明细回流到对话。
 Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不直连 UDS。会话与消息存于 Router 内存（重启即清空）。
 安全边界：监听 127.0.0.1，无鉴权；命令由输入文本决定（迭代 0010 N6 边界）。
+
+## 真实消息处理（omp / LLM 执行器）
+
+agent 的任务执行器支持两种 executor（由任务 payload 路由）：
+
+| executor | payload | 行为 |
+|---|---|---|
+| **omp**（默认，Web 控制台走这条） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p --no-session [--no-tools] [--model X] <prompt>`——**真实 omp agent（默认 gpt 模型）处理**，输出逐行回流为任务明细 |
+| shell（向后兼容） | `{command, args?, timeout_ms?, label?}` | spawn 直启命令（原行为） |
+
+- Web 控制台：普通消息 = 交给 omp 回答（`@dev-1 推荐一部日本动漫，并给出理由`）；**以 `!` 开头** = 按 shell 命令执行（`@dev-1 !ls -la`）。
+- 默认 `--no-tools`（纯问答更安全/更快）；需要 agent 干活时 payload 传 `tools:true` 放开工具。
+- omp 默认超时 300s（`timeout_ms` 可覆盖，上限 600s）；omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
+- 输出经 ANSI 清理后回流；回答在对话里以浅色可读排版展示（区别于 shell 的终端块）。
+
+> 安全边界（demo）：`tools:true` 时 omp 可调用工具操作本机；`--no-tools` 不放开。鉴权仍属后续迭代（N6 边界）。
