@@ -61,6 +61,7 @@
 | V-10 | `node:sqlite`（DatabaseSync）在 Node v22.15 **无需 CLI flag**，仅 `ExperimentalWarning` | `node -e "new (require('node:sqlite').DatabaseSync)(':memory:')"` |
 | V-11 | `--no-skills --no-rules` 后初始化通知仅 **1 条 `session/update`（≈6.7KB）**（未精简时为 skills 列表洪泛）→ 初始化等待可退化为"静默窗口 + 硬上限" | 与 V-5 呼应；保留精简参数，仍保留等待逻辑 |
 | V-12 | **daemon 参数集整体可用**：`omp acp --no-skills --no-rules --no-tools --no-session` + `session/new` + `session/prompt` → 979ms 返回 "ok"（`stopReason: end_turn`）；`--no-session` **不破坏** ACP 行为 | 关闭原「`--no-session` 实施检查项」；daemon 参数集确定为 §6.6 所列五项 |
+| V-13 | ⚠️ **`openai/gpt-5.6-luna` 首 token 延迟可达数分钟（静默思考期）**：交付演示实测（2026-09-10）——started @+0ms → **首个 chunk @+242724ms（≈242s）**，36 个 chunk 全挤在最后 3.6s，任务 246s 后才 `completed`（库中 in 已落、out 迟迟不来） | 用户据此**修订默认模型决策**（L1-6 改选 (b)：默认改 `deepseek/deepseek-v4-flash`，TTFT ~1s）；该模型保留为可指定值；pr-008 以"等待计时 + >30s 慢模型提示"缓解静默期不可见性（见 §16.5、NC-20） |
 
 > V-1（同进程多轮记忆）、V-2（默认模型可用，一次性路径）、V-3/V-4/V-5 见 `demand.md`，结论不变。
 > **V-6/V-8 直接改写了 v0.2.0 的模型设计**：模型不再绑定在进程启动参数上、也不需要"换模型即重建上下文"（见 §7）；**V-9 修正了草拟期的一次错误归因**（曾判为"reasoning 模型经 ACP 挂起，需 `--thinking off`"）：两条路径同一时段同现象 → 归因给上游 relay，`--thinking off` 既非必需、也不应默认开启。
@@ -350,8 +351,9 @@ omp acp --(session/update.agent_message_chunk)--> acp-client（拼接 + 立即�
 ### 7.1 优先级链（F06-2/3，用户决策 §9-3）
 
 ```
-payload.model  >  OAMP_OMP_MODEL（env）  >  config.defaults.model（文件）  >  内置默认 'openai/gpt-5.6-luna'
+payload.model  >  OAMP_OMP_MODEL（env）  >  config.defaults.model（文件）  >  内置默认 'deepseek/deepseek-v4-flash'
 ```
+（内置默认值于 **2026-09-10 用户修订**：由 `openai/gpt-5.6-luna` 改为 `deepseek/deepseek-v4-flash`——L1-6 选择 (b)，证据见 V-13；`openai/gpt-5.6-luna` 保留为**可指定值**，其可用性评估继续走 §7.5 的复测门禁。）
 - 解析在 **agent 侧**（真正生效点）；web 只做透传与展示（不在 web 侧二次解析，避免两处真源）。
 - 每轮独立解析：未指定的轮次回到默认链（F06-2"指定不影响未指定轮次"）——因为模型是 session 级设置，**每轮显式比对并设置**即可，不存在"粘住上一轮指定"的问题。
 
@@ -376,18 +378,19 @@ payload.model  >  OAMP_OMP_MODEL（env）  >  config.defaults.model（文件） 
 - 每条 out 记录的 `model` 字段 = 该轮**实际生效**的模型标识（agent 从 ACP session 返回的 `configOptions` 数组里 `id === 'model'` 的 `currentValue` 回读后上报，**不是用户输入的回显**）。**回读失败时该字段为 `null`**（不用请求参数顶替）——前端元信息行可能为空，属受控降级（可观测性增强见 §18 NC-1）。
 - 前端在输出气泡元信息行显示该模型（与 `ctx` 标识同行），F06-3"两轮可观察到使用了不同模型"即由此判定。
 
-### 7.5 ✅ 已确认（2026-09-10 用户选择 (a)）：默认模型可用性取舍（L1-6）
+### 7.5 🔄 已修订（2026-09-10 用户选择 (b)）：默认模型可用性取舍（L1-6）
 
-**事实（V-9，两条路径对照）**：用户确认的默认模型 `openai/gpt-5.6-luna`（provider 组 `openai`、`api: openai-responses`、`reasoning: true`、baseUrl 为第三方 relay）在本机**间歇性无响应**：
-- ACP 路径（带 `--thinking off`）连续 3 轮：1 成功（11.4s）/ 2 挂起（40s 客户端超时，无任何 chunk）；
-- 同一时段一次性路径 `omp -p` 连续 3 次：**3 次均 60s 超时**；而更早一次同命令 4.1s 成功——说明**不是 ACP 路径的缺陷**，而是上游可用性；
-- 对照组 `deepseek/deepseek-v4-flash`（本机 ACP 默认模型）多次调用稳定：1.2s / 887ms / 1.7s。
+**事实（V-9 + V-13）**：`openai/gpt-5.6-luna`（provider 组 `openai`、`api: openai-responses`、`reasoning: true`、baseUrl 为第三方 relay）在本机有两类问题：
+- **V-9（可用性）**：ACP 路径连续 3 轮 1 成（余为 40s 无 chunk 超时）；同一时段一次性路径 `omp -p` 连续 3 次全部 60s 超时（更早一次同命令 4.1s 成功）→ 归因为上游 provider；
+- **V-13（时延）**：交付演示实测首 token 延迟 **≈242s**（started @+0ms → 首个 chunk @+242724ms，36 个 chunk 全在最后 3.6s），任务 246s 才 `completed`——**静默思考期没有任何中间输出**，前端只能看到"working"（pr-008 已用等待计时缓解可见性，见 §16.5/NC-20）；
+- 对照组 `deepseek/deepseek-v4-flash` 稳定且快：ACP 1.2s / 887ms / 1.7s（TTFT ~1s）。
 
-**由此得出的设计结论（不是"加 `--thinking off`"）**：
-1. **不把 `--thinking off` 纳入 daemon 固定参数**——它关闭思考链（质量代价），而证据显示挂起与它无关（两条路径同时段同现象）；它只保留为**诊断手段**。
-2. **超时 + 取消 + 上下文重置提示是必需的兜底**（§6.5）——这是"不会永久空白等待"的唯一保障，不因模型选择而改变。
-3. **L1-6 已定（2026-09-10，用户选择 (a)）**：内置默认**保持 `openai/gpt-5.6-luna`**（守 D-4；配置面 `defaults.model` / `OAMP_OMP_MODEL` 一行可覆盖）；保留**上线前复测门禁**（下方第 4 条对照复测），若复测仍高频挂起再由用户决定是否切到备选 (b)（`deepseek/deepseek-v4-flash` 作为"可指定"值已可用）。
-4. **实施期对照复测步骤（归因判定，约 30 分钟）**：同一模型分别用 `omp -p` 与 `omp acp`（各 3 次、每次 ≤60s）跑同一 prompt，记录成功率与耗时；两条路径失败率相近 → 上游问题（按 (a) 处置）；ACP 显著更差 → 再评估 ACP 侧参数/版本，并重新评估 `--thinking off`。
+**裁定（2026-09-10 用户选择 (b)，推翻原 (a)）**：
+1. **内置默认模型 = `deepseek/deepseek-v4-flash`**（优先级链不变：payload > `OAMP_OMP_MODEL` > `config.defaults.model` > 内置默认）；
+2. **`openai/gpt-5.6-luna` 保留为"可指定值"**（用户可在模型框显式选择，代价自查：TTFT 可达数分钟）；
+3. **复测门禁保留**——但用途改为"评估 `openai/gpt-5.6-luna` 作为**可选模型**时的可用性/时延"（§7.5 第 4 条两条路径对照复测步骤不变）；
+4. **不采用 `--thinking off` 规避**（关闭思考链是质量代价，且与上述两类现象无因果）；
+5. 兜底不变：超时 → `session/cancel` → kill → `context_reset` 提示（§6.5）；等待可见性由 pr-008 的计时承接。
 
 ---
 
@@ -401,7 +404,7 @@ payload.model  >  OAMP_OMP_MODEL（env）  >  config.defaults.model（文件） 
 ```json
 {
   "data":     { "db": "data/sql.db" },
-  "defaults": { "model": "openai/gpt-5.6-luna" },
+  "defaults": { "model": "deepseek/deepseek-v4-flash" },
   "context":  { "max": 8 }
 }
 ```
@@ -412,7 +415,7 @@ payload.model  >  OAMP_OMP_MODEL（env）  >  config.defaults.model（文件） 
 ```
 每个键：  环境变量  >  config.json  >  内置默认
   data.db        OAMP_DB        > config.data.db        > 'data/sql.db'
-  defaults.model OAMP_OMP_MODEL > config.defaults.model > 'openai/gpt-5.6-luna'
+  defaults.model OAMP_OMP_MODEL > config.defaults.model > 'deepseek/deepseek-v4-flash'
   context.max    OAMP_CTX_MAX   > config.context.max    > 8
 ```
 
@@ -451,7 +454,7 @@ export function loadConfig(env = process.env) {
   return {
     ...existing,                                            // socket/心跳/重连（不变）
     dbPath:     resolve(PKG_ROOT, env.OAMP_DB   ?? file.data?.db   ?? 'data/sql.db'),
-    defaultModel:                env.OAMP_OMP_MODEL ?? file.defaults?.model ?? 'openai/gpt-5.6-luna',
+    defaultModel:                env.OAMP_OMP_MODEL ?? file.defaults?.model ?? 'deepseek/deepseek-v4-flash',
     contextMax: readPositiveInt('OAMP_CTX_MAX', env) ?? file.context?.max ?? 8,
   };
 }
@@ -578,7 +581,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | **F03** 历史查询 | 列表、默认排序、四类过滤、组合、详情、重启后可查 | `persist.js` 查询函数 + `web.js: GET /api/chats`、`GET /api/chats/:id` + `web/app.js` 列表/详情 | 排序 `updated_at DESC, chat_id DESC`；`from/to` 闭区间作用于 `updated_at`；`q` 匹配 title+message.text（LIKE + ESCAPE）；agent 相关 = `chats.agent_id` OR 参与过的 `messages.agent_id`；limit 50/200 + offset |
 | **F04** 一次调用 + 过程实时展示（协议可替换） | 一次调用、流式可见、三类事件、多轮不失序、过程不落盘、协议可替换、断线不丢内容 | `agent.js: runDaemonTask` → `task.update` 流 + `src/transport.js`（Transport 接口 + SSE）+ `web.js: GET /api/stream` + `web/app.js: EventSource` + `web.js onDeliver` | 增量走既有 `task.update` 投递（§1.2-A，**无轮询**）；四类事件（§5.2）；替换点 = web 一行构造；断线 = 浏览器自动重连 + `onopen` 全量拉取（§5.4）；过程不入库 |
 | **F05** 上下文规范（同 chat 累积/新 chat 隔离/agent 自管） | 同 chat 累积、同一常驻实例、新 chat 隔离、多 agent 隔离、反例禁止、B 自管、异常可告知 | `src/context-pool.js`（键 `(chat_id, agent_id)`、LRU、串行队列、上限）+ `src/acp-client.js`（多轮 `session/prompt`）+ `agent.js`（`omp-daemon` 分支）+ out 记录 `meta.context_id/pid` + `notice` 提示 | 键=chat→1 进程；`context_id`/`pid` 写进每轮 out 的 meta（F05-2 判据）；同键串行（队列上限 8）、异键并发；`OAMP_CTX_MAX`（默认 8）LRU；无 TTL；释放/崩溃 → 运行时 `notice`（不入库，§6.3）；A 侧只传本轮输入（C-6） |
-| **F06** 模型指定与默认 | 默认 gpt-5.6、可指定、指定优于默认、不可用明确失败、清单来源 | `config.js`（`defaults.model`）+ payload `model` + `acp-client.js: session/set_config_option` + out 记录 `model` 字段 + `web/app.js` 模型输入框 | 优先级 payload > env > config > 内置；模型是 **ACP session 级**（切换不丢上下文，V-8）；未知模型 → `model_unavailable` 明确失败（V-7）；`model` 回读自 ACP `currentValue` 写审计；不提供清单接口；默认模型可用性取舍见 §7.5（L1-6） |
+| **F06** 模型指定与默认 | 默认 gpt-5.6、可指定、指定优于默认、不可用明确失败、清单来源 | `config.js`（`defaults.model`）+ payload `model` + `acp-client.js: session/set_config_option` + out 记录 `model` 字段 + `web/app.js` 模型输入框 | 优先级 payload > env > config > 内置（**内置默认 = `deepseek/deepseek-v4-flash`**，2026-09-10 修订）；模型是 **ACP session 级**（切换不丢上下文，V-8）；未知模型 → `model_unavailable` 明确失败（V-7）；`model` 回读自 ACP `currentValue` 写审计；不提供清单接口；默认模型可用性取舍见 §7.5（L1-6） |
 | **F07** 配置面（数据位置可配置） | 默认 `data/sql.db`、配置文件可指定、缺失不失败、非法即失败、覆盖优先级、生效可观察 | `src/config.js` 扩展（JSON 文件 + env + 默认）+ `persist.js` 用 `dbPath` 打开 + `.gitignore` 加 `data/` | 文件 `oamp/config.json`；默认相对**包根**；`OAMP_DB` > 文件 > 默认；非法 JSON/类型 → 抛错退出 1；无热重载；`mkdir -p` 建目录；空库启动 |
 | **F08** 基线兼容与回归 | 一次性执行可用、两形态可区分、既有测试全绿、既有交互保留 | `agent.js` 保留 `runOmpTask`（`executor:'omp'`）与 `runShellTask`（`!` 命令）+ `web.js` 判定顺序（§9.1）+ `web/app.js` 一次性开关 | daemon 是**默认**、显式 payload 决定路径；daemon 不入上下文、不复用上下文；@ 补全/`!` 提交/视觉保留；既有 10 个测试文件不动（`test/` 现共 16 个），`web.test.js` 等价重写（§9.3） |
 
@@ -600,7 +603,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | **AR-10** | F04 | 断线 = 服务端 `retry:1000` + 浏览器 EventSource 自动重连；重连/刷新 = `onopen` 全量拉取 `GET /api/chats/:id` 补齐全量输入/输出（F04-7）；断线期间的过程增量**不补发**（F04 边界）；无订阅者时 publish 丢弃；`res.on('close')` 清理订阅防泄漏 | §5.4 |
 | **AR-11** | F05 | 落地形态 = per-`chat_id` 一个常驻 `omp acp` 子进程 + 一个 ACP session（`context-pool.js`）；实例标识 = `context_id='ctx-<pid>-<generation>'` + `pid`，随每轮 result 写入 out 记录 `meta`（两轮相等即判同一实例，F05-2/E-1）；同键**串行**（单 in-flight + FIFO 队列，队列上限 8，超出 `context_busy` 失败）；异键**并发**；上限 `OAMP_CTX_MAX`（默认 8）**LRU 淘汰**、无 TTL；释放/崩溃提示 = 运行时 SSE `notice`（**不入库**，避免违反 E-5） | §6.1~§6.3 |
 | **AR-12** | F05 | chat 关闭 → **立即**释放（web 发 `context_release` → agent kill + 移除键），在飞轮次按崩溃路径失败收尾；已关闭 chat 拒绝新输入（409）；**web 重启**上下文不受影响（在 agent 进程内）；**agent 重启**上下文全丢、后续新 `context_id`、不做主动提示（无持久 chat 清单，超出 N-5 范围）；agent SIGINT → `pool.dispose()` | §6.4、§10.2~§10.4 |
-| **AR-13** | F06 | 传递形态 = payload `model`（校验 `^[A-Za-z0-9._/-]{1,128}$`）→ agent 解析 → 首轮 `--model` / 后续 `session/set_config_option`；优先级 payload > `OAMP_OMP_MODEL` > `config.defaults.model` > 内置 `openai/gpt-5.6-luna`（每轮独立解析，未指定即回默认）；不可用判定 = ACP `set_config_option` 的 error（V-7 `Unknown ACP model`）→ 该轮 `failed(model_unavailable)`，**不回退**；审计 = out 记录 `model` 取自 ACP `currentValue`（实际生效值）；L1-6 默认模型可用性取舍**已定稿**（保持现值 + 复测门禁，§7.5） | §7 |
+| **AR-13** | F06 | 传递形态 = payload `model`（校验 `^[A-Za-z0-9._/-]{1,128}$`）→ agent 解析 → 首轮 `--model` / 后续 `session/set_config_option`；优先级 payload > `OAMP_OMP_MODEL` > `config.defaults.model` > 内置 `deepseek/deepseek-v4-flash`（2026-09-10 修订；原值 `openai/gpt-5.6-luna` 保留为可指定值）；不可用判定 = ACP `set_config_option` 的 error（V-7 `Unknown ACP model`）→ 该轮 `failed(model_unavailable)`，**不回退**；审计 = out 记录 `model` 取自 ACP `currentValue`（实际生效值）；L1-6 默认模型可用性取舍**已修订**（内置默认改 `deepseek/deepseek-v4-flash`；gpt-5.6-luna 保留为可指定值 + 复测门禁，§7.5） | §7 |
 | **AR-14** | F07 | 文件 = `oamp/config.json`（JSON，`OAMP_CONFIG` 可改路径），三键 `data.db`/`defaults.model`/`context.max`；缺失 → 全默认正常启动；非法 JSON/类型 → 抛错退出 1；env 名 = `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX`；优先级 env > 文件 > 默认（逐键）；默认路径相对**包根**；`data/` 加入 `.gitignore`；无热重载 | §8 |
 | **AR-15** | F08 | 路由 = web 判定（`!`→shell、`one_shot`→`omp` 一次性、否则 `omp-daemon`），daemon 为默认但显式路径行为不变（F08-1/2）；影响面 = 新增 4 模块 + 5 个新测试文件（回归：其余 10 个既有测试文件零修改且全绿；`test/` 现共 16 个（0010 既有 11 + 本迭代新增 5））、改造 `web.js`/`agent.js`/`config.js`/前端 3 文件、删除 Router `chat_*` 与 registry 会话表、其余全不动；`web.test.js` 等价重写 | §9 |
 | **AR-16** | 全局 | V-5/V-11 初始化等待 = `--no-skills --no-rules`（通知降到 1 条）+ 静默 300ms/上限 5s；V-3 持久化 = `node:sqlite`（无 flag，仅实验警告）+ 幂等建表（不引入版本表）；工具模式 = daemon 固定 `--no-tools`，`tools:true` 仅走一次性 `executor:'omp'`（**本版不做 ACP 权限应答**）；另：`--no-session`；默认模型可用性见 §7.5（L1-6） | §6.5/§6.6、§9.1、§2 |
@@ -617,8 +620,8 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | D-02 | SQLite 持久化（`node:sqlite`，零依赖） | **L1（已确认）** | 用户决策 D-3 / §9-1；数据真源从 Router 内存迁出 |
 | D-03 | per-(chat,agent) 常驻 omp acp 进程池（agent 进程内） | **L1（已确认）** | 用户决策 D-2/C-5/C-6；引入 ACP 子进程拓扑 |
 | D-04 | 传输抽象 + 本版 SSE（不引入 WS 依赖） | **L1（已确认）** | 用户决策 D-1 + N-3 |
-| D-05 | 默认模型 `openai/gpt-5.6-luna` | **L1（已确认）** | 用户决策 D-4/V-2 |
-| **D-06** | **内置默认模型取值** | **L1（已确认：用户选择 (a) 保持现值 + 复测门禁）** | V-9 实测默认模型在本机间歇性无响应（ACP 与一次性路径同时段同现象 → 上游问题）。裁定保持 `openai/gpt-5.6-luna`（配置可覆盖）+ 上线前复测门禁；**不采用 `--thinking off` 规避**（关闭思考链是质量代价，且与挂起无因果） |
+| D-05 | 默认模型（原决策）`openai/gpt-5.6-luna` | **L1（已确认 → 由 D-06 修订）** | 用户决策 D-4/V-2；2026-09-10 经 D-06 修订为 `deepseek/deepseek-v4-flash` |
+| **D-06** | **内置默认模型取值** | **L1（已修订：2026-09-10 用户选择 (b)）** | V-9（不可用）+ **V-13（首 token ≈242s，静默期无进度信号）** 实测 → 裁定**内置默认改为 `deepseek/deepseek-v4-flash`**（TTFT ~1s），`openai/gpt-5.6-luna` 保留为可指定值；复测门禁保留（改用于评估其作为可选模型的可用性/时延）；**不采用 `--thinking off` 规避**（关闭思考链是质量代价，且与挂起无因果） |
 | D-07 | 模型改由 ACP `session/set_config_option` 逐轮切换（不重建进程） | L2 | V-6/V-8 实测：切换保留上下文 → F05 与 F06 可同时成立；避免"换模型即失忆" |
 | D-08 | 过程增量走既有 `task.update` 投递（web 作 origin 直接收推送），**放弃 500ms 轮询** | L2 | §1.2-A 既有语义；时延更低、无轮询开销；推翻 v0.2.0 §4 的轮询设计 |
 | D-09 | 上下文提示复用既有 `notice` 信封类型（Router 零改动），且**不入库** | L2 | §1.2-C 白名单已含 `notice`；不入库以守住 E-5"仅两类记录" |
@@ -655,8 +658,8 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | L1-2 | SQLite 持久化 | `node:sqlite`（Node 内置，零第三方依赖）承载 chats/messages（仅输入输出） | ✅ **已确认**（用户决策 D-3、§9-1） |
 | L1-3 | 常驻 omp acp 上下文进程 | per-(chat_id, agent_id) 一个常驻 `omp acp` 进程池，位于 agent 进程内 | ✅ **已确认**（用户决策 D-2/C-5/C-6） |
 | L1-4 | SSE 协议层 | 传输抽象 + 本版 HTTP/SSE 实现，不引入 WS 依赖 | ✅ **已确认**（用户决策 D-1、N-3） |
-| L1-5 | 默认模型 | `openai/gpt-5.6-luna`（优先级 payload > env > config > 内置） | ✅ **已确认**（用户决策 D-4、V-2） |
-| **L1-6** | **内置默认模型取值**（新增） | V-9 实测：`openai/gpt-5.6-luna` 在本机间歇性无响应（ACP 3 轮中 1 成；同一时段一次性路径 3/3 超时；对照组 `deepseek/deepseek-v4-flash` 稳定 0.9~1.7s），**归因为上游 provider 可用性**（非 ACP）。二选一：**(a)** 保持 `openai/gpt-5.6-luna`（守用户决策 D-4；配置面一行可覆盖；上线前复测，若持续不可用再切换）；**(b)** 内置默认改为 `deepseek/deepseek-v4-flash`，gpt-5.6-luna 作为"可指定"值保留 | ✅ **已确认（2026-09-10 用户选择 (a)）**：保持内置默认 `openai/gpt-5.6-luna` + 上线前复测门禁（§7.5）；若复测仍高频挂起再由用户决定切换备选 (b)；不采用 `--thinking off` 规避 |
+| L1-5 | 默认模型 | **`deepseek/deepseek-v4-flash`**（优先级 payload > env > config > 内置；原值 `openai/gpt-5.6-luna` 保留为可指定值） | 🔄 **已修订**（用户决策 D-4 → 2026-09-10 经 L1-6 选择 (b) 修订；证据 V-13） |
+| **L1-6** | **内置默认模型取值**（已修订） | V-9 实测：`openai/gpt-5.6-luna` 在本机间歇性无响应（ACP 3 轮中 1 成；同一时段一次性路径 3/3 超时；对照组 `deepseek/deepseek-v4-flash` 稳定 0.9~1.7s），**归因为上游 provider 可用性**（非 ACP）。新增证据 **V-13**：交付演示实测首 token ≈242s（36 个 chunk 全挤在最后 3.6s，任务 246s 才 completed）→ 用户据此改选 **(b)**：内置默认改为 `deepseek/deepseek-v4-flash`，gpt-5.6-luna 作为"可指定"值保留 | 🔄 **已修订（2026-09-10 用户选择 (b)，推翻原 (a)）**：内置默认改为 `deepseek/deepseek-v4-flash`（TTFT ~1s）；`openai/gpt-5.6-luna` 保留为可指定值；复测门禁保留（用途改为评估其作为可选模型的可用性/时延）；不采用 `--thinking off` 规避（§7.5） |
 
 **未新增其它 L1**：模型切换方式（D-07）、增量推送链（D-08）、提示不入库（D-09）、删除 Router chat 面（D-12）均在既有技术栈与既有协议面内，属 L2 自主决策。
 
@@ -670,7 +673,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 
 | PR | 内容（含文件范围） | 依赖 | 验收（可执行断言） |
 |---|---|---|---|
-| **pr-001** 配置面 + 持久层 | `src/config.js`（JSON 配置文件层 + `dbPath`/`defaultModel`/`contextMax`）+ `src/persist.js`（新建：schema/建库/`insertInput`/`insertOutput`/查询/close/启动扫尾）+ `.gitignore`(+`data/`) + `test/config-file.test.js` + `test/persist.test.js`。**只交付模块与单测，不接线消费方** | 无（首批） | `loadConfig()` 无配置时返回 `<包根>/data/sql.db`、`openai/gpt-5.6-luna`、`8`，既有键不变；逐键优先级 env > 文件 > 默认；缺失不失败、非法抛错（入口退出 1）；`mkdir -p` + 幂等建表；一次问答恰 2 行且 `direction∈{in,out}`；排序/分页/时间闭区间/关键词转义/agent 相关性；`WHERE state!='closed'` 哨兵；关闭连接重开内容一致（E-3 落盘侧）（F02/F03/F07） |
+| **pr-001** 配置面 + 持久层 | `src/config.js`（JSON 配置文件层 + `dbPath`/`defaultModel`/`contextMax`）+ `src/persist.js`（新建：schema/建库/`insertInput`/`insertOutput`/查询/close/启动扫尾）+ `.gitignore`(+`data/`) + `test/config-file.test.js` + `test/persist.test.js`。**只交付模块与单测，不接线消费方** | 无（首批） | `loadConfig()` 无配置时返回 `<包根>/data/sql.db`、`deepseek/deepseek-v4-flash`、`8`（**2026-09-10 修订**：pr-001 原交付值为 `openai/gpt-5.6-luna`，见 §16.5），既有键不变；逐键优先级 env > 文件 > 默认；缺失不失败、非法抛错（入口退出 1）；`mkdir -p` + 幂等建表；一次问答恰 2 行且 `direction∈{in,out}`；排序/分页/时间闭区间/关键词转义/agent 相关性；`WHERE state!='closed'` 哨兵；关闭连接重开内容一致（E-3 落盘侧）（F02/F03/F07） |
 | **pr-002** SSE 传输抽象 | `src/transport.js`（新建：`createSseTransport()`）+ `test/transport.test.js`。**只交付模块与单测，不接线 web**（`/api/stream` 与 `onDeliver → publish` 接线归 pr-004） | 无（首批） | 接口形状 `{kind:'sse',handle,publish,closeAll}`；`handle` 写 `text/event-stream` + `retry: 1000`；`publish` 按 `event:`/`data:` 帧且同连接 FIFO；无订阅者不抛错不缓存；连接 close 后订阅移除、`closeAll()` 结束全部；心跳按可注入 `heartbeatMs`（生产默认 15000）（F04-6） |
 | **pr-003** 上下文池 + ACP 客户端 + daemon 执行器 | `src/acp-client.js` + `src/context-pool.js`（新建）+ `src/agent.js`（`omp-daemon` 分支 + `notice` 处理 + SIGINT `pool.dispose()`）+ `test/context-pool.test.js`（fake ACP: `OAMP_OMP_BIN`） | **pr-001** | 同 chat 两轮记忆 42 且 `meta.context_id`/`pid` 相等（E-1/F05-2）；新 chat 不含 42（E-2）；同 chat 两 agent 互不串扰（F05-4）；同键串行 + 队列上限 8（超出 `context_busy`）；超 `contextMax` LRU 淘汰 + `notice{context_reset}`；崩溃 → 该轮 `context_crashed` + `notice{context_reset}` + 下轮重建；未知模型 → `model_unavailable`（不回退）；`model` 取自 ACP `currentValue`；缺 `chat_id` → 拒收；shell/`omp` 一次性分支不回归（F05/F06/F08） |
 | **pr-004** web HTTP 层 + 控制台前端 | `src/web.js`（读库路由、`/api/stream`、`/api/chats/:id/close`、预生成 `chat_id`/`task_id`、payload 判定、`onDeliver` 收 `task.update`/`task.result`/`notice`、落盘与状态机、启动扫尾、打开库）+ `web/{app.js,index.html,style.css}`（SSE 订阅 + 关闭/模型/一次性/提示条；移除 1.5s 轮询）+ `test/web.test.js`（等价重写）。**本 PR 是 `web.js`/前端/`web.test.js` 的唯一所有者** | **pr-001 + pr-002 + pr-003** | `GET /api/chats`（含已关闭、四类过滤可组合、分页与 400 面）；`GET /api/chats/:id`（升序 + 未知 chat 明确错误）；`POST /api/messages` 落 `in`+`working` → 推 `message`/`chat_state` → 终态落 `out`+`completed`（恰 2 行）；已关闭 → 409；派发失败 → `out(error='dispatch_failed')`；`close` 幂等 + 向 `DISTINCT agent_id` 发 `notice{kind:'context_release'}`；SSE 端点与三类推送（`task_update` 不入库）；E-4 判据（`message(out)` 前 ≥2 个 `task_update` 且文本递增）；断线/刷新全量拉取（F04-7）；重写后的 `web.test.js` 逐条覆盖 F08-a~d 且另加落盘/SSE/关闭断言（F01~F06、F08） |
@@ -704,6 +707,14 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 
 - WebSocket / 双向长连接、过程持久化与回放、跨 chat 上下文共享、鉴权与多用户、历史迁移、chat 删除/归档/导出/重命名/重开、语义检索与 FTS5、模型清单 UI、token 费用统计、ACP 工具权限应答、`session/load` 上下文恢复、上下文 TTL、Router 任务表改造、一次性路径的演进。
 
+### 16.5 阶段 6 后的补丁记录（pr-007 / pr-008 与默认模型修订）
+
+| 变更 | 内容（实现为准） | 依据 |
+|---|---|---|
+| **pr-007** 终态对账补拉 | web 定时 `router.task_get` 兜底补落"投递丢失"的终态 `out`：快速 5s × 6 次 → 30s 低频续查 → 软 TTL 30min 清理并 warn；登记仅在 landed / TTL / SIGINT 三处删除；幂等由 `landed` 保证恰一条 `out`（详见 §4.3）。三个间隔用 `OAMP_WEB_RECONCILE_*` 覆盖（§8.2） | 交付演示暴露"终态投递丢失 → chat 缺回复" |
+| **pr-008** working 等待计时 | 前端在 `chat.state==='working'` 期间每秒**只更新状态行计时文本**（`#wait-elapsed`，不触发整屏重渲染；`WAIT_TICK_MS=1000`）；**≥30s（`SLOW_HINT_MS`）** 追加一行慢模型提示「当前模型首 token 可能较慢（实测可达数分钟）——可在模型框切换更快模型」；非 working 立即清定时器（无常驻定时器）。起点取值顺序 = 该轮 in 消息 `created_at` → `chat.updated_at` → 本地首见 working 时刻 | V-13（首 token ≈242s 期间只剩 "working"，用户误判卡死） |
+| **默认模型修订** | 内置默认 `openai/gpt-5.6-luna` → **`deepseek/deepseek-v4-flash`**（优先级链不变；前者保留为可指定值；§7.5 复测门禁改为评估其作为可选模型的可用性/时延）。影响面：`config.js` 的 `MODEL_DEFAULT` 一行 + 文档/示例值 | 用户决策 2026-09-10（L1-6 选择 (b)；证据 V-13） |
+
 ---
 
 ## 17. 测试策略
@@ -729,7 +740,7 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | R-2 | LRU 淘汰即上下文丢失 | 容量压力下被淘汰的 chat 失忆 | 运行时 `notice` 提示"上下文已释放"；未来可评估 ACP `session/load`（`agentCapabilities.loadSession=true`，本迭代不做） |
 | R-3 | ACP 稳定性 | 非交互长期运行验证不足 | 崩溃重建 + 超时取消 + 提示；列入压测 |
 | R-4 | 初始化开销 | 建键冷启动 ~1-3s（含等待静默） | `--no-skills --no-rules`（V-11）+ 懒创建；静默窗口 300ms/上限 5s |
-| **R-9** | **默认模型 `openai/gpt-5.6-luna` 间歇性无响应（V-9 实测，归因上游 provider）** | 两条路径同时段同现象：ACP 3 轮中 1 成（余为 40s 超时）；一次性路径同一时段 3/3 60s 超时（更早一次 4.1s 成功）；对照组 `deepseek/deepseek-v4-flash` 稳定；挂起轮次的消息**已进入上下文** | ① L1-6 **已定**（保现值 + 复测门禁，2026-09-10 用户选择 (a)）；② 超时 → cancel → kill → `context_reset` 提示（§6.5，**必需**）；③ 记为上线前必测项；④ **不**用 `--thinking off` 规避（§7.5） |
+| **R-9** | **`openai/gpt-5.6-luna` 的两类风险：间歇性无响应（V-9）+ 首 token ≈242s（V-13）** | V-9：ACP 3 轮中 1 成（余为 40s 超时）；一次性路径同一时段 3/3 60s 超时（更早一次 4.1s 成功）；挂起轮次的消息**已进入上下文**。V-13：交付演示首 token **≈242s**、36 个 chunk 全挤在最后 3.6s、任务 246s 才 completed（静默期无任何进度信号——pr-008 已用等待计时缓解，见 §16.5/NC-20） | ① L1-6 **已修订**（2026-09-10 用户选择 (b)：内置默认改 `deepseek/deepseek-v4-flash`；gpt-5.6-luna 保留为可指定值，复测门禁改为评估其作为可选模型的可用性/时延）；② 超时 → cancel → kill → `context_reset` 提示（§6.5，**必需**）；③ 记为上线前必测项；④ **不**用 `--thinking off` 规避（§7.5） |
 | R-10 | `node:sqlite` 实验 API | 22.15 无 flag 但打 Experimental 警告，API 可能变化 | `persist.js` 收口全部 SQL/驱动调用（换驱动只改一处）；`engines.node>=22` 不变 |
 | R-11 | 增量消息量 | 一次长答复的 chunk 数可能较大（每条一个 `task.update` → 一次 UDS 往返） | 本版不节流；若实测影响吞吐，实施期加 50ms 合帧（不预先设计） |
 | R-12 | 中断轮次的记录缺失 | web 重启会丢失在飞轮次的 out 记录 | 启动扫尾置 `failed`（状态如实）；输入仍可查（E-3） |
@@ -761,12 +772,13 @@ router 重启：沿用 0010 既有语义（节点重连重注册）；web/agent 
 | NC-17 | **永不终态的任务 → chat 停在 `working` 无终态兜底**：对账会把登记保留到软 TTL（默认 30min）后清理，此后若该轮真正的终态才到达则不再被认领；之后只有"下次 web 启动扫尾"才会把它置 `failed`（期间前端一直显示"处理中"）。彻底兜底需要"`working` 超时自动置 `failed`"的状态机（或放宽 TTL） | pr-007 对账引入的边界 | 当前处置：软 TTL 默认 30min，配 §6.5 的 agent 侧超时（默认 300s、上限 600s）实际不会走到 |
 | NC-18 | **软 TTL 到期后的迟到投递不再认领**：TTL 清理后 `tasks` 无登记 → 该 `task.result` 被静默丢弃（§10.4 的"未知 task_id 丢弃"）。边界正确（孤儿条目必须清理），默认 30min ≫ agent 最大 600s 超时，故**无实害** | pr-007 对账引入的边界 | 若将来放宽 agent 超时上限或引入长时任务，需同步复核 `OAMP_WEB_RECONCILE_TTL_MS` |
 | NC-19 | **LRU 淘汰命中"在飞轮次"时失败语义未即时生效，且该轮可能永久悬挂**：交付演示实测（主 agent，2026-09-10）——连续创建 8 个 chat 各发一条请求后，第 8 个 chat（`task-4a887dd0` / `chat-ec37caf2`）的任务在 Router 停留 `working` **>1 小时**（远超"悬挂至 300s prompt 超时"的预期），库中只有 `in` 无 `out`。Router 任务表 `state=working` ⇒ **不是投递丢失**（pr-007 对账不适用）；归因 = agent 侧上下文池达 `OAMP_CTX_MAX=8` 后，淘汰与被淘汰/竞争中的 ACP prompt **未按 pr-003 设计**（MI-3/MI-4："淘汰命中在飞轮次 → 该轮以 `context_crashed` 失败"）及时失败，且 **agent 侧 `timeout_ms`（omp-daemon 默认 300000ms）对被淘汰 / 被 kill 的 session 未生效 → 该轮可能永久悬挂**（非"延迟收尾"）。待办：① 复核 `context-pool` 淘汰路径与 `acp-client` 的 prompt 中止（cancel/kill）是否覆盖"被淘汰 key 的在飞 session"；② **核查 `acp-client` 中 prompt 请求的 Promise 在 session 被 kill/淘汰后是否 reject（其超时定时器是否随之失效或被清除）**；③ 评估 `OAMP_CTX_MAX` 与并发 chat 数的关系（演示中 8+ 活跃 chat 即触达上限） | 交付演示实测（主 agent，2026-09-10；含 >1h 滞留复核） | 影响面：活跃 chat 数接近上限时该轮会**永久**显示"处理中"且无终态——web 对账在软 TTL（30min）后停止续查，chat 将永久停留 `working`；临时清理手段 = **重启 web**（startupSweep 置 `failed`），临时规避 = 调高 `OAMP_CTX_MAX`；§6.3 已按此修正已知边界 |
+| NC-20 | **reasoning 模型的静默期无中间输出**：首 token 前（实测可达 ≈242s）没有任何进度信号，前端在 `working` 期间无法区分"模型在思考"与"卡死"；pr-008 已用「思考中 · 已等待 Ns」+ >30s 慢模型提示**缓解可见性**（§16.5），但仍是"以时间换信息"的间接方案 | V-13 交付演示 + pr-008 | 彻底方案需模型侧流式 reasoning delta 或 keepalive 提示（本迭代不做）；若未来接入的模型普遍带 reasoning 静默期，应优先评估模型侧流式支持 |
 
 ---
 
 ## 19. 疑问与越界（裁决记录，2026-09-10）
 
-1. **L1-6：默认模型可用性取舍 —— 已定稿（2026-09-10 用户选择 (a)）**。V-9 实测：默认模型 `openai/gpt-5.6-luna` 在本机间歇性无响应（ACP 与一次性路径同时段同现象 → 上游 provider；对照组 `deepseek/deepseek-v4-flash` 稳定）。**裁定：内置默认保持 `openai/gpt-5.6-luna`**（配置面 `defaults.model` / `OAMP_OMP_MODEL` 可一行覆盖），保留**上线前复测门禁**（§7.5 第 4 条两条路径对照复测；若仍高频挂起再由用户决定切换备选 (b)）；§6.5 的超时兜底（cancel → kill → `context_reset` 提示）为必做项；**不采用 `--thinking off` 规避**。本迭代已无待拍板技术项。
+1. **L1-6：默认模型取舍 —— 已修订（2026-09-10 用户选择 (b)，推翻原 (a)）**。证据两类：V-9（`openai/gpt-5.6-luna` 间歇性无响应：ACP 与一次性路径同时段同现象 → 上游 provider；对照组 `deepseek/deepseek-v4-flash` 稳定）+ **V-13（交付演示实测首 token ≈242s，36 个 chunk 全挤在最后 3.6s，任务 246s 才 completed）**。**裁定：内置默认改为 `deepseek/deepseek-v4-flash`**（TTFT ~1s），`openai/gpt-5.6-luna` **保留为可指定值**（代价自查：TTFT 可达数分钟）；**复测门禁保留**，用途改为评估该模型作为**可选模型**时的可用性/时延（§7.5 第 4 条步骤不变）；§6.5 的超时兜底（cancel → kill → `context_reset` 提示）+ pr-008 的等待计时（§16.5）承接可见性与兜底；**不采用 `--thinking off` 规避**。本迭代已无待拍板技术项。
 2. **F08-3 口径 —— 已裁定（2026-09-10 主 agent）：采纳"既有能力回归"口径**。即 **除 `web.test.js` 等价重写外，其余 10 个既有测试文件零修改且原样全绿（`test/` 现共 16 个）；`web.test.js` 所覆盖的既有用户可见能力由重写用例等价覆盖**。原句"既有测试全绿"物理上不可字面成立（其被测行为正是本迭代被替换的对象，见 §9.3）；F08 卡片的措辞由 prd 角色同步修订，本文件与 §9.3 / §16.1 的落地口径按此执行。
 3. **F05-7 的提示形态与 E-5 的张力 —— 已确认（2026-09-10 主 agent 裁定）**：上下文释放/重置提示**不入库**（仅 SSE 运行时事件），否则违反 F02-5/E-5"仅两类记录"。代价：刷新页面后该提示不重现（提示只要求"对话内明确告知"，已在发生时刻告知）。
 4. **F02-4 失败轮次的落盘口径 —— 已确认（2026-09-10 主 agent 裁定）**：落一条 `direction='out'` 的错误记录（text=可见摘要、error=机器码）；派发失败同样补一条失败 out 记录——保 F02-1 的"一一对应"，不改类目数。

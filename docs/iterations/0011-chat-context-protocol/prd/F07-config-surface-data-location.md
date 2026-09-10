@@ -29,6 +29,6 @@
 ## 架构维度（阶段 3 已填，2026-09-10；详见 `architecture.md` §8）
 
 - **文件路径/格式**：`oamp/config.json`（JSON，`node:fs` 零依赖解析；`OAMP_CONFIG` env 可指向其它路径），仅三个键：`data.db` / `defaults.model` / `context.max`。**缺失** → 全部使用内置默认、服务正常启动（对应验收 1/3）；**非法**（JSON 解析失败 / 顶层非对象 / 键类型错 / `context.max` 非正整数）→ 加载器抛错、进程入口打印 `OAMP 配置错误: <原因>` 并退出码 1，**不静默忽略**（对应验收 4）；未知键忽略（不为"未来键"做校验）。
-- **环境变量名与优先级**：`OAMP_DB` > `config.data.db` > `data/sql.db`；`OAMP_OMP_MODEL` > `config.defaults.model` > `openai/gpt-5.6-luna`；`OAMP_CTX_MAX` > `config.context.max` > `8`（**逐键独立**，env 恒胜，对应验收 2/5）。
+- **环境变量名与优先级**：`OAMP_DB` > `config.data.db` > `data/sql.db`；`OAMP_OMP_MODEL` > `config.defaults.model` > `deepseek/deepseek-v4-flash`（2026-09-10 用户修订：原内置默认 `openai/gpt-5.6-luna`，见 F06 验收 1 / `architecture.md` L1-6）；`OAMP_CTX_MAX` > `config.context.max` > `8`（**逐键独立**，env 恒胜，对应验收 2/5）。
 - **默认路径基准**：相对**包根 `oamp/`**（与既有 `config.js` 的 `PKG_ROOT` socket 推导同法、与 cwd 无关）→ 默认落 `oamp/data/sql.db`；打开前 `fs.mkdirSync(dirname, {recursive:true})` 建目录。**生效时机**：启动时读取一次，**不做热重载**——改配置 + 重启后新数据写新位置、历史从新位置读（对应验收 6）。
 - **忽略规则与产物落点**：`oamp/.gitignore` 追加 `data/`（现有仅 `.runtime/`），产物落点 `oamp/data/sql.db`（含 SQLite 可能的 `-journal`/`-wal` 兄弟文件，随目录一并忽略）。

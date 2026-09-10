@@ -84,7 +84,7 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_RECONNECT_MAX_MS` | agent | `10000` | 重连退避上限（毫秒）；退避 500ms 起指数增长至该上限 |
 | `OAMP_CONFIG` | 全部 | `<包根>/config.json` | 配置文件路径（见「配置面」） |
 | `OAMP_DB` | web | `<包根>/data/sql.db` | 对话库路径；相对路径基准 = 包根 |
-| `OAMP_OMP_MODEL` | agent | `openai/gpt-5.6-luna` | 默认模型（请求未指定 `model` 时生效） |
+| `OAMP_OMP_MODEL` | agent | `deepseek/deepseek-v4-flash` | 默认模型（请求未指定 `model` 时生效）；`openai/gpt-5.6-luna` 为可选值，其首 token 可能数分钟 |
 | `OAMP_CTX_MAX` | agent | `8` | 常驻上下文进程上限（超出按 LRU 淘汰）；正整数 |
 | `OAMP_WEB_PORT` | web | `7788` | Web 控制台端口（命令行 `--port` 优先） |
 | `OAMP_WEB_RECONCILE_INTERVAL_MS` | web | `5000` | 任务对账首查与间隔（毫秒，快速预算 6 次）；缺省/非法回退默认（运维/测试可调） |
@@ -133,6 +133,8 @@ oamp web start [--port 7788]      # 默认 http://127.0.0.1:7788（env OAMP_WEB_
 | 以 `!` 开头 | `/bin/sh -c` shell 执行（0010 原样） | 无上下文 |
 
 Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不直连 UDS。
+**等待可见性**：对话处于 `working` 期间状态行显示「思考中 · 已等待 Ns」（每秒更新，不重绘消息区）；等待超过 **30s** 追加一行提示
+「当前模型首 token 可能较慢（实测可达数分钟）——可在模型框切换更快模型」（应对 reasoning 模型的静默思考期）。
 安全边界：监听 127.0.0.1，无鉴权；命令由输入文本决定（迭代 0010 N6 边界）。
 
 ## 对话持久化、历史查询与实时推送（0011）
@@ -179,7 +181,8 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
 | **omp**（显式一次性；Web 勾选「一次性」） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p --no-session [--no-tools] [--model X] <prompt>`——单次执行，不累积也不复用上下文 |
 | shell（向后兼容；Web 以 `!` 开头） | `{command, args?, timeout_ms?, label?}` | spawn 直启命令（原行为，无上下文） |
 
-- **模型解析链**（每轮独立）：请求 payload `model` > `OAMP_OMP_MODEL` > 配置文件 `defaults.model` > 内置 `openai/gpt-5.6-luna`；
+- **模型解析链**（每轮独立）：请求 payload `model` > `OAMP_OMP_MODEL` > 配置文件 `defaults.model` > 内置 `deepseek/deepseek-v4-flash`（TTFT ~1s）；
+  `openai/gpt-5.6-luna` 仍可在模型框显式指定，但它是 reasoning 模型，**首 token 可能长达数分钟**（实测 ≈242s）且本机存在间歇性无响应；
   Web 侧不注入默认值（未指定即回默认链）。对话详情里的 `model` 记录的是 **ACP 实报的生效模型**（不是请求回显）。
 - 默认 `--no-tools`（纯问答更安全/更快）；需要 agent 干活时 payload 传 `tools:true` 放开工具（仅一次性路径）。
 - omp 默认超时 300s（`timeout_ms` 可覆盖，上限 600s）；omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
@@ -192,7 +195,7 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
 可选 JSON 文件（默认 `<包根>/config.json`，`OAMP_CONFIG` 可改路径）；文件不存在则全部走内置默认：
 
 ```json
-{ "data": { "db": "data/sql.db" }, "defaults": { "model": "openai/gpt-5.6-luna" }, "context": { "max": 8 } }
+{ "data": { "db": "data/sql.db" }, "defaults": { "model": "deepseek/deepseek-v4-flash" }, "context": { "max": 8 } }
 ```
 
 - 逐键优先级 **env > 配置文件 > 内置默认**（对应 `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX`）；相对路径基准 = 包根（与 cwd 无关）。
