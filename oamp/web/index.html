@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>oamp · Web Console</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="logo">◆</span><span class="brand-name">oamp</span><span class="brand-sub">Web Console</span></div>
+      <nav class="topnav">
+        <span class="nav-item active">Workspace</span>
+        <span class="nav-item">Agents</span>
+        <span class="nav-item">Tasks</span>
+      </nav>
+      <div class="topright">
+        <span id="conn-status" class="conn conn-wait">连接中…</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <button id="btn-new" class="new-chat">＋ New chat</button>
+        </div>
+        <div class="filters">
+          <button class="filter active" data-filter="all">All</button>
+          <button class="filter" data-filter="working">Working</button>
+          <button class="filter" data-filter="completed">Completed</button>
+        </div>
+        <div id="chat-list" class="chat-list"></div>
+      </aside>
+
+      <section class="detail">
+        <header class="detail-head">
+          <h1 id="detail-title">选择或新建一个对话</h1>
+          <div id="detail-meta" class="detail-meta"></div>
+        </header>
+
+        <div id="messages" class="messages">
+          <div class="empty" id="empty-hint">
+            左侧选择对话，或在下方输入框以 <code>@agent 命令</code> 开始<br />
+            <span class="muted">消息即命令：内容将以 /bin/sh -c 在目标 agent 上执行（demo）</span>
+          </div>
+        </div>
+
+        <footer class="composer">
+          <div id="status-line" class="status-line"></div>
+          <div class="composer-box">
+            <textarea id="input" rows="2" placeholder="Message @agent · @ to mention · Enter 发送 / Shift+Enter 换行"></textarea>
+            <div id="mention" class="mention hidden"></div>
+            <button id="btn-send" class="send">发送</button>
+          </div>
+          <div class="hint" id="hint"></div>
+        </footer>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

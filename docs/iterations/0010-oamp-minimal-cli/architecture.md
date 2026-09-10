@@ -593,3 +593,12 @@ test/task.test.js 6 用例（happy/fail/超时/发起者离线 recorded/rejected
 **影响**：config 新增 `OAMP_RECONNECT`/`OAMP_RECONNECT_MAX_MS`；NodeClient 新增 `replaced`/`onReplaced`；router 替换路径先通知；测试 test/reconnect.test.js 4 用例 + 既有 F02-4/连接失败用例适配；npm test 56/56。
 
 **环境协同**：常驻 demo 进程用 `caffeinate -dims` 包裹启动，减少系统维护休眠导致的心跳停摆。
+
+### 15.7 Web 控制台（demo，2026-09-10）
+
+**目标**（用户确认）：对话式操作台——左栏话题会话列表，右栏消息流（明细+状态），输入框 `@agent 命令` 唤起任意活跃 agent。
+**语义**：消息即命令（文本经 `/bin/sh -c` 交 agent 执行，输出经现有任务明细回流）；按话题分会话（每次新消息可开新会话，`@agent` 指定目标）。
+**架构**：`oamp web start`（`src/web.js`，Node 内置 http，监听 127.0.0.1:7788）serve `web/`（index.html/app.js/style.css，原生 JS 无构建）；进程内以 `web` 身份常驻连接 Router（NodeClient + 心跳保活；断线失效重连，发送失败重试一次），查询路径走无状态 RpcPeer。浏览器不直连 UDS。
+**Router 增量**：registry 会话表（`createChat`/`appendChatMessage`/`getChat`/`chatDetail`/`listChats`，消息按 `message_id` join 任务明细，`tasksByMessage` O(1) 索引）；`createTask` 记录 `message_id`；新 RPC `router.chat_message`（创建/追加，Router 只存储不代发）、`router.chat_get`、`router.chat_list`。
+**API**：`GET /api/agents` `GET /api/chats` `GET /api/chats/<id>` `POST /api/messages {chat_id?, agent_id, text}`。
+**验证**：test/web.test.js 4 用例（静态页/发送→任务→回流/追加/错误面）；browser 实际驱动 UI（@补全、发送、渲染、列表更新）；npm test 60/60。

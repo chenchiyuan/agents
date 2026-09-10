@@ -99,3 +99,18 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 - **代码与配置零凭据字段**：`oamp/` 代码与配置中不出现 token / api_key / secret / password /
   credential / authorization / private_key 等赋值形态字段；本工具无鉴权凭据概念
   （本地 UDS 属主访问），仓库保持可 clone、可共享。
+
+## Web 控制台（demo）
+
+```sh
+oamp web start [--port 7788]      # 默认 http://127.0.0.1:7788（env OAMP_WEB_PORT 可覆盖）
+```
+
+浏览器打开后：
+- **左栏**：对话列表（按 TODAY/OLDER 分组，条目标题 + 状态徽标 + @agent + 时间；All/Working/Completed 过滤）
+- **右栏**：对话详情——你的消息与 agent 执行块（状态徽标 / 耗时 / 命令 / 输出明细（stderr 标红）/ exit_code 结果行；输出超 8 行折叠可展开）
+- **输入框**：`@agent 命令` —— 输入 `@` 弹出全部 agent 列表（↑↓ 选择、Enter 补全）；Enter 发送、Shift+Enter 换行
+
+**消息即命令（demo 语义）**：消息文本去掉 `@agent` 前缀后以 `/bin/sh -c` 在目标 agent 上执行，输出经任务明细回流到对话。
+Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不直连 UDS。会话与消息存于 Router 内存（重启即清空）。
+安全边界：监听 127.0.0.1，无鉴权；命令由输入文本决定（迭代 0010 N6 边界）。

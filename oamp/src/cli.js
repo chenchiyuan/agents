@@ -11,6 +11,7 @@ const USAGE = `oamp — 本地多智能体运行时 CLI
   oamp task status <task_id>      查看任务状态与明细
   oamp task list [--state <state>]  列出任务
   oamp task watch <task_id> [--interval <ms>]  轮询任务直到终态
+  oamp web start [--port <n>]     启动 Web 控制台（默认 http://127.0.0.1:7788）
   oamp -h | --help                显示本用法并退出
 
 命令:
@@ -18,6 +19,7 @@ const USAGE = `oamp — 本地多智能体运行时 CLI
   agent     节点进程（注册 + 心跳 + SIGINT 注销 + shell 任务执行器）
   status    只读拓扑查询客户端
   task      任务指派与进度查询（主 agent 使用视角）
+  web       Web 控制台（对话列表 + 详情 + @agent 派发命令；demo）
 
 参数:
   instance-id  必填；agent 节点唯一标识（≤64 可打印字符）
@@ -90,6 +92,14 @@ export async function main(argv) {
 
   if (cmd === 'status') {
     return loadAndRun('./status.js', 'status', argv.slice(1));
+  }
+
+  if (cmd === 'web') {
+    if (sub !== 'start') {
+      const why = sub === undefined ? '缺少 web 子命令' : `未知的 web 子命令: ${sub}`;
+      return usageError(`错误: ${why}`);
+    }
+    return loadAndRun('./web.js', 'web start', argv.slice(2));
   }
 
   if (cmd === 'task') {

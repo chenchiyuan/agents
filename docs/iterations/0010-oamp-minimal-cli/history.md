@@ -43,3 +43,10 @@
 - A（根治）：agent 自动重连自愈（D22）；B（环境）：caffeinate -dims 包裹常驻进程。
 - 实现：config 增 OAMP_RECONNECT/OAMP_RECONNECT_MAX_MS；agent 主循环重写（退避重连、被顶替不重连）；router 替换前发 agent.replaced；reconnect.test.js 4 用例；全量 56/56 三连稳定。
 - 真实验证：hub 停 Router → agent CONNECTION_LOST + 退避 RECONNECT_WAIT（进程存活）→ 重启 Router → 3s 内两 agent 自动 online（新 session）。
+
+### 2026-09-10 03:00:00 · 调度决策 · Web 控制台需求（用户三决策）
+
+- 用户要求参考 first-tree 截图实现网页（左栏对话列表/右栏详情/@唤起 agent）。
+- 确认：消息即命令（shell 执行）；`oamp web` 内建服务（Node http）；按话题分会话。
+- 实现：Router 会话表 + 3 个 chat RPC；src/web.js（HTTP+静态页+常驻 web 身份桥接，心跳保活修复）；web/ 前端三件套；test/web.test.js 4 用例；browser 驱动验证（@补全/发送/渲染/列表）。
+- npm test 60/60 两连稳定。
