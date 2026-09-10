@@ -39,7 +39,7 @@ if (argv.includes('-p')) {
 }
 
 const modelIdx = argv.indexOf('--model');
-const spawnModel = modelIdx >= 0 ? argv[modelIdx + 1] : 'openai/gpt-5.6-luna';
+const spawnModel = modelIdx >= 0 ? argv[modelIdx + 1] : 'deepseek/deepseek-v4-flash';
 const hang = process.env.FAKE_ACP_HANG === '1';
 const sticky = process.env.FAKE_ACP_STICKY_MODEL === '1';
 

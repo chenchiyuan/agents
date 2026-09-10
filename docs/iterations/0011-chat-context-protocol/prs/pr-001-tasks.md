@@ -29,7 +29,7 @@ export default loadConfig(); // 保持既有形态（模块加载期求值）
 | 文件缺失 | 全部走内置默认，**不抛错、不告警退出**（F07-3 / §8.3 / PR 验收 3） |
 | 文件非法 | 抛 `Error`，`message` 以 `OAMP 配置错误:` 开头（F07-4 / §8.3 / PR 验收 3）。非法 = JSON 解析失败 / 顶层非对象（含数组、null）/ `data`·`defaults`·`context` 存在但非对象 / `data.db`·`defaults.model` 存在但非**非空字符串** / `context.max` 存在但非**正整数** |
 | 未知键 | 忽略，不报错（§8.3） |
-| 优先级（逐键独立） | `dbPath`：`OAMP_DB` > `config.data.db` > `'data/sql.db'`；`defaultModel`：`OAMP_OMP_MODEL` > `config.defaults.model` > `'openai/gpt-5.6-luna'`；`contextMax`：`OAMP_CTX_MAX`（正整数校验）> `config.context.max`（正整数校验）> `8`（§8.2 / PR 验收 2 / F07-5） |
+| 优先级（逐键独立） | `dbPath`：`OAMP_DB` > `config.data.db` > `'data/sql.db'`；`defaultModel`：`OAMP_OMP_MODEL` > `config.defaults.model` > `'deepseek/deepseek-v4-flash'`（2026-09-10 用户修订，依据 V-13；gpt-5.6-luna 保留为可指定值）；`contextMax`：`OAMP_CTX_MAX`（正整数校验）> `config.context.max`（正整数校验）> `8`（§8.2 / PR 验收 2 / F07-5） |
 | 空字符串语义 | env 值为空串 / 纯空白 → 视为未提供，落到下一级（`[model_inferred]` I-1） |
 | 路径基准 | `path.resolve(PKG_ROOT, 选定值)` → 默认 `oamp/data/sql.db`，**绝对路径、与 cwd 无关**（§8.3 / F07-1 / PR 验收 1） |
 
@@ -80,7 +80,7 @@ export function openDb(dbPath) -> {
 **前置依赖**：无
 **交付物**：`oamp/src/config.js`（改造）、`oamp/test/config-file.test.js`（新建）
 **验收标准**（可测试）：
-1. `loadConfig({ OAMP_CONFIG: <不存在路径> })` 返回 `dbPath === path.join(<包根>, 'data', 'sql.db')`（绝对）、`defaultModel === 'openai/gpt-5.6-luna'`、`contextMax === 8`；既有六键取值与改造前逐字相同（PR 验收 1；§8.2/§8.3）
+1. `loadConfig({ OAMP_CONFIG: <不存在路径> })` 返回 `dbPath === path.join(<包根>, 'data', 'sql.db')`（绝对）、`defaultModel === 'deepseek/deepseek-v4-flash'`（2026-09-10 用户修订，依据 V-13；gpt-5.6-luna 保留为可指定值）、`contextMax === 8`；既有六键取值与改造前逐字相同（PR 验收 1；§8.2/§8.3）
 2. 临时配置文件写入 `{"data":{"db":"<tmp>/a.db"},"defaults":{"model":"x/y"},"context":{"max":3}}` → 三键取文件值（§8.2；F07-2）
 3. env 三键同时给出 → env 胜（`OAMP_DB`/`OAMP_OMP_MODEL`/`OAMP_CTX_MAX`）（PR 验收 2；F07-5）
 4. 逐键独立：只给 `OAMP_DB` + 配置文件给另两键 → `dbPath` 取 env、`defaultModel`/`contextMax` 取文件（§8.2；PR 验收 2）
