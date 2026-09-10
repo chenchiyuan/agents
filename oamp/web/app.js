@@ -1,25 +1,34 @@
 // oamp Web Console — 前端逻辑（原生 JS，无构建）
-// 数据流：轮询 /api/chats + /api/agents；打开会话轮询 /api/chats/<id>；
-// 发送消息 POST /api/messages（消息即命令；@agent 选择目标）。
+// 数据流（0011 迭代）：历史真源 = 服务端 SQLite —— GET /api/chats（列表）+ GET /api/chats/<id>（详情）；
+//   实时经 SSE：GET /api/stream?chat_id=<id> 四类事件（message / task_update / chat_state / notice）；
+//   发送 POST /api/messages（默认 omp-daemon 常驻上下文；勾选「一次性」→ omp 一次性；! 开头 → shell）。
+// 断线/刷新兜底：EventSource 自动重连（服务端 retry: 1000），onopen 与打开会话时全量拉取详情。
 'use strict';
 
-const POLL_MS = 1500;
-const COLLAPSE_LINES = 8; // 输出行折叠阈值（超出显示 "N steps" 可展开）
+const RETRY_HINT = '连接已断开，正在重连…';
 
 const state = {
   agents: [],
   chats: [],
-  chat: null, // 当前会话详情
+  chat: null, // 当前会话详情（读库：{chat, messages[]} 的 chat + messages）
+  messages: [],
   filter: 'all',
-  expanded: new Set(), // 已展开的消息键（chat_id:message_id）
   mention: { open: false, items: [], index: 0, start: -1 },
   routerOk: false,
+  stream: { chatId: null, text: '' }, // 流式占位文本（task_update 累积；终态 message 到达即清空）
+  notices: [], // 会话内系统提示条（SSE notice，运行时事件不入库；仅本次页面会话保留，刷新即不重现）
 };
+
+let source = null; // 当前会话的 EventSource
+let subscribedChatId = null;
 
 const $ = (id) => document.getElementById(id);
 
-async function api(path, options) {
-  const res = await fetch(path, options ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(options) } : undefined);
+async function api(path, { method = 'GET', body } = {}) {
+  const res = await fetch(
+    path,
+    method === 'GET' ? undefined : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+  );
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
@@ -30,11 +39,18 @@ function setConn(ok, detail) {
   state.routerOk = ok;
   const el = $('conn-status');
   el.className = `conn ${ok ? 'conn-ok' : 'conn-bad'}`;
-  el.textContent = ok ? `已连接 · ${state.agents.filter((a) => a.state === 'online').length} agents online` : (detail || 'Router 不可达');
+  el.textContent = ok ? `已连接 · ${state.agents.filter((a) => a.state === 'online').length} agents online` : detail || 'Router 不可达';
 }
 
 function badge(stateName) {
-  const map = { idle: 'badge-idle', submitted: 'badge-submitted', working: 'badge-working', completed: 'badge-completed', failed: 'badge-failed' };
+  const map = {
+    idle: 'badge-idle',
+    submitted: 'badge-submitted',
+    working: 'badge-working',
+    completed: 'badge-completed',
+    failed: 'badge-failed',
+    closed: 'badge-closed',
+  };
   return `<span class="badge ${map[stateName] || 'badge-idle'}">${stateName || 'idle'}</span>`;
 }
 
@@ -55,7 +71,7 @@ function renderChats() {
   const list = $('chat-list');
   const chats = state.chats.filter((c) => state.filter === 'all' || c.state === state.filter);
   if (chats.length === 0) {
-    list.innerHTML = `<div class="empty-hint">${state.filter === 'all' ? '还没有对话——点击 New chat 或在下方输入 @agent 命令' : `没有 ${state.filter} 状态的对话`}</div>`;
+    list.innerHTML = `<div class="empty-hint">${state.filter === 'all' ? '还没有对话——点击 New chat 或在下方输入 @agent 问题' : `没有 ${state.filter} 状态的对话`}</div>`;
     return;
   }
   const groups = new Map();
@@ -74,7 +90,7 @@ function renderChats() {
       const active = state.chat && state.chat.chat_id === c.chat_id ? ' active' : '';
       html += `<div class="chat-item${active}" data-chat="${c.chat_id}">
         <div class="title">${escapeHtml(c.title)}</div>
-        <div class="meta">${badge(c.state)}<span class="agent">@${escapeHtml(c.agent_id)}</span><span>${fmtTime(c.updated_at)}</span></div>
+        <div class="meta">${badge(c.state)}<span class="agent">@${escapeHtml(c.agent_id || '-')}</span><span>${fmtTime(c.updated_at)}</span></div>
       </div>`;
     }
   }
@@ -87,90 +103,60 @@ function renderChats() {
 // ── 右栏：会话详情 ──
 function renderChat() {
   const chat = state.chat;
-  const messages = $('messages');
+  const box = $('messages');
   if (!chat) {
     $('detail-title').textContent = '选择或新建一个对话';
     $('detail-meta').textContent = '';
-    messages.innerHTML = `<div class="empty">左侧选择对话，或在下方输入框以 <code>@agent 命令</code> 开始<br /><span class="muted">默认交给 omp（真实 LLM）处理；以 ! 开头按 shell 命令执行</span></div>`;
+    $('btn-close').disabled = true;
+    box.innerHTML = `<div class="empty">左侧选择对话，或在下方输入框以 <code>@agent 问题</code> 开始<br /><span class="muted">默认走常驻上下文（同对话多轮记得前文）；勾选「一次性」则不累积；以 ! 开头按 shell 命令执行</span></div>`;
     renderStatusLine();
     return;
   }
   $('detail-title').textContent = chat.title;
-  const lastTask = [...chat.messages].reverse().map((m) => m.task).find(Boolean);
-  $('detail-meta').innerHTML = `@${escapeHtml(chat.agent_id)} ${lastTask ? badge(lastTask.state) : ''}`;
-  if (chat.messages.length === 0) {
-    messages.innerHTML = '<div class="empty">会话已创建，发送第一条消息开始。</div>';
-  } else {
-    messages.innerHTML = chat.messages.map((m) => renderMessage(chat.chat_id, m)).join('');
-  }
-  for (const el of messages.querySelectorAll('.output-toggle')) {
-    el.onclick = () => {
-      const key = el.dataset.key;
-      if (state.expanded.has(key)) state.expanded.delete(key);
-      else state.expanded.add(key);
-      renderChat();
-    };
-  }
-  // 自动滚到底部（仅当接近底部或首次渲染）
-  messages.scrollTop = messages.scrollHeight;
+  $('detail-meta').innerHTML = `@${escapeHtml(chat.agent_id || '-')} ${badge(chat.state)}${chat.state === 'closed' ? '<span class="muted"> · 已关闭（只读）</span>' : ''}`;
+  $('btn-close').disabled = chat.state === 'closed';
+  const body = state.messages.length === 0 ? '<div class="empty">会话已创建，发送第一条消息开始。</div>' : state.messages.map(renderMessage).join('');
+  box.innerHTML = body + renderStreamSlot(chat) + renderNotices(chat.chat_id);
+  box.scrollTop = box.scrollHeight;
   renderStatusLine();
 }
 
-function renderMessage(chatId, m) {
-  const role = m.role === 'system' ? 'system' : 'user';
-  const head = `<div class="msg-head"><span class="avatar avatar-${role === 'user' ? 'user' : 'agent'}">${role === 'user' ? '陈' : '@'}</span>
-      <span class="msg-role">${role === 'user' ? '我' : '系统'}</span>
-      <span class="msg-time">${fmtTime(m.at)}</span>${m.task ? ` ${badge(m.task.state)}` : ''}</div>`;
-  if (role === 'system') {
-    return `<div class="msg"><div class="msg-body"><div class="msg-system">${escapeHtml(m.text)}</div></div></div>`;
+/** 一条落盘记录（in = 用户气泡；out = agent 气泡，带模型/耗时/错误元信息行）。 */
+function renderMessage(m) {
+  const time = fmtTime(m.created_at);
+  if (m.direction === 'in') {
+    const mentionMatch = /^(@[^\s@]+)\s*([\s\S]*)$/.exec(m.text);
+    const mention = mentionMatch ? `<span class="mention-chip">${escapeHtml(mentionMatch[1])}</span>` : '';
+    const bodyText = mentionMatch ? mentionMatch[2] : m.text;
+    return `<div class="msg"><div class="msg-head"><span class="avatar avatar-user">陈</span>
+        <span class="msg-role">我</span><span class="msg-time">${time}</span></div>
+      <div class="msg-body"><div class="msg-text">${mention} ${escapeHtml(bodyText)}</div></div></div>`;
   }
-  // 用户消息：@agent + 文本
-  const mentionMatch = /^(@[^\s@]+)\s*([\s\S]*)$/.exec(m.text);
-  const mention = mentionMatch ? `<span class="mention-chip">${escapeHtml(mentionMatch[1])}</span>` : '';
-  const bodyText = mentionMatch ? mentionMatch[2] : m.text;
-  let html = `<div class="msg">${head}<div class="msg-body">
-      <div class="msg-text">${mention} ${escapeHtml(bodyText)}</div>`;
-
-  const task = m.task;
-  if (task) {
-    const result = task.result || null;
-    const duration = result && result.duration_ms !== undefined ? ` · ${(result.duration_ms / 1000).toFixed(2)}s` : '';
-    const started = task.updates.find((u) => u.detail && u.detail.event === 'started');
-    const isOmp = Boolean(started && started.detail.executor === 'omp');
-    // agent 执行头部：角色 + working/completed + 耗时（omp 任务标注 LLM 执行）
-    html += `<div class="msg-head" style="margin-top:8px"><span class="avatar avatar-agent">@</span>
-        <span class="msg-role">${escapeHtml(task.to)}</span>${badge(task.state)}${isOmp ? '<span class="badge badge-omp">omp</span>' : ''}<span class="msg-time">${duration}</span></div>`;
-    // 输入（omp：提问引用；shell：命令行）
-    const promptText = isOmp && started.detail.prompt ? started.detail.prompt : stripSh(bodyText);
-    html += isOmp
-      ? `<div class="prompt-line"><span class="prompt">❯ </span>${escapeHtml(promptText)}</div>`
-      : `<div class="cmd-line"><span class="prompt">$ </span>${escapeHtml(promptText)}</div>`;
-    // 输出明细（omp 回答用浅色可读排版；shell 用终端风格）
-    const lines = task.updates.filter((u) => u.detail && (u.detail.kind === 'stdout' || u.detail.kind === 'stderr'));
-    const key = `${chatId}:${m.message_id}`;
-    const expanded = state.expanded.has(key);
-    const shown = expanded || lines.length <= COLLAPSE_LINES ? lines : lines.slice(-COLLAPSE_LINES);
-    if (shown.length > 0) {
-      const cls = isOmp ? 'answer' : 'output';
-      html += `<div class="${cls}">${shown.map((u) => `<div class="${isOmp ? 'answer-line' : 'output-line'}${u.detail.kind === 'stderr' ? ' stderr' : ''}">${escapeHtml(u.detail.line)}</div>`).join('')}</div>`;
-      if (lines.length > COLLAPSE_LINES) {
-        html += `<div class="output-toggle" data-key="${key}">${expanded ? '▴ 收起' : `▾ 展开全部 ${lines.length} 行输出`}</div>`;
-      }
-    }
-    if (result) {
-      const ok = task.state === 'completed';
-      html += `<div class="result-line ${ok ? 'ok' : 'bad'}">${ok ? '✓ 完成' : '✗ 失败'} · exit_code=${result.exit_code ?? '-'}${result.error ? ` · ${escapeHtml(String(result.error))}` : ''}</div>`;
-    } else {
-      html += `<div class="result-line muted">执行中…（${task.updates.length} 条明细）</div>`;
-    }
-  } else {
-    html += `<div class="result-line muted">消息已记录（未关联任务）</div>`;
-  }
-  return `${html}</div></div>`;
+  const meta = [];
+  if (m.model) meta.push(`<span class="model-chip">${escapeHtml(m.model)}</span>`);
+  if (m.duration_ms !== null && m.duration_ms !== undefined) meta.push(`${(m.duration_ms / 1000).toFixed(2)}s`);
+  if (m.error) meta.push(`<span class="err-chip">${escapeHtml(String(m.error))}</span>`);
+  return `<div class="msg"><div class="msg-head"><span class="avatar avatar-agent">@</span>
+      <span class="msg-role">${escapeHtml(m.agent_id || 'agent')}</span>${m.error ? badge('failed') : ''}<span class="msg-time">${time}</span></div>
+    <div class="msg-body">${m.text ? `<div class="answer"><div class="answer-line">${escapeHtml(m.text)}</div></div>` : ''}
+    ${meta.length > 0 ? `<div class="msg-meta">${meta.join(' · ')}</div>` : ''}</div></div>`;
 }
 
-function stripSh(text) {
-  return text;
+/** 流式占位气泡（首个 task_update 出现时创建，后续 chunk 原地追加）。 */
+function renderStreamSlot(chat) {
+  if (state.stream.chatId !== chat.chat_id || state.stream.text === '') return '';
+  return `<div class="msg"><div class="msg-head"><span class="avatar avatar-agent">@</span>
+      <span class="msg-role">${escapeHtml(chat.agent_id || 'agent')}</span>${badge('working')}</div>
+    <div class="msg-body"><div class="answer"><div class="answer-line" id="stream-text">${escapeHtml(state.stream.text)}</div></div></div></div>`;
+}
+
+/** 系统提示条（上下文释放/重置；运行时事件，不入库，刷新后不重现——§6.3/§19 裁决 3）。
+ *  存于 state 而非直接插 DOM：任何一次全量重渲染（message/chat_state/refreshChat）都必须保留它。 */
+function renderNotices(chatId) {
+  return state.notices
+    .filter((n) => n.chat_id === chatId)
+    .map((n) => `<div class="notice-bar">${escapeHtml(n.text)}</div>`)
+    .join('');
 }
 
 function renderStatusLine() {
@@ -178,13 +164,98 @@ function renderStatusLine() {
   const chat = state.chat;
   if (!chat) {
     el.innerHTML = '';
-    $('hint').textContent = '默认交给 omp（真实 LLM）处理；以 ! 开头按 shell 命令执行';
     return;
   }
-  const task = [...chat.messages].reverse().map((m) => m.task).find(Boolean);
-  const agent = `<span class="agent">@${escapeHtml(chat.agent_id)}</span>`;
-  el.innerHTML = task ? `${agent} · ${task.state}${task.state === 'working' ? ' · 执行中…' : ''}` : `${agent} · 等待消息`;
-  $('hint').textContent = '';
+  const streaming = state.stream.chatId === chat.chat_id && state.stream.text !== '';
+  el.innerHTML = `<span class="agent">@${escapeHtml(chat.agent_id || '-')}</span> · ${chat.state}${streaming || chat.state === 'working' ? ' · 处理中…' : ''}`;
+}
+
+// ── 实时订阅（SSE）──
+function unsubscribe() {
+  if (source) {
+    source.close();
+    source = null;
+  }
+  subscribedChatId = null;
+  state.stream = { chatId: null, text: '' };
+}
+
+/** 订阅某 chat 的四类事件；同一 chat 重复调用不重连（避免丢增量）。 */
+function subscribe(chatId) {
+  if (subscribedChatId === chatId && source) return;
+  unsubscribe();
+  subscribedChatId = chatId;
+  source = new EventSource(`/api/stream?chat_id=${encodeURIComponent(chatId)}`);
+  source.onopen = () => {
+    const el = $('hint');
+    if (el.textContent === RETRY_HINT) el.textContent = '';
+    refreshChat(); // §5.4：重连/建立时全量拉取（断线期间的增量不补发）
+  };
+  source.onerror = () => {
+    $('hint').textContent = RETRY_HINT; // EventSource 自动重连（服务端 retry: 1000）
+  };
+  for (const type of ['message', 'task_update', 'chat_state', 'notice']) {
+    source.addEventListener(type, (ev) => {
+      let data = null;
+      try {
+        data = JSON.parse(ev.data);
+      } catch {
+        return;
+      }
+      handleEvent(type, data);
+    });
+  }
+}
+
+function handleEvent(type, data) {
+  if (!data || typeof data.chat_id !== 'string') return;
+  const current = state.chat && state.chat.chat_id === data.chat_id;
+  if (type === 'task_update') {
+    if (!current) return;
+    const chunk = typeof data.text === 'string' ? data.text : typeof data.line === 'string' ? `${data.line}\n` : '';
+    if (chunk !== '') appendChunk(data.chat_id, chunk);
+    return;
+  }
+  if (type === 'message') {
+    if (data.message && data.message.direction === 'out' && state.stream.chatId === data.chat_id) {
+      state.stream = { chatId: data.chat_id, text: '' }; // 终态以落盘文本为准（§5.3）
+    }
+    loadChats();
+    if (current) refreshChat();
+    return;
+  }
+  if (type === 'chat_state') {
+    const item = state.chats.find((c) => c.chat_id === data.chat_id);
+    if (item) {
+      item.state = data.state;
+      renderChats();
+    }
+    if (current) {
+      state.chat.state = data.state;
+      renderChat();
+    }
+    return;
+  }
+  if (type === 'notice' && current) {
+    state.notices.push({
+      chat_id: data.chat_id,
+      text: data.text || (data.kind === 'context_released' ? '上下文已释放，本对话后续回复不再记得此前内容' : '上下文已重置，本对话后续回复不再记得此前内容'),
+    });
+    renderChat();
+  }
+}
+
+function appendChunk(chatId, chunk) {
+  if (state.stream.chatId !== chatId) state.stream = { chatId, text: '' };
+  state.stream.text += chunk;
+  let el = document.getElementById('stream-text');
+  if (!el) {
+    renderChat();
+    el = document.getElementById('stream-text');
+  }
+  if (el) el.textContent = state.stream.text;
+  const box = $('messages');
+  box.scrollTop = box.scrollHeight;
 }
 
 // ── 数据加载 ──
@@ -210,8 +281,11 @@ async function loadChats() {
 
 async function openChat(chatId) {
   try {
-    const { chat } = await api(`/api/chats/${encodeURIComponent(chatId)}`);
-    state.chat = chat || null;
+    const { chat, messages } = await api(`/api/chats/${encodeURIComponent(chatId)}`);
+    if (!chat) throw new Error('会话不存在');
+    state.chat = chat;
+    state.messages = messages || [];
+    subscribe(chat.chat_id);
     renderChats();
     renderChat();
     $('input').focus();
@@ -221,39 +295,40 @@ async function openChat(chatId) {
   }
 }
 
-async function refreshCurrent() {
-  if (!state.chat) return;
+/** 全量拉取当前会话（onopen / 落盘事件后以库文本为准）。 */
+async function refreshChat() {
+  const chatId = state.chat && state.chat.chat_id;
+  if (!chatId) return;
   try {
-    const { chat } = await api(`/api/chats/${encodeURIComponent(state.chat.chat_id)}`);
-    if (!chat) return;
-    const changed = JSON.stringify(chat) !== JSON.stringify(state.chat);
+    const { chat, messages } = await api(`/api/chats/${encodeURIComponent(chatId)}`);
+    if (!chat || !state.chat || state.chat.chat_id !== chat.chat_id) return; // 已切换会话
     state.chat = chat;
-    if (changed) {
-      renderChat();
-      renderChats();
-    }
+    state.messages = messages || [];
+    renderChats();
+    renderChat();
   } catch {
     /* 忽略瞬时错误 */
   }
 }
 
-// ── 发送 ──
+// ── 发送 / 关闭 ──
 async function send() {
   const input = $('input');
   const text = input.value.trim();
   if (!text) return;
   const hint = $('hint');
   hint.className = 'hint';
+  hint.textContent = '';
   // 解析目标 agent：@agent 前缀，或沿用当前会话绑定的 agent
   const m = /^@([^\s@]+)\s+([\s\S]+)$/.exec(text);
-  let agentId = m ? m[1] : state.chat ? state.chat.agent_id : '';
+  const agentId = m ? m[1] : state.chat ? state.chat.agent_id : '';
   if (!agentId) {
     hint.textContent = '请用 @agent 指定目标（输入 @ 会列出所有 agent）';
     hint.className = 'hint error';
     return;
   }
   if (!m && !state.chat) {
-    hint.textContent = '请输入 "@agent 命令" 形式';
+    hint.textContent = '请输入 "@agent 问题" 形式';
     hint.className = 'hint error';
     return;
   }
@@ -262,13 +337,13 @@ async function send() {
     hint.textContent = `@${agentId} 不在线（当前在线：${state.agents.filter((a) => a.state === 'online').map((a) => a.instance_id).join(', ') || '无'}）`;
     hint.className = 'hint error';
   }
+  const payload = { chat_id: state.chat ? state.chat.chat_id : undefined, agent_id: agentId, text };
+  const model = $('model-input').value.trim();
+  if (model !== '') payload.model = model; // 未填写则不携带：默认链由 agent 侧解析（§7.2，web 不注入默认值）
+  if ($('one-shot').checked) payload.one_shot = true;
   try {
     $('btn-send').disabled = true;
-    const resp = await api('/api/messages', {
-      chat_id: state.chat ? state.chat.chat_id : undefined,
-      agent_id: agentId,
-      text,
-    });
+    const resp = await api('/api/messages', { method: 'POST', body: payload });
     input.value = '';
     hideMention();
     if (resp.warning) {
@@ -282,6 +357,22 @@ async function send() {
     hint.className = 'hint error';
   } finally {
     $('btn-send').disabled = false;
+  }
+}
+
+async function closeCurrentChat() {
+  const chat = state.chat;
+  if (!chat || chat.state === 'closed') return;
+  const hint = $('hint');
+  try {
+    await api(`/api/chats/${encodeURIComponent(chat.chat_id)}/close`, { method: 'POST' });
+    hint.className = 'hint';
+    hint.textContent = '对话已关闭（历史仍可读，不再接受新输入）';
+    await loadChats();
+    await refreshChat();
+  } catch (err) {
+    hint.textContent = `关闭失败：${err.message}`;
+    hint.className = 'hint error';
   }
 }
 
@@ -353,13 +444,16 @@ function escapeHtml(s) {
 // ── 事件绑定 ──
 function bind() {
   $('btn-new').onclick = () => {
+    unsubscribe();
     state.chat = null;
+    state.messages = [];
     renderChats();
     renderChat();
     $('input').value = '';
     $('input').focus();
   };
   $('btn-send').onclick = send;
+  $('btn-close').onclick = closeCurrentChat;
   const input = $('input');
   input.addEventListener('input', () => {
     const q = currentMentionQuery();
@@ -400,12 +494,13 @@ function bind() {
       renderChats();
     };
   }
+  // 实时通道已不再轮询：agent 列表在窗口重新聚焦时刷新一次（@ 补全与连接指示不长期失真）
+  window.addEventListener('focus', loadAgents);
 }
 
 bind();
-(async function tick() {
+(async function init() {
   await loadAgents();
   await loadChats();
-  await refreshCurrent();
-  setTimeout(tick, POLL_MS);
+  renderChat();
 })();
