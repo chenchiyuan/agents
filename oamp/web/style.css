@@ -171,6 +171,10 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-fa
 .composer { border-top: 1px solid var(--line); background: var(--bg); padding: 10px 20px 12px; }
 .status-line { min-height: 18px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
 .status-line .agent { color: var(--green); font-weight: 500; }
+/* pr-008：working 等待计时（reasoning 模型静默思考期可达数分钟，需给出进度感与慢模型提示） */
+.status-line .waiting { color: var(--amber); }
+.status-line .waiting #wait-elapsed { font-variant-numeric: tabular-nums; }
+.status-line .slow-hint { margin-top: 2px; color: var(--amber); }
 .composer-box { position: relative; display: flex; gap: 8px; align-items: flex-end; }
 #input {
   flex: 1;

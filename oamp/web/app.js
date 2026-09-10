@@ -163,11 +163,84 @@ function renderStatusLine() {
   const el = $('status-line');
   const chat = state.chat;
   if (!chat) {
+    stopWaitTimer();
     el.innerHTML = '';
     return;
   }
   const streaming = state.stream.chatId === chat.chat_id && state.stream.text !== '';
-  el.innerHTML = `<span class="agent">@${escapeHtml(chat.agent_id || '-')}</span> · ${chat.state}${streaming || chat.state === 'working' ? ' · 处理中…' : ''}`;
+  syncWaitTimer(chat);
+  const waiting = chat.state === 'working';
+  const slow = waiting && Date.now() - waitSince >= SLOW_HINT_MS;
+  el.innerHTML = `<span class="agent">@${escapeHtml(chat.agent_id || '-')}</span> · ${chat.state}${
+    waiting
+      ? ` · <span class="waiting">思考中 · 已等待 <span id="wait-elapsed">${fmtWait(Date.now() - waitSince)}</span></span>`
+      : streaming
+        ? ' · 处理中…'
+        : ''
+  }${slow ? `<div id="wait-slow-hint" class="slow-hint">${SLOW_HINT_TEXT}</div>` : ''}`;
+}
+
+// ── working 等待计时（pr-008）──
+// 背景：reasoning 模型静默思考期没有 task_update，状态行只剩 working → 用户误判卡死（实测首 token 242s）。
+// 设计：working 期间每秒只改 #wait-elapsed 文本（不触发 renderChat）；非 working 立即 clearInterval（不留常驻定时器）。
+const WAIT_TICK_MS = 1000;
+const SLOW_HINT_MS = 30000;
+const SLOW_HINT_TEXT = '当前模型首 token 可能较慢（实测可达数分钟）——可在模型框切换更快模型';
+
+let waitTimer = null; // 1s 定时器；仅 working 期间存在
+let waitKey = null; // 计时归属（chat_id + 起点）：变化即新一轮，重新起算
+let waitSince = 0; // 本轮起点（epoch ms）
+
+function fmtWait(ms) {
+  return `${Math.max(0, Math.floor(ms / 1000))}s`;
+}
+
+/** 本轮 working 起点：优先触发该轮 in 消息的落库时刻（≈ task.created_at），其次 chat.updated_at（派发时置 working）；
+ *  都取不到则 null，由调用方以「首次观察到 working 的本地时刻」兜底。 */
+function workingStartAt(chat) {
+  const last = state.messages[state.messages.length - 1];
+  const at = last && last.direction === 'in' ? Number(last.created_at) : NaN;
+  if (Number.isFinite(at)) return at;
+  const updated = Number(chat.updated_at);
+  return Number.isFinite(updated) ? updated : null;
+}
+
+function stopWaitTimer() {
+  clearInterval(waitTimer);
+  waitTimer = null;
+  waitKey = null;
+}
+
+/** 每秒只改状态行内的计时文本；跨过阈值时补一行慢模型提示（消息区不动）。 */
+function tickWait() {
+  const elapsed = Date.now() - waitSince;
+  const back = $('wait-elapsed');
+  if (back) back.textContent = fmtWait(elapsed);
+  if (elapsed >= SLOW_HINT_MS && !$('wait-slow-hint')) {
+    const line = $('status-line');
+    if (!line) return;
+    const hint = document.createElement('div');
+    hint.id = 'wait-slow-hint';
+    hint.className = 'slow-hint';
+    hint.textContent = SLOW_HINT_TEXT;
+    line.appendChild(hint);
+  }
+}
+
+/** working → 建 1s 定时器（同一轮次不重建）；非 working → 立即停表。 */
+function syncWaitTimer(chat) {
+  if (!chat || chat.state !== 'working') {
+    stopWaitTimer();
+    return;
+  }
+  const start = workingStartAt(chat);
+  const key = `${chat.chat_id}:${start === null ? 'local' : start}`;
+  if (waitKey !== key) {
+    stopWaitTimer();
+    waitKey = key;
+    waitSince = start === null ? Date.now() : start;
+  }
+  if (waitTimer === null) waitTimer = setInterval(tickWait, WAIT_TICK_MS);
 }
 
 // ── 实时订阅（SSE）──

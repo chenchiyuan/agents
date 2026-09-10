@@ -1020,3 +1020,25 @@ test('Web：前端契约——轮询消失、SSE 订阅、新控件、@ 与 ! �
 
   assert.match(appJs, /currentMentionQuery/, '@ 补全逻辑应保留');
 });
+
+// ────────────────────────── pr-008：working 等待计时（静态契约） ──────────────────────────
+// 背景：reasoning 模型静默思考期无 task_update（实测首 token 242s），UI 只有 working → 用户误判卡死。
+test('Web：前端契约——working 等待计时 + 慢模型提示（pr-008）', async (t) => {
+  const appJs = fs.readFileSync(path.join(ROOT, 'web', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'web', 'style.css'), 'utf8');
+
+  assert.match(appJs, /const SLOW_HINT_MS = 30000;/, '慢模型提示阈值应为 30000ms 常量');
+  assert.match(appJs, /思考中 · 已等待/, '状态行应显示「思考中 · 已等待 Ns」');
+  assert.match(appJs, /id="wait-elapsed"/, '计时文本应有稳定锚点（每秒只改它）');
+  assert.match(appJs, /setInterval\(tickWait, WAIT_TICK_MS\)/, '应以 1s 定时器刷新计时');
+  assert.match(appJs, /function stopWaitTimer\(\)/, '非 working 应停表');
+  assert.match(appJs, /clearInterval\(waitTimer\)/, '停表应 clearInterval（不留常驻定时器）');
+  assert.match(appJs, /chat\.state === 'working'/, '计时仅在 working 期间');
+  assert.match(appJs, /当前模型首 token 可能较慢/, '应提示慢模型可换更快模型');
+  assert.match(appJs, /created_at/, '起点应优先取消息落库时刻');
+
+  assert.match(css, /\.status-line \.waiting/, '等待计时样式应存在');
+  assert.match(css, /\.slow-hint/, '慢模型提示样式应存在');
+
+  assert.doesNotMatch(appJs, /POLL_MS/, '不得退回全页轮询（保持 SSE 事件驱动）');
+});
