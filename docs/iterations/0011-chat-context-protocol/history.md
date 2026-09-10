@@ -81,3 +81,10 @@
 - pr-007：web 侧对账补拉（快速 6×5s → 30s 低频续查 → 30min 软 TTL；landed 幂等；SIGINT 清理）。
 - 验证三轮：初验 FAIL（对账达上限删登记 → >30s 长任务合法 result 被丢，因果隔离证明）→ Fix（上限只停轮询不删登记）→ PASS → 终审 PASS（D-1 低频续查 + D-2 软 TTL 根治：35s 长任务 + 投递丢失双故障 60s 补落）。
 - 合并 66a616f；全量 151/151。文档同步：architecture §4.3/§8.2 + README（3 个对账 env，D-3）+ NC-17/NC-18 登记；pr-007 卡补录（D-4）。
+
+### 2026-09-10 12:30:00 · 交付演示复验（pr-007 后）
+
+- E-1（真实 LLM）：同 chat 轮1「请记住暗号：蓝鲸」→「好的」；轮2 同 chat 追问 → **「蓝鲸」**（上下文累积成立，926ms）。
+- E-2：新 chat 问同一暗号 → 「我没有收到过任何暗号…上下文中不存在你之前让我记的内容」（隔离成立）。
+- 缺失率抽查 8 次新建 chat 首发：7/8 completed+out=1；1 例（#8）为 NC-19 边界（>8 活跃 chat → LRU 淘汰与在飞请求交互，Router state=working 悬挂至 prompt 超时），已在 architecture §6.3/§18.1 登记 NC-19。
+- 环境：router/agent/web 已重启加载 0011 全部改动；web 用 SQLite（oamp/data/sql.db）。
