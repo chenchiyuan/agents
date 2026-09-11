@@ -126,3 +126,31 @@
 - 阶段：阶段 5（PR 实现）
 - 任务：逐 PR 在独立 worktree 分支、独立子 agent 中执行（先拆任务，再实现，产出最小实现）
 - PR：prs/pr-003-acp-tool-permission.md
+
+### 2026-09-11 12:05:39 · 收到报告 · dev（pr-001-role-binding）
+
+- 1. 产出：oamp/src/role-binding.js（45 行）+ oamp/test/role-binding.test.js（94 行）+ prs/pr-001-role-binding-tasks.md（planner 段）
+- 2. 导出符号：instanceIdForRole / roleFromInstanceId（含存在性校验）/ resolveRoleRoot（OAMP_ROLE_ROOT 覆盖，缺省仓库根）/ resolveRoleFile(root, role)（只解析不判存在）
+- 3. 测试：role-binding.test.js 8/8；npm test 160/160（152 + 8）；16 个既有测试文件零修改
+- 4. 单点约束证据：`grep -rn "'pb-'" oamp/src` 仅命中 role-binding.js
+- 5. 越界：无（3 处契约差异按 PR 卡实现并说明）
+
+### 2026-09-11 12:05:39 · 收到报告 · dev（pr-003-acp-tool-permission）
+
+- 1. 产出：oamp/src/acp-client.js（318→422 行，+119/-15）+ oamp/test/tool-permission.test.js（311 行，6 用例）+ prs/pr-003-acp-tool-permission-tasks.md
+- 2. 参数面与事件：tools=false（缺省含 --no-tools）/ roleFile=null（→ --append-system-prompt）/ permission='allow' / auditContext=null / onPermissionRequest=null；事件 TOOL_APPROVED / TOOL_DENIED（9 字段 + 恰一条）；allow → allow_once；deny → reject_once + session/cancel + AcpError('permission_denied')；未知方法 → -32601；服务端请求分支置于 _pending 查找之前（消除 V-6 静默丢弃）
+- 3. 测试：tool-permission.test.js 6/6；context-pool.test.js 16/16（回归：dev-1 argv 仍含 --no-tools）；npm test 158/158
+- 4. 回归证据：context-pool.test.js:525-536 原样通过（tools 缺省 false ⇒ --no-tools 恒在）
+- 5. 越界：初版误用相对路径改了主工作区 oamp/src/acp-client.js，已 `git checkout --` 完整回退（主 agent 已复核：318 行、无 diff）；另记 MI-1（auditContext 需 pr-004 透传）与 MI-2~MI-4
+
+### 2026-09-11 12:05:39 · 派发 · verifier（pr-001 验收）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：独立验收 pr-001 的验收标准与实现（含回归与越界核查）
+- PR：prs/pr-001-role-binding.md
+
+### 2026-09-11 12:05:39 · 派发 · verifier（pr-003 验收）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：独立验收 pr-003 的验收标准与实现（含 permission 语义、审计口径、回归与越界核查）
+- PR：prs/pr-003-acp-tool-permission.md

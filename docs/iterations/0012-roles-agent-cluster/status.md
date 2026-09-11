@@ -22,9 +22,9 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-role-binding.md | （无） | ⏸ | feat/0012-pr-001-role-binding | ⬜ | 占用 |
+| pr-001-role-binding.md | （无） | ⏸ 验收中 | feat/0012-pr-001-role-binding | ⬜ | 占用 |
 | pr-002-cluster-config.md | pr-001 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-003-acp-tool-permission.md | （无） | ⏸ | feat/0012-pr-003-acp-tool-permission | ⬜ | 占用 |
+| pr-003-acp-tool-permission.md | （无） | ⏸ 验收中 | feat/0012-pr-003-acp-tool-permission | ⬜ | 占用 |
 | pr-004-agent-role-binding.md | pr-001, pr-003 | ⬜ | | ⬜ | 排队(依赖未满足) |
 | pr-005-cluster-entry.md | pr-002 | ⬜ | | ⬜ | 排队(依赖未满足) |
 | pr-006-e2e-and-docs.md | pr-003, pr-004 | ⬜ | | ⬜ | 排队(依赖未满足) |
@@ -53,3 +53,4 @@
 - 2026-09-11: 阶段 2 完成（prd.md + 7 卡）；用户确认 M-01/02/03；派发阶段 3 architect + progress-observer。
 - 2026-09-11 11:51:26: 阶段 3 完成（architecture v1.1.0，L1 六项确认）；派发阶段 4 pr-planner + 阶段 2/3 独立验证。
 - 2026-09-11 11:59:45: 阶段 4 完成（6 PR，独立验证 PASS）；阶段 5 初始化并发配置（起始 3/硬上限 5）；首批派发 pr-001 ∥ pr-003。
+- 2026-09-11 12:05:39: pr-001（160/160）与 pr-003（158/158）实现完成；派发独立验收；pr-003 记 MI-1（auditContext 需 pr-004 透传）。
