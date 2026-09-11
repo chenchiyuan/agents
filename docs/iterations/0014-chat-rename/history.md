@@ -82,3 +82,28 @@
 
 - 阶段：阶段 3（技术架构）
 - 任务：独立验证 prd 覆盖性、architecture 补全度与 L1 判定、prs 依赖正确性与格式
+
+### 2026-09-11 16:25:18 · 收到报告 · verifier（阶段 2/3/4）
+
+- 1. 报告路径：docs/iterations/0014-chat-rename/clarifications/verify-20260911-161837-stage234.md；结论 PASS（6 pass / 2 partial / 0 fail / 8 偏差）
+- 2. 逐项判定摘要：prd 覆盖性与无技术污染 pass；AR-01~AR-13 全填零残留（partial 子项 = §16.2 自述与事实不符）；L1 独立复核确认无遗漏（isReadonly 具名化属行为保持型 extract-function）；两处硬契约可执行；prs 七字段/互斥/无环/覆盖 pass（partial = pr-002 部分验收需 pr-001 先落，verifier 判定"声明内真实硬依赖、不需返工"）
+- 3. 最需关注发现：回归影响面声明完整（写口白名单是唯一必须修改的既有断言）
+- 4. 疑问/越界：偏差 8 条已分派修正（architect 4 项 / prd 3 项 / status 1 项由主 agent 修正）
+
+### 2026-09-11 16:25:18 · 收到报告 · verifier（pr-001 验收）
+
+- 1. 报告路径：docs/iterations/0014-chat-rename/clarifications/verify-20260911-162354-pr001.md；结论 PASS（0 fail / 0 partial / 3 偏差）
+- 2. 逐项判定摘要：卡验收全 pass；写语句单列、双守卫、changes 三态、验证口径、回归锁、串行 221/221 均独立核实
+- 3. 最需关注发现：3 条偏差（不阻塞）
+- 4. 疑问/越界：无
+
+### 2026-09-11 16:25:18 · 调度决策 · 槛位释放
+
+- 决策内容：pr-001 合并 → 槛位释放（累计 1）；pr-002 依赖满足，立即派发
+- 触发依据：git log merge commit；status.md 并发配置；prs/pr-002 的 depends_on（pr-001）
+
+### 2026-09-11 16:25:18 · 派发 · dev（pr-002-rename-api-ui-contract）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-002（/rename API + 控制台标题编辑 + README）
+- PR：prs/pr-002-rename-api-ui-contract.md
