@@ -82,3 +82,28 @@
 
 - 阶段：阶段 3（技术架构）
 - 任务：独立验证 prd 覆盖性、architecture 补全度（AR-01~AR-17）、prs 依赖正确性与格式
+
+### 2026-09-11 15:19:06 · 收到报告 · verifier（阶段 2/3/4 验证）
+
+- 1. 报告路径：docs/iterations/0013-chat-archive/clarifications/verify-20260911-151328-stage234.md；结论 PASS（0 fail / 3 partial / 8 偏差）
+- 2. 逐项判定摘要：prd 覆盖性与无技术污染 pass；AR-01~AR-17 逐条可定位且零残留（partial 子项 = 阶段 3 提交含产品维度标记更新，实为 prd 的 M 项确认同批提交）；L1 独立复核确认无遗漏；两处硬契约经真实 SQLite 实验证明可执行（35 项断言）；prs 七字段/互斥/无环/覆盖 pass（partial = 1 处行号错 + 摘要超长）；验收可独立判断 pass；回归面计数偏差
+- 3. 最需关注发现：迁移写法与双视图查询可执行且自洽（既有库补列幂等、列序同构、countChats total 恒一致、分页无重叠无遗漏）
+- 4. 疑问/越界：偏差已全部分派修正（architect 修 D2/D3/D4/D6/D8、pr-planner 修 D5/D7 + 补 F05-6 行为验收）；D1 提交归属已在 status 说明
+
+### 2026-09-11 15:19:06 · 收到报告 · verifier（pr-001 验收）
+
+- 1. 报告路径：docs/iterations/0013-chat-archive/clarifications/verify-20260911-151753-pr001.md；结论 PASS（0 fail / 0 partial / 1 偏差）
+- 2. 逐项判定摘要：卡 8 条验收全 pass；真实旧库迁移幂等（二次打开 md5 不变）、双视图与分页、三写口语义、契约断言同步、串行全量 210/210 均独立核实
+- 3. 最需关注发现：1 条偏差（不阻塞）
+- 4. 疑问/越界：无
+
+### 2026-09-11 15:19:06 · 调度决策 · 槛位释放
+
+- 决策内容：pr-001 合并 → 槛位释放（累计 1）；pr-002 依赖满足，立即派发（本迭代仅 2 PR 且串行，无真实并发）
+- 触发依据：`git log` merge commit；status.md §并发配置；prs/pr-002 的 depends_on（pr-001）
+
+### 2026-09-11 15:19:06 · 派发 · dev（pr-002-web-archive-api-and-console）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-002（归档 API + 控制台交互 + README）
+- PR：prs/pr-002-web-archive-api-and-console.md
