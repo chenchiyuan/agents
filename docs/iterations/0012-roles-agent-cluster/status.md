@@ -2,9 +2,9 @@
 
 **工作流**: workflow-pb v0.8.0
 **迭代**: 0012-roles-agent-cluster
-**当前阶段**: 阶段 6 返工（PR-007）
-**迭代分支**: iteration/0012-roles-agent-cluster
-**状态**: 进行中
+**当前阶段**: 已完成
+**迭代分支**: iteration/0012-roles-agent-cluster（已合并）
+**状态**: 已完成
 **history**: 开启
 
 ## 阶段状态
@@ -65,3 +65,4 @@
 - 2026-09-11 13:18:45: 阶段 6 验收发现 F05 真实环境不成立（omp ACP 路径不发 session/request_permission）→ architecture v1.2.0 修订（approval-mode 映射 + tool_call 审计源）→ pr-007 实现完成（203/203，真实 omp 冒烟通过；NC-5 定稿：只读工具亦发 tool_call）；独立验收中。
 - 2026-09-11 13:38:24: 阶段 6 返工闭环：pr-007 验收 PASS（18/18）并合并（迭代分支 203/203）；E1~E8 真实环境验收全部通过（含 E4 工具关闭、E5 两档审计、E8 自定义 cwd）；证据归档 evidence/e-series-acceptance.md；stage6 复审中。
 - 2026-09-11 13:40:37: stage6 复审 PASS（8 pass / 1 partial[留痕形态] / 0 fail）；status 自洽性修正（pr-005 行、阶段 5 计数 203）；E2 产物 role-smoke2.txt 已清理；准备合入 main。
+- 2026-09-11 13:40:43: 迭代分支已合并进 main（阶段 6 PASS）；分支已删除。
