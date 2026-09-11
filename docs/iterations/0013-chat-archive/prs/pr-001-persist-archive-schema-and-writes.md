@@ -2,7 +2,7 @@
 
 ## 上下文摘要
 
-在既有 `oamp/src/persist.js` 上落地本次迭代的数据层：`chats` 表新增 `archived_at`（可空时间戳，`NULL` = 未归档，兼作归档时间）与 `context_released`（一位；归档置 1、输出置 0）；`openDb` 内新增按 `pragma_table_info('chats')` 列存在性守卫的**幂等迁移**（既有库补列、新库 no-op，列序与 `ALTER ADD COLUMN` 的追加语义对齐）；列表查询**仍是单条语句**——参数 CTE 加第 6 槽 `archived`、`LIST_FROM` 加双视图互斥谓词、排序键改条件表达式；新增 `archiveChat` / `activateChat` / `listArchivable` 三个口并扩导出白名单。只改持久层与其单测，不接线 HTTP 与前端（归 pr-002）。它是 5 张卡在数据层的共同判定面，可独立合并、独立跑测。
+数据层：`persist.js` 加 `archived_at`（可空，NULL=未归档）与 `context_released`；`openDb` 按列存在性守卫幂等迁移；列表查询加 `archived` 视图槽、互斥谓词与排序键；新增 `archiveChat`/`activateChat`/`listArchivable`；同步 `persist.test.js` 补迁移/双视图用例。
 
 ## 涉及功能点
 
@@ -25,8 +25,8 @@
 - [ ] **双视图互斥与 `total` 一致性**：造混合数据（未归档 completed/working + 已归档若干，含两条 `archived_at` 相同）→ 缺省 `listChats()` 不含任何已归档、`total` 与返回集一致；`listChats({archived:1})` 只含已归档且顺序 = `archived_at DESC, chat_id DESC`（同时间由 `chat_id` 兜底）；`listChats({state:'closed'})` 排除已归档的 closed；`listChats({archived:2})` 抛错（F03-2 / F03-3，V-1 / V-2 / V-3）
 - [ ] **归档视图分页**：归档 60 条（`archived_at` 递增），用 `limit: 20` 分三页取回——三页并集无重复无遗漏、并集大小 = `total` = 60（F04-1 / F04-3 / F04-4）
 - [ ] `listArchivable()` 只返回未归档且 `state != 'working'` 的 chat_id：completed / failed / closed 全部入选，`working` 与已归档全部排除（F01-2）
-- [ ] **既有契约同步（AR-17）**：`persist.test.js` 的 chats 列名断言（`:70-73`）、写口白名单（`:106-111`，结果集变为 `['archiveChat','activateChat','closeChat','insertInput','insertOutput','startupSweep','upsertChat']` 且 `listArchivable` 列入读口排除名单）、`getChat().chat` 键白名单（`:303-305`，追加 `archived_at`/`context_released`）、`upsertChat`/`closeChat` 的 `deepEqual`（追加 `archived_at: null, context_released: 0`）全部按 §7.1 逐字更新；`:48-57` 的「重复 openDb 不抛错」既有用例在补列后仍绿
-- [ ] `cd oamp && node --test test/persist.test.js` 全绿；本 PR 内 `oamp/src/web.js`、`oamp/web/**`、`oamp/README.md`、其余 15 个既有测试文件零改动
+- [ ] **既有契约同步（AR-17）**：`persist.test.js` 的 chats 列名断言（`:70-73`）、写口白名单（`:106-111`，结果集**按 `.sort()` 字母序**变为 `['activateChat','archiveChat','closeChat','insertInput','insertOutput','startupSweep','upsertChat']`——`'act' < 'arc'`，顺序照抄错会直接失败；且 `listArchivable` 列入读口排除名单）、`getChat().chat` 键白名单（`:303-305`，追加 `archived_at`/`context_released`）、`upsertChat`/`closeChat` 的 `deepEqual`（追加 `archived_at: null, context_released: 0`）全部按 §7.1 逐字更新；`:48-57` 的「重复 openDb 不抛错」既有用例在补列后仍绿
+- [ ] `cd oamp && node --test test/persist.test.js` 全绿；本 PR 内 `oamp/src/web.js`、`oamp/web/**`、`oamp/README.md`、其余 19 个既有测试文件零改动
 
 ## 参考资料
 

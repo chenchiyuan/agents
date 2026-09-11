@@ -2,7 +2,7 @@
 
 ## 上下文摘要
 
-在 pr-001 的数据层之上接线全部用户可见面。`oamp/src/web.js`：`GET /api/chats` 透传 `archived`；新增 `POST /api/chats/archive`（后端一次编排 + 逐条 `UPDATE` + 逐条 best-effort 释放上下文）；新增 `POST /api/chats/<id>/activate`（预检 `getChat` → 404/409 → 一条 `UPDATE` → `publishState` → 200）；`POST /api/messages` 的 409 扩为 archived（优先）/ closed 两条独立路径。`oamp/web/`：过滤栏加「归档」标签与右侧「归档全部」按钮、列表容器下加「加载更多」槽、归档行（归档时间 + 原状态 badge + 独立「激活」按钮，`stopPropagation`）、归档视图独立分页状态、`context_released` 头部提示条。同步 `test/web.test.js` 与 `README.md`。三者互相消费（前端调用的正是本 PR 新增的端点，接口用例与前端静态契约同处 `web.test.js`），拆开则任何一半都无法独立验收，故合并为一个 PR。
+在 pr-001 数据层之上接线全部用户可见面：`web.js` 透传 `archived`、新增批量归档与激活端点（含释放上下文）、409 扩为 archived/closed 双路径；`web/` 加归档标签、归档全部、加载更多、激活按钮与 `context_released` 提示条；同步 `web.test.js`/`README.md`。前后端互相消费，拆开不可独立验收，故合并。
 
 ## 涉及功能点
 
@@ -28,10 +28,11 @@
 - [ ] **只读双路径**：归档后 `GET /api/chats` 不含它、`GET /api/chats?archived=1` 含它；归档对话 `POST /api/messages` → `409 {error:'chat 已归档（只读），不接受新输入'}` 且库中不新增该轮 `in` 记录；`state='closed'` 对话的 409 状态码与文案 `chat 已关闭，不接受新输入` 逐字不变（F02-3 / F02-4）
 - [ ] **归档释放上下文**：对每个成功归档的 chat 向 `chats.agent_id ∪ DISTINCT messages.agent_id` 逐条发 `notice{kind:'context_release', chat_id}`，best-effort（agent 离线忽略、不影响响应计数）——以 fake agent 侧观察到该 notice 为判定（F02-7）
 - [ ] `POST /api/chats/<id>/activate` → `200 {chat_id,state}`：`closed` 来源的归档项 `state='completed'` 且 `closed_at` 清空，随后 `GET /api/chats` 的 `chats[0]` 即它（置顶）、`GET /api/chats?archived=1` 不再含它；对未归档对话 → `409 {error:'chat 未归档，无法激活'}`；未知 chat → `404`（F05-1 / F05-3 / F05-4 / F05-8）
-- [ ] **前端静态与行为契约**：`index.html` 的 `.filters` 含 `data-filter="archived"` 与 `id="btn-archive-all"`（文案「归档全部」）、`#chat-list` 之后有 `id="load-more-slot"`；`app.js` 含 `ARCHIVE_PAGE_SIZE = 200`、`/api/chats?archived=1`、`window.confirm('将归档全部非进行中的对话，是否继续？')`、`.activate` 绑定的 `e.stopPropagation()`、「加载更多」仅当 `chats.length < total` 时渲染、`chat.context_released === 1` 驱动的头部说明条；`style.css` 含 `.archive-all` 与 `.load-more`（F01-1 / F01-5 / F03-1 / F03-4 / F03-5 / F03-6 / F04-3 / F04-5 / F05-6）
+- [ ] **前端静态与行为契约**：`index.html` 的 `.filters` 含 `data-filter="archived"` 与 `id="btn-archive-all"`（文案「归档全部」）、`#chat-list` 之后有 `id="load-more-slot"`；`app.js` 含 `ARCHIVE_PAGE_SIZE = 200`、`/api/chats?archived=1`、`window.confirm('将归档全部非进行中的对话，是否继续？')`、`.activate` 绑定的 `e.stopPropagation()`、「加载更多」仅当 `chats.length < total` 时渲染、`chat.archived_at === null && chat.context_released === 1` 驱动的头部说明条（激活后可见、首次产生新回答后消失）；`style.css` 含 `.archive-all` 与 `.load-more`（F01-1 / F01-5 / F03-1 / F03-4 / F03-5 / F03-6 / F04-3 / F04-5 / F05-6）
+- [ ] **F05-6 行为验收**：激活后打开该对话：可见「此后不再记得此前内容」说明条；向该对话发送一轮并收到回复后，该说明条消失（判据：`archived_at === null && context_released === 1` 时渲染；新回答落库后 `context_released` 复位为 0，刷新/推进后不再渲染）（F05-6 / AR-16 / M-04）
 - [ ] `web.test.js:1000-1044` 的既有前端契约（轮询消失 / SSE 订阅 / 新控件 / `@` 与 `!` 保留 / working 计时）与既有列表、过滤、分页、`close`、409、SSE 用例**零删改**仍全绿（AR-17）
 - [ ] `README.md`：UI 段（`:126-129`）补「归档」标签、「归档全部」按钮、「激活」与「加载更多」；API 表（`:153-158`）给 `GET /api/chats` 补 `archived`（缺省 0 = 排除已归档）并新增 `POST /api/chats/archive`、`POST /api/chats/<chat_id>/activate` 两行（含 409 / 404 语义）；状态段（`:162`）把「`closed`（终态、不可重开）」收窄为「唯一例外是「归档 → 激活」路径」；上下文段（`:174-175`）补「归档即释放上下文」「激活不恢复上下文」（AR-17）
-- [ ] `cd oamp && node --test test/web.test.js` 全绿；本 PR 内 `oamp/src/persist.js`、`oamp/test/persist.test.js`、`oamp/test/acp-daemon.test.js`、其余 14 个既有测试文件零改动
+- [ ] `cd oamp && node --test test/web.test.js` 全绿；本 PR 内 `oamp/src/persist.js`、`oamp/test/persist.test.js`、`oamp/test/acp-daemon.test.js`、其余 17 个既有测试文件零改动
 
 ## 参考资料
 
@@ -45,7 +46,7 @@
 
 ## depends_on
 
-- pr-001-persist-archive-schema-and-writes.md（理由：本 PR 的新代码直接消费 pr-001 新增的持久层符号。证据：`oamp/src/web.js:24` 已 `import { openDb } from './persist.js'`、`:178` 已 `db = openDb(config.dbPath)`，且 `:375` 调 `db.listChats(...)`、`:393/:403/:462` 调 `db.getChat(...)`、`:407` 调 `db.closeChat(...)`；本 PR 要在同一 `db` 句柄上调用 pr-001 新增的 `db.archiveChat` / `db.activateChat` / `db.listArchivable`、给 `db.listChats` 传 `archived`、并读 `existing.chat.archived_at`（`:462-466` 处的新 409 分支）——该键只有在 pr-001 把 `architecture.md` §4.1 的 `CHAT_COLUMNS` 扩展后才存在。未合入 pr-001 时，本 PR 的 `web.test.js` 新增用例必然失败：`/api/chats/archive` 与 `/activate` 无对应 SQL 口、`/api/chats?archived=1` 的谓词与 `ORDER BY` 不存在、`existing.chat.archived_at` 恒 `undefined`）
+- pr-001-persist-archive-schema-and-writes.md（理由：本 PR 的新代码直接消费 pr-001 新增的持久层符号。证据：`oamp/src/web.js:24` 已 `import { openDb } from './persist.js'`、`:178` 已 `db = openDb(config.dbPath)`，且 `:375` 调 `db.listChats(...)`、`:393/:403/:462` 调 `db.getChat(...)`、`:412` 调 `db.closeChat(...)`；本 PR 要在同一 `db` 句柄上调用 pr-001 新增的 `db.archiveChat` / `db.activateChat` / `db.listArchivable`、给 `db.listChats` 传 `archived`、并读 `existing.chat.archived_at`（`:462-466` 处的新 409 分支）——该键只有在 pr-001 把 `architecture.md` §4.1 的 `CHAT_COLUMNS` 扩展后才存在。未合入 pr-001 时，本 PR 的 `web.test.js` 新增用例必然失败：`/api/chats/archive` 与 `/activate` 无对应 SQL 口、`/api/chats?archived=1` 的谓词与 `ORDER BY` 不存在、`existing.chat.archived_at` 恒 `undefined`）
 
 ## batch
 

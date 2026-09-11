@@ -3,7 +3,7 @@
 **版本**：1.0.0（阶段 3 产物）　**日期**：2026-09-11　**状态**：**L1 决策：本迭代无**（本次全部取舍落在 L2/L3，见 §13）；§3 / §4 的两处契约（迁移写法、双视图查询）为本次的硬约束，实现阶段不得偏离
 **输入**：`prd.md`（v0.1.0，5 卡 F01~F05 / AR-01~AR-17 / M-01~M-05 已确认）+ `demand.md`（v0.2.0，A-1~A-10 / N-1~N-9 / E-1~E-8 / D-1~D-14 / M-1~M-11，仅作追溯基准）
 **架构基线**：`docs/iterations/0012-roles-agent-cluster/architecture.md`（v1.2.0，已合入 `main`）+ 阶段 3 重新取证的代码库 `oamp/`（§1）
-**前置**：0011 交付态（SQLite 落盘 / SSE / 上下文池 / 关闭即释放上下文 / 16 个测试文件，203/203 绿）+ 0012 交付态（角色集群，未触碰 persist / web / web 前端）
+**前置**：0011 交付态（SQLite 落盘 / SSE / 上下文池 / 关闭即释放上下文）+ 0012 交付态（角色集群，未触碰 persist / web / web 前端）；当前 `oamp/test/*.test.js` 共 **20** 个文件（203/203 绿）
 **约束**：零新第三方依赖（`oamp/package.json` 的 `dependencies` 保持 `{}`）；`roles/**` 只读；不改 workflow-pb 派发路径；**不引入任何新模块 / 新进程 / 新传输**
 
 > 本文档回答 prd 的全部 17 条架构待填项（AR-01~AR-17，逐条落定见 §10），给出组件与数据流（§8）、分级决策（§9）与 PR 边界**输入**（§14；拆解归阶段 4）。
@@ -27,7 +27,7 @@
 | `oamp/web/index.html`（67 行） | 过滤栏 3 颗静态按钮（:27-30，`.filters`）；`#chat-list`；详情头部 `#detail-title`/`#detail-meta`/`#btn-close`；底部 `#status-line`/`#hint` | **改造**：过滤栏 +「归档」标签 +「归档全部」按钮；`#chat-list` 下 +「加载更多」槽 |
 | `oamp/web/app.js`（579 行） | `renderChats()`（:70-101，纯内存过滤 + TODAY/OLDER 分组）；`badge()`（:45-55）；`renderChat()`（:104-121）；`loadChats()`（:345-352，**无参数、只取第一页 50**）；过滤按钮绑定（:563-569）；`handleEvent`（:283-310）；`openChat`（:355） | **改造**：归档视图状态与分页、归档行渲染（归档时间 + 独立「激活」按钮）、批量归档入口与结果反馈、`context_released` 提示条 |
 | `oamp/web/style.css` | `.filters{display:flex;gap:6px}`（:74）；`.filter.active`（:84）；`.chat-item`（:94-104）；`.notice-bar`（:275） | **微改造**：`.filters` 对齐 + `.archive-all{margin-left:auto}`；激活按钮与「加载更多」样式 |
-| `oamp/test/persist.test.js`（409 行） | **逐字断言** schema 对象集与 chats 列名（:71-73）、详情 chat 键白名单（:303-305）、写口白名单（:106-111）、`upsertChat`/`closeChat` 返回对象 `deepEqual`（:314-345） | **必须同步（AR-17）**：见 §7 的逐条清单 |
+| `oamp/test/persist.test.js`（409 行） | **逐字断言** schema 对象集与 chats 列名（:70-73）、详情 chat 键白名单（:303-305）、写口白名单（:106-111）、`upsertChat`/`closeChat` 返回对象 `deepEqual`（:314-345） | **必须同步（AR-17）**：见 §7 的逐条清单 |
 | `oamp/test/web.test.js`（1044 行） | API 契约（列表 / 过滤 / close / 409 / SSE）与前端静态契约（:1000-1044） | **必须同步（AR-17）**：既有断言不变；新增端点与静态结构断言 |
 | `oamp/README.md` | ① UI 描述（:126-129）② API 表（:153-158）③ 对话状态段「关闭后为 `closed`（终态、不可重开）」（:162）④ 常驻上下文与关闭段「不提供重开」（:175） | **同步（AR-17）**：见 §7 |
 | `oamp/src/{router,registry,rpc,node-client,config,log,transport,task,agent,acp-client,context-pool,cluster,cluster-config,role-binding,status,cli}.js`、`oamp/web/index.html` 之外的前端结构、`oamp/package.json` | 0010~0012 交付面 | **不改**（本次不触碰集群 / agent / 上下文池 / 传输层） |
@@ -44,7 +44,7 @@
 | F | SSE `chat_state` 事件 + 前端 `handleEvent` 的状态就地更新（`app.js:300-310`） | 激活（单条、可能改 state）复用；批量归档不发 SSE（§5.1 理由） |
 | G | `.notice-bar` 样式与 `renderNotices()` 渲染位（`app.js:155`、`style.css:275`） | F05-6 的「此后不再记得此前内容」说明**同级复用**该样式与渲染位（§6.4） |
 | H | `#hint` 行（`index.html` 底部 + `app.js` 多处）承载一次性操作反馈 | 批量归档结果（AR-02）与激活反馈复用同一位置（§6.2） |
-| I | `pragma_table_info('chats')` 已被测试用作列名真源（`persist.test.js:71-73`） | 迁移块用**同一函数**做列存在性守卫（§3.2） |
+| I | `pragma_table_info('chats')` 已被测试用作列名真源（`persist.test.js:70-73`） | 迁移块用**同一函数**做列存在性守卫（§3.2） |
 
 ### 1.3 既有缺口（正好是 5 张卡的来源）
 
@@ -59,7 +59,7 @@
 
 | # | 结论 | 证据 |
 |---|---|---|
-| **S-1** | `chats` 现有列序为 `chat_id,title,agent_id,state,created_at,updated_at,closed_at`；`persist.test.js` 对**列名列表做顺序敏感**的 `deepEqual` | `persist.js:13-22`、`persist.test.js:71-73` |
+| **S-1** | `chats` 现有列序为 `chat_id,title,agent_id,state,created_at,updated_at,closed_at`；`persist.test.js` 对**列名列表做顺序敏感**的 `deepEqual` | `persist.js:13-21`、`persist.test.js:70-73` |
 | **S-2** | SQLite 的 `ALTER TABLE ... ADD COLUMN` 把新列**追加在末尾**；带常量默认值的 `NOT NULL` 列可 ADD（既有行取默认值） | SQLite 既有语义；本机 `node --experimental-sqlite`（Node 内置 `node:sqlite`）已由现库/现测验证可用 |
 | **S-3** | `listChats` 的 `SELECT` 与 `countChats` 共用 `LIST_WITH + LIST_FROM`，参数数组在 `listChats()` 内构造一次并**同值喂给两者**（`persist.js:204-206`） | `persist.js:204-206` |
 | **S-4** | 库文件真实存在且**含历史数据**：`oamp/data/sql.db`（被 `.gitignore` 覆盖）⇒ 迁移必须在既有库上真实生效，不能只改 SCHEMA 文本 | `oamp/data/sql.db`、`oamp/.gitignore` |
@@ -618,7 +618,8 @@ btn.onclick = () => {
 
 ```js
 // renderChat()：说明条位于消息区**顶部**（对话头部），复用既有 .notice-bar（"同级说明"= 与上下文释放提示同一视觉层级）
-const freshBar = chat.context_released === 1
+// 显示判据（D2 契约）：非归档只读态 ∧ 上下文已释放 ∧ 尚未产生新回答
+const freshBar = chat.archived_at === null && chat.context_released === 1
   ? '<div class="notice-bar">激活后上下文已重置，本对话后续回复不再记得此前内容</div>'
   : '';
 box.innerHTML = freshBar + body + renderStreamSlot(chat) + renderNotices(chat.chat_id);
@@ -626,11 +627,11 @@ box.innerHTML = freshBar + body + renderStreamSlot(chat) + renderNotices(chat.ch
 
 | 项 | 落定 |
 |---|---|
-| 与既有释放提示的关系 | **同级复用**：同一 `.notice-bar` 样式、同一渲染位（消息区、流式槽与运行时提示条之前）。既有 SSE 驱动的 `state.notices`（运行时、刷新不重现）**保持原样**，两者可同时存在（一次是运行时事件、一次是持久状态） |
+| **触发时点（D2 时序契约，pr-002 按此实现）** | ① **归档动作**（pr-001 的 `stmts.archiveChat`）把 `context_released` 置 1，并同时经既有 `context_release` 链路释放该 chat 的常驻上下文（§4.3）；② `activateChat` **不改该列**（只清 `archived_at`、还原 state、前移 `updated_at`）⇒ **「激活后打开该对话」时该值仍为 1**，`openChat`/`refreshChat` 全量拉详情 ⇒ 打开即可见；③ 该对话**产生新的回答**时，pr-001 的 `setOutputState` 追加 `context_released = 0` ⇒ 该轮 `message(out)` 事件触发 `refreshChat()` 时该条消失。三点合起来 = "激活后可见、直到产生新回答才消失"（M-04 确认口径） |
+| **显示判据** | `chat.archived_at === null && chat.context_released === 1`（`archived_at` 由 `GET /api/chats/<id>` 返回，§4.1 的 `CHAT_COLUMNS`）。加 `archived_at === null` 这一半的理由：文案以"激活后"为前提，而**归档但未激活**的对话同样可以打开（F02-5）且其 `context_released` 也为 1——若不加此半，那个只读详情页会显示一句前提不成立的说明。带此半后，该条的语义 = F05-6 的状态本身 |
 | 呈现承载 | 服务端状态位（`chats.context_released`）而非前端内存 ⇒ 刷新 / 重开页面后仍可见（满足 M-04 确认的"持续显示，直到产生新回答"） |
-| 出现 | 归档置 1；激活后打开该对话 ⇒ 打开时即可见（`refreshChat`/`openChat` 全量拉详情） |
-| 消失 | `insertOutput` 置 0（§4.1）⇒ 该轮 `message(out)` 事件触发 `refreshChat()` 时该条自动消失（**恰在"产生新的回答"之后**） |
-| 提示文案 | 「激活后上下文已重置，本对话后续回复不再记得此前内容」（D-12 / A-6 的语义；与既有 `context_released` 文案同族，不新增术语） |
+| **与既有 SSE `state.notices` 的关系（D6 契约）** | **同级复用但两通道独立、允许并存、不做去重**：同一 `.notice-bar` 样式与同一渲染位；既有 SSE 驱动的 `state.notices`（运行时事件、刷新不重现）**逐字保持原样**。同一操作下的预期：① 归档**当前打开**的对话 ⇒ 只有 SSE notice（`context_released`）出现，持久条不出现（`archived_at !== null`）——恰一条；② **激活后打开** ⇒ 只有持久条出现（激活不触发释放，不会产生新的 `context_released` notice）——恰一条；③ 关闭一个"激活后尚未提问"的对话 ⇒ SSE notice（关闭即释放）与持久条（`archived_at === null` 且 `context_released === 1`）**同时出现两条**——这是唯一并存场景，两条都陈述事实（一条讲刚发生的事件、一条讲当前状态），**判为可接受、不去重**。不去重的理由：去重需在 `state.notices` 里额外保存 `kind` 并把渲染耦合到持久位，收益仅为少一行重复文案，却会丢掉"释放动作当下的即时反馈"与"跨刷新的持久状态"这两类不同信息。**阶段 6 判定口径**：按"至少一条包含『不再记得此前内容』"断言，**不断言条数** |
+| 提示文案 | 「激活后上下文已重置，本对话后续回复不再记得此前内容」（D-12 / A-6 的语义；与既有 `context_released` 文案同族，不新增术语）。因为显示判据含 `archived_at === null`，该文案的"激活后"前提**在所有显示场景下都成立**（D2 的根因由此闭合） |
 | 上下文**确实**不延续（F05-5 / N-4） | **零代码**：归档已 `release` 该 chat 的全部常驻上下文（§4.3），激活不做任何恢复动作 ⇒ 下一轮新建 ACP 会话，模型看不到归档前内容。提示条只负责管理用户预期 |
 
 ---
@@ -641,8 +642,8 @@ box.innerHTML = freshBar + body + renderStreamSlot(chat) + renderNotices(chat.ch
 
 | 位置 | 现状 | 改法 |
 |---|---|---|
-| `schema` 用例（:71-73） | `pragma_table_info('chats')` 期望 `['chat_id','title','agent_id','state','created_at','updated_at','closed_at']` | 追加两项（**顺序敏感**）：`…,'closed_at','archived_at','context_released'`（§3.2 M-2） |
-| 写口白名单用例（:106-111） | `writers = Object.keys(db).filter(函数 && !['listChats','getChat','close'].includes(key)).sort()` ⇒ `['closeChat','insertInput','insertOutput','startupSweep','upsertChat']` | 排除名单加 `'listArchivable'`（读口），断言集变为 `['archiveChat','activateChat','closeChat','insertInput','insertOutput','startupSweep','upsertChat']` |
+| `schema` 用例（:70-73） | `pragma_table_info('chats')` 期望 `['chat_id','title','agent_id','state','created_at','updated_at','closed_at']` | 追加两项（**顺序敏感**）：`…,'closed_at','archived_at','context_released'`（§3.2 M-2） |
+| 写口白名单用例（:106-111） | `writers = Object.keys(db).filter(函数 && !['listChats','getChat','close'].includes(key)).sort()` ⇒ `['closeChat','insertInput','insertOutput','startupSweep','upsertChat']` | 排除名单加 `'listArchivable'`（读口）；断言集**按 `.sort()` 的字母序**变为 `['activateChat','archiveChat','closeChat','insertInput','insertOutput','startupSweep','upsertChat']`（`'act' < 'arc'`，照抄顺序写错会直接失败） |
 | 详情键白名单（:303-305） | `Object.keys(detail.chat).sort()` ⇒ 7 键 | 追加 `archived_at`、`context_released`（排序后：`agent_id, archived_at, chat_id, closed_at, context_released, created_at, state, title, updated_at`） |
 | `upsertChat` `deepEqual`（:318-320） | 6 键对象 | 追加 `archived_at: null, context_released: 0` |
 | `closeChat` `deepEqual`（:341-345） | 同 | 追加 `archived_at: null, context_released: 0` |
@@ -790,7 +791,7 @@ sequenceDiagram
 | AR-13 | 新增 `POST /api/chats/<chat_id>/activate`（无请求体；200 `{chat_id,state}` / 404 / 409）；复用既有"预检 → 变更 → `publishState` → 应答"的单条状态变更形态，不引入通用 PATCH/PUT | §5.3 |
 | AR-14 | 一条 `UPDATE chats SET archived_at=NULL, state=CASE WHEN state='closed' THEN 'completed' ELSE state END, closed_at=CASE WHEN state='closed' THEN NULL ELSE closed_at END, updated_at=? WHERE chat_id=? AND archived_at IS NOT NULL`：右值按更新前行值求值 ⇒ 判定的是激活前状态；`WHERE archived_at IS NOT NULL` 把"closed 可重开"收窄在归档→激活路径上（未归档 closed 逐字不变） | §4.2 |
 | AR-15 | 置顶 = 同一语句内的 `updated_at = ?`（激活时刻）⇒ 命中主列表既有 `ORDER BY updated_at DESC, chat_id DESC`；**不新增排序字段、不改排序规则**、无第二次写入 | §4.2 |
-| AR-16 | 说明条 = 消息区顶部（对话头部）复用既有 `.notice-bar`；由服务端 `chats.context_released` 驱动（归档置 1）；`insertOutput` 置 0 ⇒ 产生新回答后由 `refreshChat()` 使其消失；既有 SSE `state.notices` 链路保持原样，两者同级并存 | §6.4 |
+| AR-16 | 说明条 = 消息区顶部（对话头部）复用既有 `.notice-bar`；**显示判据 = `archived_at === null && context_released === 1`**；时序：`archiveChat` 置 1（同一动作经既有 `context_release` 释放上下文）→ `activateChat` 不动该列 ⇒ 激活后打开即可见 → `setOutputState` 置 0 ⇒ 产生新回答后由 `refreshChat()` 使其消失；与既有 SSE `state.notices` 两通道独立、唯一并存场景（关闭"激活后未提问"的对话）下两条并存且不去重（§6.4 D6 契约） | §6.4 |
 | AR-17 | 同步清单：`persist.test.js`（列名 +2 / 写口白名单 +2 并排除 `listArchivable` / 详情键 +2 / 两处 `deepEqual` +2 键 / 新增迁移与双视图用例）、`web.test.js`（既有断言不变 + 新端点与静态契约用例）、`README.md`（UI / API 表 / `closed` 收窄例外 / 归档释放与激活不恢复） | §7 |
 
 ---
@@ -803,7 +804,7 @@ sequenceDiagram
 | F02（归档语义：标记 / 时间 / 只读 / 历史） | §3.1（两列）、§3.2（迁移）、§4.1（archiveChat 语句）、§4.3（上下文释放）、§4.4（只读） | 归档后 `state` 逐字不变（F02-1）；`archived_at` = 本次（重复归档刷新只在"激活后再归档"时发生，F02-2）；归档对话 `POST /api/messages` → 409 且不落 in（F02-3/E-3）；重启后 `archived_at` 不变（E-6，落库即持久） |
 | F03（归档视图：标签 / 互斥 / 排序 / 项构成 / 空态） | §3.3（双视图查询与排序）、§6.1（标签）、§6.2（渲染与空态）、§6.4 | `archived=1` 只返回已归档、顺序 `archived_at DESC, chat_id DESC`（F03-2/3）；主列表缺省排除（F03-2/M-8）；行含归档时间 + 原状态 badge + 激活按钮（F03-4/5）；空态「还没有归档的对话」（F03-6） |
 | F04（归档容量：全部可达 / 首屏 / 续页 / 排序不乱 / 无死控件） | §5.2（`limit=200`+`offset`）、§6.2（`loadArchived` 与 `hasMore`）、§3.3 V-2（total 一致性） | 归档 60 条后仍可访问到第 60 条（E-7）；续页与首屏同一排序、无重复无遗漏；`chats.length === total` 时不留「加载更多」（F04-5） |
-| F05（激活：恢复可续 / 置顶 / 状态还原 / 提示 / 收窄） | §4.2（一条 UPDATE 的语义落点）、§5.3（端点）、§6.2（前端编排）、§6.4（提示条） | 激活后归档视图少一条、主列表多一条且首位（`chats[0]`）、可发消息并收到回复（E-4）；closed 来源 → `completed` 且 `closed_at === null`（F05-4）；`context_released === 1` 时头部可见说明、产生 out 后消失（F05-6/M-04）；未归档 closed 仍 409（F05-8） |
+| F05（激活：恢复可续 / 置顶 / 状态还原 / 提示 / 收窄） | §4.2（一条 UPDATE 的语义落点）、§5.3（端点）、§6.2（前端编排）、§6.4（提示条） | 激活后归档视图少一条、主列表多一条且首位（`chats[0]`）、可发消息并收到回复（E-4）；closed 来源 → `completed` 且 `closed_at === null`（F05-4）；激活后（`archived_at === null && context_released === 1`）头部可见说明、产生 out 后消失（F05-6/M-04）；未归档 closed 仍 409（F05-8） |
 
 ---
 
@@ -842,7 +843,7 @@ sequenceDiagram
 
 | # | 取舍 | 取值 | 若主 agent 不认可 |
 |---|---|---|---|
-| K-1 | 数据层引入"按列存在性守卫的幂等迁移"（D-02） | 采纳（demand §3 明确要求显式迁移） | 无实际替代：不迁移则功能在既有库上不生效；若要更重的机制（`user_version`+迁移表），增加的是维护面而非能力 |
+| K-1 | 数据层引入"按列存在性守卫的幂等迁移"（D-02） | 采纳（demand §3 明确要求显式迁移） | 无实际替代：不迁移则功能在既有库上不生效；若要更重的机制（`user_version`+迁移表），增加的是维护面而非能力。**阶段 3 独立验证已复核该条 L1 边界不成立（判 L2 可接受）**：见 `clarifications/verify-20260911-151328-stage234.md`（D8） |
 | K-2 | 新增 `chats.context_released`（D-13） | 采纳（为满足 M-04 确认的"持续到产生新回答"） | 退回**会话级前端标记**：代价 = 激活后刷新页面、尚未提问时提示消失，与 M-04 的持续期口径不符（§15 R-4） |
 
 ---
@@ -865,7 +866,7 @@ sequenceDiagram
 **不动（回归边界）**
 - `oamp/src/{router,registry,rpc,node-client,config,log,transport,task,agent,acp-client,context-pool,cluster,cluster-config,role-binding,status,cli}.js`、`oamp/bin/`、`oamp/package.json`、`oamp/.gitignore`
 - `messages` 表与 `idx_messages_chat_time` / `idx_chats_updated` 两个既有索引
-- 既有 16 个测试文件中与本次无关的部分（除 §7 点名的两处同步点外零修改）
+- 既有 **20** 个测试文件（`oamp/test/*.test.js` 实际数量）中与本次无关的部分（除 §7 点名的两处同步点外零修改）：pr-001 范围内其余 **19** 个、pr-002 范围内其余 **17** 个
 
 ### 14.2 文件级依赖与并行分组（建议）
 
