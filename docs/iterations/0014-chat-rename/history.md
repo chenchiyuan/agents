@@ -152,3 +152,15 @@
 
 - 决策内容：阶段 6 推进条件满足（0 fail / 0 partial）；迭代分支合入 main；修正偏差 1（有效上限按公式重算）与偏差 2（history 补 pr-001 实现事件）
 - 触发依据：stage6 报告结论 PASS；偏差 1/2 由 verifier 精确指出；cluster-actions 非密闭记入下一迭代候选
+
+### 2026-09-11 17:29:03 · 调度决策 · PR失败判定
+
+- 决策内容：主 agent 端到端验收（真实浏览器）发现视觉缺陷（编辑态 h1 与输入框并存，根因 = CSS 缺 .detail-head h1.hidden 规则）→ 判定需补丁修复，启动 pr-003（1 行 CSS + 1 静态断言），独立验收 PASS 后合并入 main
+- 触发依据：浏览器实测 computed style（编辑态 h1 display=block 143x27 与 input display=block 260x23 并存）；app.js 已加 hidden 类但 style.css 无对应规则（意图与效果不符）
+
+### 2026-09-11 17:29:03 · 收到报告 · verifier（pr-003 验收）
+
+- 1. 报告路径：docs/iterations/0014-chat-rename/clarifications/verify-20260911-172805-pr003.md；结论 PASS（6 pass / 1 partial / 0 fail / 4 偏差）
+- 2. 逐项判定摘要：修复有效（编辑态 h1 display:none、退出三路径恢复）、断言承重性（移除规则即转红）、既有断言零删改、全仓串行 226 全绿
+- 3. 最需关注发现：partial 唯一子项 = PR 卡计数写错（227 vs 226，追加断言不改用例数），非实现缺陷
+- 4. 疑问/越界：偏差 4 条（含 style.css 注释陈旧行号，属 pr-002 预存在）；隔离环境已清理
