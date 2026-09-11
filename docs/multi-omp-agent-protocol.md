@@ -129,7 +129,7 @@ instances:
   - instance_id: dev-deepseek
     executor: omp
     provider: deepseek
-    model: DeepSeek-V4.1-Flash
+    model: deepseek-chat
     prompt_profile: .pb-agents/prompts/dev-deepseek.md
     role: dev
     working_directory: .
@@ -253,7 +253,7 @@ Router 返回：
       "role": "dev",
       "executor": "omp",
       "provider": "deepseek",
-      "model": "DeepSeek-V4.1-Flash",
+      "model": "deepseek-chat",
       "prompt_hash": "sha256:...",
       "labels": ["implementation", "backend"],
       "capabilities": ["message", "task", "stream"]
