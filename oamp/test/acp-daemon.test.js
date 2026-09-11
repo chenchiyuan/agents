@@ -433,3 +433,276 @@ test('E2E：F08-1/2 `!` shell 与显式 one_shot 两形态不回归，且不进�
   assert.ok(argvs.some((a) => a[0] === 'acp'), '默认路径应起 acp 常驻进程');
   assert.ok(argvs.some((a) => a.includes('-p') && !a.includes('acp')), '一次性路径应走 -p');
 });
+// ─────────── pr-006：角色实例 argv 级断言（F02-5 / F04-2 / AR-04 / AR-05 / AR-08 / AR-09，§3.3/§3.4/§2.3） ───────────
+
+const REPO_ROOT = path.resolve(ROOT, '..'); // 仓库根 = oamp 包根上级（角色真源 roles/ 与 cluster.json 所在层）
+const ROLE_FILE_DEV = path.join(REPO_ROOT, 'roles', 'dev', 'dev.md');
+const ROLE_FILE_PLANNER = path.join(REPO_ROOT, 'roles', 'planner', 'planner.md');
+
+/** 读 JSONL 观测面（文件未创建 → 空数组）。 */
+function readJsonl(file) {
+  if (!fs.existsSync(file)) return [];
+  return fs
+    .readFileSync(file, 'utf8')
+    .split('\n')
+    .filter((l) => l.trim() !== '')
+    .map((l) => JSON.parse(l));
+}
+
+/**
+ * 拉起带 flag 的 agent 子进程。`harness.startAgent` 不接受附加 flag，而 pr-006 卡要求
+ * 「以本文件既有的 spawn / buildEnv / waitFor 直接拉起带 flag 的实例、不改 harness」——故就地实现。
+ */
+function startFlaggedAgent(instanceId, flags, { socketPath, cwd = ROOT, envExtra = {} } = {}) {
+  const child = spawn(process.execPath, [BIN, 'agent', 'start', instanceId, ...flags], {
+    cwd,
+    env: buildEnv(socketPath, envExtra),
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let out = '';
+  child.stderr.resume(); // 只消费 stdout（stdout 观测面）；stderr 排空防背压
+  child.stdout.on('data', (d) => (out += d));
+  let exit = null;
+  child.once('exit', (code, signal) => (exit = { code, signal }));
+  const matched = (re) => out.split('\n').filter((l) => re.test(l));
+  return {
+    stdout: () => out,
+    waitLine: (re, n = 1, opts = {}) =>
+      waitFor(() => (matched(re).length >= n ? out : null), { what: `第 ${n} 条 ${re}`, ...opts }),
+    stop: async () => {
+      if (exit) return exit;
+      child.kill('SIGINT');
+      await waitFor(() => exit !== null, { timeoutMs: 3000, what: `agent ${instanceId} 退出` }).catch(() => child.kill('SIGKILL'));
+      return exit;
+    },
+  };
+}
+
+test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性路径注入（F02-5/F04-2/AR-04/AR-05/AR-08）', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-e2e-role-argv-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const devArgs = path.join(dir, 'pb-dev.args.jsonl');
+  const plannerArgs = path.join(dir, 'pb-planner.args.jsonl');
+  const anonArgs = path.join(dir, 'dev-1.args.jsonl');
+
+  const router = await startRouter({ envExtra: LEASE_ENV });
+  t.after(() => stopAll([router]));
+
+  const roleEnv = { OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: FAKE_BIN };
+  // ① 角色实例（显式 flag，tools on）② 角色实例（tools off）③ 匿名实例（§2.3 回归不变式）
+  const dev = startFlaggedAgent('pb-dev', ['--role', 'dev', '--tools', 'on', '--permission', 'allow'], {
+    socketPath: router.socketPath,
+    cwd: REPO_ROOT,
+    envExtra: { ...roleEnv, FAKE_ACP_ARGS_LOG: devArgs },
+  });
+  t.after(() => dev.stop());
+  const planner = startFlaggedAgent('pb-planner', ['--role', 'planner', '--tools', 'off'], {
+    socketPath: router.socketPath,
+    cwd: REPO_ROOT,
+    envExtra: { ...roleEnv, FAKE_ACP_ARGS_LOG: plannerArgs },
+  });
+  t.after(() => planner.stop());
+  const anon = await startAgent('dev-1', { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_ARGS_LOG: anonArgs } });
+  t.after(() => anon.stop());
+  await dev.waitLine(/REGISTERED instance=pb-dev/);
+  await planner.waitLine(/REGISTERED instance=pb-planner/);
+  await anon.waitAgentLine(/REGISTERED instance=dev-1/);
+
+  const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: tempDbDir(t) });
+  t.after(() => web.stop());
+
+  // 常驻路径：各投一轮 → 各懒创建一个 `omp acp` 进程（argv 落各自的 FAKE_ACP_ARGS_LOG）
+  const devTurn = await sendAndWait(web, { agent_id: 'pb-dev', text: '请记住数字 42' });
+  await waitFor(() => readJsonl(devArgs).some((a) => a[0] === 'acp'), { what: 'pb-dev acp argv' });
+  await sendAndWait(web, { agent_id: 'pb-planner', text: '请记住数字 42' });
+  await waitFor(() => readJsonl(plannerArgs).some((a) => a[0] === 'acp'), { what: 'pb-planner acp argv' });
+  const anonTurn = await sendAndWait(web, { agent_id: 'dev-1', text: '请记住数字 42' });
+  await waitFor(() => readJsonl(anonArgs).some((a) => a[0] === 'acp'), { what: 'dev-1 acp argv' });
+
+  // ① 角色实例 + --tools on：注入角色 md 绝对路径，且不得传 --no-tools
+  const devArgv = readJsonl(devArgs).find((a) => a[0] === 'acp');
+  const devIdx = devArgv.indexOf('--append-system-prompt');
+  assert.ok(devIdx >= 0, 'F02-5/AR-04：角色实例 acp argv 应含 --append-system-prompt');
+  assert.equal(devArgv[devIdx + 1], ROLE_FILE_DEV, '注入值应为 <仓库根>/roles/dev/dev.md');
+  assert.ok(path.isAbsolute(devArgv[devIdx + 1]), '注入值应为绝对路径');
+  assert.ok(!devArgv.includes('--no-tools'), 'F04-2/AR-08：--tools on 不得传 --no-tools');
+
+  // ② 角色实例 + --tools off：必须传 --no-tools（注入机制仍在）
+  const plannerArgv = readJsonl(plannerArgs).find((a) => a[0] === 'acp');
+  assert.ok(plannerArgv.includes('--no-tools'), 'AR-08：--tools off 必须传 --no-tools');
+  assert.equal(plannerArgv[plannerArgv.indexOf('--append-system-prompt') + 1], ROLE_FILE_PLANNER);
+
+  // ③ 匿名实例回归（§2.3 不变式 / 与 context-pool.test.js 同口径）：acp argv 逐字节不变
+  const anonArgv = readJsonl(anonArgs).find((a) => a[0] === 'acp');
+  assert.deepEqual(
+    anonArgv,
+    ['acp', '--no-skills', '--no-rules', '--no-tools', '--no-session', '--model', 'deepseek/deepseek-v4-flash'],
+    '§2.3 回归：无绑定实例 acp argv 逐字节不变（含 --no-tools，无角色注入）',
+  );
+
+  // ④ 一次性路径：角色实例的 `omp -p` 同样带角色注入（§3.3 第 2 行 / TC-09）
+  await sendAndWait(web, { chat_id: devTurn.chatId, agent_id: 'pb-dev', text: '请记住数字 7', one_shot: true }, { rounds: 2 });
+  await waitFor(() => readJsonl(devArgs).some((a) => a.includes('-p')), { what: 'pb-dev -p argv' });
+  const devOneShot = readJsonl(devArgs).find((a) => a.includes('-p'));
+  assert.ok(!devOneShot.includes('acp'), '一次性路径不应含 acp');
+  assert.equal(devOneShot[devOneShot.indexOf('--append-system-prompt') + 1], ROLE_FILE_DEV, '一次性 argv 应注入同一角色文件');
+  assert.ok(!devOneShot.includes('--no-tools'), '角色实例（tools on）一次性 argv 不传 --no-tools');
+
+  // ⑤ 匿名实例一次性路径回归：仍传 --no-tools、无注入
+  await sendAndWait(web, { chat_id: anonTurn.chatId, agent_id: 'dev-1', text: '请记住数字 7', one_shot: true }, { rounds: 2 });
+  await waitFor(() => readJsonl(anonArgs).some((a) => a.includes('-p')), { what: 'dev-1 -p argv' });
+  const anonOneShot = readJsonl(anonArgs).find((a) => a.includes('-p'));
+  assert.ok(anonOneShot.includes('--no-tools'), '§2.3 回归：匿名实例一次性 argv 仍含 --no-tools');
+  assert.ok(!anonOneShot.includes('--append-system-prompt'), '§2.3 回归：匿名实例一次性 argv 无注入');
+});
+
+// ─────────── pr-006：常驻路径 permission 审计（F05-2 / AR-11 / §4.5 / §11.2） ───────────
+// fake ACP：每次 session/prompt 主动下发一次 session/request_permission（变更类 edit），
+// 收到客户端应答后才切一片增量并结算 end_turn。观测面：FAKE_ACP_ARGS_LOG / FAKE_ACP_REPLY_LOG。
+const FAKE_PERM_ACP_SOURCE = `#!/usr/bin/env node
+const readline = require('node:readline');
+const fs = require('node:fs');
+
+const argv = process.argv.slice(2);
+function send(obj) { process.stdout.write(JSON.stringify(obj) + '\\n'); }
+function log(envKey, entry) {
+  const file = process.env[envKey];
+  if (!file) return;
+  try { fs.appendFileSync(file, JSON.stringify(entry) + '\\n'); } catch {}
+}
+log('FAKE_ACP_ARGS_LOG', argv);
+
+const modelIdx = argv.indexOf('--model');
+const spawnModel = modelIdx >= 0 ? argv[modelIdx + 1] : 'deepseek/deepseek-v4-flash';
+
+let sessionSeq = 0;
+let serverSeq = 9000;
+const awaitingReply = new Map(); // 服务端请求 id -> { promptId, sessionId }
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+function reply(id, result) { send({ jsonrpc: '2.0', id, result }); }
+function configOptions(model) { return [{ id: 'model', category: 'model', currentValue: model, options: [] }]; }
+
+const rl = readline.createInterface({ input: process.stdin });
+rl.on('line', async (line) => {
+  const raw = line.trim();
+  if (!raw) return;
+  let msg;
+  try { msg = JSON.parse(raw); } catch { return; }
+  if (msg.method === 'initialize') { reply(msg.id, { protocolVersion: 1, agentCapabilities: {} }); return; }
+  if (msg.method === 'session/new') {
+    sessionSeq += 1;
+    const sessionId = 'sess-' + sessionSeq;
+    reply(msg.id, { sessionId, configOptions: configOptions(spawnModel) });
+    setTimeout(() => {
+      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: { sessionUpdate: 'available_commands_update', availableCommands: [] } } });
+    }, 20);
+    return;
+  }
+  if (msg.method === 'session/set_config_option') { reply(msg.id, { configOptions: configOptions(msg.params.value) }); return; }
+  if (msg.method === 'session/prompt') {
+    serverSeq += 1;
+    awaitingReply.set(serverSeq, { promptId: msg.id, sessionId: msg.params.sessionId });
+    send({ jsonrpc: '2.0', id: serverSeq, method: 'session/request_permission', params: {
+      sessionId: msg.params.sessionId,
+      toolCall: { toolCallId: 'tc-' + serverSeq, toolName: 'edit', title: 'Create /tmp/role-smoke.txt', status: 'pending', rawInput: { file_path: '/tmp/role-smoke.txt' } },
+      options: [{ optionId: 'allow_once' }, { optionId: 'allow_always' }, { optionId: 'reject_once' }, { optionId: 'reject_always' }],
+    } });
+    return;
+  }
+  if (msg.id !== undefined && awaitingReply.has(msg.id)) {
+    const { promptId, sessionId } = awaitingReply.get(msg.id);
+    awaitingReply.delete(msg.id);
+    log('FAKE_ACP_REPLY_LOG', { server_request_id: msg.id, result: msg.result || null, error: msg.error || null });
+    await delay(10);
+    send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '已创建' } } } });
+    await delay(10);
+    reply(promptId, { stopReason: 'end_turn', usage: { inputTokens: 1, outputTokens: 1 } });
+  }
+});
+`;
+
+/** 解析 `key=value …` 渲染片段（值含空格时由 log.js 以双引号包裹并转义内部引号）。 */
+function parseFields(rest) {
+  const fields = {};
+  const re = /([A-Za-z0-9_]+)=("(?:[^"\\]|\\.)*"|\S*)/g;
+  let m;
+  while ((m = re.exec(rest)) !== null) {
+    const raw = m[2];
+    fields[m[1]] = raw.startsWith('"') ? raw.slice(1, -1).replaceAll('\\"', '"') : raw;
+  }
+  return fields;
+}
+
+/**
+ * 把 agent stdout 事件行解析为 { role, name, fields }[]。
+ * 断言基于解析出的 fields 对象（而非对整行做子串匹配）：log.js 对 null 值键直接跳过渲染，
+ * 因此「身份键取值非空」⇔ 该键出现在 fields 中——四键任一为 null 时下列断言必失败（§4.5 口径）。
+ */
+function parseEventLines(text, name) {
+  const out = [];
+  for (const line of text.split('\n')) {
+    if (line === '') continue;
+    const m = /^\[[^\]]+\]\s+(\S+)\s+(\S+)\s*(.*)$/.exec(line);
+    if (!m || m[2] !== name) continue;
+    out.push({ role: m[1], name: m[2], fields: parseFields(m[3]) });
+  }
+  return out;
+}
+
+test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N（F05-2/AR-11/§4.5/§11.2）', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-e2e-audit-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const argsLog = path.join(dir, 'pb-dev.args.jsonl');
+  const replyLog = path.join(dir, 'replies.jsonl');
+  const permBin = path.join(dir, 'fake-perm-acp.cjs');
+  fs.writeFileSync(permBin, FAKE_PERM_ACP_SOURCE, { mode: 0o755 });
+
+  const router = await startRouter({ envExtra: LEASE_ENV });
+  t.after(() => stopAll([router]));
+
+  const dev = startFlaggedAgent('pb-dev', ['--role', 'dev', '--tools', 'on', '--permission', 'allow'], {
+    socketPath: router.socketPath,
+    cwd: REPO_ROOT,
+    envExtra: { OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: permBin, FAKE_ACP_ARGS_LOG: argsLog, FAKE_ACP_REPLY_LOG: replyLog },
+  });
+  t.after(() => dev.stop());
+  await dev.waitLine(/REGISTERED instance=pb-dev/);
+
+  const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: tempDbDir(t) });
+  t.after(() => web.stop());
+
+  // 第 1 轮：一次受门禁调用（变更类指令 → edit，§11.2）
+  const turn1 = await sendAndWait(web, { agent_id: 'pb-dev', text: '请创建 /tmp/role-smoke.txt' });
+  await dev.waitLine(/TOOL_APPROVED/, 1);
+  assert.equal(turn1.detail.chat.state, 'completed', '允许档该轮应 completed');
+  assert.match(outOf(turn1.detail, 1).text, /已创建/, '该轮终态文本应为 fake ACP 应答');
+
+  const first = parseEventLines(dev.stdout(), 'TOOL_APPROVED');
+  assert.equal(first.length, 1, '一次受门禁调用恰 1 行 TOOL_APPROVED（§11.2）');
+  const f1 = first[0].fields;
+  assert.equal(f1.instance, 'pb-dev', '审计身份 instance 非空');
+  assert.equal(f1.role, 'dev', '审计身份 role 非空');
+  assert.equal(f1.chat_id, turn1.chatId, '审计身份 chat_id = 该轮对话且非空');
+  assert.match(f1.context_id, /^ctx-\d+-\d+$/, '审计身份 context_id 非空且为池层格式');
+  assert.equal(f1.tool, 'edit');
+  assert.equal(f1.option, 'allow_once');
+  assert.ok(f1.tool_call_id, 'tool_call_id 非空');
+  assert.ok(Number.isInteger(Number(f1.pid)), 'pid 应为数字');
+
+  // 第 2 轮（同 chat = 同常驻会话）：再一次受门禁请求 → 累计恰 2 行（N=N）
+  await sendAndWait(web, { chat_id: turn1.chatId, agent_id: 'pb-dev', text: '再创建一次' }, { rounds: 2 });
+  await dev.waitLine(/TOOL_APPROVED/, 2);
+  const second = parseEventLines(dev.stdout(), 'TOOL_APPROVED');
+  assert.equal(second.length, 2, '同一会话两次受门禁请求 → 2 行（N=N）');
+  assert.notEqual(second[1].fields.tool_call_id, second[0].fields.tool_call_id, '两次调用应各有 tool_call_id');
+  assert.equal(second[1].fields.chat_id, second[0].fields.chat_id, '同一会话 chat_id 不变');
+  assert.equal(second[1].fields.context_id, second[0].fields.context_id, '同一会话 context_id 不变');
+
+  // 允许档恒回 allow_once（fake 侧应答可观测）
+  const replies = readJsonl(replyLog);
+  assert.equal(replies.length, 2);
+  for (const r of replies) {
+    assert.equal(r.error, null);
+    assert.deepEqual(r.result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  }
+});
