@@ -24,10 +24,10 @@
 |---|---|---|
 | `oamp/src/persist.js`（284 行） | `openDb()` 建库 + SCHEMA + 列存在性守卫的幂等 `migrate`（:136-144）；`TITLE_MAX = 40` / `TITLE_FALLBACK = '新对话'`（:56-57）；`CHAT_STATES`（:40）；`CHAT_COLUMNS`（含 `archived_at`/`context_released`）；`LIST_WITH`/`LIST_FROM` 参数 CTE（:63-71）；**写口校验函数族** `readLimit`/`readOffset`/`readArchived`/`readTimestamp`/`readOptionalString`（:90-134）；`stmts` 预编译表（:145-199）与导出的 11 个口（:279-283） | **改造（核心）**：新增常量 `TITLE_MAX_MANUAL = 100`、校验函数 `readTitle()`、语句 `renameChat` 与包装函数 `renameChat({chatId,title})`；导出表 +1 项。**SCHEMA / 迁移 / 查询 / 既有写口全部不动** |
 | `oamp/src/web.js`（600 行） | 内建 http + JSON API：`sendJson`（:59）、`readBody`（:66，畸形 400 / 超限 413）、`GET /api/chats`（:376-392）、`GET /api/chats/<id>`（:394）、`POST /api/chats/<id>/close`（:404）、`POST /api/chats/archive`（:425）、`POST /api/chats/<id>/activate`（:454）、`GET /api/stream`（:474）、`POST /api/messages`（:483，含 :515-522 的只读 409）、静态文件（:564）与 404 兜底（:572）、外层 catch → 502（:574） | **改造**：把 :516 的内联只读表达式提取为模块级 `isReadonly(chat)`（`/api/messages` 与 `/rename` 共用）；新增 `POST /api/chats/<id>/rename` 路由（插在 `/activate` 块之后、静态分支之前）。**其余路由与 SSE 零改动** |
-| `oamp/web/index.html`（67 行） | `.detail-head` 内 `<h1 id="detail-title">`（:39-42）；过滤栏；`#chat-list`；`#load-more-slot`；底部 `#hint` | **改造**：`.detail-head` 内、`h1` 之后新增一个静态 `<input id="detail-title-input" class="detail-title-input hidden" type="text" maxlength="100" autocomplete="off" />` |
+| `oamp/web/index.html`（70 行） | `.detail-head` 内 `<h1 id="detail-title">`（:39-42）；过滤栏；`#chat-list`；`#load-more-slot`；底部 `#hint` | **改造**：`.detail-head` 内、`h1` 之后新增一个静态 `<input id="detail-title-input" class="detail-title-input hidden" type="text" maxlength="100" autocomplete="off" />` |
 | `oamp/web/app.js`（691 行） | `state`（:15-26）；`renderChats()`（:94-148，含归档视图分支与 `escapeHtml(c.title)`）；`renderChat()`（:152-170，`:156` 空态文案 / `:163` 标题 / `:165` 关闭按钮禁用条件）；`handleEvent`（:340）；`loadChats`（:402）；`openChat`（:427）；`bind()`（:628-670） | **改造**：`state` +`titleEdit`；`renderChat()` 的标题落点改为 `renderTitle(chat)`、关闭按钮改用 `isReadonly(chat)`；新增 `isReadonly` / `renderTitle` / `beginTitleEdit` / `exitTitleEdit` / `commitTitle`；`bind()` 绑 3 个事件 |
 | `oamp/web/style.css`（321 行） | `.detail-head{display:flex;align-items:baseline;gap:12px}`（:155-162）、`.detail-head h1{margin:0;font-size:14px;font-weight:600}`（:163）、`.mention.hidden{display:none}`（:255） | **微改造**：`.detail-head h1.editable`、`.detail-title-input`、`.detail-title-input.hidden` 三条规则 |
-| `oamp/test/persist.test.js`（617 行） | 逐字断言 schema 对象集与 `chats` 9 列（:60-78）、写口白名单（:171-179）、`deepEqual` 详情对象（:383-386 等）、生成规则（:233-241） | **同步（AR-13）**：写口白名单 **+1 项**；新增改名语句用例（§8.1）。**列名断言与生成规则断言不动** |
+| `oamp/test/persist.test.js`（617 行） | 逐字断言 schema 对象集与 `chats` 9 列（:60-78）、写口白名单（:171-179）、`deepEqual` 详情对象（:383-386 等）、生成规则（:233-244） | **同步（AR-13）**：写口白名单 **+1 项**；新增改名语句用例（§8.1）。**列名断言与生成规则断言不动** |
 | `oamp/test/web.test.js`（1240 行） | API 契约（列表 / 过滤 / 详情 404 / close / 归档 / 激活 / 409 / SSE）+ 前端静态契约（:1000-1043）与 "后续输入不改标题"（:415-431） | **同步（AR-13）**：新增改名用例与静态契约追加断言（§8.2）。**既有断言全部不动** |
 | `oamp/README.md` | 左栏 / 右栏 UI 描述（:126-128）、API 表（:153-161）、对话状态段（:165-168） | **同步（AR-13）**：见 §8.3 |
 | `oamp/src/{router,registry,rpc,node-client,config,log,transport,task,agent,acp-client,context-pool,cluster,cluster-config,role-binding,status,cli}.js`、`oamp/bin/`、`oamp/package.json`、`.gitignore` | 0010~0013 交付面 | **不改**（本次不触碰集群 / agent / 上下文池 / 传输 / 归档编排） |
@@ -38,7 +38,7 @@
 |---|---|---|
 | A | `readBody(req)` 的 `status` 语义（畸形 JSON → `err.status = 400`、超限 → `413`）与 `/api/messages` 的照办式应答（含 413 时 `connection: close`）（`web.js:66-99`、`:486-492`） | `/rename` 的请求体读取**逐字复用**同一个函数与同一段错误应答，零新解析逻辑 |
 | B | `readLimit`/`readArchived` 的"非法值抛 `Error`，调用方转 400"校验风格（`persist.js:90-134`；`web.js:377-391` 的 try/catch → 400） | `readTitle()` 加入同一函数族，风格一致；`/rename` 用同样的 try/catch → 400 |
-| C | 只读判定表达式 `archived_at !== null \|\| state === 'closed'`（**判定唯一落点** `web.js:515-522`；前端同值表达 `app.js:165`） | 提取为具名谓词 `isReadonly(chat)`（前后端各一份、同形同值），`/api/messages` 与 `/rename` 共用；SQL 侧同值守卫作结构性兜底（§4） |
+| C | 只读判定表达式 `archived_at !== null \|\| state === 'closed'`（**判定唯一落点** `web.js:516`，在 :515-522 的 409 分支内；前端**完整表达式仅** `app.js:165`，另有 `app.js:164`（「· 已关闭（只读）」文案，仅判 `closed`）与 `:510`（`closeCurrentChat` 的 `closed` 幂等守卫）两处**单条件方言**） | 提取为具名谓词 `isReadonly(chat)`（前后端各一份、同形同值），`/api/messages` 与 `/rename` 共用；SQL 侧同值守卫作结构性兜底（§4）；`:164` / `:510` 属展示与守卫、不参与"可否改名"判定 ⇒ 不纳入本次统一范围（§1.3-5） |
 | D | "单条状态变更"端点形态：预检 `getChat` → 404 / 域内拒绝 → 变更 → 回最小响应（`/close` `web.js:404-424`、`/activate` `web.js:454-473`） | `/rename` 完全同形：404 → 409（只读）→ 400（非法标题）→ 200 `{chat_id,title}` |
 | E | `sendJson(res, status, body)`（`web.js:59-63`，`cache-control: no-store`） | 全部响应沿用，零新工具 |
 | F | 前端 `#hint` 行 + `hint error` 类是既有的"一次性操作反馈 / 失败提示"承载（`openChat`/`send`/`closeCurrentChat`/`activate`/`archiveAll` 五处） | 改名失败提示**同级复用**（`改名失败：${err.message}`），零新提示面 |
@@ -52,7 +52,7 @@
 2. **没有可用的改名写语句**：生产路径只有 `insertInput` → `ensureChat`（`ON CONFLICT DO NOTHING`，仅首次建行）；`upsertChat`（:150-156，包装 :225-227）当前**无生产调用者**，且其 `ON CONFLICT DO UPDATE ... WHERE chats.state != 'closed'` 会让 closed 改名**静默失败**、覆盖 `agent_id`、刷新 `updated_at`、且**完全不检查 `archived_at`** ⇒ 复用会让 F03 只读边界与 F04 不置顶双双失效（demand C-1 / C-2）。
 3. **服务端无标题校验落点**：`chats.title TEXT NOT NULL` 无长度约束（`persist.js:15`），写入侧只有自动路径的 40 截断；无"trim / 非空 / ≤100"的服务端执行点（F02 验收 6 / D-14）。
 4. **前端无编辑态承载**：`state` 里没有任何"正在编辑标题"的状态位（F01-1/3 的编辑态与 Esc 优先需要它）。
-5. **只读判定存在两处同值表达**（`web.js:516` 与 `app.js:165`），且 `web.js` 是内联表达式 ⇒ 新增第二处会直接变成"分叉"的温床（F03 验收 3 / demand C-3）。
+5. **只读概念在四处文本落点上表达**：服务端 `web.js:516`（**判定唯一落点**，内联未具名）；前端 `app.js:165`（**唯一的完整表达式**）、`:164`（详情头「· 已关闭（只读）」文案，仅判 `closed`；0013 §6.4 A 有意不覆盖归档）、`:510`（`closeCurrentChat` 的 `closed` 幂等守卫）。新增第二处**判定**会直接变成"分叉"的温床（F03 验收 3 / demand C-3）；本次统一的**判定面** = `web.js:516` + `app.js:165`，另两处按范围记录（§4.1 ③）。
 
 ### 1.4 阶段 3 只读取证（本次方案直接依赖）
 
@@ -106,7 +106,7 @@ graph TB
 | `oamp/src/persist.js` | 改造（**+19 行左右**） | +`TITLE_MAX_MANUAL`、+`readTitle()`、+`stmts.renameChat`、+`renameChat({chatId,title})` 并导出 |
 | `oamp/src/web.js` | 改造（**+28 行左右**） | 提取 `isReadonly(chat)`（`/api/messages` 改为调用它）；+`POST /api/chats/<id>/rename` 路由 |
 | `oamp/web/index.html` | 改造（+1 行） | `.detail-head` 内 +1 静态 `<input id="detail-title-input" maxlength="100">` |
-| `oamp/web/app.js` | 改造（**+55 行左右**） | +`state.titleEdit`；+`isReadonly` / `renderTitle` / `beginTitleEdit` / `exitTitleEdit` / `commitTitle`；`renderChat()` 两处替换；`bind()` +3 事件 |
+| `oamp/web/app.js` | 改造（**+55 行左右**） | +`state.titleEdit`；+`isReadonly` / `renderTitle` / `beginTitleEdit` / `exitTitleEdit` / `commitTitle`；`renderChat()` 三处替换；`bind()` +3 事件 |
 | `oamp/web/style.css` | 微改造（+12 行左右） | `.detail-head h1.editable` / `.detail-title-input` / `.detail-title-input.hidden` |
 | `oamp/test/persist.test.js` | 同步 | 写口白名单 +1 项；+改名语句用例（§8.1） |
 | `oamp/test/web.test.js` | 同步 | +改名 API 用例；+静态契约追加断言（§8.2） |
@@ -234,7 +234,7 @@ function readTitle(value) {
 |---|---|---|---|
 | **①** | `web.js` 模块级 `isReadonly(chat)` | **判定真源（服务端）**——`/api/messages` 的 409 与 `/rename` 的 409 **共用同一个函数** | 就是 0013 既有表达式 `chat.archived_at !== null \|\| chat.state === 'closed'`，**逐字**提取为具名函数，求值结果不变 |
 | **②** | `stmts.renameChat` 的 `WHERE ... AND archived_at IS NULL AND state != 'closed'` | **结构性兜底**：判定与写入之间有竞态窗口时（单进程 + 同步语句下实际不可达），写入侧自己也不放行；未命中 ⇒ `changes = 0` ⇒ 上层报错而非静默成功 | SQL 侧同值表达（SQL 不能调用 JS，故必须字面重写；这是"同一规则的第二处文字"，不是第二套口径） |
-| **③** | `app.js` 模块级 `isReadonly(chat)` | **客户端门**：① 详情头标题能否进入编辑（F03 验收 1/2/3）；② 既有「关闭对话」按钮禁用条件（`app.js:165` 的既有表达式）。**同一函数同时服务这两处** ⇒ 前端也没有第二套判定 | 与 ① **同形同值** |
+| **③** | `app.js` 模块级 `isReadonly(chat)` | **客户端门**：① 详情头标题能否进入编辑（F03 验收 1/2/3）；② 既有「关闭对话」按钮禁用条件（`app.js:165`，**前端唯一的完整只读面表达式**）。**同一函数同时服务这两处** ⇒ 前端没有第二套**判定**。**范围外记录**：`app.js:164`（只读文案，仅判 `closed`）与 `:510`（`closeCurrentChat` 的 `closed` 守卫）是同一概念的单条件落点，不参与"可否改名"判定，故不纳入统一（§1.3-5） | 与 ① **同形同值** |
 
 ```js
 // src/web.js —— 模块级（放在 sendJson 之前，与其它 http 小工具同区）
@@ -675,7 +675,7 @@ graph LR
 |---|---|---|
 | :171-179 写口白名单 | `assert.deepEqual(writers, ['activateChat','archiveChat','closeChat','insertInput','insertOutput','startupSweep','upsertChat'])` | 期望数组**加入 `'renameChat'`**（该测试把 `Object.keys(db)` 减去只读口 `['listChats','getChat','close','listArchivable']` 得到写口集 ⇒ 新增写口必须显式入列）。**这是本迭代对既有断言唯一的"修改"，属加法** |
 | :60-78 schema 断言 / :80-82 `CHATS_COLUMNS_9` | 9 列列名、两表两索引 | **不动**（本次零 schema 变更；这是"零数据层变更"的直接断言） |
-| :233-241 生成规则（40 截断 + 「新对话」兜底） | — | **不动**（§8.4 回归锁） |
+| :233-244 生成规则（40 截断 + 「新对话」兜底） | — | **不动**（§8.4 回归锁） |
 | 其余既有用例 | — | **不动** |
 | **新增用例段**（放在写入侧用例之后） | — | ① `renameChat` 只写 title：改名前记录整行 → 改名后 `updated_at`/`agent_id`/`state`/`archived_at`/`closed_at`/`created_at`/`context_released` 逐项 `assert.equal` 不变，`title` = trim 后新值；② 返回值为权威标题（`'  季度复盘  '` → `'季度复盘'`）；③ 已归档 → `null` 且 title 不变；④ 已关闭 → `null` 且 title 不变；⑤ 未知 `chat_id` → `null`；⑥ 同值改名 → 返回该值且无列变化（S-7 的幂等语义）；⑦ 非法入参抛错：非字符串 / `''` / `'   '` / `'　'`（全角空白）/ 101 字符（`'x'.repeat(101)`）/ `'😀'.repeat(51)`（102 单位）；⑧ 边界通过：100 字符、`'😀'.repeat(50)`（100 单位）、内部空白保留；⑨ 与自动路径的隔离：`insertInput` 后 `renameChat`，再 `insertInput` ⇒ 标题保持手动值 |
 
@@ -701,12 +701,12 @@ graph LR
 
 | 断言 | 位置 | 保护的需求 |
 |---|---|---|
-| 自动标题 = 首条输入去空白后截断 40 字符；全空白 → 「新对话」 | `persist.test.js:233-241` | F05 验收 1、2（N-3：生成规则不变） |
+| 自动标题 = 首条输入去空白后截断 40 字符；全空白 → 「新对话」 | `persist.test.js:233-244` | F05 验收 1、2（N-3：生成规则不变） |
 | "后续输入不改标题" | `web.test.js:415-431` | F05 验收 2 |
 | `chats` 9 列列名与 schema 对象集 | `persist.test.js:60-78` | 零数据层变更（`title` 列已存在；本次不加列） |
 | closed 的 409 文案与状态码 | `web.test.js`（归档 / 关闭用例） | §4.2 只读提取的对外零变化 |
 
-> F05 验收 3（`@agent` 前缀计入）与验收 4（改名后保持手动值）：前者由既有断言覆盖（`persist.test.js:233-241` 的生成路径逐字未动）；后者是新用例（§8.2 ⑦）——**它验证的是本次新增能力与既有路径的隔离**，不是对既有断言的修改。
+> F05 验收 3（`@agent` 前缀计入）与验收 4（改名后保持手动值）：前者由既有断言覆盖（`persist.test.js:233-244` 的生成路径逐字未动）；后者是新用例（§8.2 ⑦）——**它验证的是本次新增能力与既有路径的隔离**，不是对既有断言的修改。
 
 ---
 
@@ -860,7 +860,7 @@ graph LR
 | R-6 | 改名与"发消息"的并发 | 同一对话正在 `working` 时改名：两者写不同的列且都是单语句同步执行（`DatabaseSync`），无交叉写；`state` 不变 ⇒ 不会打断轮次 | 不处理；改名在 `working` 状态下**允许**（F03 验收 4 明文：进行中可改名） |
 | R-7 | `.hidden` 类的作用域 | 本仓 `.hidden` 实际只对 `.mention` 生效（`style.css:255`） | 新增 `.detail-title-input.hidden { display:none }` 独立规则（**不**把 `.mention.hidden` 泛化为全局 `.hidden`：那会波及未预期的节点，属范围外重构） |
 | R-8 | `upsertChat` 仍是"合法的静默失败写口" | 它无生产调用者，但仍是导出项且行为不变（`changes=0` 不检查） | **不在本次修复**（0011 遗留，非本迭代范围；仅在此记录）。改名**绝不**接入它 |
-| R-9 | prd 的 `model_inferred` 状态与 demand | `demand.md` v0.2.0 §2.2 已把 M-01~M-08 全部转为 `user_confirmed`（D-5~D-16），`prd.md` 的索引列与「已确认项」段已同步为「已确认」，但**卡内验收标准里的 `[model_inferred M-0x]` 标记仍保留阶段 2 的写法**（引用编号仍有追溯价值） | 属**需求阶段**动作，本角色不改上游（§16 越界声明）。阶段 3 按 demand v0.2.0 的已确认值落定（M-01→D-9、M-02→D-10、M-03→D-11、M-04→D-12、M-05→D-15、M-06→D-16、M-07→D-6、M-08→D-8），**建议主 agent 决定是否统一卡内标记**（纯标记形态，不涉及任何产品维度） |
+| R-9 | prd 的 `model_inferred` 状态与 demand | `demand.md` v0.2.0 §2.2 已把 M-01~M-08 全部转为 `user_confirmed`（D-5~D-16）；**卡内验收标准的标记亦已随之更新为 `[user_confirmed M-0x]`（阶段 3 复核实测：8/8，零 `[model_inferred]` 残留）**，`prd.md` 索引列与「已确认项」段同口径 | **无需处置（已闭环）**。本行在阶段 3 曾记录"卡内标记未回填"，该判断基于当时的文件快照、**现已过期并非事实，此处更正**（阶段 3 提交 5a67574 一并落盘了 prd 角色的确认标记更新，见 §16.2）。阶段 3 的落定值以 demand v0.2.0 为准（M-01→D-9、M-02→D-10、M-03→D-11、M-04→D-12、M-05→D-15、M-06→D-16、M-07→D-6、M-08→D-8） |
 
 **未决项**：无（无待用户决策项；K-1 / K-2 为供知悉的 L2 取舍）。
 
@@ -869,7 +869,7 @@ graph LR
 ## 16. 疑问与越界
 
 1. **未发现 prd ↔ 技术约束的根本冲突**：AR-01~AR-13 全部可在现有技术栈内落定，无一处需要推翻产品维度。逐卡回填见 `prd/F01`~`prd/F05`（**只填架构维度**）。
-2. **本次改动边界（准确表述）**：`docs/iterations/0014-chat-rename/architecture.md`（本文件，新增）与 `prd.md` / `prd/F01~F05` 的**架构维度段**由本角色写入；**未改动任何产品维度**（用户价值 / 验收标准 / 边界 / `model_inferred` 列表 / 追溯表）；**未改动** `demand.md`、`oamp/**`（代码零改动）、`roles/**`（除本角色自己的决策记录）。
+2. **本次改动边界（准确表述）**：`docs/iterations/0014-chat-rename/architecture.md`（本文件，新增）与 `prd.md` / `prd/F01~F05` 的**架构维度段**由本角色写入；**未改动任何产品维度的判定内容**（用户价值 / 验收标准 / 边界 / 追溯表逐条未动）。**同批提交 `5a67574` 中含 prd 环节的 M-01~M-08 标记更新（`[model_inferred]` → `[user_confirmed]`）——那是 prd 角色的确认落盘动作被同一批 `git add` 收进该提交，非本角色改动**（本角色在该提交中改的是架构维度段、索引列与「架构维度落定」段等架构相关文字）；**未改动** `demand.md`、`oamp/**`（代码零改动）、`roles/**`（除本角色自己的决策记录）。
 3. **阶段 3 的实测取证（S-7 / S-8）**：用 `node:sqlite` 直接验证了"`changes` = 命中行数（同值也计 1）""未命中（不存在 / 已归档 / 已关闭）⇒ 0""`SET` 只列 `title` 时其余列逐字不变""`'😀'.length === 2`""`trim()` 清 U+3000 / NBSP"五条**本方案直接依赖的语义**——均为实跑结果，非推断。临时探针脚本已删除，不入仓。
 4. **两处 L2 取舍（K-1 / K-2）供主 agent 一次拍定**：见 §13（不阻断实现：K-1 的行为在两种取法下逐字相同；K-2 可逆）。
 5. **C-5（改名后搜索结果随之变化）在架构侧的自然落实**：`listChats` 的 `q` 匹配 `c.title`（`persist.js:66`），改名后按新标题可检索到该对话，**无需任何代码**——不新增索引、不新增字段、不写为验收（prd 已明确不计入交付物）。
