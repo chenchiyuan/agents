@@ -166,3 +166,27 @@
 
 - 决策内容：pr-001 合并进迭代分支 → 槛位释放（累计槛位释放次数 0→1）；当前有效上限 = min(3 + 1×3, 5) = 5；pr-002 依赖（pr-001）已满足，转为「排队(等待槛位)」
 - 触发依据：`git log --oneline` 显示 merge commit 已含 pr-001；status.md §并发配置；prs/pr-002-cluster-config.md 的 depends_on 声明（pr-001）
+
+### 2026-09-11 12:18:00 · 收到报告 · verifier（pr-003 验收 + 复审）
+
+- 1. 报告路径：docs/iterations/0012-roles-agent-cluster/clarifications/verify-20260911-121100-pr003.md（含复审记录段）；结论 PASS（初次 1 partial → 修复 → 复审 7/7 pass，0 fail）
+- 2. 逐项判定摘要：卡验收 8/8 pass；标准 5c（缺省路径身份键缺失）修复后判 pass；回归 context-pool 16/16、npm test 159/159
+- 3. 最需关注发现：NC-1（permission_denied 需进 context-pool `_failSession` 早退名单）= pr-004 验收必查项
+- 4. 疑问/越界：因果隔离实测（回退 _audit 后唯一红灯为新用例）；原偏差 2 闭合、偏差 1 由 pr-004 卡承接
+
+### 2026-09-11 12:18:00 · 调度决策 · 槛位释放
+
+- 决策内容：pr-003 合并进迭代分支 → 槛位释放（累计 1→2）；当前有效上限 = min(3 + 2×3, 5) = 5（达硬上限）；pr-004 依赖（pr-001+pr-003）已满足，转「占用」；派发 pr-002 ∥ pr-004
+- 触发依据：`git log` merge commit；status.md §并发配置；prs/pr-002 与 prs/pr-004 的 depends_on（pr-001 / pr-001+pr-003 均已合并）
+
+### 2026-09-11 12:18:00 · 派发 · dev（pr-002-cluster-config）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-002（集群配置加载与校验 + 仓库根 cluster.json）
+- PR：prs/pr-002-cluster-config.md
+
+### 2026-09-11 12:18:00 · 派发 · dev（pr-004-agent-role-binding）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-004（agent 参数面 + 两条 LLM 路径注入 + auditContext 透传 + permission_denied 早退）
+- PR：prs/pr-004-agent-role-binding.md
