@@ -351,15 +351,19 @@ export class AcpClient {
     return this.permission;
   }
 
-  /** §4.5/AR-11：一次 permission 请求恰一行审计事件，走永不节流的 event()。 */
+  /** §4.5/AR-11：一次 permission 请求恰一行审计事件，走永不节流的 event()。字段集合恒定（缺省为 null）。 */
   _audit(eventName, toolCall, option) {
     if (!this.logger) return;
+    const identity = this.auditContext || {};
     this.logger.event(eventName, {
-      ...(this.auditContext || {}),
+      instance: identity.instance ?? null,
+      role: identity.role ?? null,
+      chat_id: identity.chat_id ?? null,
+      context_id: identity.context_id ?? null,
       pid: this.pid,
-      tool: toolCall.toolName,
+      tool: toolCall.toolName ?? null,
       title: typeof toolCall.title === 'string' ? toolCall.title.slice(0, TOOL_TITLE_MAX) : null,
-      tool_call_id: toolCall.toolCallId,
+      tool_call_id: toolCall.toolCallId ?? null,
       option,
     });
   }

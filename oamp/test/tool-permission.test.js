@@ -238,6 +238,32 @@ test('F05-2/§11.2：允许档恒回 allow_once，N 次受门禁调用 = N 行 T
   assert.equal(approved[1].fields.tool_call_id, 'tc-9002');
 });
 
+test('§4.5：缺省 auditContext 时审计字段集合恒定（身份四键存在且为 null）', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('allow');
+  const rec = recorder();
+  const client = await startClient(clients, fake.bin, { tools: true }, rec.logger);
+
+  const result = await client.prompt('创建 role-smoke.txt');
+  assert.equal(result.stop_reason, 'end_turn');
+
+  const approved = rec.events.filter((e) => e.name === 'TOOL_APPROVED');
+  assert.equal(approved.length, 1);
+  const fields = approved[0].fields;
+  assert.deepEqual(
+    Object.keys(fields).sort(),
+    ['chat_id', 'context_id', 'instance', 'option', 'pid', 'role', 'title', 'tool', 'tool_call_id'].sort(),
+    '审计字段集合不随调用方是否提供身份而变',
+  );
+  assert.equal(fields.instance, null);
+  assert.equal(fields.role, null);
+  assert.equal(fields.chat_id, null);
+  assert.equal(fields.context_id, null);
+  assert.equal(fields.pid, client.pid);
+  assert.equal(fields.tool, 'edit');
+  assert.equal(fields.option, 'allow_once');
+});
+
 test('F05-3/F05-4：拒绝档回 reject_once + 立即 session/cancel + 轮次 permission_denied（会话保留）', async (t) => {
   const clients = withClients(t);
   const fake = writeFake('deny');
