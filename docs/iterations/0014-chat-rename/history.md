@@ -64,3 +64,21 @@
 
 - 阶段：阶段 4（PR 规划）
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖，产出 prs/ 目录下的 PR 文件
+
+### 2026-09-11 16:14:58 · 收到报告 · pr-planner
+
+- 1. prs/ 路径 + 文件列表：docs/iterations/0014-chat-rename/prs/；pr-001-persist-rename-write-port.md、pr-002-rename-api-ui-contract.md
+- 2. 每 PR 摘要：pr-001（persist 写口：TITLE_MAX_MANUAL/readTitle/renameChat 语句与写口/导出白名单；涉及 F01/F02/F03/F05；文件 2 个）；pr-002（web /rename 路由 + isReadonly 复用 + 前端编辑交互 + README；涉及 F01~F05；文件 6 个）
+- 3. depends_on 证据：pr-002 → pr-001（证据 = web.js:26 import persist、:180 db 句柄、persist.js:279-283 导出表当前不含 renameChat、web.test.js:123 spawn 真实服务）
+- 4. 校验：七字段齐全、文件范围互斥、依赖图无环（2 节点 1 边）、F01~F05 全覆盖
+- 5. 疑问/越界：web.test.js 双段修改合并为单一 owner 的证据链（拆分将同时违反互斥并成环）；README 并入 pr-002 的理由（零代码引用边）；功能点跨 PR 重叠属产品切分与代码切分的合理错位
+
+### 2026-09-11 16:14:58 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 4（PR 规划）推进条件满足，进入阶段 5；初始化并发配置（起始 3/硬上限 5/有效上限 3）；pr-001 先行派发；阶段 2+3+4 验证合并为一次 verifier
+- 触发依据：2 PR 七字段齐备；depends_on 有代码级证据；文件范围互斥；依赖图无环；F01~F05 全覆盖
+
+### 2026-09-11 16:14:58 · 派发 · verifier（阶段 2/3/4 合并验证）
+
+- 阶段：阶段 3（技术架构）
+- 任务：独立验证 prd 覆盖性、architecture 补全度与 L1 判定、prs 依赖正确性与格式
