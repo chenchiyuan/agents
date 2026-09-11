@@ -19,13 +19,31 @@ export class ContextPool {
    * @param {string} [opts.cwd]            子进程 cwd
    * @param {object|null} [opts.logger]    createEventLog 实例（可选）
    * @param {function|null} [opts.onNotice] ({chatId, kind, text, origin}) => void；上下文事件提示出口
+   * @param {string|null} [opts.role]      绑定角色（审计身份字段，§4.5）；null = 匿名实例
+   * @param {string|null} [opts.roleFile]  角色定义绝对路径；非空 ⇒ ACP argv 追加 --append-system-prompt（§3.2）
+   * @param {boolean} [opts.tools]         工具开关（§4.3，常驻路径生效点）；缺省 false = 0011 argv
+   * @param {'allow'|'deny'} [opts.permission] permission 档（§4.4）；缺省 allow
    */
-  constructor({ max = 8, bin, cwd = process.cwd(), logger = null, onNotice = null }) {
+  constructor({
+    max = 8,
+    bin,
+    cwd = process.cwd(),
+    logger = null,
+    onNotice = null,
+    role = null,
+    roleFile = null,
+    tools = false,
+    permission = 'allow',
+  }) {
     this.max = max;
     this.bin = bin;
     this.cwd = cwd;
     this.logger = logger;
     this.onNotice = onNotice;
+    this.role = role;
+    this.roleFile = roleFile;
+    this.tools = tools;
+    this.permission = permission;
     this.sessions = new Map(); // key -> ContextSession；Map 迭代序 = LRU 序（取用后重新 set 置尾）
     this._generation = 0;
   }
@@ -170,10 +188,23 @@ class ContextSession {
   /** 懒创建常驻客户端（首轮建键：spawn + initialize + session/new + 等静默）。 */
   async _ensureClient(model) {
     if (this.client && !this.client.dead && !this.client.disposed) return this.client;
+    const session = this;
     const client = new AcpClient({
       bin: this.pool.bin,
       model,
       cwd: this.pool.cwd,
+      tools: this.pool.tools,
+      roleFile: this.pool.roleFile,
+      permission: this.pool.permission,
+      // §4.5/§12.2 契约 1：审计身份四键；context_id = ctx-<pid>-<generation> 依赖 spawn 后的 pid ⇒ 取值器惰性解析
+      auditContext: {
+        instance: this.agentId,
+        role: this.pool.role,
+        chat_id: this.chatId,
+        get context_id() {
+          return session.contextId;
+        },
+      },
       logger: this.pool.logger,
       onExit: () => this._onClientExit(),
     });
@@ -197,11 +228,11 @@ class ContextSession {
   /**
    * 会话级失败收尾（§6.5）：崩溃 / 超时 → 移除键 + 排队轮次一并失败 + notice{context_reset}。
    * 进程回收：崩溃路径子进程已不在；超时路径的 cancel → 宽限 → kill 由客户端自行完成（§6.5 ①②③）。
-   * 模型不可用 / 队列满属轮次级错误：会话保持可用，不做收尾。
+   * 模型不可用 / 队列满 / permission 拒绝（permission_denied）属轮次级错误：会话保持可用，不做收尾。
    */
   _failSession(err) {
     const code = err instanceof AcpError ? err.code : 'context_crashed';
-    if (code === 'model_unavailable' || code === 'context_busy') return;
+    if (code === 'model_unavailable' || code === 'context_busy' || code === 'permission_denied') return;
     const removed = this.pool._remove(this.key, this);
     if (this.closed && !removed) return; // 已被淘汰/释放：提示已由该路径发出，不重复
     this.closed = true;
