@@ -180,6 +180,7 @@ html, body {
   min-width: 260px;
 }
 .detail-title-input.hidden { display: none; } /* 本仓 .hidden 只对 .mention 生效（:255），此处需独立规则 */
+.detail-head h1.hidden { display: none; } /* 0014（pr-003）：编辑态 h1 让位给输入框（补 pr-002 遗漏——.hidden 对 h1 无规则） */
 
 .messages { flex: 1; overflow-y: auto; padding: 18px 20px; }
 .empty { color: var(--muted); text-align: center; margin-top: 48px; line-height: 2; }

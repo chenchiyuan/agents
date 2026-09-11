@@ -1026,6 +1026,7 @@ test('Web：前端契约——轮询消失、SSE 订阅、新控件、@ 与 ! �
   assert.match(appJs, /isReadonly/, '前端应提取具名只读谓词（AR-08 不分叉）');
   assert.match(appJs, /titleEdit/, '前端应有标题编辑态（AR-01）');
   assert.match(css, /\.detail-title-input/, '编辑框样式应存在');
+  assert.match(css, /\.detail-head h1\.hidden\s*\{[^}]*display:\s*none/, '编辑态 h1 应真正隐藏（.hidden 对 h1 无既有规则，须独立规则）');
 });
 
 // ────────────────────────── pr-008：working 等待计时（静态契约） ──────────────────────────
