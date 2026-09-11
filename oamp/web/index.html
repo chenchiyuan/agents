@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>oamp · Web Console</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="logo">◆</span><span class="brand-name">oamp</span><span class="brand-sub">Web Console</span></div>
+      <nav class="topnav">
+        <span class="nav-item active">Workspace</span>
+        <span class="nav-item">Agents</span>
+        <span class="nav-item">Tasks</span>
+      </nav>
+      <div class="topright">
+        <span id="conn-status" class="conn conn-wait">连接中…</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <button id="btn-new" class="new-chat">＋ New chat</button>
+        </div>
+        <div class="filters">
+          <button class="filter active" data-filter="all">All</button>
+          <button class="filter" data-filter="working">Working</button>
+          <button class="filter" data-filter="completed">Completed</button>
+        </div>
+        <div id="chat-list" class="chat-list"></div>
+      </aside>
+
+      <section class="detail">
+        <header class="detail-head">
+          <h1 id="detail-title">选择或新建一个对话</h1>
+          <div id="detail-meta" class="detail-meta"></div>
+          <button id="btn-close" class="chat-close" disabled>关闭对话</button>
+        </header>
+
+        <div id="messages" class="messages">
+          <div class="empty" id="empty-hint">
+            左侧选择对话，或在下方输入框以 <code>@agent 命令</code> 开始<br />
+            <span class="muted">默认走常驻上下文（同对话多轮记得前文）；勾选「一次性」则不累积；以 ! 开头按 shell 命令执行</span>
+          </div>
+        </div>
+
+        <footer class="composer">
+          <div id="status-line" class="status-line"></div>
+          <div class="composer-box">
+            <textarea id="input" rows="2" placeholder="问 @agent 任意问题（默认常驻上下文，多轮记得前文）· ! 开头走 shell · @ 列出 agents"></textarea>
+            <div id="mention" class="mention hidden"></div>
+            <button id="btn-send" class="send">发送</button>
+          </div>
+          <div class="composer-tools">
+            <input id="model-input" class="model-input" type="text" autocomplete="off" placeholder="模型（留空用默认）" />
+            <label class="oneshot"><input id="one-shot" type="checkbox" /> 一次性（不累积上下文）</label>
+          </div>
+          <div class="hint" id="hint"></div>
+        </footer>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
