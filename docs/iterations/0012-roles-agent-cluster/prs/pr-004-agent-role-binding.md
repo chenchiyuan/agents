@@ -15,7 +15,7 @@
 ## 文件范围
 
 - oamp/src/agent.js（改造：4 flag 解析、角色推断、两条 LLM 路径注入、事件字段、任务 ctx 透传）
-- oamp/src/context-pool.js（改造：向 `AcpClient` 透传 tools/roleFile/permission/onPermissionRequest；`_failSession` 早退名单加 `permission_denied`）
+- oamp/src/context-pool.js（改造：向 `AcpClient` 透传 tools/roleFile/permission/onPermissionRequest/auditContext；`_failSession` 早退名单加 `permission_denied`）
 
 ## 验收标准
 
@@ -26,6 +26,7 @@
 - [ ] 一次性路径同源：`executor:'omp'` 任务的 `omp -p` argv 含同一注入参数；`--no-tools` 由 `payload.tools` 决定，payload 未给时回落角色开关，无角色绑定回落 `off`（TC-09 / AR-08 ②；现行 `oamp/src/agent.js:158-161` 只有 `-p/--no-session/[--no-tools]/[--model]`）
 - [ ] 模型解析链：`payload.model > OAMP_OMP_MODEL > --model(角色级) > config.defaults.model > 内置`；无 payload/env 且传 `--model X` 时 argv 含 `--model X`，未传该 flag 的实例行为不变（F03-2/3/4）
 - [ ] `permission_denied` 为轮次级错误：拒绝一轮后同实例下一轮可正常完成，不产生 `CONTEXT_RESET`、`context_id` 不变（判定依据 `oamp/src/context-pool.js:202-204` 的早退名单需含该码；F05-4）
+- [ ] 常驻路径的审计身份字段齐全：`ContextPool._ensureClient()` 向 `AcpClient` 透传 `auditContext: {instance, role, chat_id, context_id}`（pr-003 任务卡 MI-1 的下游要求），使 `TOOL_APPROVED` / `TOOL_DENIED` 行含这四个键；角色绑定实例（`pb-dev --role dev`）经 fake ACP 触发一次 permission 请求后四键值非空（`instance=pb-dev`、`role=dev`、`chat_id`/`context_id` 取自该轮会话），无角色实例 `role` 为 `null` 但键仍在（AR-11；判定：直接构造 `ContextPool` + fake ACP 跑一轮并断言日志行，不依赖 pr-006）
 - [ ] 回归：`node --test test/context-pool.test.js test/acp-daemon.test.js test/omp-executor.test.js test/reconnect.test.js test/web.test.js` 原样全绿（**文件零修改**即证 §2.3 的逐字节不变式）
 - [ ] 冒烟（人工可复跑）：临时 socket 起 Router，`OAMP_OMP_BIN` 指向记录 argv 的 fake、`OAMP_ROLE_ROOT=<仓库根>`，启动 `node bin/oamp.js agent start pb-dev --role dev --tools on --permission allow` 并投一轮 `omp-daemon` 任务，`FAKE_ACP_ARGS_LOG` 中出现 `.../roles/dev/dev.md` 且无 `--no-tools`
 
@@ -33,6 +34,7 @@
 
 - docs/iterations/0012-roles-agent-cluster/architecture.md §3.3（两条路径落点）、§3.4（单起参数面与优先级）、§4.1~§4.4（模型链 / 工具 / permission）、§8 AR-02/AR-05/AR-06/AR-08/AR-10、§12.2 跨组契约 1~2
 - docs/iterations/0012-roles-agent-cluster/prd/F01（验收 4）、F02（验收 5/7）、F03（验收 2/4）、F04（验收 1/2/3/6）、F05（验收 4）
+- docs/iterations/0012-roles-agent-cluster/prs/pr-003-acp-tool-permission-tasks.md（MI-1：审计身份字段的承载参数 `auditContext` 及其对 pr-004 的下游要求；同文件 O-1 记录该参数不在原 §12.2 契约 1 清单内）
 - 现行代码锚点：`oamp/src/agent.js:8-15`（import 面）、`:27`（`MODEL_RE`）、`:150-161`（一次性 argv）、`:263-292`（`runDaemonTask` 模型链）、`:459-492`（`startAgent` 参数面与 `ContextPool` 构造）、`oamp/src/context-pool.js:23`（`ContextPool` 构造）、`:173-180`（`_ensureClient`）、`:202-204`（`_failSession` 早退名单）
 
 ## depends_on

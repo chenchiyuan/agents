@@ -291,7 +291,7 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 | 项 | 定案 |
 |---|---|
 | 事件名 | **`TOOL_APPROVED`**（允许档）/ **`TOOL_DENIED`**（拒绝档）——一次 permission 请求**恰好一行**（N 次受门禁的工具调用 = N 条记录，F05-2 的字面判据） |
-| 字段 | `instance`（如 `pb-dev`）、`role`、`chat_id`、`context_id`、`pid`、`tool`（`bash`/`edit`/`delete`/`move`）、`title`（截断 120 字符）、`tool_call_id`、`option`（`allow_once`/`reject_once`） |
+| 字段 | **身份组**（来自 `auditContext` 注入）：`instance`（如 `pb-dev`）、`role`、`chat_id`、`context_id`；**协议组**（协议层自身可得）：`pid`、`tool`（`bash`/`edit`/`delete`/`move`）、`title`（截断 120 字符）、`tool_call_id`、`option`（`allow_once`/`reject_once`）。**取值口径（定案）**：以上键**恒定存在**（"无条件字段" = 键必有）；**未提供身份时其值为 `null`**（不等于"一定有非空值"）。集群路径下 `ContextPool` 恒透传 `auditContext`（§12.2 契约 1）⇒ 身份字段恒非空；阶段 6 对审计行的断言按"键存在 + 集群路径取值非空"判定 |
 | 落点 | agent 的 stdout 事件行（`createEventLog().event()`，永不节流）→ 经 tmux `tee` 同时**落盘** `<PKG_ROOT>/.runtime/cluster/<instance>.log` 并在窗口可见（F06-6 的"每进程至少一份日志"） |
 | 为什么不落 SQLite | E-5/F02-5 明令"仅两类记录"（0011 §4.7 的模块边界）；审计是运行期事件，与 0010 以来"事件日志 = 终端事件行"的既有形态一致（F05 边界也要求"不新增日志面之外的检索面"） |
 | **覆盖范围的诚实边界** | 受门禁的工具只有 `bash`/`edit`/`delete`/`move`（W-3）；只读工具（read/glob/grep/todo/…）**不产生请求**，因而**没有记录**。E5 的"每一次工具调用都留下放行记录"在实现口径下 = "**每一次受门禁（可变更）的工具调用**恰好一条记录"。阶段 6 的审计断言必须用**变更类**指令（如"创建文件"→ `edit`；"执行 echo"→ `bash`），否则会误判（见 §14 疑问 1） |
@@ -524,10 +524,10 @@ has-session? 否 → 打印并退出 0
 | D-04 | 配置文件 = 仓库根 `cluster.json`（tracked，零凭据字段，独立于 `oamp/config.json`） | **L1-4** | 集群描述 = 本仓库的角色拓扑，与 `roles/`、缺省 cwd 同层；生命周期不同不合并 | 并入 config.json：把"单进程参数"和"多进程编排"混成一个生命周期；放 `oamp/`：全变 `../` |
 | D-05 | 实例不常驻 LLM（节点进程 + 按 (chat,agent) 懒启动） | **L1-5（沿用 0011，无变更）** | 产品已锁（W2/M-3）；架构上也不该改：10 个常驻 LLM 会让空闲内存与上下文成本 ×10 | 常驻 LLM：无功能收益、成本 ×10 |
 | D-06 | agent 参数面 +4 flag（`--role/--model/--tools/--permission`），且 `pb-<role>` 可推断绑定 | L1-6（**建议降级为 L2**） | 单起（F01-4）与角色真源（F02-1）的联合要求；既有调用（`dev-1`）行为不变 | 只支持显式 flag：裸起 `pb-dev` 得到"同名不同人格"的实例 |
-| D-07 | permission 应答放在 `AcpClient._handleMessage`（服务端请求分支），未知方法回 `-32601` | L2 | 协议层职责归协议封装；响亮失败优于静默丢弃 | 在 pool/agent 层处理：协议细节泄漏到上层 |
+| D-07 | permission 应答放在 `AcpClient._handleMessage`（服务端请求分支），未知方法回 `-32601` | L2 | 协议层职责归协议封装；响亮失败优于静默丢弃；**审计所需的身份字段（instance / role / chat_id / context_id）协议层不可知 → 由调用方经构造参数 `auditContext` 注入**（§12.2 契约 1） | 在 pool/agent 层处理：协议细节泄漏到上层 |
 | D-08 | 允许档恒回 `allow_once`，拒绝档回 `reject_once` + `session/cancel` | L2 | 保住 N=N 审计；拒绝的终态不依赖模型行为 | `allow_always`：omp 缓存后不再发请求，审计缺记录 |
 | D-09 | `permission_denied` 为轮次级错误（会话保留） | L2 | 拒绝不是会话故障；下一轮可继续（与 `model_unavailable` 同级） | 会话级失败：一次拒绝就毁掉上下文，代价过大 |
-| D-10 | 审核事件 = 每请求一行 `TOOL_APPROVED`/`TOOL_DENIED`，落 agent 事件日志 | L2 | 可数（N=N）、与既有事件日志形态一致、不违反"仅两类记录" | 落 SQLite：违反 E-5；两行/调用：计数歧义 |
+| D-10 | 审核事件 = 每请求一行 `TOOL_APPROVED`/`TOOL_DENIED`，落 agent 事件日志 | L2 | 可数（N=N）、与既有事件日志形态一致、不违反"仅两类记录"；身份字段取自 `auditContext`（键恒存在、缺省 `null`，见 D-07） | 落 SQLite：违反 E-5；两行/调用：计数歧义 |
 | D-11 | 模型链插层：`payload > env > --model(角色) > config > 内置` | L2 | 沿用 0011 的"env 高于配置层"，角色级属配置层内部（prd 疑问 2） | 角色级高于 env：打破既有运维覆盖语义 |
 | D-12 | 工具开关：daemon 由 argv 决定（去掉硬编码 `--no-tools`）；`payload.tools` > CLI `--tools` > **agent 内置缺省（角色绑定 ⇒ on / 无绑定 ⇒ off）** | L2 | F04-2 明令"默认对话路径必须真实可用"；两条 LLM 路径一致（TC-09）；单起路径（无 flag）也要满足 F04-1 | 只改一次性路径 = 本卡的核心缺陷未修 |
 | D-13 | `cwd` 不加 flag：由进程启动目录承载（tmux `-c`） | L2 | 复用 0011 的 `process.cwd()` → `session/new{cwd}` 全链，零新参数 | 新增 `--cwd`：与 ACP spawn / session/new 三处重复传递 |
@@ -669,7 +669,10 @@ has-session? 否 → 打印并退出 0
 | G7（人工，阶段 6） | 真实 omp + 真实 tmux 的 E1~E8 | 全部合入 | 末位 |
 
 - 跨组契约（必须在 G4/G5 开工前锁定，写进阶段 4 的 PR 卡）：
-  1. `AcpClient` 构造参数：`{ bin, model, cwd, tools, roleFile, permission, logger, onExit, onPermissionRequest }`（`onPermissionRequest(info) → 'allow'|'deny'`）。
+  1. `AcpClient` 构造参数（10 项）：`{ bin, model, cwd, tools, roleFile, permission, logger, onExit, onPermissionRequest, auditContext }`
+     - `onPermissionRequest(info) → 'allow'|'deny'`：策略判定与审计落行归调用方（`ContextSession`）。
+     - **`auditContext = { instance, role, chat_id, context_id } | null`（缺省 `null`）**：把审计事件所需的身份字段注入协议封装层——`AcpClient` 只知道 `pid`/session，无从获知 instance / role / chat_id，`context_id`（`ctx-<pid>-<generation>`）更是由池层生成。
+     - **pr-004 落地要求**：`ContextPool._ensureClient()`（`AcpClient` 的唯一构造点）**必须透传 `auditContext`**，不得留 `null` 而使审计行身份缺失。
   2. `role-binding.js` 导出：`instanceIdForRole(role)` / `roleFromInstanceId(id)` / `resolveRoleRoot(env)` / `resolveRoleFile(root, role)`。
   3. `cluster-config.js` 导出：`loadClusterConfig({ path, env }) → { session, root, web, router, roles: Map<role, {instanceId, enabled, model, tools, permission, cwd}> }`（校验失败抛错）。
   4. `status.js` 导出：`queryNodes(config) → nodes[]`（默认导出行为不变）。

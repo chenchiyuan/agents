@@ -31,7 +31,7 @@
   - `allow` → 回 `{outcome:{outcome:'selected',optionId:'allow_once'}}`（**恒 `allow_once`，不用 `allow_always`**：omp 按 cacheKey 缓存后不再发请求，会让审计记录数 < 调用数，违 §11.2）；
   - `deny` → 回 `{outcome:{outcome:'selected',optionId:'reject_once'}}` → 立即 `session/cancel()` → 置 `_permissionDenied`（轮次级标记，T3 消费）。
 - 未知方法 → 回 JSON-RPC error `{code:-32601, message:'Method not found'}`（响亮失败，不静默丢弃、不挂起）。
-- 审计：每次 permission 请求恰一行 `logger.event('TOOL_APPROVED' | 'TOOL_DENIED', fields)`——字段顺序 `instance / role / chat_id / context_id / pid / tool / title（截断 120 字符）/ tool_call_id / option`（AR-11），走永不节流的 `event()`；无 logger 时不落。
+- 审计：每次 permission 请求恰一行 `logger.event('TOOL_APPROVED' | 'TOOL_DENIED', fields)`——**字段集合恒定**（9 键恒在）：`instance / role / chat_id / context_id / pid / tool / title（截断 120 字符）/ tool_call_id / option`（AR-11），身份四键在 `auditContext` 缺省或某键缺失时取 `null`（不省略键）；走永不节流的 `event()`；无 logger 时不落。
 - 回包写入失败（子进程已不可写）静默忽略（与既有 `cancel()` 同形态），不让 stdout data handler 抛异常。
 
 **验收（可测试判据）**
@@ -71,6 +71,7 @@
 4. 拒绝档 → fake 记录 `reject_once` 且同时记录 `session/cancel`；`prompt()` 抛 `permission_denied`；恰 1 行 `TOOL_DENIED`；`client.dead === false`。
 5. 未知方法 → fake 记录 `{error:{code:-32601}}`；该轮 `prompt()` 正常结算（不挂起）。
 6. 用例间独立启停，零残留（临时目录、子进程经 `kill()` 收尾）。
+7. 缺省 `auditContext`（未提供身份）→ 审计事件键集合恒为同一 9 键，身份四键值为 `null`（§4.5 无条件字段口径；2026-09-11 主 agent 裁决后补）。
 
 **前置依赖**：T1 / T2 / T3　**优先级**：P0
 
@@ -102,7 +103,7 @@
 
 | # | 任务 | 推断内容 | 追溯基础 |
 |---|---|---|---|
-| MI-1 | T2 | **审计身份字段的承载参数 `auditContext`**（`{instance, role, chat_id, context_id}`，缺省 `null`，事件中缺失键由 `formatEventLine` 跳过）：AR-11（`architecture.md:294`）要求这 4 个字段，但 §12.2 契约 1 的构造参数清单未列承载者，且 `AcpClient` 自身无从获知（`pid` 可自产，`tool`/`title`/`tool_call_id` 取自 `params.toolCall`）——故新增一个**可选**对象参数，对既有 5 键调用方零影响。**下游要求**：pr-004 的 `ContextPool._ensureClient()` 必须透传 `auditContext: {instance, role, chat_id, context_id}`，否则 AR-11 的 4 个身份字段在常驻路径为空（argv/permission 功能不受影响） | `architecture.md:294`（AR-11 字段清单）+ §12.2 契约 1 + `acp-client.js` 可获知面 |
+| MI-1 | T2 | **审计身份字段的承载参数 `auditContext`**（`{instance, role, chat_id, context_id}`，缺省 `null`）：AR-11（`architecture.md:294`）要求这 4 个字段无条件存在，但 §12.2 契约 1 的构造参数清单未列承载者，且 `AcpClient` 自身无从获知（`pid` 可自产，`tool`/`title`/`tool_call_id` 取自 `params.toolCall`）——故新增一个**可选**对象参数，对既有 5 键调用方零影响；事件字段集恒定，缺省时四键取 `null`（2026-09-11 主 agent 裁决：AR-11 的字段无条件列出 ⇒ 实现恒带四键，而非"身份可得时才有"）。**下游要求（字段有值，非仅存在）**：pr-004 的 `ContextPool._ensureClient()` 应透传 `auditContext: {instance, role, chat_id, context_id}`，否则常驻路径身份四键恒为 `null` | `architecture.md:294`（AR-11 字段清单）+ §12.2 契约 1 + `acp-client.js` 可获知面 |
 | MI-2 | T2 | `onPermissionRequest(info)` 与静态 `permission` 的优先级：**给了函数则以其返回 `'allow'|'deny'` 为准，否则取 `permission`**（两参数均按 §12.2 契约 1 落地；契约只写了签名与返回，未定义两者共存时的仲裁）。`info = {sessionId, toolCall, options}` | §12.2 契约 1 的 `onPermissionRequest(info) → 'allow'|'deny'` |
 | MI-3 | T3 | `permission_denied` 的 `AcpError.message` 取 §4.4 的 task.result 文本「工具调用被 permission 策略拒绝（permission=deny）」（契约只定 `code`） | `architecture.md:279`（拒绝档三步）+ `:500` |
 | MI-4 | T1 | `--append-system-prompt` 在 argv 中的位置未定：取 `--model` 之后（同属「按实例追加」段），对 omp 取值规则（W-6 按 flag 取值）无影响 | §3.2 + §12.2 契约 1 |
@@ -113,6 +114,6 @@
 
 ## 开放项（不阻断本 PR，报告主 agent）
 
-- **O-1（新增构造参数的跨 PR 面）**：`auditContext` 不在 pr-003/pr-004 卡片的参数枚举中（卡只列 `tools`/`roleFile`/`permission`/`onPermissionRequest`），但 AR-11 的 4 个身份字段必须有承载者。本 PR 以「可选参数 + 缺省 null」交付，pr-004 透传是 AR-11 在常驻路径成立的**必要下游动作**（见 MI-1）。
+- **O-1（新增构造参数的跨 PR 面）**：`auditContext` 不在 pr-003/pr-004 卡片的参数枚举中（卡只列 `tools`/`roleFile`/`permission`/`onPermissionRequest`），但 AR-11 的 4 个身份字段必须有承载者。本 PR 以「可选参数 + 缺省 null + 字段集恒定」交付（缺省路径下四键存在但为 `null`，2026-09-11 主 agent 裁决后修订），pr-004 透传 `auditContext` 是 AR-11 身份维度**有值**的必要下游动作（见 MI-1）。
 - **O-2（真实 omp 的 permission 帧时序）**：本 PR 全量以 fake ACP 取证；真实 omp 的 deny 时延（`duration_ms ≤ 10s`）与「会话保留」由阶段 6 的 E5 复测（§4.4 时间判据 / pr-006）。
 - **O-3（一次性 `omp -p` 路径无 permission 面）**：`-p` 路径不经 ACP，其工具门禁由 omp 自身审批模式决定，不在本 PR 范围（F05 边界明文；pr-004 只透传参数）。
