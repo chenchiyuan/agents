@@ -45,6 +45,19 @@ function readCurrentModel(result) {
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
+/**
+ * §4.5：`TOOL_CALL` 的 path 取值——`rawInput.path`，否则 `locations[0]` 的路径（对象 `{path}` 或字符串）。
+ * 取不到 → null（调用方省略该键）。
+ */
+function readToolPath(update) {
+  const raw = update && update.rawInput;
+  if (raw && typeof raw.path === 'string' && raw.path !== '') return raw.path;
+  const first = update && Array.isArray(update.locations) ? update.locations[0] : null;
+  if (typeof first === 'string' && first !== '') return first;
+  if (first && typeof first.path === 'string' && first.path !== '') return first.path;
+  return null;
+}
+
 export class AcpClient {
   /**
    * @param {object} opts
@@ -96,6 +109,7 @@ export class AcpClient {
     this._chunkHandler = null;
     this._killTimer = null;
     this._permissionDenied = false; // 轮次级：deny 档置位，prompt() 结算时抛 permission_denied
+    this._inFlightTools = new Map(); // §4.5：在飞工具调用（toolCallId → {kind,title,status,path}），终态首见或轮末冲账落行
   }
 
   /** 启动子进程并完成初始化（initialize → session/new → 等静默）。失败即 kill 并抛 AcpError。 */
@@ -105,6 +119,8 @@ export class AcpClient {
     args.push('--no-session');
     if (this.modelArg) args.push('--model', this.modelArg);
     if (this.roleFile) args.push('--append-system-prompt', this.roleFile); // §3.2：角色注入（绝对路径）
+    // §4.4（pr-007 主机制）：档位由既有 permission 派生；仅工具可用时追加（tools=off 时档位无意义，argv 回到 0011 形状）
+    if (this.tools) args.push('--approval-mode', this.permission === 'deny' ? 'always-ask' : 'yolo');
     const child = spawn(this.bin, args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
     this.pid = child.pid;
@@ -193,6 +209,7 @@ export class AcpClient {
       };
     } finally {
       this._chunkHandler = null;
+      this._flushToolCalls(); // §4.5 轮次结算冲账：在飞表残留以最后观测 status 落行 ⇒ 一次调用恰一行
     }
   }
 
@@ -316,7 +333,63 @@ export class AcpClient {
       }
       return;
     }
-    if (typeof message.method === 'string' && this._chunkHandler) this._chunkHandler(message.params);
+    if (typeof message.method !== 'string') return;
+    // §4.5（pr-007 主机制）：`session/update` 通知 = 轮次增量（agent_message_chunk）+ 工具调用审计源
+    if (message.method === 'session/update') this._handleSessionUpdate(message.params);
+    if (this._chunkHandler) this._chunkHandler(message.params);
+  }
+
+  /**
+   * §4.5：`tool_call` / `tool_call_update` → 在飞表（仅当前 sessionId）。非终态登入/更新不落行；
+   * 终态（completed / failed）首见即落一行并移出 ⇒ 同 id 多帧（pending→in_progress→completed）恰一行。
+   */
+  _handleSessionUpdate(params) {
+    const update = params && params.update;
+    if (!update || params.sessionId !== this.sessionId) return;
+    const kind = update.sessionUpdate;
+    if (kind !== 'tool_call' && kind !== 'tool_call_update') return;
+    const id = update.toolCallId;
+    if (typeof id !== 'string' || id === '') return;
+    const prev = this._inFlightTools.get(id) || null;
+    const entry = {
+      kind: typeof update.kind === 'string' && update.kind !== '' ? update.kind : prev?.kind ?? null,
+      title: typeof update.title === 'string' && update.title !== '' ? update.title : prev?.title ?? null,
+      status: typeof update.status === 'string' && update.status !== '' ? update.status : prev?.status ?? null,
+      path: readToolPath(update) ?? prev?.path ?? null,
+    };
+    if (entry.status === 'completed' || entry.status === 'failed') {
+      this._inFlightTools.delete(id);
+      this._auditToolCall(id, entry);
+      return;
+    }
+    this._inFlightTools.set(id, entry);
+  }
+
+  /** §4.5：轮次结算冲账——在飞表残留 id 以「最后观测 status」落行并清空（N 次工具调用 = N 行）。 */
+  _flushToolCalls() {
+    if (this._inFlightTools.size === 0) return;
+    for (const [id, entry] of this._inFlightTools) this._auditToolCall(id, entry);
+    this._inFlightTools.clear();
+  }
+
+  /** §4.5：`TOOL_CALL` 落行（`source=acp_tool_call`）；`path` 无则省略该键，其余键恒在（身份缺省为 null）。 */
+  _auditToolCall(toolCallId, entry) {
+    if (!this.logger) return;
+    const identity = this.auditContext || {};
+    const fields = {
+      instance: identity.instance ?? null,
+      role: identity.role ?? null,
+      chat_id: identity.chat_id ?? null,
+      context_id: identity.context_id ?? null,
+      pid: this.pid,
+      tool_call_id: toolCallId,
+      kind: entry.kind ?? null,
+      title: typeof entry.title === 'string' ? entry.title.slice(0, TOOL_TITLE_MAX) : null,
+      status: entry.status ?? null,
+      source: 'acp_tool_call',
+    };
+    if (typeof entry.path === 'string' && entry.path !== '') fields.path = entry.path.slice(0, TOOL_TITLE_MAX);
+    this.logger.event('TOOL_CALL', fields);
   }
 
   /** §4.4：服务端请求应答——已知方法按策略回结果，未知方法回 -32601（响亮失败，绝不静默丢弃）。 */
@@ -365,6 +438,7 @@ export class AcpClient {
       title: typeof toolCall.title === 'string' ? toolCall.title.slice(0, TOOL_TITLE_MAX) : null,
       tool_call_id: toolCall.toolCallId ?? null,
       option,
+      source: 'acp_permission', // §4.5：兼容路径来源标识（当前 omp 不触发，V-9）
     });
   }
 

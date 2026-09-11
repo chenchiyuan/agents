@@ -13,7 +13,8 @@ import { AcpClient } from '../src/acp-client.js';
 
 // —— fake omp（acp 形态）：initialize / session/new（真实数组形态 configOptions）——
 // 每次 session/prompt 主动下发一个服务端请求（按 FAKE_ACP_MODE：allow/deny → session/request_permission；unknown → fs/read_text_file），
-// 收到客户端应答后才结算 prompt。观测面：FAKE_ACP_ARGS_LOG（启动 argv）/ FAKE_ACP_FRAMES_LOG（应答与 session/cancel 帧）。
+// 收到客户端应答后才结算 prompt。toolcall* 模式则推 session/update 的 tool_call / tool_call_update 通知（§4.5 审计源）。
+// 观测面：FAKE_ACP_ARGS_LOG（启动 argv）/ FAKE_ACP_FRAMES_LOG（initialize 帧、应答与 session/cancel 帧）。
 const FAKE_ACP_SOURCE = `#!/usr/bin/env node
 const readline = require('node:readline');
 const fs = require('node:fs');
@@ -31,6 +32,12 @@ function log(envKey, entry) {
 }
 
 log('FAKE_ACP_ARGS_LOG', argv);
+let promptSeq = 0;
+
+/** 推一帧 session/update（tool_call / tool_call_update）——§4.5 主机制的审计源。 */
+function emit(sessionId, toolCallId, patch) {
+  send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: Object.assign({ toolCallId }, patch) } });
+}
 
 let serverSeq = 9000;
 const awaitingReply = new Map(); // 服务端请求 id -> 对应的 session/prompt id
@@ -43,6 +50,7 @@ rl.on('line', (line) => {
   try { msg = JSON.parse(raw); } catch { return; }
 
   if (msg.method === 'initialize') {
+    log('FAKE_ACP_FRAMES_LOG', { frame: 'initialize', params: msg.params });
     send({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: 1, agentCapabilities: {} } });
     return;
   }
@@ -58,6 +66,45 @@ rl.on('line', (line) => {
     return;
   }
   if (msg.method === 'session/prompt') {
+    promptSeq += 1;
+    const sid = msg.params.sessionId;
+    if (MODE === 'toolcall') {
+      // 同 id 三帧（pending → in_progress → completed）：终态首见落行 ⇒ 恰 1 行；title 超长以验截断
+      emit(sid, 'tc-' + promptSeq, { sessionUpdate: 'tool_call', kind: 'edit', title: 'Create /tmp/role-smoke.txt ' + 'x'.repeat(130), status: 'pending', rawInput: { path: '/tmp/role-smoke.txt' } });
+      emit(sid, 'tc-' + promptSeq, { sessionUpdate: 'tool_call_update', status: 'in_progress' });
+      emit(sid, 'tc-' + promptSeq, { sessionUpdate: 'tool_call_update', status: 'completed' });
+      send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
+    if (MODE === 'toolcall_two') {
+      for (const toolCallId of ['tc-a', 'tc-b']) {
+        emit(sid, toolCallId, { sessionUpdate: 'tool_call', kind: 'edit', title: 'Edit ' + toolCallId, status: 'pending', rawInput: { path: '/tmp/' + toolCallId + '.txt' } });
+        emit(sid, toolCallId, { sessionUpdate: 'tool_call_update', status: 'completed' });
+      }
+      send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
+    if (MODE === 'toolcall_unterminated') {
+      // 只观测到非终态：轮次结算冲账以「最后观测 status」落行，且无 path 时该键省略
+      emit(sid, 'tc-open', { sessionUpdate: 'tool_call', kind: 'execute', title: 'Run something', status: 'pending' });
+      emit(sid, 'tc-open', { sessionUpdate: 'tool_call_update', status: 'in_progress' });
+      send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
+    if (MODE === 'toolcall_readonly') {
+      // NC-5：只读类 kind（read）在 fake 层固化「同样落一行」；path 取 locations[0]（对象形态）
+      emit(sid, 'tc-read', { sessionUpdate: 'tool_call', kind: 'read', title: 'Read foo.txt', status: 'pending', locations: [{ path: '/tmp/foo.txt' }] });
+      emit(sid, 'tc-read', { sessionUpdate: 'tool_call_update', status: 'completed' });
+      send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
+    if (MODE === 'toolcall_foreign') {
+      // 非本会话通知：必须被忽略（§4.5 仅处理当前 sessionId）
+      emit('other-sess', 'tc-foreign', { sessionUpdate: 'tool_call', kind: 'edit', title: 'Foreign', status: 'pending' });
+      emit('other-sess', 'tc-foreign', { sessionUpdate: 'tool_call_update', status: 'completed' });
+      send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
     serverSeq += 1;
     awaitingReply.set(serverSeq, msg.id);
     if (MODE === 'unknown') {
@@ -252,8 +299,8 @@ test('§4.5：缺省 auditContext 时审计字段集合恒定（身份四键存�
   const fields = approved[0].fields;
   assert.deepEqual(
     Object.keys(fields).sort(),
-    ['chat_id', 'context_id', 'instance', 'option', 'pid', 'role', 'title', 'tool', 'tool_call_id'].sort(),
-    '审计字段集合不随调用方是否提供身份而变',
+    ['chat_id', 'context_id', 'instance', 'option', 'pid', 'role', 'source', 'title', 'tool', 'tool_call_id'].sort(),
+    '审计字段集合不随调用方是否提供身份而变（pr-007：兼容路径新增 source 键）',
   );
   assert.equal(fields.instance, null);
   assert.equal(fields.role, null);
@@ -262,6 +309,7 @@ test('§4.5：缺省 auditContext 时审计字段集合恒定（身份四键存�
   assert.equal(fields.pid, client.pid);
   assert.equal(fields.tool, 'edit');
   assert.equal(fields.option, 'allow_once');
+  assert.equal(fields.source, 'acp_permission', '§4.5：兼容路径来源标识');
 });
 
 test('F05-3/F05-4：拒绝档回 reject_once + 立即 session/cancel + 轮次 permission_denied（会话保留）', async (t) => {
@@ -334,4 +382,144 @@ test('§12.2 契约 1：onPermissionRequest 优先于静态 permission', async (
   assert.equal(seen.toolCall.toolName, 'edit');
   assert.ok(Array.isArray(seen.options));
   assert.equal(rec.events.filter((e) => e.name === 'TOOL_DENIED').length, 1);
+});
+
+// ─────────── pr-007（阶段 6 返工）：argv 档位映射（§4.4 主机制）+ `tool_call` 通知 → TOOL_CALL（§4.5） ───────────
+
+test('§4.4/pr-007①：permission 档 → argv 追加 --approval-mode（仅 tools=true；tools=off/匿名不变）', async (t) => {
+  const clients = withClients(t);
+
+  const allow = writeFake('allow');
+  await startClient(clients, allow.bin, { tools: true, permission: 'allow' });
+  const allowArgv = readJsonLines(allow.argsLog)[0];
+  const allowIdx = allowArgv.indexOf('--approval-mode');
+  assert.ok(allowIdx >= 0, 'allow 档必须追加 --approval-mode');
+  assert.equal(allowArgv[allowIdx + 1], 'yolo');
+  assert.ok(!allowArgv.includes('--no-tools'));
+
+  const deny = writeFake('allow');
+  await startClient(clients, deny.bin, { tools: true, permission: 'deny' });
+  const denyArgv = readJsonLines(deny.argsLog)[0];
+  assert.equal(denyArgv[denyArgv.indexOf('--approval-mode') + 1], 'always-ask');
+
+  const off = writeFake('allow');
+  await startClient(clients, off.bin, { tools: false, permission: 'deny' });
+  const offArgv = readJsonLines(off.argsLog)[0];
+  assert.ok(!offArgv.includes('--approval-mode'), 'tools=false ⇒ 档位无意义，不得追加');
+  assert.ok(offArgv.includes('--no-tools'));
+
+  const anon = writeFake('allow');
+  await startClient(clients, anon.bin, {});
+  const anonArgv = readJsonLines(anon.argsLog)[0];
+  assert.ok(!anonArgv.includes('--approval-mode'), '缺省（匿名实例）⇒ 不追加');
+  assert.ok(anonArgv.includes('--no-tools'));
+});
+
+test('§4.5/pr-007③：同 id 多帧（pending→in_progress→completed）⇒ 恰 1 行；两次调用 ⇒ 恰 2 行（字段齐全）', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('toolcall');
+  const rec = recorder();
+  const auditContext = { instance: 'pb-dev', role: 'dev', chat_id: 'chat-1', context_id: 'ctx-100-1' };
+  const client = await startClient(clients, fake.bin, { tools: true, permission: 'allow', auditContext }, rec.logger);
+
+  const first = await client.prompt('创建 role-smoke.txt');
+  assert.equal(first.stop_reason, 'end_turn');
+  assert.equal(rec.events.filter((e) => e.name === 'TOOL_CALL').length, 1, '三帧同一 id ⇒ 终态首见恰 1 行');
+  const second = await client.prompt('再创建一次');
+  assert.equal(second.stop_reason, 'end_turn');
+
+  const rows = rec.events.filter((e) => e.name === 'TOOL_CALL');
+  assert.equal(rows.length, 2, '两次独立调用（两个 toolCallId）⇒ 恰 2 行');
+  assert.deepEqual(
+    Object.keys(rows[0].fields).sort(),
+    ['chat_id', 'context_id', 'instance', 'kind', 'path', 'pid', 'role', 'source', 'status', 'title', 'tool_call_id'].sort(),
+    'TOOL_CALL 字段集合恒定（path 有值时在内）',
+  );
+  const fields = rows[0].fields;
+  assert.equal(fields.instance, 'pb-dev');
+  assert.equal(fields.role, 'dev');
+  assert.equal(fields.chat_id, 'chat-1');
+  assert.equal(fields.context_id, 'ctx-100-1');
+  assert.equal(fields.pid, client.pid);
+  assert.equal(fields.tool_call_id, 'tc-1');
+  assert.equal(fields.kind, 'edit');
+  assert.equal(fields.status, 'completed');
+  assert.equal(fields.source, 'acp_tool_call');
+  assert.equal(fields.title.length, 120, 'title 截断 120 字符');
+  assert.equal(fields.path, '/tmp/role-smoke.txt', 'path 取 rawInput.path');
+  assert.equal(rows[1].fields.tool_call_id, 'tc-2');
+});
+
+test('§4.5：未观测到终态的调用在轮次结算冲账（最后观测 status；无 path 则省略该键）', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('toolcall_unterminated');
+  const rec = recorder();
+  const client = await startClient(
+    clients,
+    fake.bin,
+    { tools: true, auditContext: { instance: 'pb-dev', role: 'dev', chat_id: 'chat-1', context_id: 'ctx-1' } },
+    rec.logger,
+  );
+
+  const result = await client.prompt('跑个命令');
+  assert.equal(result.stop_reason, 'end_turn');
+  const rows = rec.events.filter((e) => e.name === 'TOOL_CALL');
+  assert.equal(rows.length, 1, '轮次结算必须冲账，仍恰 1 行');
+  assert.equal(rows[0].fields.tool_call_id, 'tc-open');
+  assert.equal(rows[0].fields.status, 'in_progress', '以最后观测 status 落行');
+  assert.equal(rows[0].fields.kind, 'execute', 'kind 沿用首帧观测值');
+  assert.ok(!('path' in rows[0].fields), '无 path ⇒ 省略该键');
+});
+
+test('§4.5：一轮两次调用 ⇒ 2 行；非本会话通知忽略；无工具调用的轮次零行', async (t) => {
+  const clients = withClients(t);
+
+  const two = writeFake('toolcall_two');
+  const recTwo = recorder();
+  const c2 = await startClient(clients, two.bin, { tools: true }, recTwo.logger);
+  await c2.prompt('做两件事');
+  assert.deepEqual(
+    recTwo.events.filter((e) => e.name === 'TOOL_CALL').map((e) => e.fields.tool_call_id),
+    ['tc-a', 'tc-b'],
+  );
+
+  const foreign = writeFake('toolcall_foreign');
+  const recForeign = recorder();
+  const c3 = await startClient(clients, foreign.bin, { tools: true }, recForeign.logger);
+  await c3.prompt('外部会话的通知');
+  assert.equal(recForeign.events.filter((e) => e.name === 'TOOL_CALL').length, 0, '非本会话通知必须忽略');
+
+  const plain = writeFake('allow');
+  const recPlain = recorder();
+  const c4 = await startClient(clients, plain.bin, { tools: true }, recPlain.logger);
+  await c4.prompt('纯聊天');
+  assert.equal(recPlain.events.filter((e) => e.name === 'TOOL_CALL').length, 0, '无工具调用的轮次零 TOOL_CALL');
+});
+
+// NC-5（§4.5 待实测边界）——**真实 omp 18.0.11 实测定稿（2026-09-11，pr-007）**：只读工具同样推送
+// `tool_call` / `tool_call_update` 通知，实测行实录：`TOOL_CALL … kind=read title="Reading probe allow file"
+// status=completed source=acp_tool_call path=<file>` ⇒ E5 字面口径「每一次工具调用恰一行」**完全成立**（分支①），
+// 无需退化为「变更类调用 N=N」。本用例以 fake 固化该口径。
+test('§4.5/NC-5：只读类 kind（read）同样落一行 TOOL_CALL（path 取 locations[0]）', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('toolcall_readonly');
+  const rec = recorder();
+  const client = await startClient(clients, fake.bin, { tools: true }, rec.logger);
+
+  await client.prompt('读文件');
+  const rows = rec.events.filter((e) => e.name === 'TOOL_CALL');
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].fields.kind, 'read');
+  assert.equal(rows[0].fields.status, 'completed');
+  assert.equal(rows[0].fields.path, '/tmp/foo.txt');
+});
+
+test('§4.4/R-12：initialize 握手 clientCapabilities 恒为空对象（不得声明 fs.* / terminal）', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('allow');
+  await startClient(clients, fake.bin, { tools: true, permission: 'allow' });
+
+  const init = readJsonLines(fake.framesLog).find((f) => f.frame === 'initialize');
+  assert.ok(init, 'fake 应记录 initialize 帧');
+  assert.deepEqual(init.params.clientCapabilities, {}, 'V-10③：声明能力会把文件写入 / 终端委托给客户端 → 工具 failed');
 });

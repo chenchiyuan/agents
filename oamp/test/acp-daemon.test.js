@@ -508,6 +508,16 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   await planner.waitLine(/REGISTERED instance=pb-planner/);
   await anon.waitAgentLine(/REGISTERED instance=dev-1/);
 
+  // pr-007（阶段 6 返工）：档位一次性断言用的 deny 档实例（tools on + --permission deny ⇒ always-ask）
+  const denyArgs = path.join(dir, 'pb-dev-deny.args.jsonl');
+  const deny = startFlaggedAgent('pb-dev-deny', ['--role', 'dev', '--tools', 'on', '--permission', 'deny'], {
+    socketPath: router.socketPath,
+    cwd: REPO_ROOT,
+    envExtra: { ...roleEnv, FAKE_ACP_ARGS_LOG: denyArgs },
+  });
+  t.after(() => deny.stop());
+  await deny.waitLine(/REGISTERED instance=pb-dev-deny/);
+
   const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: tempDbDir(t) });
   t.after(() => web.stop());
 
@@ -526,6 +536,7 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   assert.equal(devArgv[devIdx + 1], ROLE_FILE_DEV, '注入值应为 <仓库根>/roles/dev/dev.md');
   assert.ok(path.isAbsolute(devArgv[devIdx + 1]), '注入值应为绝对路径');
   assert.ok(!devArgv.includes('--no-tools'), 'F04-2/AR-08：--tools on 不得传 --no-tools');
+  assert.equal(devArgv[devArgv.indexOf('--approval-mode') + 1], 'yolo', '§4.4/pr-007①：tools on + allow 的常驻 argv 应含 --approval-mode yolo');
 
   // ② 角色实例 + --tools off：必须传 --no-tools（注入机制仍在）
   const plannerArgv = readJsonl(plannerArgs).find((a) => a[0] === 'acp');
@@ -547,13 +558,22 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   assert.ok(!devOneShot.includes('acp'), '一次性路径不应含 acp');
   assert.equal(devOneShot[devOneShot.indexOf('--append-system-prompt') + 1], ROLE_FILE_DEV, '一次性 argv 应注入同一角色文件');
   assert.ok(!devOneShot.includes('--no-tools'), '角色实例（tools on）一次性 argv 不传 --no-tools');
+  assert.equal(devOneShot[devOneShot.indexOf('--approval-mode') + 1], 'yolo', '§4.4/pr-007②：allow 档一次性 argv 应含 --approval-mode yolo');
 
   // ⑤ 匿名实例一次性路径回归：仍传 --no-tools、无注入
   await sendAndWait(web, { chat_id: anonTurn.chatId, agent_id: 'dev-1', text: '请记住数字 7', one_shot: true }, { rounds: 2 });
   await waitFor(() => readJsonl(anonArgs).some((a) => a.includes('-p')), { what: 'dev-1 -p argv' });
   const anonOneShot = readJsonl(anonArgs).find((a) => a.includes('-p'));
   assert.ok(anonOneShot.includes('--no-tools'), '§2.3 回归：匿名实例一次性 argv 仍含 --no-tools');
+  assert.ok(!anonOneShot.includes('--approval-mode'), '§2.3 回归：匿名实例（tools off）一次性 argv 无档位');
   assert.ok(!anonOneShot.includes('--append-system-prompt'), '§2.3 回归：匿名实例一次性 argv 无注入');
+
+  // ⑥ 一次性路径 deny 档（§4.4/pr-007②）：--permission deny ⇒ --approval-mode always-ask
+  await sendAndWait(web, { agent_id: 'pb-dev-deny', text: '请记住数字 8', one_shot: true });
+  await waitFor(() => readJsonl(denyArgs).some((a) => a.includes('-p')), { what: 'pb-dev-deny -p argv' });
+  const denyOneShot = readJsonl(denyArgs).find((a) => a.includes('-p'));
+  assert.equal(denyOneShot[denyOneShot.indexOf('--approval-mode') + 1], 'always-ask', '§4.4：deny 档一次性 argv 应含 --approval-mode always-ask');
+  assert.ok(!denyOneShot.includes('--no-tools'), 'tools on 的一次性 argv 不传 --no-tools');
 });
 
 // ─────────── pr-006：常驻路径 permission 审计（F05-2 / AR-11 / §4.5 / §11.2） ───────────
