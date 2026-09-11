@@ -1,5 +1,8 @@
 // src/agent.js — `oamp agent start <instance-id>` 生命周期编排（architecture §6.2/§6.3 / D6/D16/D17 + F03）
 // 入口 = default 导出函数（cli.js 调用约定）：restArgs[0] = instance-id（O-1 收敛，2026-09-09 主 agent 裁决 A）。
+//   其后为可选 flag：--role <role> / --model <model> / --tools on|off / --permission allow|deny（§3.4；
+//   未知参数 / 非法取值 → 退出码 2）。角色绑定优先级：flag > instance_id 推断（pb-<role>，公式唯一位于
+//   role-binding.js）> 无绑定。
 // 流程：AGENT_START → connect（失败 stderr 报错含 socket 路径 + router 未运行提示，退出 1）
 //   → register（请求，2s 上限；失败退出 1）→ REGISTERED（含授予 lease_timeout_ms）
 //   → 周期心跳（通知）→ SIGINT：停心跳 → deregister（best-effort ≤1s）→ DEREGISTERED → 退出 0；二次 SIGINT → 130。
@@ -11,7 +14,9 @@ import { loadConfig } from './config.js';
 import { NodeClient } from './node-client.js';
 import { createEventLog } from './log.js';
 import { ContextPool } from './context-pool.js';
+import { resolveRoleFile, resolveRoleRoot, roleFromInstanceId } from './role-binding.js';
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 // —— demo 任务执行器：接收 task.request（application/json body: {command, args?, timeout_ms?, label?}）——
@@ -62,8 +67,8 @@ function parseTaskBody(payload) {
       return { ok: false, reason: 'timeout_ms 需为 1~600000 正整数' };
     }
     const model = typeof body.model === 'string' && body.model.length > 0 ? body.model : null;
-    // 默认关闭工具（纯问答安全；需要 agent 干活时显式 tools:true）
-    const tools = body.tools === true;
+    // §4.3 三分支：仅布尔视为显式取值；未给（null）由调用方回落 CLI --tools / 内置缺省
+    const tools = typeof body.tools === 'boolean' ? body.tools : null;
     return {
       ok: true,
       task: { executor: 'omp', prompt: body.prompt, model, tools, timeoutMs, label: label || body.prompt.slice(0, 60) },
@@ -144,10 +149,12 @@ async function sendTaskMessage(client, origin, messageId, type, taskId, body) {
 }
 
 /**
- * 执行一条 omp（真实 LLM）任务：spawn `omp -p --no-session [--no-tools] [--model X] <prompt>`，
- * 输出逐行回流为 task.update（stdout），结束发 task.result。默认关闭工具（纯问答）。
+ * 执行一条 omp（真实 LLM）任务：spawn `omp -p --no-session [--no-tools] [--model X]
+ * [--append-system-prompt <role.md>] <prompt>`，输出逐行回流为 task.update（stdout），结束发 task.result。
+ * 工具开关（§4.3）：payload.tools 显式布尔 > CLI --tools / 内置缺省（ctx.tools）；模型（§4.1）：
+ * payload.model > OAMP_OMP_MODEL > --model（角色级），皆未给则不传（config 默认与内置交由 omp 自身解析）。
  */
-function runOmpTask(client, logger, message, task) {
+function runOmpTask(client, logger, message, task, ctx) {
   const taskId = message.task_id;
   const origin = message.from.instance_id;
   const startedAt = Date.now();
@@ -155,9 +162,14 @@ function runOmpTask(client, logger, message, task) {
     sendTaskMessage(client, origin, `tup-${randomUUID()}`, 'task.update', taskId, { state, ...detail });
 
   const bin = OMP_BIN();
+  const toolsOn = task.tools === null ? ctx.tools : task.tools; // §4.3 三分支：显式布尔 > CLI --tools / 内置缺省
   const args = ['-p', '--no-session'];
-  if (!task.tools) args.push('--no-tools');
-  if (task.model) args.push('--model', task.model);
+  if (!toolsOn) args.push('--no-tools');
+  const model = task.model || ctx.envModel || ctx.modelOverride;
+  if (model) args.push('--model', model);
+  if (ctx.roleFile) args.push('--append-system-prompt', ctx.roleFile); // §3.3：一次性路径同样注入角色规则
+  // §4.4（pr-007）：一次性路径同理——仅工具可用时按 permission 档追加 --approval-mode
+  if (toolsOn) args.push('--approval-mode', ctx.permission === 'deny' ? 'always-ask' : 'yolo');
   args.push(task.prompt);
 
   logger.event('TASK_STARTED', { task_id: taskId, executor: 'omp', from: origin, label: task.label || '' });
@@ -257,14 +269,14 @@ function sendNotice(client, logger, { chatId, kind, text, origin }) {
 
 /**
  * 执行一条常驻上下文（omp-daemon）任务：池内键复用 → ACP 多轮 prompt（流式回流）→ 终态上报。
- * 模型解析链（§7.1，每轮独立）：payload.model > OAMP_OMP_MODEL > config.defaults.model > 内置默认
- * ——后三者已由 loadConfig() 折叠进 defaultModel。
+ * 模型解析链（§4.1，每轮独立）：payload.model > OAMP_OMP_MODEL > --model（角色级）> config.defaults.model
+ * > 内置默认——后三者由 defaultModel（loadConfig 已折叠 env > config.defaults.model > 内置）与 modelOverride 展开。
  */
 function runDaemonTask(client, logger, message, task, ctx) {
   const taskId = message.task_id;
   const origin = message.from.instance_id;
   const startedAt = Date.now();
-  const model = task.model || ctx.defaultModel;
+  const model = task.model || ctx.envModel || ctx.modelOverride || ctx.defaultModel;
   const sendUpdate = (state, detail) =>
     sendTaskMessage(client, origin, `tup-${randomUUID()}`, 'task.update', taskId, { state, ...detail });
 
@@ -320,7 +332,7 @@ function runDaemonTask(client, logger, message, task, ctx) {
 
 /** 任务执行分派：executor='omp' → 一次性 LLM；'omp-daemon' → 常驻上下文（默认）；缺省 → shell。 */
 function runTask(client, logger, message, task, ctx) {
-  if (task.executor === 'omp') return runOmpTask(client, logger, message, task);
+  if (task.executor === 'omp') return runOmpTask(client, logger, message, task, ctx);
   if (task.executor === 'omp-daemon') return runDaemonTask(client, logger, message, task, ctx);
   return runShellTask(client, logger, message, task);
 }
@@ -456,8 +468,57 @@ function handleNotice(logger, message, pool) {
 // §4.6 instance_id 校验（非空、≤64、可打印 ASCII）
 const INSTANCE_ID_RE = /^[\x21-\x7E]{1,64}$/;
 
+// §3.4 单起参数面：instance-id 之后的 4 个可选 flag（未知参数 / 非法取值 → 退出码 2，绝不静默忽略）。
+const AGENT_FLAGS = new Set(['--role', '--model', '--tools', '--permission']);
+
+/** 解析 `agent start <instance-id> [--role r] [--model m] [--tools on|off] [--permission allow|deny]`。 */
+function parseAgentArgs(restArgs) {
+  const args = Array.isArray(restArgs) ? restArgs : [];
+  const parsed = { role: null, model: null, tools: null, permission: 'allow' };
+  for (let i = 1; i < args.length; i += 1) {
+    const flag = args[i];
+    const value = args[i + 1];
+    if (!AGENT_FLAGS.has(flag)) return { ok: false, reason: `未知参数: ${JSON.stringify(flag)}` };
+    if (value === undefined) return { ok: false, reason: `${flag} 缺少取值` };
+    i += 1;
+    if (flag === '--role') {
+      // 路径安全：角色名不含分隔符且非 . / ..（随后仍以角色文件存在性兜底；不满足即退出 2，不静默降级为匿名）
+      if (value === '' || /[/\\]/.test(value) || value === '.' || value === '..') {
+        return { ok: false, reason: `--role 取值非法: ${JSON.stringify(value)}` };
+      }
+      parsed.role = value;
+    } else if (flag === '--model') {
+      if (!MODEL_RE.test(value)) {
+        return { ok: false, reason: `--model 需为 1~128 位 [A-Za-z0-9._/-] 字符: ${JSON.stringify(value)}` };
+      }
+      parsed.model = value;
+    } else if (flag === '--tools') {
+      if (value !== 'on' && value !== 'off') {
+        return { ok: false, reason: `--tools 仅支持 on|off: ${JSON.stringify(value)}` };
+      }
+      parsed.tools = value === 'on';
+    } else if (value !== 'allow' && value !== 'deny') {
+      return { ok: false, reason: `--permission 仅支持 allow|deny: ${JSON.stringify(value)}` };
+    } else {
+      parsed.permission = value;
+    }
+  }
+  return { ok: true, instanceId: args[0], ...parsed };
+}
+
+/** §4.1 链第 2 层（env 模型）：空 / 纯空白视为未设（同 config.js 的「空即未设」口径）。 */
+function readEnvModel() {
+  const raw = process.env.OAMP_OMP_MODEL;
+  return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
+}
+
 export default async function startAgent(restArgs) {
-  const instanceId = restArgs && restArgs[0];
+  const args = parseAgentArgs(restArgs);
+  if (!args.ok) {
+    process.stderr.write(`oamp: agent start: ${args.reason}\n`);
+    return 2;
+  }
+  const { instanceId, role: explicitRole, model: modelOverride, tools: cliTools, permission } = args;
 
   let config;
   try {
@@ -474,8 +535,28 @@ export default async function startAgent(restArgs) {
     return 1;
   }
 
+  // —— 角色绑定（§3.4）：显式 --role > instance_id 推断（pb-<role> 公式唯一位于 role-binding.js）> 无绑定 ——
+  const role = explicitRole || roleFromInstanceId(instanceId);
+  const roleSource = explicitRole !== null ? 'flag' : role !== null ? 'instance_id' : null;
+  const roleFile = role !== null ? resolveRoleFile(resolveRoleRoot(), role) : null;
+  if (roleFile !== null && !existsSync(roleFile)) {
+    process.stderr.write(`oamp: agent start: 角色文件不存在（role=${role}）: ${roleFile}\n`);
+    return 2;
+  }
+  // §4.3 三分支第 ③ 支：CLI --tools 缺省 = 有角色绑定 on / 无绑定 off（无绑定 ⇒ 0011 逐字节一致）
+  const effectiveTools = cliTools === null ? role !== null : cliTools;
+  const envModel = readEnvModel();
+
   const logger = createEventLog({ role: 'agent' });
-  logger.event('AGENT_START', { instance: instanceId });
+  logger.event('AGENT_START', {
+    instance: instanceId,
+    role,
+    model: envModel || modelOverride || config.defaultModel, // §4.2：该实例的解析结果（payload 层不参与启动行）
+    tools: effectiveTools ? 'on' : 'off',
+    permission,
+    role_file: roleFile,
+  });
+  if (role !== null) logger.event('ROLE_BOUND', { role, file: roleFile, source: roleSource });
 
   // —— 常驻主循环（D22 自愈）：连接/注册/运行；断线或连接失败 → 退避重连重注册 ——
   // OAMP_RECONNECT=0 恢复旧行为（断线即退 1）。被 Router 通知 agent.replaced（同 id 新会话顶替）
@@ -488,8 +569,22 @@ export default async function startAgent(restArgs) {
     cwd: process.cwd(),
     logger,
     onNotice: (notice) => sendNotice(activeClient, logger, notice),
+    // §4.3/§4.4/§3.2：会话能力随实例固化，经 _ensureClient() 透传给 AcpClient
+    role,
+    roleFile,
+    tools: effectiveTools,
+    permission,
   });
-  const taskCtx = { pool, instanceId, defaultModel: config.defaultModel };
+  const taskCtx = {
+    pool,
+    instanceId,
+    defaultModel: config.defaultModel,
+    envModel,
+    modelOverride,
+    tools: effectiveTools,
+    roleFile,
+    permission,
+  };
   let shuttingDown = false;
   let sigintCount = 0;
   let shutdownResolve;

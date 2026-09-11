@@ -1,0 +1,26 @@
+{
+  "session": "oamp-cluster",
+  "web": {
+    "port": 7788
+  },
+  "router": {
+    "socket": null
+  },
+  "roles": {
+    "architect": {},
+    "demand": {},
+    "dev": {
+      "enabled": true,
+      "tools": true,
+      "permission": "allow",
+      "cwd": "."
+    },
+    "planner": {},
+    "pr-planner": {},
+    "prd": {},
+    "progress-observer": {},
+    "retrospective": {},
+    "verifier": {},
+    "workflow-pb": {}
+  }
+}

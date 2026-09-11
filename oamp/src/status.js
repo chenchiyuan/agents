@@ -8,6 +8,7 @@
 // Router 不可达/查询失败 → 仅 stderr 明确报错（含 socket 路径 + router 未运行提示）+ 返回 1，
 //   stdout 零输出（M-02/F05-3：不静默空结果冒充成功）。零节点 → 表头无数据行 + 返回 0（§7.3 合法空态）。
 // 查询路径零副作用（F05-4）：只读、不写任何状态、结束关闭连接。
+// 查询段另以 `queryNodes(config)` 导出（§12.2 契约 4）：default 行为不变，`oamp cluster` 复用同一查询取拓扑。
 
 import net from 'node:net';
 import { loadConfig } from './config.js';
@@ -76,6 +77,37 @@ function connectSocket(socketPath) {
   });
 }
 
+/**
+ * 查询 Router 拓扑（§12.2 契约 4）：config = src/config.js 的 loadConfig() 返回值（消费 socketPath）。
+ * 成功 → nodes[]；失败 → 抛出与既有 stderr 文案同源的 Error（调用方据此打印/收口）。
+ */
+export async function queryNodes(config) {
+  const socketPath = config.socketPath;
+
+  let socket;
+  try {
+    socket = await connectSocket(socketPath);
+  } catch {
+    throw new Error(
+      `无法连接 oamp router（socket=${socketPath}；router 未运行？先执行 oamp router start）`,
+    );
+  }
+
+  const peer = new RpcPeer(socket, { idPrefix: 'status' });
+  let result;
+  try {
+    result = await peer.request('router.status', {}, { timeoutMs: REQUEST_TIMEOUT_MS });
+  } catch (err) {
+    peer.close();
+    throw new Error(
+      `查询被拒（${err && err.dataCode ? err.dataCode : 'query-failed'}）: ${err && err.message ? err.message : err}`,
+    );
+  }
+  peer.close();
+
+  return result && Array.isArray(result.nodes) ? result.nodes : [];
+}
+
 export default async function status(restArgs) {
   // restArgs 一般为空（cli status 分支透传 argv.slice(1)）；多余参数按 O-2 惯例忽略。
   void restArgs;
@@ -88,32 +120,14 @@ export default async function status(restArgs) {
     return 1;
   }
 
-  const socketPath = config.socketPath;
-
-  let socket;
+  let nodes;
   try {
-    socket = await connectSocket(socketPath);
-  } catch {
-    process.stderr.write(
-      `oamp: status 失败: 无法连接 oamp router（socket=${socketPath}；router 未运行？先执行 oamp router start）\n`,
-    );
-    return 1;
-  }
-
-  const peer = new RpcPeer(socket, { idPrefix: 'status' });
-  let result;
-  try {
-    result = await peer.request('router.status', {}, { timeoutMs: REQUEST_TIMEOUT_MS });
+    nodes = await queryNodes(config);
   } catch (err) {
-    process.stderr.write(
-      `oamp: status 失败: 查询被拒（${err && err.dataCode ? err.dataCode : 'query-failed'}）: ${err && err.message ? err.message : err}\n`,
-    );
-    peer.close();
+    process.stderr.write(`oamp: status 失败: ${err.message}\n`);
     return 1;
   }
-  peer.close();
 
-  const nodes = result && Array.isArray(result.nodes) ? result.nodes : [];
   process.stdout.write(`${renderTable(nodes)}\n`);
   return 0;
 }

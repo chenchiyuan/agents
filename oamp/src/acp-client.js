@@ -4,7 +4,7 @@
 // 同 session 多轮累积，进程消亡即上下文消失。
 // 错误码（AcpError.code，供池层/agent 映射为 task.result.error）：
 //   context_crashed（spawn/初始化失败、子进程异常退出、被主动 kill）、model_unavailable（set_config_option 被拒）、
-//   timeout（prompt 超时：cancel → 宽限 → kill）。
+//   timeout（prompt 超时：cancel → 宽限 → kill）、permission_denied（deny 档拒绝工具调用，轮次级：会话保留）。
 
 import { spawn } from 'node:child_process';
 
@@ -14,6 +14,8 @@ const INIT_MAX_MS = 5000; // §6.6：初始化等待硬上限
 const REQUEST_TIMEOUT_MS = 10000; // initialize/session/new/set_config_option 的请求上限
 const CANCEL_GRACE_MS = 2000; // §6.5：session/cancel 后等 stopReason 的宽限
 const KILL_GRACE_MS = 500; // §6.5：SIGTERM → SIGKILL 宽限（沿用 0010 kill 模式）
+const TOOL_TITLE_MAX = 120; // §4.5：审计 title 截断 120 字符
+const PERMISSION_DENIED_TEXT = '工具调用被 permission 策略拒绝（permission=deny）'; // §4.4 拒绝档轮次错误文案
 
 /** 等待 ms 毫秒（超时宽限等场景）；计时器 unref，不阻滞进程退出。 */
 const delay = (ms) =>
@@ -43,21 +45,55 @@ function readCurrentModel(result) {
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
+/**
+ * §4.5：`TOOL_CALL` 的 path 取值——`rawInput.path`，否则 `locations[0]` 的路径（对象 `{path}` 或字符串）。
+ * 取不到 → null（调用方省略该键）。
+ */
+function readToolPath(update) {
+  const raw = update && update.rawInput;
+  if (raw && typeof raw.path === 'string' && raw.path !== '') return raw.path;
+  const first = update && Array.isArray(update.locations) ? update.locations[0] : null;
+  if (typeof first === 'string' && first !== '') return first;
+  if (first && typeof first.path === 'string' && first.path !== '') return first.path;
+  return null;
+}
+
 export class AcpClient {
   /**
    * @param {object} opts
    * @param {string} opts.bin            omp 可执行（OAMP_OMP_BIN || 'omp'）
    * @param {string|null} [opts.model]   首轮模型（随进程 --model；空则不传，由 omp 自身默认决定）
    * @param {string} [opts.cwd]          子进程 cwd（= session/new 的 cwd）
+   * @param {boolean} [opts.tools]       true = 不传 --no-tools（工具可用，§4.3）；缺省 false = 沿用 0011 argv
+   * @param {string|null} [opts.roleFile] 角色定义绝对路径；非空 ⇒ argv 追加 --append-system-prompt（§3.2）
+   * @param {'allow'|'deny'} [opts.permission] permission 策略（§4.4）；缺省 allow
+   * @param {object|null} [opts.auditContext] 审计身份字段（instance/role/chat_id/context_id，§4.5）
    * @param {object|null} [opts.logger]  createEventLog 实例（可选）
    * @param {function|null} [opts.onExit] 异常退出回调（主动 kill/dispose 不触发）
+   * @param {function|null} [opts.onPermissionRequest] 动态策略钩子 (info) ⇒ 'allow'|'deny'；给了则优先于 permission
    */
-  constructor({ bin, model = null, cwd = process.cwd(), logger = null, onExit = null }) {
+  constructor({
+    bin,
+    model = null,
+    cwd = process.cwd(),
+    tools = false,
+    roleFile = null,
+    permission = 'allow',
+    auditContext = null,
+    logger = null,
+    onExit = null,
+    onPermissionRequest = null,
+  }) {
     this.bin = bin;
     this.modelArg = model;
     this.cwd = cwd;
+    this.tools = tools === true;
+    this.roleFile = typeof roleFile === 'string' && roleFile !== '' ? roleFile : null;
+    this.permission = permission === 'deny' ? 'deny' : 'allow';
+    this.auditContext = auditContext && typeof auditContext === 'object' ? auditContext : null;
     this.logger = logger;
     this.onExit = onExit;
+    this.onPermissionRequest = typeof onPermissionRequest === 'function' ? onPermissionRequest : null;
 
     this.child = null;
     this.pid = null;
@@ -72,12 +108,19 @@ export class AcpClient {
     this._onAnyMessage = null;
     this._chunkHandler = null;
     this._killTimer = null;
+    this._permissionDenied = false; // 轮次级：deny 档置位，prompt() 结算时抛 permission_denied
+    this._inFlightTools = new Map(); // §4.5：在飞工具调用（toolCallId → {kind,title,status,path}），终态首见或轮末冲账落行
   }
 
   /** 启动子进程并完成初始化（initialize → session/new → 等静默）。失败即 kill 并抛 AcpError。 */
   async start() {
-    const args = ['acp', '--no-skills', '--no-rules', '--no-tools', '--no-session'];
+    const args = ['acp', '--no-skills', '--no-rules'];
+    if (!this.tools) args.push('--no-tools'); // §4.3：工具开关只在 argv 决定
+    args.push('--no-session');
     if (this.modelArg) args.push('--model', this.modelArg);
+    if (this.roleFile) args.push('--append-system-prompt', this.roleFile); // §3.2：角色注入（绝对路径）
+    // §4.4（pr-007 主机制）：档位由既有 permission 派生；仅工具可用时追加（tools=off 时档位无意义，argv 回到 0011 形状）
+    if (this.tools) args.push('--approval-mode', this.permission === 'deny' ? 'always-ask' : 'yolo');
     const child = spawn(this.bin, args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
     this.pid = child.pid;
@@ -125,6 +168,7 @@ export class AcpClient {
       await this.setModel(target); // 失败 → model_unavailable（§7.3，绝不静默回退）
     }
 
+    this._permissionDenied = false; // 轮次级标记复位（§4.4）
     let acc = '';
     this._chunkHandler = (params) => {
       const update = params && params.update;
@@ -135,19 +179,27 @@ export class AcpClient {
       if (onChunk) onChunk(content.text);
     };
     try {
-      const result = await this._request(
-        'session/prompt',
-        { sessionId: this.sessionId, prompt: [{ type: 'text', text }] },
-        {
-          timeoutMs,
-          // §6.5 prompt 超时：① session/cancel → ② 等 ≤2s 收 stopReason → ③ 仍未收尾则 kill 进程
-          onTimeout: async () => {
-            this.cancel();
-            await delay(CANCEL_GRACE_MS);
-            this.kill();
+      let result;
+      try {
+        result = await this._request(
+          'session/prompt',
+          { sessionId: this.sessionId, prompt: [{ type: 'text', text }] },
+          {
+            timeoutMs,
+            // §6.5 prompt 超时：① session/cancel → ② 等 ≤2s 收 stopReason → ③ 仍未收尾则 kill 进程
+            onTimeout: async () => {
+              this.cancel();
+              await delay(CANCEL_GRACE_MS);
+              this.kill();
+            },
           },
-        },
-      );
+        );
+      } catch (err) {
+        if (this._permissionDenied) throw new AcpError('permission_denied', PERMISSION_DENIED_TEXT); // §4.4 ③
+        throw err;
+      }
+      // §4.4 ③：结算时抛——终态确定，不依赖模型是否自行收敛
+      if (this._permissionDenied) throw new AcpError('permission_denied', PERMISSION_DENIED_TEXT);
       return {
         text: acc,
         model: this.currentModel,
@@ -157,6 +209,7 @@ export class AcpClient {
       };
     } finally {
       this._chunkHandler = null;
+      this._flushToolCalls(); // §4.5 轮次结算冲账：在飞表残留以最后观测 status 落行 ⇒ 一次调用恰一行
     }
   }
 
@@ -263,6 +316,11 @@ export class AcpClient {
     if (!message || typeof message !== 'object') return;
     if (this._onAnyMessage) this._onAnyMessage(); // 初始化静默窗口：任何消息都重置计时
     if (message.id !== undefined && message.id !== null) {
+      // §4.4：服务端请求（id + method）必须先于 _pending 查找——否则在此被静默丢弃（V-6 挂起根因）
+      if (typeof message.method === 'string') {
+        this._handleServerRequest(message);
+        return;
+      }
       const entry = this._pending.get(message.id);
       if (!entry) return;
       this._pending.delete(message.id);
@@ -275,7 +333,131 @@ export class AcpClient {
       }
       return;
     }
-    if (typeof message.method === 'string' && this._chunkHandler) this._chunkHandler(message.params);
+    if (typeof message.method !== 'string') return;
+    // §4.5（pr-007 主机制）：`session/update` 通知 = 轮次增量（agent_message_chunk）+ 工具调用审计源
+    if (message.method === 'session/update') this._handleSessionUpdate(message.params);
+    if (this._chunkHandler) this._chunkHandler(message.params);
+  }
+
+  /**
+   * §4.5：`tool_call` / `tool_call_update` → 在飞表（仅当前 sessionId）。非终态登入/更新不落行；
+   * 终态（completed / failed）首见即落一行并移出 ⇒ 同 id 多帧（pending→in_progress→completed）恰一行。
+   */
+  _handleSessionUpdate(params) {
+    const update = params && params.update;
+    if (!update || params.sessionId !== this.sessionId) return;
+    const kind = update.sessionUpdate;
+    if (kind !== 'tool_call' && kind !== 'tool_call_update') return;
+    const id = update.toolCallId;
+    if (typeof id !== 'string' || id === '') return;
+    const prev = this._inFlightTools.get(id) || null;
+    const entry = {
+      kind: typeof update.kind === 'string' && update.kind !== '' ? update.kind : prev?.kind ?? null,
+      title: typeof update.title === 'string' && update.title !== '' ? update.title : prev?.title ?? null,
+      status: typeof update.status === 'string' && update.status !== '' ? update.status : prev?.status ?? null,
+      path: readToolPath(update) ?? prev?.path ?? null,
+    };
+    if (entry.status === 'completed' || entry.status === 'failed') {
+      this._inFlightTools.delete(id);
+      this._auditToolCall(id, entry);
+      return;
+    }
+    this._inFlightTools.set(id, entry);
+  }
+
+  /** §4.5：轮次结算冲账——在飞表残留 id 以「最后观测 status」落行并清空（N 次工具调用 = N 行）。 */
+  _flushToolCalls() {
+    if (this._inFlightTools.size === 0) return;
+    for (const [id, entry] of this._inFlightTools) this._auditToolCall(id, entry);
+    this._inFlightTools.clear();
+  }
+
+  /** §4.5：`TOOL_CALL` 落行（`source=acp_tool_call`）；`path` 无则省略该键，其余键恒在（身份缺省为 null）。 */
+  _auditToolCall(toolCallId, entry) {
+    if (!this.logger) return;
+    const identity = this.auditContext || {};
+    const fields = {
+      instance: identity.instance ?? null,
+      role: identity.role ?? null,
+      chat_id: identity.chat_id ?? null,
+      context_id: identity.context_id ?? null,
+      pid: this.pid,
+      tool_call_id: toolCallId,
+      kind: entry.kind ?? null,
+      title: typeof entry.title === 'string' ? entry.title.slice(0, TOOL_TITLE_MAX) : null,
+      status: entry.status ?? null,
+      source: 'acp_tool_call',
+    };
+    if (typeof entry.path === 'string' && entry.path !== '') fields.path = entry.path.slice(0, TOOL_TITLE_MAX);
+    this.logger.event('TOOL_CALL', fields);
+  }
+
+  /** §4.4：服务端请求应答——已知方法按策略回结果，未知方法回 -32601（响亮失败，绝不静默丢弃）。 */
+  _handleServerRequest(message) {
+    if (message.method === 'session/request_permission') {
+      const toolCall = (message.params && message.params.toolCall) || {};
+      const allow = this._permissionDecision(message, toolCall) !== 'deny';
+      this._respond(message.id, { outcome: { outcome: 'selected', optionId: allow ? 'allow_once' : 'reject_once' } });
+      if (allow) {
+        this._audit('TOOL_APPROVED', toolCall, 'allow_once');
+      } else {
+        // §4.4 拒绝档三步：① 回 reject_once（上）→ ② 立即 session/cancel → ③ 置标记（prompt() 结算时抛）
+        this._permissionDenied = true;
+        this.cancel();
+        this._audit('TOOL_DENIED', toolCall, 'reject_once');
+      }
+      return;
+    }
+    this._respondError(message.id, -32601, 'Method not found');
+  }
+
+  /** 策略判定：onPermissionRequest 优先（其返回 'allow'|'deny' 为准），否则取构造参数 permission（§4.4）。 */
+  _permissionDecision(message, toolCall) {
+    if (this.onPermissionRequest) {
+      const verdict = this.onPermissionRequest({
+        sessionId: (message.params && message.params.sessionId) || this.sessionId,
+        toolCall,
+        options: message.params && message.params.options,
+      });
+      if (verdict === 'allow' || verdict === 'deny') return verdict;
+    }
+    return this.permission;
+  }
+
+  /** §4.5/AR-11：一次 permission 请求恰一行审计事件，走永不节流的 event()。字段集合恒定（缺省为 null）。 */
+  _audit(eventName, toolCall, option) {
+    if (!this.logger) return;
+    const identity = this.auditContext || {};
+    this.logger.event(eventName, {
+      instance: identity.instance ?? null,
+      role: identity.role ?? null,
+      chat_id: identity.chat_id ?? null,
+      context_id: identity.context_id ?? null,
+      pid: this.pid,
+      tool: toolCall.toolName ?? null,
+      title: typeof toolCall.title === 'string' ? toolCall.title.slice(0, TOOL_TITLE_MAX) : null,
+      tool_call_id: toolCall.toolCallId ?? null,
+      option,
+      source: 'acp_permission', // §4.5：兼容路径来源标识（当前 omp 不触发，V-9）
+    });
+  }
+
+  /** 回 JSON-RPC result；子进程已不可写时静默忽略（与 cancel() 同形态）。 */
+  _respond(id, result) {
+    try {
+      this._write({ jsonrpc: '2.0', id, result });
+    } catch {
+      /* 子进程已不可写：忽略 */
+    }
+  }
+
+  /** 回 JSON-RPC error；子进程已不可写时静默忽略。 */
+  _respondError(id, code, message) {
+    try {
+      this._write({ jsonrpc: '2.0', id, error: { code, message } });
+    } catch {
+      /* 子进程已不可写：忽略 */
+    }
   }
 
   /** §6.6：session/new 后等静默——无任何通知 ≥300ms 即稳定，硬上限 5s。 */
