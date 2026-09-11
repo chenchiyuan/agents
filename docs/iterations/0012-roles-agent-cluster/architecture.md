@@ -1,11 +1,12 @@
 # architecture.md — 0012-roles-agent-cluster（迭代架构）
 
-**版本**：1.1.0（阶段 3 产物，L1 已落定）　**日期**：2026-09-11　**状态**：**L1 全部已确认**（L1-1~L1-6 用户决策 2026-09-11，六项均按推荐方案；逐项记录见 §11.1）—— 可进入阶段 4
+**版本**：1.2.0（阶段 3 产物 + 阶段 6 实测修订）　**日期**：2026-09-11　**状态**：**L1 全部已确认**（L1-1~L1-6 用户决策 2026-09-11，六项均按推荐方案；逐项记录见 §11.1）；**L1-2 的实现机制经阶段 6 真实 omp 实测修订**（V-9 / V-10，见 §4.4 / §4.5 / §11.1）
 **输入**：`demand.md`（v1.0.0 定稿，W1~W8 / N1~N12 / E1~E8 / D-1~D-7 / TC-01~TC-09 / 仓库事实 F-1~F-10 / 实测 V-1~V-8）+ `prd.md` 与 `prd/F01~F07`（7 卡，AR-01~AR-20）
 **架构基线**：`docs/iterations/0011-chat-context-protocol/architecture.md`（v0.3.0，已合入 `main` = `2980ed5`）+ 阶段 3 重新取证的代码库 `oamp/`（§1）
 **前置**：0011 交付态（SQLite 落盘 / SSE / 上下文池 / `omp-daemon` 默认路径 / 16 个测试文件）；本迭代为其**演进**，不新建批次地基
 **约束**：零新第三方依赖（`oamp/package.json` 的 `dependencies` 保持 `{}`）；`roles/**` 只读；不改 workflow-pb 派发路径
-**v1.0.0 → v1.1.0 变更**：L1-1~L1-6 经用户确认落定（§11.1 逐项记录，均按推荐方案）；L1-2 的安全语义与 E5 审计口径（每一次**受门禁**的工具调用恰一条记录）转为定案文字（§4.3 / §4.4 / §4.5 / §11.2 / §13 R-3）；§2.4 / §5.1 / §14 疑问 5 的 F02-6 判定口径随 L1-4 确认保持一致（配置保留在仓库根）。
+**v1.0.0 → v1.1.0 变更**：L1-1~L1-6 经用户确认落定（§11.1 逐项记录，均按推荐方案）；L1-2 的安全语义与 E5 审计口径转为定案文字（§4.3 / §4.4 / §4.5 / §11.2 / §13）。
+**v1.1.0 → v1.2.0 变更（阶段 6 实测修订，2026-09-11）**：permission 机制由"ACP 客户端应答"改为 **`--approval-mode` 映射**（§4.4 / D-21），审计源由"permission 请求"改为 **`tool_call` 通知**（§4.5 / D-22）；新增 §1.4 实测 **V-9 / V-10**（含 W-1/W-2/W-4/W-7 的更正说明）、§13 **R-11 / R-12**、§14.9；§2.2 / §4.3 / §4.6 / §5.6 / §6.2 / §7 / §9 / §11.1 / §11.2 / §12.1 同步。**产品维度未改**。
 
 > 本文档回答 prd 的全部 20 条架构待填项（AR-01~AR-20，逐条落定见 §8），并给出 L1 清单（§11）与 PR 边界**输入**（§12；拆解归阶段 4）。
 
@@ -25,7 +26,7 @@
 |---|---|---|
 | `src/cli.js`（122 行） | 子命令分发（`router start` / `agent start <id>` / `status` / `task *` / `web start [--port]`）+ 零依赖手写 argv 解析 | **扩展**：新增 `cluster` 分发 + USAGE |
 | `src/agent.js`（603 行） | 节点生命周期（注册 / 心跳 / **退避重连**（D22 已落地）/ SIGINT 注销）+ 三条执行器（`omp-daemon` / `omp` / `shell`）；`ContextPool({max,bin,cwd:process.cwd(),...})` | **改造**：角色绑定参数面、两条 LLM 路径注入角色文件、permission 策略透传、role 相关事件 |
-| `src/acp-client.js`（318 行） | 一个 `omp acp` 子进程的按行 JSON-RPC 封装；`start()` 里 **硬编码** `['acp','--no-skills','--no-rules','--no-tools','--no-session']`（:79） | **改造（核心）**：启动参数参数化 + **服务端请求应答**（permission）+ 审计事件 |
+| `src/acp-client.js`（318 行） | 一个 `omp acp` 子进程的按行 JSON-RPC 封装；`start()` 里 **硬编码** `['acp','--no-skills','--no-rules','--no-tools','--no-session']`（:79） | **改造（核心）**：启动参数参数化（tools / roleFile / **`--approval-mode`（由 permission 派生，§4.4）**）+ **`tool_call` 通知 → `TOOL_CALL` 审计**（§4.5，主机制）+ 服务端请求应答（permission，**兼容路径**） |
 | `src/context-pool.js`（213 行） | 键 `(chat_id, agent_id)` → 常驻 ACP 会话；同键串行（队列上限 8）/ 异键并发 / LRU / release / dispose；`_ensureClient` 用 `pool.cwd` | **改造**：向 `AcpClient` 透传 tools / roleFile / permission；`permission_denied` 归入轮次级错误（不销毁会话） |
 | `src/config.js`（127 行） | 叶子模块：`PKG_ROOT` 推导 + env > `config.json` > 内置默认三键（`data.db` / `defaults.model` / `context.max`）；`MODEL_DEFAULT='deepseek/deepseek-v4-flash'` | **不改**（集群参数走独立配置文件与 CLI flag，不并入 config.json） |
 | `src/status.js`（119 行） | 只读 `router.status` 查询 + `renderTable()`（**已导出**，`status.js:39`） | **微改造**：抽出并导出 `queryNodes()` 供 `cluster status` 复用（行为不变） |
@@ -51,7 +52,7 @@
 ### 1.3 既有缺口（正好是 7 张卡的来源）
 
 1. **agent 是匿名节点**：参数面只有 `instance_id`（`agent.js:460`），没有角色、没有按实例的模型 / 工具 / permission（F-5）。
-2. **默认对话路径硬编码禁用工具**：`acp-client.js:79` 的 `--no-tools`（F-7）；放开后未应答 `session/request_permission` 会**永久挂起**（V-6）。
+2. **默认对话路径硬编码禁用工具**：`acp-client.js:79` 的 `--no-tools`（F-7）；放开工具后必须同时给出许可语义（`--approval-mode`，§4.4 / V-10），否则"工具可用但无档位与审计"。**注**：设计期记录的"未应答 permission 会永久挂起"（V-6）已被 V-9 证伪（真实 omp 根本不发该请求）。
 3. **注入面无承载**：ACP `session/new` 无 per-session 注入面（V-3）→ 角色规则只能在进程启动层注入。
 4. **无集群结构**：没有任何集群配置 / 脚本（V-8）；`oamp status` 也只反映单进程运行参数面。
 
@@ -250,13 +251,13 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 |---|---|
 | 承载 | `cluster.json` 的 `roles.<role>.tools`（布尔，**缺省 true** = 默认全开，F04-1） |
 | 传参 | `cluster up` → `--tools on\|off` → agent 侧 `effectiveTools` |
-| 生效点（daemon，**本卡的核心改造**） | `AcpClient.start()` 的 argv：`effectiveTools ? 不传 --no-tools : 传 --no-tools`（`acp-client.js:79` 的硬编码改为参数） |
+| 生效点（daemon，**本卡的核心改造**） | `AcpClient.start()` 的 argv：`effectiveTools ? 不传 --no-tools : 传 --no-tools`（`acp-client.js:79` 的硬编码改为参数）；工具为 on 时另按 permission 档追加 `--approval-mode`（§4.4） |
 | 生效点（一次性 `omp -p`） | `runOmpTask()` 的 `--no-tools` 由 `payload.tools` 决定；**payload 未给时回落到 CLI `--tools`（集群脚本恒显式传）与同一条 agent 内置缺省链**（TC-09：两条 LLM 路径都按角色配置） |
 | 解析链（三分支，定案；与 §3.4 同一条规则） | ① `payload.tools` 为布尔（仅一次性 `omp` 路径）→ 取该值；② CLI `--tools on\|off`（集群脚本恒显式传）→ 取该值；③ 都未给 ⇒ **agent 侧内置缺省：有角色绑定 ⇒ `on`；无角色绑定 ⇒ `off`** |
 | 单起路径的取值来源 | 裸起 `oamp agent start pb-dev`（无 flag）⇒ 角色已绑定 ⇒ `effectiveTools = on`（等价显式形式 `--tools on`）；**不读 `cluster.json`**（D-18），内置缺省就是角色实例的默认值 |
 | 无角色实例 | `effectiveTools = off`（`--no-tools` 照旧）→ §2.3 回归不变式 |
 
-**定案（L1-2，2026-09-11 用户决策）**：`effectiveTools` 按上表三分支取值——集群脚本恒显式传 `--tools on|off`（配置真源 = `roles.<role>.tools`，**角色实例缺省 `on`**）；**未传 flag 时由 agent 内置缺省决定：有角色绑定 ⇒ `on`（单起 `oamp agent start pb-dev` 因此真的能干活），无角色绑定 ⇒ `off`**（§2.3 回归不变式）。常驻对话路径据此决定是否传 `--no-tools`（本卡核心改造点，`acp-client.js:79` 的硬编码就此消除）；一次性路径 payload 未给时回落同一条内置缺省链。工具放开后 permission 必须同时落地（§4.4），否则 V-6 的永久挂起即成立。
+**定案（L1-2，2026-09-11 用户决策）**：`effectiveTools` 按上表三分支取值——集群脚本恒显式传 `--tools on|off`（配置真源 = `roles.<role>.tools`，**角色实例缺省 `on`**）；**未传 flag 时由 agent 内置缺省决定：有角色绑定 ⇒ `on`（单起 `oamp agent start pb-dev` 因此真的能干活），无角色绑定 ⇒ `off`**（§2.3 回归不变式）。常驻对话路径据此决定是否传 `--no-tools`（本卡核心改造点，`acp-client.js:79` 的硬编码就此消除）；一次性路径 payload 未给时回落同一条内置缺省链。工具放开后 permission 档必须同时落地（§4.4：`--approval-mode`），否则"工具可用但无许可语义与审计"（V-10）；原"未应答 permission 即挂起"的 V-6 归因已被 V-9 证伪。
 
 ### 4.4 permission 两档：`--approval-mode` 映射（主机制）+ ACP 应答（兼容路径）（落地 AR-10）
 
@@ -457,9 +458,10 @@ tmux new-window -t oamp-cluster -n pb-dev -c /repo "/usr/bin/node /repo/oamp/bin
 | 单元（纯函数） | `test/role-binding.test.js`：`instanceIdForRole` / `roleFromInstanceId` / `resolveRoleRoot` / `resolveRoleFile` / 参数归一与优先级 | AR-01/02 |
 | 单元（配置） | `test/cluster-config.test.js`：缺省值、未知键忽略、非法 JSON / 类型 / permission 取值 → 失败退出、**凭据字段扫描**、相对 cwd 基准、角色文件缺失、`enabled:false` 跳过、`OAMP_CLUSTER_CONFIG` 覆盖 | AR-12/17/18 |
 | 集成（fake tmux + fake omp） | `test/cluster-actions.test.js`（`OAMP_TMUX_BIN` 指向记录 argv 的假 tmux + `OAMP_CLUSTER_WAIT_MS=0`）：session/窗口名与数量、每窗口的 `-c cwd`、命令串含角色 flag 与 `tee` 日志路径、`up` 幂等、`down` 的 C-c → kill-session 序列、`status` 输出分段与退出码 | AR-13/14/15/16 |
-| 集成（fake ACP，帧级） | `test/tool-permission.test.js`：假 ACP 服务端主动发 `session/request_permission` → 断言 ① 允许档回 `{outcome:{outcome:'selected',optionId:'allow_once'}}` 且 1 条 `TOOL_APPROVED`；② 拒绝档回 `reject_once` + 收到 `session/cancel` + 该轮 `permission_denied` 且 `duration_ms` 远小于超时 + 会话仍可用（下一轮正常）；③ 未知服务端方法 → 收到 `-32601` 错误响应（不挂起）；④ 同会话两次请求 → 2 条审计行（证 N=N） | AR-10/11 |
-| 集成（argv 断言） | 扩展 `test/acp-daemon.test.js` 的 `FAKE_ACP_ARGS_LOG` 断言：角色实例的 `omp acp` argv 含 `--append-system-prompt <role.md 绝对路径>`；`--tools on` 时**不含** `--no-tools`，`off` 时含；一次性 `omp -p` 同样含注入参数 | AR-04/05/08/09 |
-| **边界：fake vs 真实 omp** | **自动化一律 fake**（不依赖真实 LLM / 网络 / tmux 真实会话，沿用 0011 §17）；**真实 omp 只用于阶段 6 验收**：E3 的角色规则原文比对与跨 chat 稳定性、E2 的文件真实落盘与工具真实可用、E5 的真实 permission 行为与时延、E7 的真实 tmux 观察与收口、E8 的真实 cwd 落点 | 全部 |
+| 集成（fake ACP，帧级）·**主机制** | `test/tool-permission.test.js` 扩展：假 ACP 服务端**推送 `tool_call` → `tool_call_update`（pending → in_progress → completed）** → 断言 ① 恰好 **1 条 `TOOL_CALL`**（多帧不重复落行）、字段含 `tool_call_id` / `kind` / `title` / `status=completed` / `path` / 身份四键 + `source=acp_tool_call`；② 轮次在终态前结束的调用 → 轮末以最后观测 status 落行（仍 1 条）；③ 两次工具调用 → 2 条（N=N）；④ 只读类调用（`kind=read`）是否产生通知 → **给出 NC-5 的实测事实** | AR-10/11 |
+| 集成（fake ACP，帧级）·**兼容路径** | 同一文件保留：假服务端主动发 `session/request_permission` → 断言允许回 `allow_once` + 1 条 `TOOL_APPROVED`；拒绝回 `reject_once` + 收到 `session/cancel` + 轮次 `permission_denied`（会话仍可用）；未知服务端方法 → `-32601`（不挂起） | AR-10/11 |
+| 集成（argv 断言） | 扩展 `test/acp-daemon.test.js` 的 `FAKE_ACP_ARGS_LOG` 断言：角色实例的 `omp acp` argv 含 `--append-system-prompt <role.md 绝对路径>`；`--tools on` 时**不含** `--no-tools` 且含 **`--approval-mode yolo`**（permission=allow）/ `always-ask`（deny）；`tools=off` 时**不含** `--approval-mode`；一次性 `omp -p` 同样含注入参数与（工具 on 时的）档位 | AR-04/05/08/09 |
+| **边界：fake vs 真实 omp** | **自动化一律 fake**（不依赖真实 LLM / 网络 / tmux 真实会话，沿用 0011 §17）；**真实 omp 只用于阶段 6 验收**：E3 的角色规则原文比对与跨 chat 稳定性、E2 的文件真实落盘与工具真实可用、E5 的真实工具执行与 `tool_call` 审计 / deny 档不挂起、E7 的真实 tmux 观察与收口、E8 的真实 cwd 落点 | 全部 |
 | 回归 | 既有 16 个测试文件：**15 个零修改原样全绿**（§2.3 不变式）；`acp-daemon.test.js` 增断言不删断言 | F-8/N10 |
 
 ---
@@ -501,13 +503,12 @@ sequenceDiagram
   W->>A: task.request{executor:'omp-daemon', chat_id, prompt}
   A->>A: 模型解析（payload > env > --model > config > 内置）
   A->>P: getOrCreate(chat_id, 'pb-dev').prompt(…)
-  P->>O: spawn omp acp … --append-system-prompt <role.md>（tools=on ⇒ 无 --no-tools）
+  P->>O: spawn omp acp … --append-system-prompt <role.md>（tools=on ⇒ 无 --no-tools；permission=allow ⇒ --approval-mode yolo）
   O->>O: initialize → session/new{cwd=角色 cwd} → 角色规则已在系统提示中
   O-->>A: session/update(agent_message_chunk) ×N ⇒ task.update ⇒ SSE 增量
-  O->>A: session/request_permission{tool:edit,…}（服务端请求）
-  A->>A: TOOL_APPROVED 事件（审计，允许档）
-  A-->>O: {outcome:{outcome:'selected',optionId:'allow_once'}}
-  O->>O: 执行 edit（在角色 cwd 下落盘 role-smoke.txt）
+  O->>A: session/update(tool_call / tool_call_update){toolCallId,kind,title,status}
+  A->>A: TOOL_CALL 事件（审计：一次调用一行；终态或轮末落行）
+  O->>O: 执行 edit（--approval-mode yolo；在角色 cwd 落盘 role-smoke.txt）
   O-->>A: session/prompt → {stopReason:'end_turn', text}
   A-->>W: task.result{state:'completed', text, model, context_id, pid}
   W->>W: 落 out 记录 + SSE message ⇒ 前端以落盘文本为准替换
@@ -540,7 +541,7 @@ has-session? 否 → 打印并退出 0
 | # | 决策 | 级别 | 理由（一句话） | 备选与否决原因 |
 |---|---|---|---|---|
 | D-01 | 角色注入 = 进程级 `--append-system-prompt <abs role.md>` | **L1-1** | 唯一同时满足 W3 三条约束的机制（§3.2） | 文件/cwd 注入：污染仓库根 + 遮蔽 + cwd 耦合；per-session：协议无该面 |
-| D-02 | 工具默认放开 + 实现 permission 应答（allow 留痕 / deny 快速失败） | **L1-2** | 本迭代的核心价值（D-1），也是安全语义的变化点 | 不放开 = 角色只能聊天；只放开不应答 = 永久挂起（V-6） |
+| D-02 | 工具默认放开 + permission 两档（**阶段 6 修订机制**：`--approval-mode` 映射 + `tool_call` 审计，见 D-21/D-22；ACP 应答转为兼容路径） | **L1-2** | 本迭代的核心价值（D-1），也是安全语义的变化点 | 不放开 = 角色只能聊天；只放开不给档位 = 无许可语义与审计（V-10） |
 | D-03 | 集群入口 = `oamp cluster up\|down\|status` 子命令 | **L1-3** | 与既有 CLI 同构、可测、`oamp -h` 可见 | 独立脚本：不可发现、多一个入口概念 |
 | D-04 | 配置文件 = 仓库根 `cluster.json`（tracked，零凭据字段，独立于 `oamp/config.json`） | **L1-4** | 集群描述 = 本仓库的角色拓扑，与 `roles/`、缺省 cwd 同层；生命周期不同不合并 | 并入 config.json：把"单进程参数"和"多进程编排"混成一个生命周期；放 `oamp/`：全变 `../` |
 | D-05 | 实例不常驻 LLM（节点进程 + 按 (chat,agent) 懒启动） | **L1-5（沿用 0011，无变更）** | 产品已锁（W2/M-3）；架构上也不该改：10 个常驻 LLM 会让空闲内存与上下文成本 ×10 | 常驻 LLM：无功能收益、成本 ×10 |
@@ -577,8 +578,8 @@ has-session? 否 → 打印并退出 0
 | AR-07 | 观察面 = `AGENT_START/TASK_STARTED` 事件行 + 落库 out 记录的 `model`（实际生效值，0011 §7.4） | §4.2 |
 | AR-08 | 承载 = `roles.<role>.tools`（缺省 true）→ `--tools on\|off`；改造点 = `acp-client.js:79` 的硬编码 `--no-tools` 参数化（daemon）+ 一次性路径的默认回落；**未传 flag ⇒ agent 内置缺省（有角色绑定 ⇒ on / 无绑定 ⇒ off）** | §3.4 / §4.3 |
 | AR-09 | 辅助判定 = 子进程 argv 有无 `--no-tools` + 审计事件有无 + 关闭档的明确回绝文本（F04-5） | §4.6 |
-| AR-10 | 实现面 = `_handleMessage` 的服务端请求分支（`session/request_permission`）+ 未知方法回 `-32601`；允许 → `allow_once`；拒绝 → `reject_once` + `session/cancel` + 轮次 `permission_denied`；时间判据 = `duration_ms ≤ 10s`（硬上限沿用 300s 轮次超时，**不加配置键**）（回答 prd 疑问 3） | §4.4 |
-| AR-11 | 事件 = `TOOL_APPROVED`/`TOOL_DENIED`，字段 = instance/role/chat_id/context_id/pid/tool/title/tool_call_id/option；落 agent 事件日志（stdout → 落盘） | §4.5 |
+| AR-10 | **主机制（阶段 6 修订）** = permission 档 → **`--approval-mode`**（`allow` ⇒ `yolo`、`deny` ⇒ `always-ask`；仅工具可用时追加），deny 由 omp 侧拒绝且不挂起；**兼容路径** = `_handleMessage` 的 `session/request_permission` 应答（`allow_once` / `reject_once` + `cancel` + 轮次 `permission_denied`）+ 未知方法回 `-32601`；时间判据 = 明确终态在 `≤10s` 内（硬上限沿用 300s 轮次超时，**不加配置键**）（回答 prd 疑问 3） | §4.4 |
+| AR-11 | **主机制**：事件 = **`TOOL_CALL`**（每次工具调用恰一行，含终态 `status`），字段 = instance/role/chat_id/context_id/pid/tool_call_id/kind/title/status/path/source；来源 = `session/update` 的 `tool_call` / `tool_call_update`；**兼容路径**：`TOOL_APPROVED`/`TOOL_DENIED`（原 9 键 + `option`）。落 agent 事件日志（stdout → 落盘） | §4.5 |
 | AR-12 | 路径 = 仓库根 `cluster.json`（`--config`/`OAMP_CLUSTER_CONFIG` 覆盖）；JSON、tracked、零凭据字段（结构性校验）；与 `oamp/config.json` **互不合并** | §5.1 |
 | AR-13 | 形态 = **`oamp cluster up\|down\|status` 子命令**；三动作契约与 status 输出分段见 §5.2（含就绪等待与退出码） | §5.2 |
 | AR-14 | session = 配置 `session`（缺省 `oamp-cluster`）；**一进程一窗口**，窗口名 = `router`/`web`/`<instance_id>`；`-c <cwd>`；`remain-on-exit on`；attach 提示由 up/status 打印 | §5.3 |
@@ -668,7 +669,7 @@ has-session? 否 → 打印并退出 0
 - `test/role-binding.test.js`、`test/cluster-config.test.js`、`test/cluster-actions.test.js`、`test/tool-permission.test.js`
 
 **改造**
-- `src/acp-client.js`（argv 参数化 + 服务端请求应答 + denied 标记 + 审计事件）
+- `src/acp-client.js`（argv 参数化含 `--approval-mode`；`tool_call` 通知 → `TOOL_CALL` 审计；服务端请求应答 + denied 标记作为兼容路径）
 - `src/context-pool.js`（透传 role/tools/permission；`permission_denied` 归轮次级）
 - `src/agent.js`（4 flag 解析 + 角色推断 + 两条 LLM 路径注入 + 事件字段）
 - `src/status.js`（导出 `queryNodes`）、`src/cli.js`（`cluster` 分发 + USAGE）
@@ -710,25 +711,28 @@ has-session? 否 → 打印并退出 0
 | # | 项 | 说明 | 处置 |
 |---|---|---|---|
 | R-1 | **对 omp flag 的依赖** | `--append-system-prompt` 是 omp 的（非 ACP 标准）flag，语义随 omp 版本可能变化（本机 18.0.11，W-6 已取证取值规则） | 文档记录 omp 版本要求；阶段 6 以 E3 复测；若未来沉默失效（值被当字面文本），表现为"角色规则没生效"→ E3 的可观察失败；不使用 `--system-prompt` 作为兜底（替换式注入另有质量风险） |
-| R-2 | **审计完整性依赖用户 omp 设置** | 若用户显式配置 `tools.approvalMode:'yolo'` 或 `tools.approval.<tool>:'allow'`，工具调用**不产生** permission 请求 → 无审计记录（工具仍可用）（W-7） | 记为受控边界：审计面 = "受门禁的调用"；阶段 6 的审计断言必须在**未显式配置 yolo** 的环境执行；不通过 `--approval-mode` 强制（会引入双重门禁与 hasUI 分支的未知行为） |
-| R-3 | 只读工具无审计 | read/glob/grep 等不经过门禁（W-3/W-4）→ "每一次工具调用"只能覆盖变更类 | **已确认为实现口径（2026-09-11 用户决策，§11.2）**：每次受门禁调用恰一条记录，阶段 6 断言须用变更类指令；字面 N=N（含只读）需 omp 侧提供 tool_call 帧，记为下一迭代候选 NC-1 |
+| R-2 | **（阶段 6 修订）omp 用户级 approval 设置的影响** | 用户若在自己的 omp 设置里配置 `tools.approvalMode` / `tools.approval.<tool>`，会改变**单个工具的行为**（如被拒）；**但审计不再依赖该设置**——审计源是 `tool_call` 通知（V-10②） | 本条由"审计完整性风险"降级为"用户级设置差异"：工具行为可能被子配置改变，审计行仍按调用产生（`status` 反映成败）。用户级 `deny` 下的通知面属 NC-5 的实测范围 |
+| R-3 | **（阶段 6 修订）只读工具的审计覆盖面（待实测）** | 审计源改为 `tool_call` 通知后，只读工具（read / glob / grep）是否同样产生通知**未实测**（V-10② 的观察只覆盖变更类） | ① 产生 ⇒ 口径最强（每次工具调用一行，E5 字面成立）；② 不产生 ⇒ 口径为"变更类调用 N=N"。**pr-007 的用例必须给出该事实并据此定稿**（NC-5） |
 | R-4 | 世界可写的默认 cwd | 角色缺省 cwd = 仓库根 → 角色可改仓库文件；E2/E8 的验收还会在仓库根留下 `role-smoke.txt` / `cwd-check.txt` | 产品已锁"缺省仓库根"，不改；阶段 6 用例需自清理（不改 `.gitignore`，不在本迭代新增忽略项） |
 | R-5 | 单实例资源 | 10 个节点进程 + 对话时的 LLM 子进程（每 (chat,agent) 一个，LRU 上限 `context.max`=8 *per agent*） | 沿用 0011 R-1；本迭代不新增常驻 LLM；上线前量一次 12 进程的内存（记入阶段 6 的观察项） |
 | R-6 | 角色文件体量进系统提示 | `workflow-pb` 43KB ≈ 万级 token 的**每次会话启动**成本（每个新 chat = 一个新 ACP 会话） | 属 F02 的产品要求（加载真实角色定义）；不改机制；记为成本认知（不做按会话裁剪，N1 只读消费） |
 | R-7 | `up` 就绪等待的时长 | 10 个实例注册 + Router 就绪一般 <2s；`--wait` 缺省 20s 只是上限 | 超时 → 非 0 + 指向 `status`/日志；测试用 `OAMP_CLUSTER_WAIT_MS=0` 关掉等待 |
 | R-8 | `up` 幂等的"陈旧 session" | session 存在但窗口已死（进程崩）时 `up` 不重建 → 用户需先 `down` | 由 `status` 如实呈现（`pane_dead`）+ `up` 打印"如需重建请先 down"；不自动重建（D-16 的理由） |
 | R-9 | tmux 不可用 | 无 tmux 的机器上 F06 全部不可用 | `up` 第一步 `tmux -V` 探活 → 明确报错退出 2（不静默半启动） |
-| R-10 | `permission_denied` 的语义边界 | deny 档下"需要工具的指令"必然失败；纯聊天轮次不受影响 | 文档明示（§4.4）；`shell`（`!`）路径不经 permission（F05 边界明文），本迭代不改 |
+| R-10 | **（阶段 6 修订）deny 档的语义边界** | deny 档下"需要工具的指令"**不会产生副作用**：omp 侧拒绝工具调用，模型以明确回绝收尾（该轮 `state='completed'`）；纯聊天轮次不受影响 | 文档明示（§4.4）；`shell`（`!`）路径不经 permission（F05 边界明文），本迭代不改；`permission_denied` 现仅属**兼容路径**（主机制下不产生） |
+| R-11 | **原 permission 门禁机制被真实 omp 证伪（阶段 6）** | 设计期依据 W-1/W-2/V-6 假定"未 auto-approve 时工具调用走 ACP `session/request_permission`，不回包则挂起"；真实 omp 两次独立探针 **0 次**该请求（V-9）⇒ pr-003 的应答成为死代码，且"放开工具即挂起"的归因不成立 | **处置**：机制就地替换——D-21（`--approval-mode` 映射）/ D-22（`tool_call` 审计源），兼容路径保留；产品维度不变（F04/F05 判定更直接成立）；由 **pr-007** 实现并复验；文档更正见 §1.4（W-1/W-2/W-4/W-7 更正说明）、§4.4 / §4.5 / §11.1 / §11.2 |
+| R-12 | **`clientCapabilities` 陷阱（阶段 6 新增）** | 声明 `fs.*` / `terminal` 会让 omp 把文件写入 / 终端**委托给客户端** → 客户端未实现该 ACP 方法 → `Method not found` → 工具 `status=failed`（V-10③） | 定案：**`clientCapabilities` 恒为 `{}`**（§4.4 / §11.2）；后续 PR 不得声明能力；测试增加"初始化握手仍为空声明"的断言 |
 
 ---
 
 ## 14. 疑问与越界
 
-1. **E5 的"每一次工具调用"在实现口径下只能是"每一次受门禁的工具调用"**（W-3/W-4：ACP 不发 tool_call 帧，只读工具不经过门禁）。阶段 6 的审计断言若要求**字面** N=N（含 read/glob），本迭代无法满足——需要 omp 提供 tool_call 帧或客户端侧不存在的观测面。**处理**：架构按"受门禁调用"落定（§4.5），并在报告里显式声明该口径收窄；不改产品维度（F05-2 的字面措辞保留，判定面按本口径执行）。**该口径已作为实现口径经用户确认（2026-09-11，见 §11.2 与 §13 R-3）**。
+1. **E5 的"每一次工具调用"（阶段 6 修订：审计源 = `tool_call` 通知）**：审计源改为 `session/update` 的 `tool_call` / `tool_call_update` 通知（V-10②）后，覆盖面取决于**只读工具是否也产生通知**（NC-5，待实测）：① 产生 ⇒ E5 的字面口径（"每一次工具调用"）**完全成立**；② 不产生 ⇒ 口径为"变更类调用 N=N"。**处理**：§4.5 / §11.2 已按"主口径 + 待实测分支"写定；**pr-007 的用例必须给出该事实并据此定稿**（`test/tool-permission.test.js` 增一条 grep 类调用的断言即可判定）。原"受门禁调用"口径随 permission 机制一并作废（V-9：真实 omp 不发 permission 请求）。产品维度未改（F05-2 的措辞保持）。
 2. **prd 疑问 2（按角色模型 vs env 的相对顺序）** 已由 AR-06 裁定：`payload > env > 角色 > config.defaults > 内置`（沿用"env 高于配置层"，角色级属配置层内部）。
-3. **prd 疑问 3（E5 的"配置超时"取值）** 已由 AR-10 裁定：不新增配置键，硬上限沿用轮次超时（默认 300s，payload 可给 1~600000ms）；deny 的可判定判据 = **终态在 ≤10s 内出现**。
+3. **prd 疑问 3（E5 的"配置超时"取值）** 已由 AR-10 裁定；**阶段 6 修订**：不新增配置键，硬上限沿用轮次超时（默认 300s，payload 可给 1~600000ms）；deny 的判据 = **明确终态在 ≤10s 内出现**（主机制：`state='completed'` + 明确回绝；兼容路径：`error='permission_denied'`）。
 4. **prd 疑问 4（日志落盘范围）** 按 W6 的较宽口径落地：Router / Web / 每个角色各一份日志（§5.4），未收窄。
 5. **F02-6 的判定口径需要一次澄清（口径已定案文本化，见 §2.4 / §3.2）**：本迭代在**仓库根新增 `cluster.json`**（F06-7 要求 tracked 的集群配置）。它不是"规则类文件"（omp 规则发现面是 `AGENTS.md`/`CLAUDE.md`/`SYSTEM.md`/`APPEND_SYSTEM.md` 一族，`cluster.json` 不在其中，且**不参与注入路径**）。F02-6/M-02 的判定表述为"**就地加载角色规则这一动作**前后，仓库根无新增/变更的**规则类文件**"。**处理**：架构不改产品维度；阶段 6 判定时按此口径执行，若用户认为 `cluster.json` 也算"新增文件"，则需把集群配置改放到 `oamp/`（会连带 §5.1 的路径基准调整）——**已随 L1-4 确认（2026-09-11）：配置保留在仓库根，判定按本节口径执行（见 §2.4 / §11.1）**。
 6. **改动边界（准确表述）**：`prd.md` / `prd/*.md` 仅回填架构维度（AR-01~AR-20）与两处架构性疑问的裁定标注，**未改动产品维度的判定内容**（验收标准 / 用户价值 / 边界 / model_inferred 列表）。`demand.md` **未由本角色改动**；该文件在阶段 3 期间经主 agent 授权做了**用户确认日期的时间口径修正**（2026-09-10 → 2026-09-11，仅日期、不涉产品内容）。`roles/**`、`oamp/**`（代码与配置）本迭代阶段 3 未改动；零新第三方依赖。
 7. **L1 已确认，可进入阶段 4**：L1-1~L1-6 于 2026-09-11 经用户全部确认（六项均按推荐方案，逐项记录见 §11.1），本文件的"定案"即为实现契约；后续若推翻任一项，属架构级变更——需回到本文件改 §7 / §11 并同步受影响的功能卡维度与阶段 6 判定面。
 8. **一次性 `omp -p` 路径的模型链层级差（已知口径，非缺陷；阶段 5 验收 D-2 留档）**：该路径 argv 只带 `payload.model`，其余层级交由 omp 自身解析 ⇒ 生效链 `payload.model > omp 自身解析`，**角色级 `--model` 与 `config.defaults.model` 均不作用于该路径**（0011 既有行为，agent 不介入一次性路径的模型解析）；常驻路径为五层链（§4.1）。当仓库配置了非默认模型时两条路径可能不一致——属既定分层。若后续把 F03 解读为"覆盖一次性路径"，属新增范围（需改 `runOmpTask` 取模逻辑），本迭代不夹带。
+9. **原 permission 门禁机制被真实 omp 证伪（阶段 6 返工留档）**：设计期依据 W-1/W-2/V-6（"未 auto-approve 时走客户端门禁，不回包则挂起"）；真实 omp 两次独立探针 **0 次** `session/request_permission`（V-9），而 `--approval-mode`（V-10）可同时承载 allow / deny 两档与审计 ⇒ 机制**就地替换**（处置见 §13 R-11、决策见 §7 D-21/D-22、实现依据见 §12.2 契约 1）。**同时更正 W-4**：其"ACP 不发 tool_call 帧"系**局部检索遗漏**（全文件复核 `"tool_call"` 命中 10 次），实测确认通知存在（V-10②）。
