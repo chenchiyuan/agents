@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.8.0
 **迭代**: 0013-chat-archive
-**当前阶段**: PR 实现（阶段 5）
+**当前阶段**: 独立验证（阶段 6）
 **迭代分支**: iteration/0013-chat-archive
 **状态**: 进行中
 **history**: 开启
