@@ -146,6 +146,8 @@
 | M-03 | F06 验收 1 | "角色清单不得硬编码在脚本里"的可判定形式 = 在配置中增删一个角色后重启集群，实例集合随之增减（脚本不需要改动） | demand W6 只陈述"配置驱动"这一性质，未给判定方式；该判定方式是把"不硬编码"变为可测命题的最小形式 | **已确认**（2026-09-11 用户确认；卡内标记已改为 `[user_confirmed]`） |
 
 > M-01~M-03 为验收标准的判定面推导，**不改变任何功能范围**；已于 2026-09-11 由用户**全部确认（3/3）**，卡内标记同步改为 `[user_confirmed]`，本文件无 model_inferred 残留。
+>
+> **确认日期口径**：用户确认日以 **2026-09-11** 为准（真实时间；此前 09-10 为时间口径笔误，已由主 agent 于阶段 3 统一修正，见 `history.md`）。本文件与 F02 / F04 / F06 卡中"经用户确认"的记录均按此口径归档。
 
 ---
 
@@ -182,14 +184,14 @@
 
 | 编号 | 落定 | 落点 |
 |---|---|---|
-| AR-01 | 角色清单 = `cluster.json` 的 `roles` 键集合（配置驱动、不硬编码）；`instance_id = 'pb-' + role`，映射公式单点收敛在 `src/role-binding.js` | `architecture.md` §3.1 / F01 |
+| AR-01 | 角色清单 = `cluster.json` 的 `roles` 键集合（配置驱动、不硬编码）；`instance_id = 'pb-' + role`，映射公式单点收敛在 `src/role-binding.js`（**无覆盖字段**） | `architecture.md` §3.1 / F01 |
 | AR-02 | 复用 `agent start <id>`，新增 4 个可选 flag（`--role/--model/--tools/--permission`）；优先级 flag > `pb-<role>` 推断 > 不绑定；`cwd` 不设 flag（由进程启动目录承载） | §3.4 / F01 |
 | AR-03 | 判定面 = 从 `omp` 子进程沿 `ps` 父链上溯找到含 `agent start <instance-id>` 的祖先；无对话时无归属 LLM 子进程（懒创建） | §3.5 / F01 |
 | AR-04 | **机制定案 = 进程级 `--append-system-prompt <角色 md 绝对路径>`**（不依赖 cwd、不写文件、两条路径同一参数）；否决文件/cwd 注入、`--system-prompt`、per-session 注入 | §3.2 / F02 |
 | AR-05 | 落点 = `AcpClient.start()` argv（daemon）+ `runOmpTask()` argv（一次性）；判定 = argv 断言（自动化）+ E3 原文比对（真实 omp）+ `ROLE_BOUND` 事件 | §3.3 / F02 |
 | AR-06 | 承载 = `roles.<role>.model` → `--model`；解析链 `payload > env > 按角色 > config.defaults > 内置`（回答疑问 2） | §4.1 / F03 |
 | AR-07 | 观察面 = `AGENT_START`/`TASK_STARTED` 事件行 + 落库 out 记录的实际生效 `model` | §4.2 / F03 |
-| AR-08 | 承载 = `roles.<role>.tools`（缺省 true）→ `--tools on\|off`；改造点 = `src/acp-client.js:79` 硬编码 `--no-tools` 参数化 + 一次性路径默认回落 | §4.3 / F04 |
+| AR-08 | 承载 = `roles.<role>.tools`（缺省 true）→ `--tools on\|off`；改造点 = `src/acp-client.js:79` 硬编码 `--no-tools` 参数化 + 一次性路径默认回落；**未传 flag ⇒ agent 内置缺省（有角色绑定 ⇒ on / 无绑定 ⇒ off）** | §3.4 / §4.3 / F04 |
 | AR-09 | 辅助判定 = 子进程 argv 有无 `--no-tools` + 审计事件有无 + 关闭档的明确回绝文本 | §4.6 / F04 |
 | AR-10 | `_handleMessage` 服务端请求分支应答 `session/request_permission`（未知方法回 `-32601`）；允许 → `allow_once`；拒绝 → `reject_once` + `session/cancel` + 轮次 `permission_denied`（会话保留）；判据 = deny 轮 `duration_ms ≤ 10s` | §4.4 / F05 |
 | AR-11 | 事件 = `TOOL_APPROVED`/`TOOL_DENIED`，每请求一行（N=N）；字段 instance/role/chat_id/context_id/pid/tool/title/tool_call_id/option；落 agent 事件日志（stdout → 落盘） | §4.5 / F05 |

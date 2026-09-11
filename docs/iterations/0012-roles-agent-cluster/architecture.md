@@ -41,7 +41,7 @@
 | A | `oamp agent start <instance-id>` 的节点语义：注册 / 心跳 / 退避重连 / SIGINT 注销（`agent.js:459-604`） | 角色实例**直接就是**该节点；`pb-<role>` 是实例名（F01-1/3/6 零新机制） |
 | B | `ContextPool` 懒创建 + `cwd = process.cwd()` + `session/new{cwd}`（`context-pool.js:171-183`、`agent.js:488`、`acp-client.js:98`） | **`cwd` 不需要任何新参数**：进程在哪个目录启动，上下文发现根与工具工作目录就是它（F07 全卡） |
 | C | 三条执行器与 `parseTaskBody` 路由（`agent.js:56/73/150/263/322`） | 只加"角色默认值"的解析，路由本身不动（F02-5 两条 LLM 路径） |
-| D | `AcpClient` 的按行 JSON-RPC 分发（`_handleMessage`，`acp-client.js:262-276`；服务端请求分支插在 `:265` 之后） | permission 应答只需在此处补"服务端请求"分支（**~30 行**） |
+| D | `AcpClient` 的按行 JSON-RPC 分发（`_handleMessage`，`acp-client.js:262-276`；服务端请求分支插在 `:265` **之前**，先于 pending 表查找） | permission 应答只需在此处补"服务端请求"分支（**~30 行**） |
 | E | `createEventLog().event()` 永不节流（`log.js:36-38`） | 审计记录直接落事件行（F05-2） |
 | F | `renderTable()` 已导出（`status.js:39`） | `cluster status` 复用同一张拓扑表 |
 | G | `OAMP_OMP_BIN` + `FAKE_ACP_ARGS_LOG` 注入模式（`test/acp-daemon.test.js:26-37`） | 角色注入 / 工具开关 / permission 全部可在 argv 与帧级断言（零真实 LLM） |
@@ -153,7 +153,7 @@ F02-6（不污染仓库根上下文）的判定必须表述为：**"就地加载
 |---|---|
 | 角色真源 | `<roleRoot>/roles/<role>/<role>.md`（`roleRoot` 缺省 = 仓库根 = `path.resolve(PKG_ROOT,'..')`，即本仓库 `agents/`）——F-1/G-2 的真源，**不读** `.pb-agents/` 副本 |
 | 角色清单来源 | **`cluster.json` 的 `roles` 键集合**（配置驱动，F06-1）；脚本内不硬编码任何角色名；`_template` / `cdp-debug-skill` 因不在配置中而不建实例（F01-2） |
-| instance_id 映射 | `instance_id = 'pb-' + role`（`instanceIdForRole`）；公式**只此一处**（`src/role-binding.js`），配置可用 `instance_id` 字段显式覆盖（本迭代交付的配置不覆盖） |
+| instance_id 映射 | `instance_id = 'pb-' + role`（`instanceIdForRole`）；公式**只此一处**（`src/role-binding.js`），**不提供覆盖字段**——F01-1「一角色一实例、id 无后缀」不在配置面留下缺口（YAGNI；无验收标准要求该字段） |
 | 反向映射 | `roleFromInstanceId('pb-dev') === 'dev'`；`^pb-(.+)$` 且角色文件存在才成立——供单起路径推断（§3.4） |
 | 角色根覆盖 | env `OAMP_ROLE_ROOT`（由 `cluster up` 按 `cluster.json` 所在目录设为 tmux session 环境；测试用它指向 fixture 目录） |
 | 校验时机 | `cluster up` 在**创建 session 之前**逐个校验 enabled 角色的 `cwd` 与角色文件；任一不成立 → stderr 明确报错 + 退出 2，**不留半个集群** |
@@ -199,9 +199,11 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 |---|---|---|
 | `--role` | 显式角色绑定（脚本路径总是显式传） | **未传时按 instance_id 推断**：`roleFromInstanceId(id)` 成立且角色文件存在 → 绑定（`source=instance_id`）；否则不绑定（= 0011 匿名节点，行为完全不变） |
 | `--model` | 该实例的默认模型（只在 payload / env 都未指定时生效） | 无 → 回落 `config.defaults.model` |
-| `--tools` | `on` = 不传 `--no-tools`；`off` = 传 | `off`（与 0011 一致） |
+| `--tools` | `on` = 不传 `--no-tools`；`off` = 传 | **未传时按角色绑定分支**：有角色绑定 ⇒ `on`；无角色绑定 ⇒ `off`（与 0011 一致，`dev-1` 行为零变化）——同一规则见 §4.3 解析链 |
 | `--permission` | `allow` / `deny`（§4.3） | `allow` |
 | （无 `--cwd`） | 工作目录 = **进程启动目录**（复用 B：`ContextPool(cwd=process.cwd())` 与 `session/new{cwd}` 既有链路） | 由 tmux 窗口 `-c` 决定 |
+
+- **`--tools` 的取值来源定案（消除与 §4.3 的分歧）**：三分支——① `payload.tools`（布尔，仅一次性 `omp` 路径）；② CLI `--tools on|off`（集群脚本恒显式传）；③ 都未给 ⇒ **agent 侧内置缺省：有角色绑定 ⇒ `on`；无角色绑定 ⇒ `off`**。agent **不读 `cluster.json`**（D-18）——因此单起裸命令 `oamp agent start pb-dev`（无 flag）在语义上等价于显式传 `--tools on`（F04-1「未做任何配置时默认全开」在单起路径的落地，也是 F01-4「单起与批量起一样能用」的必要条件）；集群路径的取值真源仍是 `cluster.json` 的角色开关（其缺省 = true，脚本恒显式传 flag 覆盖）。
 
 - 非法取值 / 未知 flag → `oamp agent start: …` + **退出码 2**（与 `cli.js` 的 `usageError` 风格一致）。
 - **为什么让单起也自动绑角色**：F01-4（单起可用）与 F02-1（`pb-<role>` 的运行期规则来自 `roles/<role>/<role>.md`）合起来要求"裸起 `oamp agent start pb-dev` 也是个真角色实例"；否则用户必须记住一个额外的 flag 才能得到正确的实例语义，且该实例会与批量入口产生"同名不同人格"的割裂。推断是**确定性规则**（前缀 + 文件存在性），并在启动行留痕（`source=instance_id`），不构成隐式魔法。
@@ -244,11 +246,12 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 | 承载 | `cluster.json` 的 `roles.<role>.tools`（布尔，**缺省 true** = 默认全开，F04-1） |
 | 传参 | `cluster up` → `--tools on\|off` → agent 侧 `effectiveTools` |
 | 生效点（daemon，**本卡的核心改造**） | `AcpClient.start()` 的 argv：`effectiveTools ? 不传 --no-tools : 传 --no-tools`（`acp-client.js:79` 的硬编码改为参数） |
-| 生效点（一次性 `omp -p`） | `runOmpTask()` 的 `--no-tools` 由 `payload.tools` 决定；**payload 未给时回落到角色开关**（TC-09：两条 LLM 路径都按角色配置） |
-| 解析链 | `payload.tools === true → on；payload.tools === false → off；未给 → 角色开关；无角色绑定 → off`（0011 兼容） |
-| 无角色实例 | 缺省 `off`（`--no-tools` 照旧）→ §2.3 回归不变式 |
+| 生效点（一次性 `omp -p`） | `runOmpTask()` 的 `--no-tools` 由 `payload.tools` 决定；**payload 未给时回落到 CLI `--tools`（集群脚本恒显式传）与同一条 agent 内置缺省链**（TC-09：两条 LLM 路径都按角色配置） |
+| 解析链（三分支，定案；与 §3.4 同一条规则） | ① `payload.tools` 为布尔（仅一次性 `omp` 路径）→ 取该值；② CLI `--tools on\|off`（集群脚本恒显式传）→ 取该值；③ 都未给 ⇒ **agent 侧内置缺省：有角色绑定 ⇒ `on`；无角色绑定 ⇒ `off`** |
+| 单起路径的取值来源 | 裸起 `oamp agent start pb-dev`（无 flag）⇒ 角色已绑定 ⇒ `effectiveTools = on`（等价显式形式 `--tools on`）；**不读 `cluster.json`**（D-18），内置缺省就是角色实例的默认值 |
+| 无角色实例 | `effectiveTools = off`（`--no-tools` 照旧）→ §2.3 回归不变式 |
 
-**定案（L1-2，2026-09-11 用户决策）**：角色 `tools` 缺省 **true**（默认全开）；常驻对话路径按 `tools` 决定是否传 `--no-tools`（这是本卡的核心改造点，`acp-client.js:79` 的硬编码就此消除）；一次性路径 payload 未给时回落到角色开关；无角色绑定的实例保持 `--no-tools`（§2.3 回归不变式）。工具放开后 permission 必须同时落地（§4.4），否则 V-6 的永久挂起即成立。
+**定案（L1-2，2026-09-11 用户决策）**：`effectiveTools` 按上表三分支取值——集群脚本恒显式传 `--tools on|off`（配置真源 = `roles.<role>.tools`，**角色实例缺省 `on`**）；**未传 flag 时由 agent 内置缺省决定：有角色绑定 ⇒ `on`（单起 `oamp agent start pb-dev` 因此真的能干活），无角色绑定 ⇒ `off`**（§2.3 回归不变式）。常驻对话路径据此决定是否传 `--no-tools`（本卡核心改造点，`acp-client.js:79` 的硬编码就此消除）；一次性路径 payload 未给时回落同一条内置缺省链。工具放开后 permission 必须同时落地（§4.4），否则 V-6 的永久挂起即成立。
 
 ### 4.4 permission 应答（落地 AR-10）
 
@@ -268,7 +271,7 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 
 | 项 | 定案 |
 |---|---|
-| 实现面 | `AcpClient._handleMessage()` 增加分支：`id` 存在**且** `method` 为字符串 → 服务端请求 → `_handleServerRequest(msg)`。**必须放在既有 pending 表查找之前**（今天这类帧会因 `pending` 无此 id 被 `return` 丢掉 → 正是 V-6 的挂起根因，`acp-client.js:262-266`） |
+| 实现面 | `AcpClient._handleMessage()` 增加分支：`id` 存在**且** `method` 为字符串 → 服务端请求 → `_handleServerRequest(msg)`。**必须放在既有 pending 表查找之前**（今天这类帧会在 `:267` 的 `if (!entry) return;` 被静默丢掉 → 正是 V-6 的挂起根因，`acp-client.js:262-267`） |
 | 已知方法 | `session/request_permission` → 按策略回上述结果 |
 | 未知方法 | 回 JSON-RPC 错误 `-32601 Method not found`（**响亮失败，绝不静默丢弃**）——即使未来 omp 新增 `fs/*` / `terminal/*` 请求，也只会得到明确错误而非挂起（W-5 说明当前不会发生） |
 | 策略来源 | `cluster.json` 的 `roles.<role>.permission`（`allow` 缺省 / `deny`），经 `--permission` → `ContextPool` → `AcpClient` |
@@ -337,7 +340,6 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 | 角色段字段 | 类型 | 缺省 | 语义 |
 |---|---|---|---|
 | `enabled` | bool | `true` | `false` = 该角色不起实例（F06-1 的"启用开关"） |
-| `instance_id` | string | `pb-<role>` | 显式覆盖实例名（本迭代不使用） |
 | `model` | string | 不写 | 角色级模型（§4.1） |
 | `tools` | bool | `true` | 工具开关（§4.3） |
 | `permission` | `'allow'\|'deny'` | `'allow'` | permission 档（§4.4） |
@@ -527,7 +529,7 @@ has-session? 否 → 打印并退出 0
 | D-09 | `permission_denied` 为轮次级错误（会话保留） | L2 | 拒绝不是会话故障；下一轮可继续（与 `model_unavailable` 同级） | 会话级失败：一次拒绝就毁掉上下文，代价过大 |
 | D-10 | 审核事件 = 每请求一行 `TOOL_APPROVED`/`TOOL_DENIED`，落 agent 事件日志 | L2 | 可数（N=N）、与既有事件日志形态一致、不违反"仅两类记录" | 落 SQLite：违反 E-5；两行/调用：计数歧义 |
 | D-11 | 模型链插层：`payload > env > --model(角色) > config > 内置` | L2 | 沿用 0011 的"env 高于配置层"，角色级属配置层内部（prd 疑问 2） | 角色级高于 env：打破既有运维覆盖语义 |
-| D-12 | 工具开关：daemon 由 argv 决定（去掉硬编码 `--no-tools`）；一次性路径 payload > 角色 | L2 | F04-2 明令"默认对话路径必须真实可用"；两条 LLM 路径一致（TC-09） | 只改一次性路径 = 本卡的核心缺陷未修 |
+| D-12 | 工具开关：daemon 由 argv 决定（去掉硬编码 `--no-tools`）；`payload.tools` > CLI `--tools` > **agent 内置缺省（角色绑定 ⇒ on / 无绑定 ⇒ off）** | L2 | F04-2 明令"默认对话路径必须真实可用"；两条 LLM 路径一致（TC-09）；单起路径（无 flag）也要满足 F04-1 | 只改一次性路径 = 本卡的核心缺陷未修 |
 | D-13 | `cwd` 不加 flag：由进程启动目录承载（tmux `-c`） | L2 | 复用 0011 的 `process.cwd()` → `session/new{cwd}` 全链，零新参数 | 新增 `--cwd`：与 ACP spawn / session/new 三处重复传递 |
 | D-14 | 一进程一窗口、窗口名 = 实例名、`remain-on-exit on` | L3 | 定位最短路径；崩溃留尸可观察 | pane 分屏：窗口名与实例的映射变复杂 |
 | D-15 | 日志 `<PKG_ROOT>/.runtime/cluster/<name>.log`，up 截断、tee 双通道 | L3 | 复用既有 gitignore 规则（F06-6 免改动）；窗口与文件互补 | 新日志目录：要改 gitignore 且散落 |
@@ -543,14 +545,14 @@ has-session? 否 → 打印并退出 0
 
 | AR | 落定内容（一句话） | 详见 |
 |---|---|---|
-| AR-01 | 角色清单承载 = `cluster.json` 的 `roles` 键集合；`instance_id = 'pb-' + role`（`role-binding.js` 单点公式，可被 `instance_id` 字段覆盖） | §3.1 / §5.1 |
+| AR-01 | 角色清单承载 = `cluster.json` 的 `roles` 键集合；`instance_id = 'pb-' + role`（`role-binding.js` 单点公式，**无覆盖字段**） | §3.1 / §5.1 |
 | AR-02 | 复用 `agent start <id>`，新增 4 个可选 flag（`--role/--model/--tools/--permission`）；优先级：flag > 推断（`pb-<role>` + 文件存在）> 无绑定 | §3.4 |
 | AR-03 | 判定面 = `ps` 父链上溯找到含 `agent start <instance-id>` 的祖先；无对话时无归属 `omp` 子进程（懒创建，`CONTEXT_READY` 事件交叉印证） | §3.5 |
 | AR-04 | **机制定案 = 进程级 `--append-system-prompt <角色 md 绝对路径>`**（不依赖 cwd、不写文件、两条路径同一参数）；否决文件/cwd 注入与 per-session 注入 | §3.2 |
 | AR-05 | 落点 = `AcpClient.start()` argv（daemon）+ `runOmpTask()` argv（一次性）；判定 = argv 断言（自动化）+ E3 原文比对（真实 omp）+ `ROLE_BOUND` 事件 | §3.3 |
 | AR-06 | 承载 = `roles.<role>.model` → `--model`；链 = `payload > env > 角色 > config.defaults > 内置`（回答 prd 疑问 2） | §4.1 |
 | AR-07 | 观察面 = `AGENT_START/TASK_STARTED` 事件行 + 落库 out 记录的 `model`（实际生效值，0011 §7.4） | §4.2 |
-| AR-08 | 承载 = `roles.<role>.tools` → `--tools on\|off`；改造点 = `acp-client.js:79` 的硬编码 `--no-tools` 参数化（daemon）+ 一次性路径的默认回落 | §4.3 |
+| AR-08 | 承载 = `roles.<role>.tools`（缺省 true）→ `--tools on\|off`；改造点 = `acp-client.js:79` 的硬编码 `--no-tools` 参数化（daemon）+ 一次性路径的默认回落；**未传 flag ⇒ agent 内置缺省（有角色绑定 ⇒ on / 无绑定 ⇒ off）** | §3.4 / §4.3 |
 | AR-09 | 辅助判定 = 子进程 argv 有无 `--no-tools` + 审计事件有无 + 关闭档的明确回绝文本（F04-5） | §4.6 |
 | AR-10 | 实现面 = `_handleMessage` 的服务端请求分支（`session/request_permission`）+ 未知方法回 `-32601`；允许 → `allow_once`；拒绝 → `reject_once` + `session/cancel` + 轮次 `permission_denied`；时间判据 = `duration_ms ≤ 10s`（硬上限沿用 300s 轮次超时，**不加配置键**）（回答 prd 疑问 3） | §4.4 |
 | AR-11 | 事件 = `TOOL_APPROVED`/`TOOL_DENIED`，字段 = instance/role/chat_id/context_id/pid/tool/title/tool_call_id/option；落 agent 事件日志（stdout → 落盘） | §4.5 |
@@ -616,7 +618,7 @@ has-session? 否 → 打印并退出 0
 | # | 确认结果 | 最终取值（= 实现契约） |
 |---|---|---|
 | L1-1 | 已确认（按推荐） | 进程级 `--append-system-prompt <roles/<role>/<role>.md 绝对路径>`；文件/cwd 注入与 ACP per-session 注入均否决（§3.2） |
-| L1-2 | 已确认（按推荐） | 工具默认放开（角色 `tools` 缺省 true；daemon 路径不再传 `--no-tools`）+ permission 两档实现：**allow = 恒回 `allow_once` 且每次受门禁调用恰一条 `TOOL_APPROVED` 审计；deny = 回 `reject_once` + `session/cancel` + 轮次 `permission_denied`（`AcpError`）且会话保留**；判据 = deny 轮 `duration_ms ≤ 10s` 出现终态（§4.3 / §4.4） |
+| L1-2 | 已确认（按推荐） | 工具默认放开（**有角色绑定 ⇒ 内置缺省 `on`**，daemon 路径不再传 `--no-tools`；无角色绑定 ⇒ `off`）+ permission 两档实现：**allow = 恒回 `allow_once` 且每次受门禁调用恰一条 `TOOL_APPROVED` 审计；deny = 回 `reject_once` + `session/cancel` + 轮次 `permission_denied`（`AcpError`）且会话保留**；判据 = deny 轮 `duration_ms ≤ 10s` 出现终态（§4.3 / §4.4） |
 | L1-3 | 已确认（按推荐） | `oamp cluster up\|down\|status` 子命令（`src/cluster.js` + `cli.js` 分发 + USAGE 一行）（§5.2） |
 | L1-4 | 已确认（按推荐，未改判） | 仓库根 `cluster.json`（tracked、零凭据字段、schema 见 §5.1）；与 `oamp/config.json` 互不合并；F02-6 判定口径按 §2.4 执行 |
 | L1-5 | 已确认（按推荐） | 实例不常驻 LLM（节点进程 + 按 `(chat, agent)` 懒启动 LLM 子进程；沿用 0011）（§3.5） |
@@ -699,5 +701,5 @@ has-session? 否 → 打印并退出 0
 3. **prd 疑问 3（E5 的"配置超时"取值）** 已由 AR-10 裁定：不新增配置键，硬上限沿用轮次超时（默认 300s，payload 可给 1~600000ms）；deny 的可判定判据 = **终态在 ≤10s 内出现**。
 4. **prd 疑问 4（日志落盘范围）** 按 W6 的较宽口径落地：Router / Web / 每个角色各一份日志（§5.4），未收窄。
 5. **F02-6 的判定口径需要一次澄清（口径已定案文本化，见 §2.4 / §3.2）**：本迭代在**仓库根新增 `cluster.json`**（F06-7 要求 tracked 的集群配置）。它不是"规则类文件"（omp 规则发现面是 `AGENTS.md`/`CLAUDE.md`/`SYSTEM.md`/`APPEND_SYSTEM.md` 一族，`cluster.json` 不在其中，且**不参与注入路径**）。F02-6/M-02 的判定表述为"**就地加载角色规则这一动作**前后，仓库根无新增/变更的**规则类文件**"。**处理**：架构不改产品维度；阶段 6 判定时按此口径执行，若用户认为 `cluster.json` 也算"新增文件"，则需把集群配置改放到 `oamp/`（会连带 §5.1 的路径基准调整）——**已随 L1-4 确认（2026-09-11）：配置保留在仓库根，判定按本节口径执行（见 §2.4 / §11.1）**。
-6. **未改动任何产品维度**：`prd.md` / `prd/*.md` 仅回填架构维度（AR-01~AR-20）与两处架构性疑问的裁定标注；验收标准、用户价值、边界、model_inferred 列表均未改动；`demand.md`、`roles/**`、`oamp/**` 未改动。
+6. **改动边界（准确表述）**：`prd.md` / `prd/*.md` 仅回填架构维度（AR-01~AR-20）与两处架构性疑问的裁定标注，**未改动产品维度的判定内容**（验收标准 / 用户价值 / 边界 / model_inferred 列表）。`demand.md` **未由本角色改动**；该文件在阶段 3 期间经主 agent 授权做了**用户确认日期的时间口径修正**（2026-09-10 → 2026-09-11，仅日期、不涉产品内容）。`roles/**`、`oamp/**`（代码与配置）本迭代阶段 3 未改动；零新第三方依赖。
 7. **L1 已确认，可进入阶段 4**：L1-1~L1-6 于 2026-09-11 经用户全部确认（六项均按推荐方案，逐项记录见 §11.1），本文件的"定案"即为实现契约；后续若推翻任一项，属架构级变更——需回到本文件改 §7 / §11 并同步受影响的功能卡维度与阶段 6 判定面。

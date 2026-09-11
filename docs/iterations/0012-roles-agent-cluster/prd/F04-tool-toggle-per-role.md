@@ -1,7 +1,7 @@
 # F04：工具能力开关（按角色可配）
 
 **功能 ID**: F04
-**来源**: `demand.md` W5 前半（D-1 / TC-02）；效果条款 E2（工具真实可用）、E4；实测事实 V-6 / V-7；仓库事实 F-7；验收 5 判定面经用户确认（M-01，2026-09-11）
+**来源**: `demand.md` W5 前半（D-1 / TC-02）；效果条款 E2（工具真实可用）、E4；实测事实 V-6 / V-7；仓库事实 F-7；验收 5 判定面经用户确认（M-01，2026-09-11）；确认日口径见 `prd.md`（以 2026-09-11 为准，09-10 为笔误）
 **迭代**: 0012-roles-agent-cluster
 
 ---
@@ -29,5 +29,5 @@
 
 ## 架构维度（阶段 3 已填，2026-09-11；详见 `architecture.md` §4.3 / §4.6；与 F05 的 AR-10 强耦合——tools=on 时必须同时实现 permission 应答，否则 V-6 的"永久挂起"即成立）
 
-- **AR-08 配置承载与传参形态 / 默认路径改造点**：承载 = `cluster.json` 的 `roles.<role>.tools`（布尔，**缺省 true** = 默认全开）→ `cluster up` 以 `--tools on|off` 传给该角色 agent。生效点两处：① **常驻对话路径（本卡核心改造）**：`src/acp-client.js:79` 的硬编码 `['acp','--no-skills','--no-rules','--no-tools','--no-session']` 改为参数表——`tools=on` **不传** `--no-tools`（`off` 传），这是"默认路径硬编码禁用工具"缺陷的唯一消除点（`--no-tools` 是唯一有效的一键关工具开关）；② 一次性 `omp -p` 路径：`--no-tools` 由 `payload.tools` 决定，payload 未给时**回落到角色开关**（TC-09：两条 LLM 路径都按角色配置）。解析链：`payload.tools(true|false) > 角色开关 > 无角色绑定 ⇒ off`——**无角色绑定的实例与 0011 逐字节一致**（回归不变式）。
+- **AR-08 配置承载与传参形态 / 默认路径改造点**：承载 = `cluster.json` 的 `roles.<role>.tools`（布尔，**缺省 true** = 默认全开）→ `cluster up` 以 `--tools on|off` 传给该角色 agent。生效点两处：① **常驻对话路径（本卡核心改造）**：`src/acp-client.js:79` 的硬编码 `['acp','--no-skills','--no-rules','--no-tools','--no-session']` 改为参数表——`tools=on` **不传** `--no-tools`（`off` 传），这是"默认路径硬编码禁用工具"缺陷的唯一消除点（`--no-tools` 是唯一有效的一键关工具开关）；② 一次性 `omp -p` 路径：`--no-tools` 由 `payload.tools` 决定，payload 未给时**回落到角色开关**（TC-09：两条 LLM 路径都按角色配置）。解析链（三分支，与 `architecture.md` §3.4 / §4.3 同一条规则）：① `payload.tools` 为布尔（仅一次性 `omp` 路径）→ 取该值；② CLI `--tools on|off`（集群脚本恒显式传，配置真源 = `roles.<role>.tools`，**角色实例缺省 `on`**）→ 取该值；③ 都未给 ⇒ **agent 侧内置缺省：有角色绑定 ⇒ `on`**（裸起 `oamp agent start pb-dev` 因此真的能干活；F04-1 在单起路径的落地）、**无角色绑定 ⇒ `off`**（与 0011 逐字节一致，回归不变式）。agent **不读 `cluster.json`**（D-18）。
 - **AR-09 生效与否的判定观察面**：① 主判据 = 文件是否产生（验收 2/3 的 `role-smoke.txt` 落盘）；② 该实例的 `omp acp` 子进程命令行**含/不含** `--no-tools`（直接对应 `--tools on|off`）；③ 事件日志中**有/无** `TOOL_APPROVED` 审计行（工具关 ⇒ 零 permission 请求、零审计行）；④ 关闭档的"不静默失败"（验收 5 / M-01）= 工具不可用时该轮仍以**明确的回绝或说明**文字收尾（`state='completed'` 且文本可判定，不是空答复）。
