@@ -1019,6 +1019,13 @@ test('Web：前端契约——轮询消失、SSE 订阅、新控件、@ 与 ! �
   assert.match(css, /\.model-input/, '模型输入框样式应存在');
 
   assert.match(appJs, /currentMentionQuery/, '@ 补全逻辑应保留');
+
+  // 0014（pr-002）：详情头标题行内编辑的静态契约（AR-01 / AR-07 / AR-08）
+  assert.match(html, /id="detail-title-input"/, '详情头应有静态孪生编辑框');
+  assert.match(html, /maxlength="100"/, '编辑框应有声明式长度上限 100（AR-07）');
+  assert.match(appJs, /isReadonly/, '前端应提取具名只读谓词（AR-08 不分叉）');
+  assert.match(appJs, /titleEdit/, '前端应有标题编辑态（AR-01）');
+  assert.match(css, /\.detail-title-input/, '编辑框样式应存在');
 });
 
 // ────────────────────────── pr-008：working 等待计时（静态契约） ──────────────────────────
@@ -1237,4 +1244,122 @@ test('Web：前端静态契约——归档标签 / 归档全部 / 归档视图�
   assert.match(css, /\.archive-all/, '「归档全部」样式应存在');
   assert.match(css, /\.load-more/, '「加载更多」样式应存在');
   assert.match(css, /\.chat-item \.activate/, '归档行「激活」按钮样式应存在');
+});
+
+// ────────────────────────── 0014：改名 API（pr-002 / F01~F05、AR-02/06/08） ──────────────────────────
+test('Web：改名——200 权威标题 / 详情与列表同步 / 不置顶（updated_at 与列表顺序不变）（F01、F04-4/5）', async (t) => {
+  const { web } = await setup(t);
+
+  const first = await sendAndWait(web, { agent_id: 'dev-1', text: '改名用例 甲' });
+  const second = await sendAndWait(web, { agent_id: 'dev-1', text: '改名用例 乙' });
+  const before = (await jget(web.base, '/api/chats')).body;
+  const beforeOrder = before.chats.map((c) => c.chat_id);
+  const beforeRow = before.chats.find((c) => c.chat_id === first.chatId);
+  assert.ok(beforeRow, '改名前该条应在主列表');
+
+  const renamed = await jpost(web.base, `/api/chats/${encodeURIComponent(first.chatId)}/rename`, { title: '  季度复盘  ' });
+  assert.equal(renamed.status, 200);
+  assert.deepEqual(renamed.body, { chat_id: first.chatId, title: '季度复盘' }, '响应 = trim 后的权威标题');
+
+  const detail = await detailOf(web, first.chatId);
+  assert.equal(detail.chat.title, '季度复盘', 'GET /api/chats/<id> 与库值一致（权威值）');
+  assert.equal(detail.chat.updated_at, beforeRow.updated_at, 'updated_at 逐字不变（不置顶，F04-5）');
+  assert.equal(detail.chat.agent_id, beforeRow.agent_id, '所属 agent 不变');
+  assert.equal(detail.chat.state, beforeRow.state, '状态不变');
+  assert.equal(detail.chat.archived_at, null, '归档标记不变');
+
+  const after = (await jget(web.base, '/api/chats')).body;
+  assert.deepEqual(after.chats.map((c) => c.chat_id), beforeOrder, '改名不改变列表 chat_id 顺序（F04-4）');
+  assert.equal(after.chats.find((c) => c.chat_id === first.chatId).title, '季度复盘');
+  assert.equal(after.chats.find((c) => c.chat_id === second.chatId).title, '改名用例 乙', '其他条目不受影响');
+});
+
+test('Web：改名——校验 400 全表（非字符串 / 空体 / 空 / 全空白 / 101 单位）且读回标题不变（F02-6）', async (t) => {
+  const { web } = await setup(t);
+
+  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '校验用例 原标题' });
+  const url = `/api/chats/${encodeURIComponent(chatId)}/rename`;
+
+  const cases = [
+    [{ title: 123 }, /需为字符串/],
+    [{}, /需为字符串/],
+    [{ title: null }, /需为字符串/],
+    [{ title: '' }, /不能为空或全为空白/],
+    [{ title: '   ' }, /不能为空或全为空白/],
+    [{ title: 'x'.repeat(101) }, /长度需 <= 100（当前 101）/],
+  ];
+  for (const [payload, re] of cases) {
+    const r = await jpost(web.base, url, payload);
+    assert.equal(r.status, 400, `${JSON.stringify(payload)} 应 400`);
+    assert.match(r.body.error, re);
+    assert.equal((await detailOf(web, chatId)).chat.title, '校验用例 原标题', '被拒后读回标题不变（不落库）');
+  }
+});
+
+test('Web：改名——404 / 409 双路径（关闭优先于归档时点 / 归档后）且库值不变（F03-1/2）', async (t) => {
+  const { web } = await setup(t);
+
+  const closed = await sendAndWait(web, { agent_id: 'dev-1', text: '改名只读 关闭' });
+  const arch = await sendAndWait(web, { agent_id: 'dev-1', text: '改名只读 归档' });
+  assert.equal((await jpost(web.base, `/api/chats/${encodeURIComponent(closed.chatId)}/close`, {})).status, 200);
+
+  // 未归档的 closed → 409「已关闭」（D-7：closed 不可改）
+  const cls = await jpost(web.base, `/api/chats/${encodeURIComponent(closed.chatId)}/rename`, { title: '关闭后改名' });
+  assert.equal(cls.status, 409);
+  assert.match(cls.body.error, /已关闭/);
+  assert.equal((await detailOf(web, closed.chatId)).chat.title, '改名只读 关闭', '被拒后库值不变');
+
+  const unknown = await jpost(web.base, '/api/chats/chat-does-not-exist/rename', { title: '任意' });
+  assert.equal(unknown.status, 404);
+  assert.equal(unknown.body.error, 'chat 不存在: chat-does-not-exist', '与 /close、/activate 逐字同形');
+
+  // 归档 → 409「已归档」（归档分支优先出文案）
+  assert.equal((await jpost(web.base, '/api/chats/archive', {})).status, 200);
+  const arc = await jpost(web.base, `/api/chats/${encodeURIComponent(arch.chatId)}/rename`, { title: '归档后改名' });
+  assert.equal(arc.status, 409);
+  assert.match(arc.body.error, /已归档/);
+  assert.equal((await detailOf(web, arch.chatId)).chat.title, '改名只读 归档', '被拒后库值不变');
+});
+
+test('Web：改名——只读不分叉（改名 409 与发消息 409 同真）+ 畸形 JSON 400 / 超限 413（F03-3）', async (t) => {
+  const { web } = await setup(t);
+
+  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '不分叉 用例' });
+  await jpost(web.base, '/api/chats/archive', {});
+
+  const renameRej = await jpost(web.base, `/api/chats/${encodeURIComponent(chatId)}/rename`, { title: 'X' });
+  const sendRej = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'dev-1', text: 'X' });
+  assert.equal(renameRej.status, 409);
+  assert.equal(sendRej.status, 409);
+  assert.equal(renameRej.body.error, 'chat 已归档（只读），不可改名');
+  assert.equal(sendRej.body.error, 'chat 已归档（只读），不接受新输入', '既有 /api/messages 文案逐字不变（§4.2-4）');
+
+  // 读体先于预检（§5.2 固定处理顺序）：畸形 JSON → 400
+  const badJson = await fetch(`${web.base}/api/chats/${encodeURIComponent(chatId)}/rename`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{not json',
+  });
+  assert.equal(badJson.status, 400);
+  assert.match((await badJson.json()).error, /请求体非法 JSON/);
+
+  const tooLarge = await fetch(`${web.base}/api/chats/${encodeURIComponent(chatId)}/rename`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title: 'x'.repeat(70 * 1024) }),
+  });
+  assert.equal(tooLarge.status, 413);
+  assert.equal(tooLarge.headers.get('connection'), 'close', '超限应答应关闭连接（逐字同形）');
+  assert.match((await tooLarge.json()).error, /请求体过大/);
+});
+
+test('Web：改名——改名后再发消息标题保持手动值（F05-4 / E-10）', async (t) => {
+  const { web } = await setup(t);
+
+  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '手动标题 原始首条输入' });
+  const renamed = await jpost(web.base, `/api/chats/${encodeURIComponent(chatId)}/rename`, { title: '手动标题 固定值' });
+  assert.equal(renamed.status, 200);
+
+  const round2 = await sendAndWait(web, { chat_id: chatId, agent_id: 'dev-1', text: '第二条完全不同的输入' }, { rounds: 2 });
+  assert.equal(round2.detail.chat.title, '手动标题 固定值', '后续输入不改手动标题（ensureChat DO NOTHING，C-4）');
 });

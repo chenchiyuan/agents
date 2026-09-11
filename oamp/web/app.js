@@ -22,6 +22,7 @@ const state = {
   mention: { open: false, items: [], index: 0, start: -1 },
   routerOk: false,
   stream: { chatId: null, text: '' }, // 流式占位文本（task_update 累积；终态 message 到达即清空）
+  titleEdit: null, // ★ 标题行内编辑态：null = 未编辑；{ chatId } = 正在编辑该对话的标题
   notices: [], // 会话内系统提示条（SSE notice，运行时事件不入库；仅本次页面会话保留，刷新即不重现）
 };
 
@@ -58,6 +59,12 @@ function badge(stateName) {
     closed: 'badge-closed',
   };
   return `<span class="badge ${map[stateName] || 'badge-idle'}">${stateName || 'idle'}</span>`;
+}
+
+/** 只读面单一真源（前端侧，与 src/web.js 的 isReadonly 同形同值）：已归档 或 已关闭。
+ *  标题编辑门（F03 验收 3）与「关闭对话」按钮禁用条件共用本函数（AR-08 不分叉）。 */
+function isReadonly(chat) {
+  return chat.state === 'closed' || chat.archived_at !== null;
 }
 
 function fmtTime(ms) {
@@ -149,20 +156,93 @@ function renderChats() {
 }
 
 // ── 右栏：会话详情 ──
+/** 标题区唯一渲染落点（AR-01 / AR-05 / AR-09）：统一处理 空态 / 只读 / 可编辑 / 编辑中 四态。
+ *  - 编辑中（同一 chat）：early-return ⇒ 任何 SSE 触发的 renderChat() 都不会覆盖用户正在输入的内容，也不会关闭编辑态；
+ *  - 其它形态：清掉残余编辑态，h1 显示库值，input 隐藏；
+ *  - .editable 只在"可编辑"时挂上（AR-09：只读与空态没有可编辑的视觉/交互暗示）。 */
+function renderTitle(chat) {
+  const titleEl = $('detail-title');
+  const input = $('detail-title-input');
+  if (chat && state.titleEdit !== null && state.titleEdit.chatId === chat.chat_id) return;
+  state.titleEdit = null; // 空态 / 只读 / 已切换对话：不留残余编辑态
+  if (!chat) {
+    titleEl.textContent = '选择或新建一个对话'; // 空态文案（F03 验收 5 / D-15：不是任何对话的标题）
+    titleEl.classList.remove('editable');
+  } else {
+    titleEl.textContent = chat.title;
+    titleEl.classList.toggle('editable', !isReadonly(chat));
+  }
+  titleEl.classList.remove('hidden');
+  input.classList.add('hidden');
+}
+
+/** 进入标题编辑（F01 验收 1 / D-1）：空态与只读面点击无响应（F03 验收 1/2/5 / D-15），重复点击不重置。 */
+function beginTitleEdit() {
+  const chat = state.chat;
+  if (!chat || isReadonly(chat) || state.titleEdit !== null) return;
+  state.titleEdit = { chatId: chat.chat_id };
+  const input = $('detail-title-input');
+  input.value = chat.title; // 预填当前标题全文
+  $('detail-title').classList.add('hidden');
+  input.classList.remove('hidden');
+  input.focus();
+  input.select(); // 全部预选：直接输入即整体替换（focus 之后再 select，顺序不可颠倒）
+}
+
+/** 退出编辑态（幂等）：清 state → 复位 DOM（h1 文本回到库值）。取消与失败恢复共用本函数。 */
+function exitTitleEdit() {
+  state.titleEdit = null;
+  const chat = state.chat;
+  if (chat) {
+    renderTitle(chat); // state 已清 ⇒ renderTitle 不 early-return，h1 回到 chat.title
+  } else {
+    $('detail-title-input').classList.add('hidden');
+    $('detail-title').classList.remove('hidden');
+  }
+}
+
+/** 提交一次改名（F01 验收 2/4/5；F02 验收 1/4/5；AR-04 / AR-05 / AR-10 / AR-11）。
+ *  触发路径只有 Enter 与失焦两条，二者共用本函数；首行的 state 检查是唯一门：
+ *  Esc 先清 state 再复位 DOM ⇒ 随后必然发生的失焦与 Enter 都在首行被挡（D-11「Esc 优先于失焦」）。 */
+async function commitTitle() {
+  const edit = state.titleEdit;
+  if (edit === null) return; // 已取消 / 非编辑态（含 Esc 后的失焦）：不提交
+  const chat = state.chat;
+  const raw = $('detail-title-input').value;
+  exitTitleEdit(); // 先退出编辑态 ⇒ Enter 之后的失焦不会二次提交
+  if (!chat || chat.chat_id !== edit.chatId) return; // 已切换对话：不提交
+  const next = raw.trim();
+  if (next === '' || next === chat.title) return; // 拒空 / 未改动：不提交，界面已回到原值（F01 验收 4、F02 验收 4/5）
+  try {
+    const r = await api(`/api/chats/${encodeURIComponent(chat.chat_id)}/rename`, { method: 'POST', body: { title: raw } });
+    chat.title = r.title; // AR-05：以服务端权威值就地回填（权威 = trim 后文本）
+    const item = state.chats.find((c) => c.chat_id === chat.chat_id);
+    if (item) item.title = r.title; // AR-10：左栏同步范围 = 主列表内存数据中的对应项（D-16）
+    renderChats(); // 就地重绘左栏（位置不变：updated_at 未被写入）
+    renderChat(); // 详情头显示新值（F04 验收 1、2）
+    $('hint').className = 'hint';
+    $('hint').textContent = '';
+  } catch (err) {
+    renderChat(); // F01 验收 5 / D-12：失败恢复原值（exitTitleEdit 已把 h1 还原）
+    $('hint').className = 'hint error';
+    $('hint').textContent = `改名失败：${err.message}`; // AR-04：复用既有提示位
+  }
+}
+
 function renderChat() {
   const chat = state.chat;
   const box = $('messages');
   if (!chat) {
-    $('detail-title').textContent = '选择或新建一个对话';
+    renderTitle(null);
     $('detail-meta').textContent = '';
     $('btn-close').disabled = true;
     box.innerHTML = `<div class="empty">左侧选择对话，或在下方输入框以 <code>@agent 问题</code> 开始<br /><span class="muted">默认走常驻上下文（同对话多轮记得前文）；勾选「一次性」则不累积；以 ! 开头按 shell 命令执行</span></div>`;
     renderStatusLine();
     return;
   }
-  $('detail-title').textContent = chat.title;
+  renderTitle(chat);
   $('detail-meta').innerHTML = `@${escapeHtml(chat.agent_id || '-')} ${badge(chat.state)}${chat.state === 'closed' ? '<span class="muted"> · 已关闭（只读）</span>' : ''}`;
-  $('btn-close').disabled = chat.state === 'closed' || chat.archived_at !== null; // §6.4 A：归档对话已是只读面
+  $('btn-close').disabled = isReadonly(chat); // AR-08：与标题编辑门共用同一谓词（行为同值）
   const body = state.messages.length === 0 ? '<div class="empty">会话已创建，发送第一条消息开始。</div>' : state.messages.map(renderMessage).join('');
   box.innerHTML = `${freshBar(chat)}${body}${renderStreamSlot(chat)}${renderNotices(chat.chat_id)}`;
   box.scrollTop = box.scrollHeight;
@@ -637,6 +717,19 @@ function bind() {
   };
   $('btn-send').onclick = send;
   $('btn-close').onclick = closeCurrentChat;
+  // 标题行内编辑（F01 / AR-01 / AR-03）：点击 h1 进入编辑；Enter / 失焦提交；Esc 取消（优先于失焦）
+  $('detail-title').onclick = beginTitleEdit;
+  const titleInput = $('detail-title-input');
+  titleInput.onblur = () => commitTitle();
+  titleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault(); // 单行输入框无换行语义，Enter 只作提交
+      commitTitle();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      exitTitleEdit(); // 先清 state 再复位 DOM ⇒ 随后的 blur 在 commitTitle 首行被挡
+    }
+  });
   $('btn-archive-all').onclick = archiveAll;
   const input = $('input');
   input.addEventListener('input', () => {

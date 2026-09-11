@@ -163,6 +163,24 @@ html, body {
 .detail-head h1 { margin: 0; font-size: 14px; font-weight: 600; }
 .detail-meta { color: var(--muted); font-size: 12px; }
 
+/* 0014：详情头标题行内编辑 */
+/* 可编辑态的可点击暗示（AR-09）；几何与 .detail-title-input 对齐 ⇒ 进出编辑时标题不跳动 */
+.detail-head h1.editable { cursor: text; padding: 2px 6px; border: 1px solid transparent; border-radius: 4px; }
+.detail-head h1.editable:hover { border-color: var(--line); }
+/* 编辑框（AR-01 / AR-07）：字号字重与 .detail-head h1 一致，避免形态切换时的视觉跳变 */
+.detail-title-input {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border: 1px solid var(--green);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  min-width: 260px;
+}
+.detail-title-input.hidden { display: none; } /* 本仓 .hidden 只对 .mention 生效（:255），此处需独立规则 */
+
 .messages { flex: 1; overflow-y: auto; padding: 18px 20px; }
 .empty { color: var(--muted); text-align: center; margin-top: 48px; line-height: 2; }
 .muted { color: var(--muted); }
