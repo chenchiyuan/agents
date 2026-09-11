@@ -123,8 +123,9 @@ oamp web start [--port 7788]      # 默认 http://127.0.0.1:7788（env OAMP_WEB_
 ```
 
 浏览器打开后：
-- **左栏**：对话列表（＋ New chat；All / Working / Completed 过滤；条目标题 + 状态徽标 + @agent + 时间）
+- **左栏**：对话列表（＋ New chat；All / Working / Completed / 归档 过滤，过滤栏最右侧「归档全部」按钮；条目标题 + 状态徽标 + @agent + 时间）
 - **右栏**：对话详情——消息流（你的输入 / agent 回答，含耗时与错误提示）与「关闭对话」按钮
+- **归档视图**：切到「归档」标签页只列出已归档对话（按归档时间倒序；首屏 200 条，底部「加载更多」按 offset 续页，到末尾不再显示）；每一项带归档时间、归档时的原状态徽标与独立「激活」按钮——点按钮回到 All 列表顶部并恢复可对话，不打开详情
 - **输入框**：`@agent 提问` —— 输入 `@` 弹出全部 agent 列表（↑↓ 选择、Enter 补全）；Enter 发送、Shift+Enter 换行；
   输入框下方可选 **模型**（留空用默认链）与 **一次性**（勾选即不累积上下文）
 
@@ -151,15 +152,19 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
   | 方法与路径 | 说明 |
   |---|---|
   | `GET /api/agents` | 在线 agent 列表（Router 拓扑快照） |
-  | `GET /api/chats` | 对话列表；`q`（标题或消息文本）/ `agent` / `state` / `from` / `to` 过滤，`limit`（默认 50、上限 200）+ `offset` 分页 |
+  | `GET /api/chats` | 对话列表；`q`（标题或消息文本）/ `agent` / `state` / `from` / `to` / `archived`（缺省 `0` = 排除已归档，`1` = 只看已归档，按归档时间倒序）过滤，`limit`（默认 50、上限 200）+ `offset` 分页 |
   | `GET /api/chats/<chat_id>` | 对话详情（消息按时间升序；未知对话 → 404） |
   | `POST /api/messages` | `{chat_id?, agent_id, text, model?, one_shot?}`：落库 + 派发；已关闭对话 → 409 |
   | `POST /api/chats/<chat_id>/close` | 关闭对话（幂等）：只读、拒绝新输入、**不删数据**，并通知 agent 释放上下文 |
+  | `POST /api/chats/archive` | 批量归档「未归档且非进行中」的全部对话（逐条生效，失败项留在主列表可重试），并逐个通知相关 agent 释放上下文；→ `{archived, failed, failed_ids}` |
+  | `POST /api/chats/<chat_id>/activate` | 激活一条归档对话：移除归档标记、`closed` 还原为 `completed` 并清除关闭时间、置顶主列表；未归档 → 409、未知对话 → 404 |
   | `GET /api/stream?chat_id=<id>` | SSE 实时流 |
 
 - **SSE 四类事件**：`message`（已落盘的输入/输出）/ `task_update`（流式增量，仅运行时、不入库）/ `chat_state`（状态变化）/
   `notice`（上下文释放·重置提示）。断线由浏览器自动重连，重连或刷新时以 `GET /api/chats/<id>` 全量补齐（断线期间增量不补发）。
-- **对话状态**：`working` → `completed`（成功）/ `failed`（失败轮或派发失败）；关闭后为 `closed`（终态、不可重开）。
+- **对话状态**：`working` → `completed`（成功）/ `failed`（失败轮或派发失败）；关闭后为 `closed`。
+  `closed` 不可重开——**唯一例外是「归档 → 激活」路径**：激活时 `closed` 还原为 `completed` 并清除关闭时间（N-5/D-6）。
+  归档不改变对话 `state`，只是加一个独立归档标记；归档后该对话只读（拒绝新输入，409）。
   web 启动时把上次遗留的 `working` 对话置 `failed`（不补记录）。
 - **终态对账补拉**：若 agent 已执行完、Router 任务表已是终态，但 `task.result` 投递丢失（发起者离线窗口/投递竞态），
   web 按 `router.task_get` 定时对账补落该轮 `out`（快速 5s、6 次用尽转 30s 低频续查、登记软 TTL 30min 清理；落库即停，恰一条 `out`）。
@@ -173,6 +178,8 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
   常驻进程总数上限 `context.max` / `OAMP_CTX_MAX`（默认 8），超出按 **LRU 淘汰**最久未用者并推送 `notice{context_reset}` 提示。
 - **关闭对话即释放上下文**：web 向该对话涉及的各 agent 发 `context_release`，agent 结束该对话的常驻进程，在飞轮次按失败收尾；
   关闭后只读、拒绝新输入（409）、**不提供重开**。
+- **归档即释放上下文**：归档复用同一 `context_release` 链路，对每个被归档的对话逐个通知其涉及的各 agent（best-effort，agent 离线忽略）。
+  **激活不恢复上下文**：归档时释放的常驻上下文不会回来，界面在该对话头部以「此后不再记得此前内容」显式提示，直到它产生新的回答后自动消失。
 - agent 进程重启会丢失全部常驻上下文（后续轮次以新的 `context_id` 重建）；**web 重启不影响**上下文（它活在 agent 进程内），历史照旧可查。
 
 ## 真实消息处理（omp / LLM 执行器）
