@@ -91,6 +91,10 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_WEB_RECONCILE_SLOW_MS` | web | `30000` | 快速预算用尽后的低频续查间隔（毫秒）；缺省/非法回退默认 |
 | `OAMP_WEB_RECONCILE_TTL_MS` | web | `1800000` | 对账登记软 TTL（毫秒，默认 30 分钟）：超时清理孤儿条目；缺省/非法回退默认 |
 | `OAMP_OMP_BIN` | agent | `omp` | omp 可执行路径（测试注入 fake omp 用） |
+| `OAMP_ROLE_ROOT` | agent | `<仓库根>`（oamp 包根上级） | 角色定义根：角色文件 = `<root>/roles/<role>/<role>.md`（见「集群」） |
+| `OAMP_CLUSTER_CONFIG` | cluster | `<仓库根>/cluster.json` | 集群配置文件路径（`--config` 优先，见「集群」） |
+| `OAMP_TMUX_BIN` | cluster | `tmux` | tmux 可执行文件路径（测试注入用） |
+| `OAMP_CLUSTER_WAIT_MS` | cluster | `20000` | `cluster up` 就绪等待上限（毫秒）；`0` = 不等（测试用） |
 
 数值类 env 一律要求正整数，非法值启动即报错退出（快速失败）。自动化测试将 interval 缩到
 30–100ms、timeout 缩到 200–400ms、日志窗口缩到 ~300ms，使全链路秒级完成。
@@ -189,6 +193,87 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
 - 输出经 ANSI 清理后回流；回答在对话里以浅色可读排版展示（区别于 shell 的终端块）。
 
 > 安全边界（demo）：`tools:true` 时 omp 可调用工具操作本机；`--no-tools` 不放开。鉴权仍属后续迭代（N6 边界）。
+
+## 集群（`oamp cluster`）
+
+一条命令拉起本仓库的「Router + Web + 各角色实例」tmux 集群，供本机多角色协作使用。
+
+```sh
+oamp cluster up     [--config <path>] [--wait <ms>]   # 起集群（已在运行则幂等：只打印状态，不动现场）
+oamp cluster status [--config <path>]                 # 只读：session/窗口/Router 拓扑/日志/逐角色对齐
+oamp cluster down   [--config <path>]                 # 收口：C-c → 等子树退出 → kill-session → 残留检查
+```
+
+### `cluster.json`（仓库根）
+
+集群配置真源 = **仓库根 `cluster.json`**（`--config` / `OAMP_CLUSTER_CONFIG` 可覆盖）。它与 `oamp/config.json`
+**互不合并、互不读取**：后者回答「单个进程怎么跑」，前者回答「一组进程怎么编排」（只被 `oamp cluster *` 消费）。
+
+```jsonc
+{
+  "session": "oamp-cluster",          // tmux session 名（缺省 oamp-cluster）
+  "web":     { "port": 7788 },        // 传给 `oamp web start --port`
+  "router":  { "socket": null },      // null = oamp 默认 socket；非空 → OAMP_SOCKET 传给子进程
+  "roles": {
+    "dev":      { "enabled": true, "tools": true, "permission": "allow", "cwd": "." },
+    "verifier": { "permission": "deny" }
+  }
+}
+```
+
+`roles` 的键是**角色名**（不是 instance_id；实例 id 由 `pb-<role>` 公式生成）：
+
+| 字段 | 类型 | 缺省 | 语义 |
+|---|---|---|---|
+| `enabled` | bool | `true` | `false` = 该角色不起实例 |
+| `model` | string | 不写 | 角色级模型（覆盖全局默认，见下） |
+| `tools` | bool | `true` | 工具开关（`false` → argv 传 `--no-tools`） |
+| `permission` | `'allow'\|'deny'` | `'allow'` | permission 档（见下） |
+| `cwd` | string | `"."`（= 配置文件所在目录 = 仓库根） | 该角色窗口的工作目录 |
+
+校验在创建 tmux session **之前**完成（非法 JSON / 类型不符 / `permission` 取值非法 / 凭据类字段 /
+角色文件或 `cwd` 不存在 → 报错退出 2，不留半个集群）；未知键忽略；`cwd` 相对路径基准 = 配置文件所在目录。
+
+### tmux 组织与日志
+
+- **session**：`cluster.json` 的 `session`（缺省 `oamp-cluster`）；**一进程一窗口**，窗口名 = `router` / `web` / `pb-<role>`；
+  `up` 打印 `tmux attach -t <session>` 提示（不自动 attach）。
+- **窗口 cwd**：角色窗口 = 该角色 `cwd`（缺省仓库根），`router` / `web` 窗口 = 仓库根。
+- **日志落点**：`<oamp 包根>/.runtime/cluster/`，一进程一份（`router.log` / `web.log` / `pb-<role>.log`）；
+  `up` 开始时逐个截断、运行期追加——窗口是实时通道，日志文件是事后追溯通道（已在 `.gitignore` 覆盖内）。
+- `up` 命中已有 session → **幂等**（不启动、不改、不杀，退出 0）；`down` 无 session → 幂等退出 0；
+  `up` 部分失败**不自动回滚**（保留现场，用 `status` 与日志诊断；`down` 是唯一收口动作）。
+
+### permission 两档与审计
+
+| 档 | 行为 | 审计 |
+|---|---|---|
+| `allow`（缺省） | 每次受门禁（可变更）工具调用恒回 `allow_once` 放行 | 每次调用**恰一行** `TOOL_APPROVED`（agent 事件行，落各自窗口与日志） |
+| `deny` | 回 `reject_once` → 立即 `session/cancel` → 该轮以 `permission_denied` 失败（**会话保留**，下一轮可继续） | 每次调用**恰一行** `TOOL_DENIED` |
+
+审计字段：身份 `instance` / `role` / `chat_id` / `context_id` + 协议 `pid` / `tool` / `title` / `tool_call_id` / `option`。
+
+**边界（如实说明）**：
+
+- **R-3 只读工具无审计**：omp 侧只有 `bash` / `edit` / `delete` / `move` 经过门禁；`read` / `glob` / `grep` 等只读工具
+  **不产生请求、也没有记录**。因此审计口径是「每次**受门禁**调用恰一行」，而非「每次工具调用」。
+- **R-4 缺省 cwd = 仓库根且可写**：`tools: true` 时角色可在其 cwd（缺省 = 仓库根）内读写文件、执行命令；
+  需要隔离时在 `cluster.json` 里为该角色配 `cwd`，或将其 `permission` 设为 `deny` / `tools` 设为 `false`。
+
+### 模型与工具开关的解析
+
+- **模型链**（每轮独立）：请求 `model` > `OAMP_OMP_MODEL` > 角色级 `--model`（`roles.<role>.model`）> 全局默认 > 内置 `deepseek/deepseek-v4-flash`。
+- **工具开关**：`payload.tools`（仅一次性路径）> CLI `--tools on|off`（集群恒显式传）> 内置缺省（**有角色绑定 ⇒ on，无绑定 ⇒ off**）。
+
+单起一个角色实例（不经集群）：
+
+```sh
+OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permission allow [--model M]
+```
+
+`instance_id = pb-<role>` 且 `<仓库根>/roles/<role>/<role>.md` 存在时也会自动绑定（等价于显式传 `--role`）；
+角色规则经进程 argv 注入——常驻路径 `omp acp … --append-system-prompt <角色 md 绝对路径>`，
+一次性路径 `omp -p … --append-system-prompt <角色 md 绝对路径>`，**不在仓库根写入任何规则类文件**。
 
 ## 配置面（oamp/config.json）
 
