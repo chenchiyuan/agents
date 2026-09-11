@@ -107,3 +107,28 @@
 - 阶段：阶段 5（PR 实现）
 - 任务：实现 PR-002（/rename API + 控制台标题编辑 + README）
 - PR：prs/pr-002-rename-api-ui-contract.md
+
+### 2026-09-11 16:43:09 · 收到报告 · dev（pr-002 实现）
+
+- 1. 产出：oamp/src/web.js（isReadonly 提取 + /rename 路由 + /api/messages 复用）、oamp/web/index.html（静态孪生 input maxlength=100）、oamp/web/app.js（state.titleEdit + renderTitle/beginTitleEdit/exitTitleEdit/commitTitle + 三处替换）、oamp/web/style.css（三条规则）、oamp/test/web.test.js（+5 用例 + 5 静态断言，既有零修改）、oamp/README.md（四处同步）；commit 520a8a6
+- 2. API 行为证据：200 trim 权威值 / 不置顶（updated_at 与顺序不变）/ 三态 404-409-409 文案分离 / 400 全表 / 413 / 409 不分叉（既有文案逐字未变）
+- 3. 浏览器实测：点击编辑与全选预填、Enter 保存同步且位置不变、失焦保存、Esc 取消零请求、空标题被拒退出编辑、只读与空态不可编辑、失败路径恢复原值 + 提示
+- 4. 测试：web.test.js 33/33；全仓串行 226/226；既有断言零删改
+- 5. 越界：[model_inferred] 前端 isReadonly 字面顺序取 closed 在前（受既有静态契约断言约束、同值），已由 architect 同步文档；其余无
+
+### 2026-09-11 16:43:09 · 收到报告 · verifier（pr-002 验收）
+
+- 1. 报告路径：docs/iterations/0014-chat-rename/clarifications/verify-20260911T163944-pr002.md；结论 PASS（0 fail / 0 partial / 2 偏差）
+- 2. 逐项判定摘要：卡验收全 pass；API 行为（200/400/404/409 双文案/413、不置顶、只读不分叉）、浏览器五步、既有断言零删改、串行 226/226 均独立复现
+- 3. 最需关注发现：2 条偏差（不阻塞）
+- 4. 疑问/越界：隔离环境已清理
+
+### 2026-09-11 16:43:09 · 调度决策 · 槛位释放
+
+- 决策内容：pr-002 合并 → 槛位释放（累计 2）；阶段 5 完成（2/2 PR）；派发阶段 6 最终验证
+- 触发依据：git log merge commit；迭代分支全量 226/226
+
+### 2026-09-11 16:43:09 · 派发 · verifier（阶段 6 最终验证）
+
+- 阶段：阶段 6（独立验证）
+- 任务：对迭代最终产物做整体验证（阶段 5 推进条件、依赖正确性、PR 粒度、产物一致性、测试、搭置文件、前端行为可达性）
