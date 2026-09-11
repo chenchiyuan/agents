@@ -274,3 +274,20 @@
 - 阶段：阶段 6 返工（PR-007 验收）
 - 任务：独立验收 pr-007（含真实 omp 端到端复现 allow/deny 两档）
 - PR：prs/pr-007-tool-call-audit.md
+
+### 2026-09-11 13:38:24 · 收到报告 · verifier（pr-007 验收）
+
+- 1. 报告路径：docs/iterations/0012-roles-agent-cluster/clarifications/verify-20260911-133236-pr007.md；结论 PASS（18/18 卡验收 + 9/9 委托标准；0 fail / 0 partial / 3 偏差）
+- 2. 逐项判定摘要：argv 六组真实 omp 实测（allow/deny/tools-off × daemon/一次性）、TOOL_CALL 落行去重经透明 tee 探针证明真实生效、兼容路径未回归（source=acp_permission）、真实端到端 allow/deny 两档、203/203
+- 3. 最需关注发现：NC-5 分支①（只读工具亦发通知）⇒ E5 字面口径成立；变异体实验（删档位/删去重）因果隔离成立
+- 4. 疑问/越界：3 条文档/留档形态偏差（无功能影响）；临时环境已清理、worktree 未被改动
+
+### 2026-09-11 13:38:24 · 调度决策 · 阶段推进核查（E 系列真实验收）
+
+- 决策内容：阶段 6 返工后重跑 E1~E8 真实环境验收，**全部通过**（含此前失败的 E5）；迭代具备合入 main 的前置条件（待 stage6 复审结论）
+- 触发依据：主集群实测（10 online / 文件真实落盘 / TOOL_CALL 恰 1 行 / kill→offline / down 后残留 0 / 日志 12 份且 gitignore）+ 专项集群实测（E8 文件落自定义 cwd 且仓库根未污染、E4 tools:false 无文件、E5-deny 无文件 + out 明确回绝 + 4331ms 不挂起）；证据 docs/iterations/0012-roles-agent-cluster/clarifications/evidence/e-series-acceptance.md
+
+### 2026-09-11 13:38:24 · 派发 · verifier（stage6 复审）
+
+- 阶段：阶段 6（独立验证 · 返工后复审）
+- 任务：复核原 2 项 partial（permission 契约一致性 / 误提交文件）是否闭环，并重跑串行全量测试

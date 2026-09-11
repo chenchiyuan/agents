@@ -16,7 +16,7 @@
 | 3 | 技术架构 | ✅ | ✅ | architecture.md v1.1.0（705 行，含 4 项修正）；L1 六项已确认；AR-01~AR-20 全填；独立验证 PASS（6 pass/2 partial/0 fail，partial 均已修，报告 verify-20260911-115347.md） |
 | 4 | PR 规划 | ✅ | ✅ | 6 PR（001~006）；依赖图无环、文件范围互斥、F01~F07 全覆盖；独立验证 PASS（0 fail/0 partial，报告 verify-20260911-115745.md）；4 处行号锚点已修 |
 | 5 | PR 实现 | ✅ | ⬜ | 6/6 PR 全部合并（001~006）；迭代分支全量 197/197；逐 PR 独立验证 PASS（pr-003 与 pr-004 各含 partial→修复/口径修订） |
-| 6 | 独立验证 | ⏸ | ⬜ | stage6 报告 PASS（7 pass/2 partial/0 fail；并发三项核查成立）；**F05 真实环境不成立 → 返工 pr-007** |
+| 6 | 独立验证 | ⏸ | ⬜ | stage6 报告 PASS（7 pass/2 partial/0 fail；并发三项核查成立）；F05 返工 pr-007 已完成并验收 PASS；**E1~E8 真实环境全部通过**（证据 e-series-acceptance.md）；复审中 |
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -28,7 +28,7 @@
 | pr-004-agent-role-binding.md | pr-001, pr-003 | ✅ | (已清理) | ✅ | 已释放 |
 | pr-005-cluster-entry.md | pr-002 | ⏸ 验收中 | feat/0012-pr-005-cluster-entry | ⬜ | 占用 |
 | pr-006-e2e-and-docs.md | pr-003, pr-004 | ✅ | (已清理) | ✅ | 已释放 |
-| pr-007-tool-call-audit.md | pr-003, pr-004, pr-006 | ⏸ 验收中 | feat/0012-pr-007-tool-call-audit | ⬜ | 占用 |
+| pr-007-tool-call-audit.md | pr-003, pr-004, pr-006 | ✅ | (已清理) | ✅ | 已释放 |
 
 ## 并发配置（阶段 5）
 
@@ -36,7 +36,7 @@
 **硬上限**: 5
 **当前有效上限**: 5
 **累计槛位释放次数**: 4
-**已派发总数**: 7
+**已派发总数**: 7（含阶段 6 返工 pr-007）
 
 ## 时序注意（阶段 6 端到端面）
 
@@ -63,3 +63,4 @@
 - 2026-09-11 12:18:00: pr-003 验收 PASS（1 partial→修复→复审 PASS，含回退转红证据）并合并；派发 pr-002 ∥ pr-004（第 2 批，有效上限爬升至 5）。
 - 2026-09-11 12:49:49: pr-002/pr-004 验收 PASS 并合并（迭代分支全量 182/182）；派发第 3 批 pr-005 ∥ pr-006（pr-005 195/195、pr-006 184/184），独立验收中。
 - 2026-09-11 13:18:45: 阶段 6 验收发现 F05 真实环境不成立（omp ACP 路径不发 session/request_permission）→ architecture v1.2.0 修订（approval-mode 映射 + tool_call 审计源）→ pr-007 实现完成（203/203，真实 omp 冒烟通过；NC-5 定稿：只读工具亦发 tool_call）；独立验收中。
+- 2026-09-11 13:38:24: 阶段 6 返工闭环：pr-007 验收 PASS（18/18）并合并（迭代分支 203/203）；E1~E8 真实环境验收全部通过（含 E4 工具关闭、E5 两档审计、E8 自定义 cwd）；证据归档 evidence/e-series-acceptance.md；stage6 复审中。
