@@ -1042,3 +1042,199 @@ test('Web：前端契约——working 等待计时 + 慢模型提示（pr-008）
 
   assert.doesNotMatch(appJs, /POLL_MS/, '不得退回全页轮询（保持 SSE 事件驱动）');
 });
+
+// ────────────────────────── 0013：批量归档 / 归档视图 / 激活（F01~F05） ──────────────────────────
+test('Web：批量归档——三键响应 / 范围与幂等 / 归档视图查询与 400 / 只读双路径（F01-2/4/6/8、F02-1/2/3/4、F03-2/3）', async (t) => {
+  const { web } = await setup(t);
+
+  const done = await sendAndWait(web, { agent_id: 'dev-1', text: '归档用例 已完成' });
+  const closed = await sendAndWait(web, { agent_id: 'dev-1', text: '归档用例 已关闭' });
+  const closeResp = await jpost(web.base, `/api/chats/${encodeURIComponent(closed.chatId)}/close`, {});
+  assert.equal(closeResp.status, 200);
+
+  // 只读双路径·既有 closed 分支：未归档时文案与状态码逐字不变（AR-17）
+  const closedRej = await jpost(web.base, '/api/messages', { chat_id: closed.chatId, agent_id: 'dev-1', text: '关闭后提交' });
+  assert.equal(closedRej.status, 409);
+  assert.equal(closedRej.body.error, 'chat 已关闭，不接受新输入');
+
+  const first = await jpost(web.base, '/api/chats/archive', {});
+  assert.equal(first.status, 200);
+  assert.deepEqual(Object.keys(first.body).sort(), ['archived', 'failed', 'failed_ids'], '三键恒存在');
+  assert.deepEqual(first.body, { archived: 2, failed: 0, failed_ids: [] }, 'completed 与 closed 两条都落入范围');
+
+  // 归档不改变原状态（F02-1）；置位 context_released（F02-7 / F05-6 驱动源）
+  const doneDetail = await detailOf(web, done.chatId);
+  const closedDetail = await detailOf(web, closed.chatId);
+  assert.ok(Number.isInteger(doneDetail.chat.archived_at) && Number.isInteger(closedDetail.chat.archived_at));
+  assert.equal(doneDetail.chat.state, 'completed');
+  assert.equal(closedDetail.chat.state, 'closed');
+  assert.equal(doneDetail.chat.context_released, 1);
+  assert.equal(closedDetail.chat.context_released, 1);
+
+  // 视图互斥：主列表不含已归档，归档视图只含已归档（F03-2）
+  const main = await jget(web.base, '/api/chats');
+  assert.equal(main.body.total, 0);
+  assert.deepEqual(main.body.chats, []);
+  const view = await jget(web.base, '/api/chats?archived=1&limit=200&offset=0');
+  assert.equal(view.body.total, 2);
+  assert.deepEqual(view.body.chats.map((c) => c.chat_id).sort(), [closed.chatId, done.chatId].sort());
+  const times = view.body.chats.map((c) => c.archived_at);
+  for (let i = 1; i < times.length; i += 1) assert.ok(times[i - 1] >= times[i], '归档视图按归档时间倒序（F03-3）');
+  assert.ok(view.body.chats.every((c) => Number.isInteger(c.archived_at)), '列表项含可读的归档时间（F03-4/7）');
+
+  // 续页：同一 total、无重复（F04-1/4）
+  const page = await jget(web.base, '/api/chats?archived=1&limit=1&offset=1');
+  assert.equal(page.body.total, 2);
+  assert.equal(page.body.chats.length, 1);
+  assert.notEqual(page.body.chats[0].chat_id, view.body.chats[0].chat_id);
+
+  // 幂等：已归档项不进候选，归档时间不被改动（F01-4 / F02-2 后半）
+  const again = await jpost(web.base, '/api/chats/archive', {});
+  assert.deepEqual(again.body, { archived: 0, failed: 0, failed_ids: [] });
+  assert.equal((await detailOf(web, done.chatId)).chat.archived_at, doneDetail.chat.archived_at);
+  assert.equal((await detailOf(web, closed.chatId)).chat.archived_at, closedDetail.chat.archived_at);
+
+  // 非法 archived → 400（§5.2）
+  const bad = await jget(web.base, '/api/chats?archived=2');
+  assert.equal(bad.status, 400);
+  assert.match(bad.body.error, /archived/);
+
+  // 只读双路径·归档分支：completed 与 closed 来源都拒收，且归档分支优先；被拒不落 in 记录（F02-3/4）
+  const rej = await jpost(web.base, '/api/messages', { chat_id: done.chatId, agent_id: 'dev-1', text: '归档后提交' });
+  assert.equal(rej.status, 409);
+  assert.equal(rej.body.error, 'chat 已归档（只读），不接受新输入');
+  const rejBoth = await jpost(web.base, '/api/messages', { chat_id: closed.chatId, agent_id: 'dev-1', text: '归档后提交' });
+  assert.equal(rejBoth.status, 409);
+  assert.equal(rejBoth.body.error, 'chat 已归档（只读），不接受新输入', '同时命中时归档分支优先');
+  assert.equal((await detailOf(web, done.chatId)).messages.length, 2, '被拒提交不产生新记录');
+});
+
+test('Web：批量归档——进行中对话不动 / 零可归档项仍有反馈（F01-2/8、M-01、E-5）', async (t) => {
+  const { web } = await setup(t, { env: { FAKE_ACP_HANG: '1' } }); // 挂起 agent：该轮停在 working
+
+  const sent = await jpost(web.base, '/api/messages', { agent_id: 'dev-1', text: '进行中的对话' });
+  assert.equal(sent.status, 200);
+  const chatId = sent.body.chat_id;
+  await waitFor(
+    async () => {
+      const d = await detailOf(web, chatId);
+      return d && d.chat.state === 'working' ? d : null;
+    },
+    { timeoutMs: 5000, what: 'chat 停在 working' },
+  );
+
+  const r = await jpost(web.base, '/api/chats/archive', {});
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { archived: 0, failed: 0, failed_ids: [] }, '零可归档项仍给出反馈（不静默）');
+
+  const detail = await detailOf(web, chatId);
+  assert.equal(detail.chat.state, 'working', '进行中对话状态不变');
+  assert.equal(detail.chat.archived_at, null);
+  const main = await jget(web.base, '/api/chats');
+  assert.equal(main.body.total, 1, '进行中对话仍留在主列表');
+});
+
+test('Web：批量归档——逐条向该 chat 涉及 agent 发 context_release（F02-7 / AR-07）', async (t) => {
+  // 判定面 = 假节点侧观察到 notice{kind:'context_release', chat_id}（不依赖 agent 的 SSE 回发）
+  const { router, web } = await setup(t, { withAgent: false });
+  const node = await startFakeNode({
+    socketPath: router.socketPath,
+    instanceId: 'dev-1',
+    heartbeatMs: 500,
+    onDeliver: (msg) => {
+      if (msg.type !== 'task.request') return undefined;
+      node.client.send(msg.from.instance_id, envelope(msg.task_id, 'task.result', { state: 'completed', text: '完成', duration_ms: 1 })).catch(() => {});
+      return undefined;
+    },
+  });
+  t.after(() => node.stop());
+
+  const sent = await jpost(web.base, '/api/messages', { agent_id: 'dev-1', text: '释放观察轮' });
+  assert.equal(sent.status, 200);
+  const chatId = sent.body.chat_id;
+  await waitFor(
+    async () => {
+      const d = await detailOf(web, chatId);
+      return d && d.chat.state === 'completed' ? d : null;
+    },
+    { timeoutMs: 5000, what: 'chat 落 completed' },
+  );
+
+  const r = await jpost(web.base, '/api/chats/archive', {});
+  assert.equal(r.body.archived, 1);
+
+  const notice = await waitFor(
+    () => node.received.find((m) => m.type === 'notice' && JSON.parse(m.payload.body).kind === 'context_release') || null,
+    { timeoutMs: 5000, what: '假 agent 收到 context_release' },
+  );
+  assert.equal(JSON.parse(notice.payload.body).chat_id, chatId);
+});
+
+test('Web：激活——200 / 置顶 / 归档视图移除 / closed 还原 / 409 / 404（F05-1/3/4/5/7/8）', async (t) => {
+  const { web } = await setup(t);
+
+  const a = await sendAndWait(web, { agent_id: 'dev-1', text: '激活用例 A 已完成' });
+  const b = await sendAndWait(web, { agent_id: 'dev-1', text: '激活用例 B 已关闭' });
+  await jpost(web.base, `/api/chats/${encodeURIComponent(b.chatId)}/close`, {});
+
+  // 非归档的 closed 不可重开（N-5 / F05-8）
+  const notArchived = await jpost(web.base, `/api/chats/${encodeURIComponent(b.chatId)}/activate`, {});
+  assert.equal(notArchived.status, 409);
+  assert.equal(notArchived.body.error, 'chat 未归档，无法激活');
+
+  await jpost(web.base, '/api/chats/archive', {});
+  const archA = (await detailOf(web, a.chatId)).chat.archived_at;
+  assert.ok(Number.isInteger((await detailOf(web, b.chatId)).chat.archived_at), '激活前该条已归档');
+
+  const act = await jpost(web.base, `/api/chats/${encodeURIComponent(b.chatId)}/activate`, {});
+  assert.equal(act.status, 200);
+  assert.deepEqual(act.body, { chat_id: b.chatId, state: 'completed' });
+
+  const detail = await detailOf(web, b.chatId);
+  assert.equal(detail.chat.archived_at, null, '标记被移除');
+  assert.equal(detail.chat.state, 'completed', 'closed 来源 → completed（F05-4）');
+  assert.equal(detail.chat.closed_at, null, '关闭时间被清除');
+  assert.equal(detail.chat.context_released, 1, '激活不改该列（提示判据仍成立；F05-5/N-4）');
+
+  const main = await jget(web.base, '/api/chats');
+  assert.equal(main.body.chats[0].chat_id, b.chatId, '激活后立即置顶（F05-3 / D-9）');
+  const view = await jget(web.base, '/api/chats?archived=1');
+  assert.equal(view.body.total, 1, '归档视图不再含它（F05-1）');
+  assert.deepEqual(view.body.chats.map((c) => c.chat_id), [a.chatId]);
+  assert.equal((await detailOf(web, a.chatId)).chat.archived_at, archA, '单条激活不波及其他归档项（F05-7）');
+
+  // 重复激活 → 409；未知 chat → 404
+  const again = await jpost(web.base, `/api/chats/${encodeURIComponent(b.chatId)}/activate`, {});
+  assert.equal(again.status, 409);
+  const unknown = await jpost(web.base, '/api/chats/chat-does-not-exist/activate', {});
+  assert.equal(unknown.status, 404);
+
+  // 激活后可继续对话（F05-2）；产生新回答即复位 context_released（F05-6 提示条的消失时机）
+  const round2 = await sendAndWait(web, { chat_id: b.chatId, agent_id: 'dev-1', text: '激活后继续' }, { rounds: 2 });
+  assert.equal(round2.detail.chat.context_released, 0, '新回答落库即复位');
+  assert.equal(round2.detail.chat.archived_at, null);
+});
+
+test('Web：前端静态契约——归档标签 / 归档全部 / 归档视图分页 / 激活按钮 / 提示条（F01-1/5、F03-1/4/5/6、F04-3/5、F05-6）', async (t) => {
+  const appJs = fs.readFileSync(path.join(ROOT, 'web', 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'web', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'web', 'style.css'), 'utf8');
+
+  assert.match(html, /data-filter="archived">归档</, '过滤栏应有第 4 颗「归档」标签');
+  assert.match(html, /id="btn-archive-all"[^>]*>归档全部</, '「归档全部」按钮文案固定');
+  assert.match(html, /id="chat-list"[\s\S]*id="load-more-slot"/, '「加载更多」槽应位于 #chat-list 之后');
+
+  assert.match(appJs, /const ARCHIVE_PAGE_SIZE = 200;/, '归档首屏 = 续页 = API 上限 200');
+  assert.match(appJs, /\/api\/chats\?archived=1&limit=\$\{ARCHIVE_PAGE_SIZE\}&offset=\$\{offset\}/, '归档视图走 archived=1 + offset 续页');
+  assert.match(appJs, /const ARCHIVE_CONFIRM_TEXT = '将归档全部非进行中的对话，是否继续？';/, '确认文案逐字（A-9）');
+  assert.match(appJs, /window\.confirm\(ARCHIVE_CONFIRM_TEXT\)/, '批量归档前应有一次轻确认');
+  assert.match(appJs, /\.activate'\)\.onclick = \(e\) => \{\s*e\.stopPropagation\(\)/, '激活按钮点击不得触发行打开');
+  assert.match(appJs, /state\.archive\.chats\.length < state\.archive\.total/, '「加载更多」仅在确有更多时渲染');
+  assert.match(appJs, /chat\.archived_at === null && chat\.context_released === 1/, '提示条判据 = 非归档 ∧ 上下文已释放未产生新回答');
+  assert.match(appJs, /激活后上下文已重置，本对话后续回复不再记得此前内容/, '提示文案');
+  assert.match(appJs, /chat\.state === 'closed' \|\| chat\.archived_at !== null/, '归档对话的关闭按钮禁用');
+
+  assert.match(css, /\.archive-all/, '「归档全部」样式应存在');
+  assert.match(css, /\.load-more/, '「加载更多」样式应存在');
+  assert.match(css, /\.chat-item \.activate/, '归档行「激活」按钮样式应存在');
+});

@@ -71,7 +71,7 @@ html, body {
   cursor: pointer;
 }
 .new-chat:hover { filter: brightness(1.05); }
-.filters { display: flex; gap: 6px; padding: 4px 12px 10px; }
+.filters { display: flex; align-items: center; gap: 6px; padding: 4px 12px 10px; }
 .filter {
   border: none;
   background: transparent;
@@ -82,6 +82,18 @@ html, body {
   cursor: pointer;
 }
 .filter.active { background: var(--green-soft); color: var(--green); font-weight: 500; }
+/* 0013：批量归档入口（§6.1，margin-left:auto 抵到过滤行最右；视觉 token 复用 .filter / .new-chat 一族） */
+.archive-all {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.archive-all:hover { border-color: var(--green); color: var(--green); }
 
 .chat-list { flex: 1; overflow-y: auto; padding-bottom: 12px; }
 .group-title {
@@ -101,6 +113,32 @@ html, body {
 .chat-item .title { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-item .meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; font-size: 11px; color: var(--muted); }
 .chat-item .agent { color: var(--green); }
+/* 0013：归档行的独立「激活」按钮（§6.2 ③；点击 stopPropagation，不触发行打开） */
+.chat-item .activate {
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+.chat-item .activate:hover { border-color: var(--green); color: var(--green); }
+
+/* 0013：归档视图的「加载更多」槽与按钮（§6.1；无更多时槽内为空 ⇒ 末尾无死控件 F04-5） */
+.load-more-slot { padding: 4px 12px 12px; }
+.load-more {
+  width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.load-more:hover { border-color: var(--green); color: var(--green); }
 .chat-item .empty-hint { padding: 16px 14px; color: var(--muted); font-size: 12px; }
 
 /* 状态徽标 */

@@ -3,13 +3,19 @@
 //   实时经 SSE：GET /api/stream?chat_id=<id> 四类事件（message / task_update / chat_state / notice）；
 //   发送 POST /api/messages（默认 omp-daemon 常驻上下文；勾选「一次性」→ omp 一次性；! 开头 → shell）。
 // 断线/刷新兜底：EventSource 自动重连（服务端 retry: 1000），onopen 与打开会话时全量拉取详情。
+// 归档（0013）：GET /api/chats?archived=1（归档视图：limit=200 + offset 续页）+ POST /api/chats/archive（批量）
+//   + POST /api/chats/<chat_id>/activate；激活后的「上下文不延续」说明条由 chats.context_released 驱动（F05-6）。
 'use strict';
 
 const RETRY_HINT = '连接已断开，正在重连…';
+// 0013 归档（§5.2 / §6.2）：归档视图首屏 = 续页 = API 上限；确认文案 A-9 逐字（不显示条数 D-8）
+const ARCHIVE_PAGE_SIZE = 200;
+const ARCHIVE_CONFIRM_TEXT = '将归档全部非进行中的对话，是否继续？';
 
 const state = {
   agents: [],
   chats: [],
+  archive: { chats: [], total: 0, loading: false }, // 归档视图的独立状态（与 state.chats 互不污染；AR-12）
   chat: null, // 当前会话详情（读库：{chat, messages[]} 的 chat + messages）
   messages: [],
   filter: 'all',
@@ -67,11 +73,52 @@ function dayGroup(ms) {
 }
 
 // ── 左栏：会话列表 ──
+/** 归档视图的「加载更多」：仅在确有更多时渲染（F04-3/5；无更多时清空槽 ⇒ 末尾不留死控件）。 */
+function renderLoadMore() {
+  const slot = $('load-more-slot');
+  const hasMore = state.filter === 'archived' && state.archive.chats.length < state.archive.total;
+  slot.innerHTML = hasMore ? '<button id="btn-load-more" class="load-more">加载更多</button>' : '';
+  const btn = $('btn-load-more');
+  if (btn) btn.onclick = () => loadArchived({ append: true });
+}
+
+/** 归档行：既有行 + 归档时间 + 归档时的原状态 badge + 独立「激活」按钮（F03-4/5/7）。 */
+function renderArchiveItem(c) {
+  const active = state.chat && state.chat.chat_id === c.chat_id ? ' active' : '';
+  return `<div class="chat-item${active}" data-chat="${c.chat_id}">
+    <div class="title">${escapeHtml(c.title)}</div>
+    <div class="meta">${badge(c.state)}<span class="agent">@${escapeHtml(c.agent_id || '-')}</span><span>${fmtTime(c.archived_at)}</span><button class="activate" data-activate="${c.chat_id}">激活</button></div>
+  </div>`;
+}
+
 function renderChats() {
   const list = $('chat-list');
-  const chats = state.chats.filter((c) => state.filter === 'all' || c.state === state.filter);
+  const viewingArchive = state.filter === 'archived';
+  // 视图来源二选一：归档视图 = 服务端排好序的归档页（不分组）；主列表 = 既有内存过滤（§6.3 逐字保留）
+  const chats = viewingArchive
+    ? state.archive.chats
+    : state.chats.filter((c) => state.filter === 'all' || c.state === state.filter);
   if (chats.length === 0) {
-    list.innerHTML = `<div class="empty-hint">${state.filter === 'all' ? '还没有对话——点击 New chat 或在下方输入 @agent 问题' : `没有 ${state.filter} 状态的对话`}</div>`;
+    list.innerHTML = `<div class="empty-hint">${
+      viewingArchive
+        ? '还没有归档的对话'
+        : state.filter === 'all'
+          ? '还没有对话——点击 New chat 或在下方输入 @agent 问题'
+          : `没有 ${state.filter} 状态的对话`
+    }</div>`;
+    renderLoadMore();
+    return;
+  }
+  if (viewingArchive) {
+    list.innerHTML = chats.map(renderArchiveItem).join('');
+    for (const el of list.querySelectorAll('.chat-item')) {
+      el.onclick = () => openChat(el.dataset.chat);
+      el.querySelector('.activate').onclick = (e) => {
+        e.stopPropagation(); // 点按钮不打开详情（F03-5 / M-4）
+        activate(el.dataset.chat);
+      };
+    }
+    renderLoadMore();
     return;
   }
   const groups = new Map();
@@ -98,6 +145,7 @@ function renderChats() {
   for (const el of list.querySelectorAll('.chat-item')) {
     el.onclick = () => openChat(el.dataset.chat);
   }
+  renderLoadMore();
 }
 
 // ── 右栏：会话详情 ──
@@ -114,9 +162,9 @@ function renderChat() {
   }
   $('detail-title').textContent = chat.title;
   $('detail-meta').innerHTML = `@${escapeHtml(chat.agent_id || '-')} ${badge(chat.state)}${chat.state === 'closed' ? '<span class="muted"> · 已关闭（只读）</span>' : ''}`;
-  $('btn-close').disabled = chat.state === 'closed';
+  $('btn-close').disabled = chat.state === 'closed' || chat.archived_at !== null; // §6.4 A：归档对话已是只读面
   const body = state.messages.length === 0 ? '<div class="empty">会话已创建，发送第一条消息开始。</div>' : state.messages.map(renderMessage).join('');
-  box.innerHTML = body + renderStreamSlot(chat) + renderNotices(chat.chat_id);
+  box.innerHTML = `${freshBar(chat)}${body}${renderStreamSlot(chat)}${renderNotices(chat.chat_id)}`;
   box.scrollTop = box.scrollHeight;
   renderStatusLine();
 }
@@ -157,6 +205,15 @@ function renderNotices(chatId) {
     .filter((n) => n.chat_id === chatId)
     .map((n) => `<div class="notice-bar">${escapeHtml(n.text)}</div>`)
     .join('');
+}
+/** 「上下文不延续」说明条（F05-6 / AR-16 / D2 时序契约）：判据 = 非归档 ∧ 上下文已释放且尚未产生新回答。
+ *  驱动源是服务端状态位 chats.context_released（落库而非前端内存）⇒ 刷新/重开页面后仍可见；
+ *  该对话产生新回答时 insertOutput 复位该位 ⇒ 该轮 message(out) 触发 refreshChat 后本条自动消失。
+ *  与既有 SSE state.notices 两通道独立、允许并存、不去重（D6 契约）。 */
+function freshBar(chat) {
+  return chat.archived_at === null && chat.context_released === 1
+    ? '<div class="notice-bar">激活后上下文已重置，本对话后续回复不再记得此前内容</div>'
+    : '';
 }
 
 function renderStatusLine() {
@@ -352,6 +409,21 @@ async function loadChats() {
   }
 }
 
+/** 归档视图加载（首屏 / 续页共用一个函数；AR-11 / AR-12）：
+ *  首屏 limit=200（API 上限），续页 offset = 已持有条数；「是否还有更多」由 total 判定（服务端同源计数）。 */
+async function loadArchived({ append = false } = {}) {
+  if (state.archive.loading) return;
+  state.archive.loading = true;
+  try {
+    const offset = append ? state.archive.chats.length : 0;
+    const { chats, total } = await api(`/api/chats?archived=1&limit=${ARCHIVE_PAGE_SIZE}&offset=${offset}`);
+    state.archive = { chats: append ? [...state.archive.chats, ...(chats || [])] : chats || [], total: total || 0, loading: false };
+  } catch {
+    state.archive.loading = false;
+  }
+  renderChats();
+}
+
 async function openChat(chatId) {
   try {
     const { chat, messages } = await api(`/api/chats/${encodeURIComponent(chatId)}`);
@@ -449,6 +521,44 @@ async function closeCurrentChat() {
   }
 }
 
+// ── 归档 / 激活（0013）──
+/** 批量归档（F01 / AR-01 / AR-02）：一次轻确认 → 服务端算范围 → 结果落在既有 #hint 行。
+ *  不发 SSE（§5.1）：结果可见性由响应 + 本函数的重载承载（无需手动刷新页面 M-05）。 */
+async function archiveAll() {
+  if (!window.confirm(ARCHIVE_CONFIRM_TEXT)) return; // 取消 ⇒ 不发请求（A-9）
+  const hint = $('hint');
+  try {
+    const r = await api('/api/chats/archive', { method: 'POST' });
+    hint.className = r.failed > 0 ? 'hint error' : 'hint';
+    hint.textContent =
+      r.failed > 0
+        ? `已归档 ${r.archived} 条，${r.failed} 条失败——失败项仍留在主列表，可再次点击「归档全部」重试`
+        : `已归档 ${r.archived} 条`; // archived === 0 时即 F01-8 的反馈（不静默）
+    await loadChats();
+    if (state.filter === 'archived') await loadArchived();
+    if (state.chat && state.chat.archived_at !== null) await refreshChat();
+  } catch (err) {
+    hint.className = 'hint error';
+    hint.textContent = `归档失败：${err.message}`;
+  }
+}
+
+/** 单条激活（F05 / AR-13）：归档视图的「激活」按钮入口；成功后主列表置顶、归档视图移除该条。 */
+async function activate(chatId) {
+  const hint = $('hint');
+  try {
+    const r = await api(`/api/chats/${encodeURIComponent(chatId)}/activate`, { method: 'POST' });
+    hint.className = 'hint';
+    hint.textContent = `已激活（状态：${r.state}）——已回到 All 列表顶部，可继续对话`;
+    await loadChats();
+    await loadArchived();
+    if (state.chat && state.chat.chat_id === chatId) await refreshChat();
+  } catch (err) {
+    hint.className = 'hint error';
+    hint.textContent = `激活失败：${err.message}`;
+  }
+}
+
 // ── @ 提及补全 ──
 function currentMentionQuery() {
   const input = $('input');
@@ -527,6 +637,7 @@ function bind() {
   };
   $('btn-send').onclick = send;
   $('btn-close').onclick = closeCurrentChat;
+  $('btn-archive-all').onclick = archiveAll;
   const input = $('input');
   input.addEventListener('input', () => {
     const q = currentMentionQuery();
@@ -564,7 +675,8 @@ function bind() {
     btn.onclick = () => {
       state.filter = btn.dataset.filter;
       document.querySelectorAll('.filter').forEach((b) => b.classList.toggle('active', b === btn));
-      renderChats();
+      if (state.filter === 'archived') loadArchived(); // 归档视图按缺省视图加载一次（AR-12）
+      else renderChats(); // 主列表已在内存，零请求
     };
   }
   // 实时通道已不再轮询：agent 列表在窗口重新聚焦时刷新一次（@ 补全与连接指示不长期失真）
