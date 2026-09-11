@@ -154,3 +154,15 @@
 - 阶段：阶段 5（PR 实现）
 - 任务：独立验收 pr-003 的验收标准与实现（含 permission 语义、审计口径、回归与越界核查）
 - PR：prs/pr-003-acp-tool-permission.md
+
+### 2026-09-11 12:08:13 · 收到报告 · verifier（pr-001 验收）
+
+- 1. 报告路径：docs/iterations/0012-roles-agent-cluster/clarifications/verify-20260911-120726-pr001.md；结论 PASS（7/7 标准 pass，0 fail / 0 partial / 3 偏差）
+- 2. 逐项判定摘要：卡验收 1~6 + 委托边界标准全 pass；单一真源、导出符号、roleRoot 口径、测试 160/160、边界均核
+- 3. 最需关注发现：3 条偏差（不阻塞交付）
+- 4. 疑问/越界：反向核对 4 组注入均使对应用例转红（因果隔离证据齐备）
+
+### 2026-09-11 12:08:13 · 调度决策 · 槛位释放
+
+- 决策内容：pr-001 合并进迭代分支 → 槛位释放（累计槛位释放次数 0→1）；当前有效上限 = min(3 + 1×3, 5) = 5；pr-002 依赖（pr-001）已满足，转为「排队(等待槛位)」
+- 触发依据：`git log --oneline` 显示 merge commit 已含 pr-001；status.md §并发配置；prs/pr-002-cluster-config.md 的 depends_on 声明（pr-001）
