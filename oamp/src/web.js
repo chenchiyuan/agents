@@ -9,6 +9,7 @@
 //   POST /api/chats/archive          → 批量归档（服务端算范围、逐条提交）→ {archived, failed, failed_ids}；不发 SSE
 //   POST /api/chats/<chat_id>/close  → 关闭 chat（幂等）+ 通知 agent 释放该 chat 上下文
 //   POST /api/chats/<chat_id>/activate → 激活归档 chat（清标记 + closed→completed + 置顶）+ 推送 chat_state
+//   POST /api/chats/<chat_id>/rename → 改名（只写 title 一列，不动 updated_at；只读对话 → 409；非法标题 → 400）
 //   GET  /api/stream?chat_id=<id>    → SSE（message / task_update / chat_state / notice 四类事件）
 // 语义（0011 迭代，architecture §4/§5/§9.1）：一次提问 = 恰一条 in + 一条 out（过程不入库）；
 //   执行路径判定顺序：`!` → shell（0010 原样）｜one_shot:true → omp 一次性（0010 原样）｜默认 → omp-daemon 常驻上下文。
@@ -55,6 +56,14 @@ const STATIC_TYPES = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
 };
+
+/** 只读面单一真源（0013 §4.4 既有口径，0014 提取为具名谓词）：已归档 或 已关闭。
+ *  `/api/messages` 的 409 与 `/api/chats/<id>/rename` 的 409 共用本函数（C-3 / D-7：「不分叉」）；
+ *  persist 层的 renameChat 语句带同值 SQL 守卫作为结构性兜底（不是第二套口径）。
+ *  改这个谓词 ⇒ 必须同时改 renameChat 的 WHERE 与 app.js 的同名函数（三处同值）。 */
+function isReadonly(chat) {
+  return chat.archived_at !== null || chat.state === 'closed';
+}
 
 function sendJson(res, status, body, headers = null) {
   const text = JSON.stringify(body);
@@ -471,6 +480,44 @@ export default async function startWeb(restArgs) {
         sendJson(res, 200, { chat_id: chatId, state: after.chat.state });
         return;
       }
+      if (req.method === 'POST' && p.startsWith('/api/chats/') && p.endsWith('/rename')) {
+        const chatId = decodeURIComponent(p.slice('/api/chats/'.length, -'/rename'.length));
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          const status = err.status || 400;
+          sendJson(res, status, { error: err.message }, status === 413 ? { connection: 'close' } : null);
+          return;
+        }
+        // 处理顺序固定（§5.2）：读体（400/413）→ getChat 预检（404）→ isReadonly 预检（409）→ 写口（400/409）→ 200
+        const found = db.getChat(chatId);
+        if (!found) {
+          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          return;
+        }
+        if (isReadonly(found.chat)) {
+          sendJson(res, 409, {
+            error: found.chat.archived_at !== null ? 'chat 已归档（只读），不可改名' : 'chat 已关闭（只读），不可改名',
+          });
+          return;
+        }
+        let title;
+        try {
+          // `?? {}`：非对象请求体统一落到 readTitle 的"需为字符串" → 400（不抛 TypeError 被外层 catch 转 502）
+          title = db.renameChat({ chatId, title: (body ?? {}).title });
+        } catch (err) {
+          sendJson(res, 400, { error: err && err.message ? err.message : String(err) }); // 非法标题（唯一入参错误类）
+          return;
+        }
+        if (title === null) {
+          // 防御性：预检通过后行被置为只读（单进程 + 同步语句下不可达）——不得静默返回成功
+          sendJson(res, 409, { error: 'chat 只读（已归档或已关闭），不可改名' });
+          return;
+        }
+        sendJson(res, 200, { chat_id: chatId, title });
+        return;
+      }
       if (req.method === 'GET' && p === '/api/stream') {
         const chatId = qs.get('chat_id');
         if (!chatId) {
@@ -511,9 +558,9 @@ export default async function startWeb(restArgs) {
           return;
         }
         const chatId = typeof body.chat_id === 'string' && body.chat_id ? body.chat_id : `chat-${randomUUID()}`;
-        // §4.4：两条独立判定路径，任一条命中即拒收（归档优先；closed 文案与状态码逐字不变）
+        // §4.4：只读面（已归档 或 已关闭）——判定与 /rename 共用 isReadonly（C-3 不分叉）；归档分支优先出文案
         const existing = db.getChat(chatId);
-        if (existing && (existing.chat.archived_at !== null || existing.chat.state === 'closed')) {
+        if (existing && isReadonly(existing.chat)) {
           sendJson(res, 409, {
             error:
               existing.chat.archived_at !== null ? 'chat 已归档（只读），不接受新输入' : 'chat 已关闭，不接受新输入',
