@@ -162,11 +162,14 @@ function runOmpTask(client, logger, message, task, ctx) {
     sendTaskMessage(client, origin, `tup-${randomUUID()}`, 'task.update', taskId, { state, ...detail });
 
   const bin = OMP_BIN();
+  const toolsOn = task.tools === null ? ctx.tools : task.tools; // §4.3 三分支：显式布尔 > CLI --tools / 内置缺省
   const args = ['-p', '--no-session'];
-  if (!(task.tools === null ? ctx.tools : task.tools)) args.push('--no-tools');
+  if (!toolsOn) args.push('--no-tools');
   const model = task.model || ctx.envModel || ctx.modelOverride;
   if (model) args.push('--model', model);
   if (ctx.roleFile) args.push('--append-system-prompt', ctx.roleFile); // §3.3：一次性路径同样注入角色规则
+  // §4.4（pr-007）：一次性路径同理——仅工具可用时按 permission 档追加 --approval-mode
+  if (toolsOn) args.push('--approval-mode', ctx.permission === 'deny' ? 'always-ask' : 'yolo');
   args.push(task.prompt);
 
   logger.event('TASK_STARTED', { task_id: taskId, executor: 'omp', from: origin, label: task.label || '' });
@@ -580,6 +583,7 @@ export default async function startAgent(restArgs) {
     modelOverride,
     tools: effectiveTools,
     roleFile,
+    permission,
   };
   let shuttingDown = false;
   let sigintCount = 0;
