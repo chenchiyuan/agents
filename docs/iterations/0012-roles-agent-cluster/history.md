@@ -234,3 +234,43 @@
 - 阶段：阶段 5（PR 实现）
 - 任务：独立验收 pr-005 与 pr-006（含因果隔离抽查、串行全量测试、边界核查）
 - PR：prs/pr-005-cluster-entry.md、prs/pr-006-e2e-and-docs.md
+
+### 2026-09-11 13:18:45 · 收到报告 · verifier（阶段 6）
+
+- 1. 报告路径：docs/iterations/0012-roles-agent-cluster/clarifications/verify-20260911-130229-stage6.md；结论 PASS（7 pass / 2 partial / 0 fail / 9 偏差）
+- 2. 六部分摘要：阶段 A~G 逐项判定；并发三项核查全部成立（worktree 时间窗口重叠、并发配置区块真实更新、爬升公式真实触发 3→5 封顶）
+- 3. 最需关注发现：F05 在真实环境不成立（真实 omp 不发 session/request_permission）；另有 2 个简报外已跟踪文件被误纳入迭代分支（docs/ds/05、multi-omp-agent-protocol）
+- 4. 疑问/越界：偏差 9 条（含 status 首跳并发上限记录不一致 D-3、测试共享 .runtime 目录 NC-2）
+
+### 2026-09-11 13:18:45 · 调度决策 · PR失败判定
+
+- 决策内容：阶段 6 验收判定 **F05 相关验收不通过（真实环境）** → 启动返工：architect 修订架构（v1.2.0）→ 出 pr-007 补丁卡 → 实现 → 独立验收 → 重跑 E 系列（含 E4/E5/E8）；迭代分支暂不合入 main
+- 触发依据：E5 实测审计 0 条（`grep -c TOOL_APPROVED oamp/.runtime/cluster/pb-dev.log` = 0）；两次 ACP 探针 `session/request_permission` 命中 0 次；deny 档在默认 approvalMode 下无效
+
+### 2026-09-11 13:18:45 · 调度决策 · 阶段推进核查（修正）
+
+- 决策内容：撤回误纳入迭代分支的用户工作区改动（docs/ds/05、docs/multi-omp-agent-protocol）——以 main 版本提交、用户改动还原为未提交状态；后续文档提交一律使用精确路径 `git add docs/iterations/0012-roles-agent-cluster/`
+- 触发依据：stage6 verifier 报告"迭代分支含 2 个简报外已跟踪文件"；`git log main..HEAD -- docs/ds/05-*.md docs/multi-omp-agent-protocol.md` 命中 2010b6e
+
+### 2026-09-11 13:18:45 · 收到报告 · architect（阶段 6 修订）
+
+- 1. architecture.md 路径 + 核心组件：v1.1.0 → v1.2.0（738 行）；§1.4 新增 V-9/V-10 实测、§4.4 重写（approval-mode 主机制 + ACP 应答兼容路径）、§4.5 重写（TOOL_CALL 事件 + 落行规则）、§11.1/§11.2 更新、§7 新增 D-21/D-22、§13 新增 R-11/R-12、§14 新增 item 9
+- 2. L1 决策清单：L1-2 最终取值修订（工具默认放开 + approval-mode 映射 + tool_call 审计源 + 兼容路径保留 + clientCapabilities 恒空）
+- 3. 新引入技术组件：无（仍在既有 argv/协议面内）
+- 4. 已补全 [架构待填] 条目数：20（不变）
+- 5. 疑问/越界：NC-5（只读工具是否发通知）交 pr-007 实测定稿
+
+### 2026-09-11 13:18:45 · 收到报告 · dev（pr-007 实现）
+
+- 1. 产出：oamp/src/acp-client.js（+76/-1）、oamp/src/agent.js（+5/-2）、oamp/test/tool-permission.test.js（+191/-1）、oamp/test/acp-daemon.test.js（+19）；commit 85c7738
+- 2. argv 映射实测：allow→`--approval-mode yolo`、deny→`always-ask`（仅 tools=on）、匿名/off→无档位且含 `--no-tools`（daemon 与一次性两路径，`ps` 抓取真实 omp argv 为证）
+- 3. TOOL_CALL 落行：多帧去重终态首见落行、轮末冲账、N 次调用 N 行、非本会话忽略；字段含身份四键 + source=acp_tool_call
+- 4. NC-5 实测定稿：**只读工具同样推送 tool_call 通知** ⇒ E5 字面口径「每一次工具调用恰一行」成立
+- 5. 测试：tool-permission 13/13、acp-daemon 7/7、npm test 203/203；真实 omp 冒烟：allow 档文件真实创建 + 恰 1 行 TOOL_CALL(completed)、deny 档无副作用 + status=failed + 轮次 6.36s 不挂起
+- 6. 疑问/越界：首批编辑误落主工作区（5th 相对路径陷阱）已还原并复核；临时环境已清理
+
+### 2026-09-11 13:18:45 · 派发 · verifier（pr-007 验收）
+
+- 阶段：阶段 6 返工（PR-007 验收）
+- 任务：独立验收 pr-007（含真实 omp 端到端复现 allow/deny 两档）
+- PR：prs/pr-007-tool-call-audit.md

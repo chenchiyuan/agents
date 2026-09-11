@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.8.0
 **迭代**: 0012-roles-agent-cluster
-**当前阶段**: PR 实现（阶段 5）
+**当前阶段**: 阶段 6 返工（PR-007）
 **迭代分支**: iteration/0012-roles-agent-cluster
 **状态**: 进行中
 **history**: 开启
@@ -15,8 +15,8 @@
 | 2 | 功能规格 | ✅ | ✅ | 7 卡 F01~F07；M-01/02/03 已确认（零 model_inferred 残留）；F05 验收 2 加判定口径注记；独立验证 PASS（同上报告） |
 | 3 | 技术架构 | ✅ | ✅ | architecture.md v1.1.0（705 行，含 4 项修正）；L1 六项已确认；AR-01~AR-20 全填；独立验证 PASS（6 pass/2 partial/0 fail，partial 均已修，报告 verify-20260911-115347.md） |
 | 4 | PR 规划 | ✅ | ✅ | 6 PR（001~006）；依赖图无环、文件范围互斥、F01~F07 全覆盖；独立验证 PASS（0 fail/0 partial，报告 verify-20260911-115745.md）；4 处行号锚点已修 |
-| 5 | PR 实现 | ⏸ | ⬜ | 首批派发：pr-001 ∥ pr-003 |
-| 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
+| 5 | PR 实现 | ✅ | ⬜ | 6/6 PR 全部合并（001~006）；迭代分支全量 197/197；逐 PR 独立验证 PASS（pr-003 与 pr-004 各含 partial→修复/口径修订） |
+| 6 | 独立验证 | ⏸ | ⬜ | stage6 报告 PASS（7 pass/2 partial/0 fail；并发三项核查成立）；**F05 真实环境不成立 → 返工 pr-007** |
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -27,7 +27,8 @@
 | pr-003-acp-tool-permission.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 | pr-004-agent-role-binding.md | pr-001, pr-003 | ✅ | (已清理) | ✅ | 已释放 |
 | pr-005-cluster-entry.md | pr-002 | ⏸ 验收中 | feat/0012-pr-005-cluster-entry | ⬜ | 占用 |
-| pr-006-e2e-and-docs.md | pr-003, pr-004 | ⏸ 验收中 | feat/0012-pr-006-e2e-and-docs | ⬜ | 占用 |
+| pr-006-e2e-and-docs.md | pr-003, pr-004 | ✅ | (已清理) | ✅ | 已释放 |
+| pr-007-tool-call-audit.md | pr-003, pr-004, pr-006 | ⏸ 验收中 | feat/0012-pr-007-tool-call-audit | ⬜ | 占用 |
 
 ## 并发配置（阶段 5）
 
@@ -35,11 +36,15 @@
 **硬上限**: 5
 **当前有效上限**: 5
 **累计槛位释放次数**: 4
-**已派发总数**: 6
+**已派发总数**: 7
 
 ## 时序注意（阶段 6 端到端面）
 
 - pr-005（集群入口）不依赖 pr-004（agent 参数面）：其验收为命令字符串级、可独立判断；但 `--role/--tools/--permission` 在真实集群链路中的生效验证只能在 pr-004 合并后进行 → 属阶段 6 端到端验收面。
+
+## 跨卡重叠豁免（阶段 6 返工）
+
+- pr-007 与 pr-003 / pr-004 / pr-006 存在文件范围重叠（acp-client.js、agent.js、tool-permission.test.js、acp-daemon.test.js）——属"阶段 6 返工修订已交付产物"的结构性必然；三者均已合并、非并发，无合并冲突风险。豁免已获主 agent 批准并记录。
 
 ## 待确认项
 
@@ -57,3 +62,4 @@
 - 2026-09-11 12:08:13: pr-001 验收 PASS（verify-20260911-120726-pr001.md，含 4 组反向核对）；已合并进迭代分支，worktree/分支已清理；pr-002 依赖解锁。
 - 2026-09-11 12:18:00: pr-003 验收 PASS（1 partial→修复→复审 PASS，含回退转红证据）并合并；派发 pr-002 ∥ pr-004（第 2 批，有效上限爬升至 5）。
 - 2026-09-11 12:49:49: pr-002/pr-004 验收 PASS 并合并（迭代分支全量 182/182）；派发第 3 批 pr-005 ∥ pr-006（pr-005 195/195、pr-006 184/184），独立验收中。
+- 2026-09-11 13:18:45: 阶段 6 验收发现 F05 真实环境不成立（omp ACP 路径不发 session/request_permission）→ architecture v1.2.0 修订（approval-mode 映射 + tool_call 审计源）→ pr-007 实现完成（203/203，真实 omp 冒烟通过；NC-5 定稿：只读工具亦发 tool_call）；独立验收中。

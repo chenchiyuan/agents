@@ -17,7 +17,7 @@
 - oamp/test/tool-permission.test.js（增用例；既有「字段集合」断言由 9 键同步为 10 键）
 - oamp/test/acp-daemon.test.js（**仅增断言**：一次性 `omp -p` 路径的 `--approval-mode` 档位；既有断言行零改动 —— 属主 agent 裁决 (a) 授权的跨卡追加）
 
-> **不列入的相邻文件（附证据，避免被误读为遗漏）**：`oamp/src/context-pool.js` **不需要改** —— daemon 路径的档位与身份传递已就位：`oamp/src/context-pool.js:192-212` 的 `_ensureClient()` 已透传 `tools` / `roleFile` / `permission` 与 `auditContext`（后者的 `context_id` 为惰性取值器），`TOOL_CALL` 复用同一身份源即可。`oamp/test/acp-daemon.test.js` **已列入**（一次性路径档位的自动化断言按 §5.6 归属该文件；实施时只在既有一次性 argv 用例处追加档位断言行，**既有断言行零改动**）：其现有断言对本卡新增参数不敏感 —— `:537-541` 匿名实例逐字节 `deepEqual`（匿名 `tools=false` ⇒ 不追加档位）、`:546-549` 一次性 argv 存在性（只判 `--append-system-prompt` 与 `--no-tools` 的有无）。该文件与 pr-006 的重叠属「阶段 6 返工修订已交付产物」的结构性必然，双方均已合入、非并发，无冲突风险。
+> **相邻文件的取舍说明（附证据，避免被误读为遗漏）**：`oamp/src/context-pool.js` **不需要改** —— daemon 路径的档位与身份传递已就位：`oamp/src/context-pool.js:192-212` 的 `_ensureClient()` 已透传 `tools` / `roleFile` / `permission` 与 `auditContext`（后者的 `context_id` 为惰性取值器），`TOOL_CALL` 复用同一身份源即可。`oamp/test/acp-daemon.test.js` **已列入**（一次性路径档位的自动化断言按 §5.6 归属该文件；实施时只在既有一次性 argv 用例处追加档位断言行，**既有断言行零改动**）：其现有断言对本卡新增参数不敏感 —— `:537-541` 匿名实例逐字节 `deepEqual`（匿名 `tools=false` ⇒ 不追加档位）、`:546-549` 一次性 argv 存在性（只判 `--append-system-prompt` 与 `--no-tools` 的有无）。该文件与 pr-006 的重叠属「阶段 6 返工修订已交付产物」的结构性必然，双方均已合入、非并发，无冲突风险。
 
 ## 验收标准
 
@@ -68,6 +68,7 @@
 
 - pr-003-acp-tool-permission.md（理由：本卡修订的正是 pr-003 落地的主路径。证据：argv 构造点 `oamp/src/acp-client.js:103-107` 与审计点 `:322-369`（`_handleServerRequest` / `_audit`）由 pr-003 引入，本卡在同处追加 `--approval-mode` 与 `TOOL_CALL`；且新增 `source` 键会使 pr-003 交付的 `oamp/test/tool-permission.test.js:241-263` 的 9 键 `deepEqual` 失败 ⇒ 两卡共享同一模块与同一测试文件，本卡必须以其为基线）
 - pr-004-agent-role-binding.md（理由：验收 ①② 的判定面依赖 pr-004 的传参链路——`effectiveTools` 与 `permission` 由 pr-004 解析后传给 `ContextPool`（`oamp/src/agent.js:565-574`）并经 `_ensureClient()` 进入 `AcpClient`（`oamp/src/context-pool.js:192-212`）；未合入则 `AcpClient.permission` 恒为缺省、`tools` 恒为 false，主机制的两档与「仅 tools 时追加」都无从成立。另本卡对 `agent.js` 的改动落在 pr-004 建立的 `runOmpTask` / `taskCtx`（`:165-170` / `:575-583`）之上）
+- pr-006-e2e-and-docs.md（理由：本卡验收 ② 的自动化断言**锚定在 pr-006 建立的一次性 argv 用例内**——`oamp/test/acp-daemon.test.js:544-549`（pb-dev 实例的 `-p` argv 断言：`:548` 判注入参数、`:549` 判 `--no-tools` 的有无）由 pr-006 交付，本卡只在该处追加档位断言行；证据：该用例的文件头注释标注「pr-006：角色实例 argv 级断言」（`oamp/test/acp-daemon.test.js:436`），且 `:544-549` 的 `-p` 分支若不存在，本卡的一次性档位断言将无处落笔）
 
 ## batch
 
