@@ -27,6 +27,6 @@
 - 不含**手动改名本身**的交互、校验、只读边界与同步——分别为 F01 / F02 / F03 / F04。
 - 不含既有自动生成**测试断言与文档**的改动（属阶段 3 与实现阶段的契约同步，见 AR-12 / AR-13；`demand.md` §3 已明确生成规则断言与"后续输入不改标题"契约**必须保持通过、不得修改**）。
 
-## 架构维度（`[架构待填]`，阶段 3 处理）
+## 架构维度（阶段 3 已填，2026-09-11；详见 `architecture.md` §3.3 / §7.3 / §8.4）
 
-- **AR-12 自动生成路径的零改动保证与既有契约同步**：确认改名写入路径与自动生成路径互不干扰（`demand.md` C-4）；生成规则相关的既有测试断言（40 截断 +「新对话」兜底、"后续输入不改标题"）在本次迭代后必须保持通过且不得修改（验收 1~4）。`[架构待填]`
+- **AR-12 自动生成路径的零改动保证与既有契约同步**：**互不干扰（`demand.md` C-4）是结构性成立的**——自动路径 = `insertInput()` 内的 `const title = text.trim().slice(0, TITLE_MAX) || TITLE_FALLBACK`（`TITLE_MAX = 40` / `TITLE_FALLBACK = '新对话'`）+ `ensureChat` 的 `ON CONFLICT(chat_id) DO NOTHING`（仅首次建行定标题，`@agent` 前缀取自原文）；手动路径 = 本次新增的 `renameChat`（独立语句 + 独立包装函数 + 独立常量 `TITLE_MAX_MANUAL` + 独立校验函数 `readTitle`）。两条路径**无共享代码 / 无共享常量 / 无共享语句**：`readTitle` 只被 `renameChat` 引用，自动侧仍用 `text.trim().slice(0, TITLE_MAX)`。因此验收 4（改名后再发消息保持手动值）在 SQL 层成立——`ensureChat` 的 `DO NOTHING` 使后续 `insertInput` 不触碰已有行的 `title`。**零改动面**：`insertInput` / `ensureChat` / `TITLE_MAX` / `TITLE_FALLBACK` / `chats.title` 的 schema 与 `listChats` 关键词匹配（`q` 命中 `c.title`）**本次一行未改**（本迭代零数据层变更）。**既有契约同步（回归锁，`demand.md` §3 明文）**：`persist.test.js:233-241` 的生成规则断言（40 截断 +「新对话」兜底）与 `web.test.js:415-431` 的"后续输入不改标题"契约在本次迭代后**必须保持通过、不得修改**；此外 `chats` 9 列的列名 / schema 断言与 closed 409 断言同样**不动**。本迭代对既有断言**唯一**的改动是 `persist.test.js:171-179` 的写口白名单**加入 `renameChat`**（属加法：新增写口必须显式入列，否则该断言会失败）。完整同步清单（含新增用例的断言要点）见 `architecture.md` §8 / AR-13。

@@ -46,3 +46,21 @@
 
 - 阶段：阶段 3（技术架构）
 - 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
+
+### 2026-09-11 16:11:47 · 收到报告 · architect
+
+- 1. architecture.md 路径 + 核心组件：docs/iterations/0014-chat-rename/architecture.md；组件 = persist.js（TITLE_MAX_MANUAL=100 + readTitle 校验 + stmts.renameChat 独立单列 UPDATE + 写口返回权威标题）、web.js（isReadonly 单一真源 + POST /api/chats/<id>/rename）、index.html（静态孪生 input maxlength=100）、app.js（state.titleEdit + renderTitle/beginTitleEdit/commitTitle）、style.css（三条规则）
+- 2. L1 决策清单：无（零新技术栈/零核心职责变更/零系统边界变更/零数据层变更）
+- 3. 新引入技术组件：无
+- 4. 已补全 [架构待填] 条目数：13（AR-01~AR-13）
+- 5. 疑问/越界：两处 L2 取舍（K-1 isReadonly 具名化并同步 /api/messages 409；K-2 POST /rename 而非 PATCH）；阶段 4 硬约束（web.test.js 被 G2/G3 同时修改，须串行或同 owner）；遗留 prd 卡内 M 标记为阶段 2 写法（不回改上游）
+
+### 2026-09-11 16:11:47 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 3（技术架构）推进条件满足，进入阶段 4（PR 规划）；阶段 2+3 验证与阶段 4 验证合并为一次 verifier
+- 触发依据：L1 清单为空；AR-01~AR-13 全填（报告第 4 项）；无架构内部冲突（第 1 项声明）；两处硬契约已给可执行原文
+
+### 2026-09-11 16:11:47 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划）
+- 任务：反射出可独立合并的提交单元划分及单元间真实依赖，产出 prs/ 目录下的 PR 文件
