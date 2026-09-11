@@ -12,6 +12,7 @@ const USAGE = `oamp — 本地多智能体运行时 CLI
   oamp task list [--state <state>]  列出任务
   oamp task watch <task_id> [--interval <ms>]  轮询任务直到终态
   oamp web start [--port <n>]     启动 Web 控制台（默认 http://127.0.0.1:7788）
+  oamp cluster up|down|status [--config <path>] [--wait <ms>]  集群：拉起 / 收口 / 查看（tmux + 日志）
   oamp -h | --help                显示本用法并退出
 
 命令:
@@ -100,6 +101,16 @@ export async function main(argv) {
       return usageError(`错误: ${why}`);
     }
     return loadAndRun('./web.js', 'web start', argv.slice(2));
+  }
+
+  if (cmd === 'cluster') {
+    const validSubs = ['up', 'down', 'status'];
+    if (!validSubs.includes(sub)) {
+      const why = sub === undefined ? '缺少 cluster 子命令' : `未知的 cluster 子命令: ${sub}`;
+      return usageError(`错误: ${why}`);
+    }
+    // restArgs 保留子命令：['up'|'down'|'status', …]（cluster 模块自解析 --config / --wait）
+    return loadAndRun('./cluster.js', `cluster ${sub}`, argv.slice(1));
   }
 
   if (cmd === 'task') {
