@@ -18,7 +18,7 @@
 4. **列表项构成**：每一项显示该对话的标题、所属 agent、归档时间，以及其归档时的原状态标识（D-13 / M-3）。
 5. **每项带独立可点的「激活」按钮**：每一项都有「激活」按钮；点击该按钮**不**打开该对话详情（不触发行点击行为），而是进入激活动作（D-13 / M-4）。判定：点击按钮与点击该行其他区域产生不同结果——前者不打开对话详情。
 6. **空态**：没有任何已归档对话时，归档视图显示"还没有归档的对话"（A-10）。
-7. **归档时间可读且可区分先后**：归档时间以用户可读的形式展示，足以区分不同项归档的先后（格式沿用既有列表的时间展示方式）`[model_inferred M-02]`。
+7. **归档时间可读且可区分先后**：归档时间以用户可读的形式展示，足以区分不同项归档的先后（格式沿用既有列表的时间展示方式）`[user_confirmed M-02]`。
 
 ## 边界（不包含）
 
@@ -30,8 +30,8 @@
 - 不做**多用户 / 权限**（N-8）。
 - 不含归档视图的自动刷新 / 轮询（demand 未要求）。
 
-## 架构维度（`[架构待填]`）
+## 架构维度（阶段 3 已填，2026-09-11；详见 `architecture.md` §3.3 / §6.1 / §6.2）
 
-- **AR-08 归档列表的查询维度**：`[架构待填]` —— "是否归档"如何进入列表查询；默认排除已归档与归档视图只取已归档的落实位置。demand 已确认列表查询需增加该维度并默认排除已归档（C-3），但查询参数的命名与形态留待架构阶段。
-- **AR-09 归档标签页的承载方式**：`[架构待填]` —— 既有过滤标签集合的扩展方式与选中态表达。
-- **AR-10 激活按钮与行点击的交互隔离方式**：`[架构待填]` —— 保证点击激活按钮不触发行打开行为的交互承载（demand D-13 已确认"独立可点、阻止冒泡"这一产品结论）。
+- **AR-08 归档列表的查询维度**：给既有"单行参数 CTE"`p` 加第 6 个槽（`LIST_WITH` 改 `WITH p(q,agent,state,from_ts,to_ts,archived) AS (VALUES (?,?,?,?,?,?))`），并在 `LIST_FROM` 追加互斥谓词 `AND ((p.archived = 1 AND c.archived_at IS NOT NULL) OR (p.archived = 0 AND c.archived_at IS NULL))`。**缺省 `archived = 0`** ⇒ 主列表（All 及各状态过滤）自动排除已归档（验收 2 / M-8 / C-3），前端 `loadChats()` 无需改调用；`archived=1` ⇒ 归档视图只取已归档。参数经 `GET /api/chats?archived=1` 透传；非法值（非 0/1）→ 抛错 → 400（与 limit/state 的既有风格一致）。**`countChats` 与 `listChats` 共用同一 `LIST_FROM` 与同一参数数组** ⇒ 两视图的 `total` 恒与列表一致（F04 翻页正确性的地基）。**排序随视图切换**：`ORDER BY (CASE WHEN p.archived = 1 THEN c.archived_at ELSE c.updated_at END) DESC, c.chat_id DESC` —— 归档视图 = `archived_at DESC, chat_id DESC`（验收 3 逐字），主列表 = `updated_at DESC, chat_id DESC`（与既有逐字一致，既有排序断言零改动）。**不新增索引**（条件排序键无法走索引；当前数据量级无收益，再评估条件见 `architecture.md` §15 R-2）。
+- **AR-09 归档标签页的承载方式**：`web/index.html` 的 `.filters` 内新增第 4 颗**静态**按钮 `<button class="filter" data-filter="archived">归档</button>`，与既有 All / Working / Completed 三颗**完全同构**（验收 1 / D-3）；选中态沿用既有 `.filter.active` 的 class 切换（`bind()` 的现有循环只加一个分支：切到 `archived` 时调用一次 `loadArchived()`，切回主列表直接 `renderChats()` 复用内存数据）。**不新增选中态表达、不引入下拉 / 多选**；归档视图**不做 TODAY/OLDER 分组**（该分组依赖 `updated_at`，与归档时间轴不符），空态文案「还没有归档的对话」（验收 6 / A-10）。
+- **AR-10 激活按钮与行点击的交互隔离方式**：归档行在既有 `.chat-item` 的 `.meta` 行内新增 `<button class="activate" data-activate="<chat_id>">激活</button>`（验收 4/5）；绑定为 `btn.onclick = (e) => { e.stopPropagation(); activate(chatId); }`，**行级 `el.onclick = () => openChat(...)` 绑定不变** ⇒ 点按钮不打开详情、点行内其他区域仍打开详情（M-4 / D-13）。行内时间用既有 `fmtTime()` 渲染 `c.archived_at`（满足验收 7 / M-02"格式沿用既有列表的时间展示方式"），并保留 `badge(c.state)` 展示归档时的原状态（验收 4）。

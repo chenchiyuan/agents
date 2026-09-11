@@ -31,9 +31,9 @@
 - 不含归档对话的标题编辑、复制、导出等能力（demand 未要求）。
 - 不含"归档"标识在对话详情内的展示形态（demand 只要求归档列表项显示归档时间与原状态，见 F03）。
 
-## 架构维度（`[架构待填]`）
+## 架构维度（阶段 3 已填，2026-09-11；详见 `architecture.md` §3.1 / §3.2 / §4.3 / §4.4）
 
-- **AR-04 归档标记与归档时间的持久化承载**：`[架构待填]` —— 承载字段的命名、类型、默认值（未归档项的默认取值）与写入时机。demand 明确将"归档字段命名"留待架构阶段（`demand.md` 第二段 §3）。
-- **AR-05 数据层显式迁移写法**：`[架构待填]` —— 现状数据层只有建表语句、无迁移机制，对已存在的库新增标记字段必须显式迁移；迁移的具体写法与幂等保证（`demand.md` §3 实测事实）。
-- **AR-06 只读判定路径的落实**：`[架构待填]` —— 归档标记只读与既有 closed 只读两条判定路径的落点与优先级（任一条命中即拒收新输入）。
-- **AR-07 上下文释放的触发方式**：`[架构待填]` —— 复用既有上下文释放通道的具体触发时机与形式（demand 只规定"复用、不新造机制"这一产品级结论）。
+- **AR-04 归档标记与归档时间的持久化承载**：`chats.archived_at INTEGER`（**可空**）—— **标记与时间同址**：`NULL` = 未归档，非空 = 该对话本次归档的毫秒时间戳（验收 1 的独立标记 + 验收 2 的本次归档时间由同一列承载，不存在"标志与时间不一致"的非法态）。**未归档项的默认取值 = `NULL`**：既有行天然满足（N-9 零数据迁移），`ADD COLUMN` 的缺省语义即正确。写入时机 = `archiveChat(chatId, nowMs)`（`stmts.archiveChat` 单条 UPDATE，含 `archived_at IS NULL` 与 `state != 'working'` 双守卫）。另新增 `chats.context_released INTEGER NOT NULL DEFAULT 0`（`1` = 上下文已释放且未产生新回答；归档置 1、`insertOutput` 置 0、激活不改），承载 F05 验收 6 的提示持续期（详见 AR-16）。两列**只加在 `chats`**，`messages` 表零改动。
+- **AR-05 数据层显式迁移写法**：`openDb()` 内、`db.exec(SCHEMA)` 之后、预编译 `stmts` 之前执行 `migrate(db)`：以 `SELECT name FROM pragma_table_info('chats')` 的结果集为守卫（与 `persist.test.js` 的列名断言同一函数），缺列则 `ALTER TABLE chats ADD COLUMN archived_at INTEGER` / `ADD COLUMN context_released INTEGER NOT NULL DEFAULT 0`。**幂等**：守卫是"该列是否存在"，每次 `openDb` 都跑、第二次起全部 no-op；**不引入 `PRAGMA user_version` / 迁移表**（列存在性即是所需的全部状态，版本号是第二处真相）。**新库同构**：SCHEMA 里两列声明在 `closed_at` **之后**（`archived_at` → `context_released`），与 `ADD COLUMN` 的追加语义逐位对齐 ⇒ 迁移库与新建库的 `pragma_table_info` 列表**顺序一致**（列名断言是顺序敏感的）。**既有行语义**：`archived_at` 为 `NULL`、`context_released` 为 `0`（N-9：既有已关闭对话保持现状、不被视为已归档、不补写归档时间）。**不需要事务**：每条 `ALTER` 自身原子，中断留下的半迁移态由下次 `openDb` 的同一守卫补齐。
+- **AR-06 只读判定路径的落实**：判定点唯一——`POST /api/messages` 的既有 409 分支，扩为两条**独立**路径：`existing.chat.archived_at !== null`（本次新增，文案「chat 已归档（只读），不接受新输入」，**优先**）与 `existing.chat.state === 'closed'`（0011 既有，文案与状态码逐字不变）。任一条命中即拒收、不落 in 记录（验收 4 / C-2：两条路径并存不冲突、互不依赖）。持久层另有两处**结构性兜底**（非判定路径）：`archiveChat` 的 `state != 'working'` 守卫（归档不打断进行中的轮次）与 `activateChat` 的 `archived_at IS NOT NULL` 守卫（N-5）；`setWorking` / `setOutputState` 的 `state != 'closed'` 哨兵保持不变。
+- **AR-07 上下文释放的触发方式**：**逐字复用**既有链路，不新造机制：在 `POST /api/chats/archive` 里，对每一个成功归档的 `chat_id` 调用既有 `sendControlNotice(agentId, { kind: 'context_release', chat_id })`（`web.js` 现有函数）；目标 agent 集 = `chats.agent_id ∪ { m.agent_id | m ∈ messages(chat_id), m.agent_id ≠ null }`（与 `POST /close` 同一段推导）。**best-effort**：`.catch(() => {})`，与 close 完全一致（agent 离线 / 进程已亡则其常驻上下文本就随进程消失，无需释放）。**不新造 ACP 消息类型、不改 `ContextPool`、不在激活侧做任何上下文动作**（N-4：激活不恢复上下文；其可观察后果由下一轮新建 ACP 会话自然产生，即验收 7）。

@@ -46,3 +46,21 @@
 
 - 阶段：阶段 3（技术架构）
 - 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
+
+### 2026-09-11 15:04:22 · 收到报告 · architect
+
+- 1. architecture.md 路径 + 核心组件：docs/iterations/0013-chat-archive/architecture.md；组件 = persist.js 改造（chats +2 列 archived_at/context_released、幂等 migrate()、双视图单语句 listChats、新写口 archiveChat/activateChat/listArchivable）、web.js 改造（POST /api/chats/archive 批量 + POST /api/chats/<id>/activate + archived 透传 + 409 双路径）、前端改造（归档标签 + 归档全部按钮 + 归档视图分页 + 激活按钮 + 头部提示）
+- 2. L1 决策清单：无（未引入新技术栈、未改核心模块职责、未影响系统边界）
+- 3. 新引入技术组件：无（零新依赖/零新模块/零新进程/零新传输/零新 SSE 事件）；仅既有模块内新增（migrate()、两列、两端点、三颗静态元素）
+- 4. 已补全 [架构待填] 条目数：17（AR-01~AR-17）
+- 5. 疑问/越界：两处硬契约（迁移 §3.2 M-1~M-5、双视图 §3.3 V-1~V-5）已写成可执行形态；L2 取舍 K-1/K-2 记录在案；两处极小 UI 决策（关闭按钮禁用条件扩展、归档视图不分组）已声明可删
+
+### 2026-09-11 15:04:22 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 3（技术架构）推进条件全部满足，进入阶段 4（PR 规划）；阶段 2+3 的独立验证与阶段 4 的 prs/ 验证合并为一次（由 verifier 覆盖 prd 覆盖性 + architecture 补全度 + prs 依赖正确性）
+- 触发依据：L1 决策清单为空（architect 报告第 2 项）；AR-01~AR-17 全部回填（第 4 项 = 17）；无架构内部冲突（第 1 项声明）
+
+### 2026-09-11 15:04:22 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划）
+- 任务：反射出可独立合并的提交单元划分及单元间真实依赖，产出 prs/ 目录下的 PR 文件
