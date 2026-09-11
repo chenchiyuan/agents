@@ -25,7 +25,7 @@
 - 不做运行期改变 cwd（与 N11 一致：配置变更经重启生效）。
 - 不含集群脚本的生命周期语义（F06）——本卡只锁 `cwd` 这一字段的配置与生效。
 
-## 架构维度（待阶段 3 填写）
+## 架构维度（阶段 3 已填，2026-09-11；详见 `architecture.md` §5.1 / §5.3 / §3.4）
 
-- `[架构待填]` **AR-18**：`cwd` 字段的路径解析与相对基准（相对仓库根 or 相对配置文件）；非法/不存在路径的失败语义。
-- `[架构待填]` **AR-19**：`cwd` 生效的传参路径（子进程 cwd / `session/new` cwd）与判定观察面。
+- **AR-18 路径解析基准与失败语义**：`cwd` 为字符串；**相对路径基准 = 配置文件所在目录**（= `root` = 仓库根，即与角色真源 `roles/` 同级），绝对路径原样使用；**不做 `~` 展开**（YAGNI，配置文档明示）；缺省 `"."`（= 仓库根，验收 1）。**不存在 / 非目录 ⇒ `oamp cluster up` 在创建 tmux session 之前快速失败**（stderr `oamp cluster: 配置错误: …` + 退出 2，不留半个集群）；`down` / `status` 不因此失败（status 只读展示配置值与 `pane_current_path`）。
+- **AR-19 生效的传参路径与判定观察面**：**不新增 `--cwd` flag**——工作目录由**进程启动目录**承载：`tmux new-window -c <cwd>` → agent 进程 cwd → 既有 `ContextPool({ cwd: process.cwd() })` → ACP 子进程 `spawn(cwd)` + `session/new{cwd}`（0010/0011 既有链路，**零改动**；一次性 `omp -p` 亦继承同一 cwd）。判定观察面：① `tmux display-message -p -t <session>:<win> '#{pane_current_path}'`（窗口启动目录，验收 4 的直接判据）；② `lsof -a -p <agent-pid> -d cwd`（进程真实工作目录）；③ 验收 2/3 的文件落点对照（配了 `cwd` 的角色 → 该目录；未配的角色 → 仓库根）。

@@ -35,8 +35,8 @@
 - 不做鉴权 / 多用户（N5）。
 - 不改 workflow-pb 的派发路径（N12）。
 
-## 架构维度（待阶段 3 填写）
+## 架构维度（阶段 3 已填，2026-09-11；详见 `architecture.md` §3.1 / §3.4 / §3.5）
 
-- `[架构待填]` **AR-01**：角色清单与 instance_id 映射的承载位置（配置文件角色的 schema 结构；`pb-` 前缀的生成方式）。
-- `[架构待填]` **AR-02**：单起路径的参数面——复用 `agent start <instance-id>` 还是新增形态；角色绑定参数的命名与优先级（flag / env / 配置文件）。
-- `[架构待填]` **AR-03**：实例与 LLM 子进程的关联观察面（判定"无对话时无 LLM 常驻子进程"的可行手段）。
+- **AR-01 角色清单与 instance_id 的承载**：角色清单 = 仓库根 `cluster.json` 的 `roles` 键集合（配置驱动，脚本内不硬编码任何角色名；`_template` / `cdp-debug-skill` 因不在配置中而不产生实例 ⇒ 验收 2）。`instance_id = 'pb-' + role`，该公式**只存在于 `src/role-binding.js` 一处**（`instanceIdForRole` / `roleFromInstanceId`），配置可用 `instance_id` 字段覆盖（本迭代不使用）。角色真源 = `<roleRoot>/roles/<role>/<role>.md`，`roleRoot` 缺省 = 仓库根，可由 env `OAMP_ROLE_ROOT` 覆盖（`cluster up` 按配置文件所在目录设置）。
+- **AR-02 单起路径的参数面**：**复用** `oamp agent start <instance-id>`，新增 4 个**可选** flag：`--role <role>` / `--model <model>` / `--tools on|off` / `--permission allow|deny`（非法取值 → 退出码 2）。优先级：**flag > instance_id 推断 > 不绑定**；推断规则 = `^pb-(.+)$` 且角色文件存在 ⇒ 绑定该角色（启动行留痕 `source=instance_id`），否则为不绑定的匿名节点（行为与 0011 逐字节一致）。`cwd` **不设 flag**：工作目录 = 进程启动目录（由 tmux 窗口 `-c` 承载，见 F07 的 AR-19）。
+- **AR-03 实例与 LLM 子进程的关联观察面**：取 `ps -axo pid,ppid,command`，从任一 `omp` 子进程沿父链上溯（跨过 `sh -c` / `tee` 管道壳，≤3 层），命令行含 `agent start <instance-id>` 的祖先即为其归属实例。验收 3 的判定 = 无对话时**不存在**归属该实例的 `omp acp` / `omp -p` 子进程；发一轮对话后归属子进程出现（LLM 子进程由上下文池按 `(chat, agent)` 懒创建，`CONTEXT_READY` / `CONTEXT_EVICTED` / `CONTEXT_RESET` 事件可交叉印证）。

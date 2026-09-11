@@ -26,7 +26,7 @@
 - 不含角色定义文件中的模型声明（F-3：角色 md 的 frontmatter 无模型字段；模型是实例参数，不是角色文件的属性）。
 - 不含工具与 permission 的配置（F04 / F05）。
 
-## 架构维度（待阶段 3 填写）
+## 架构维度（阶段 3 已填，2026-09-11；详见 `architecture.md` §4.1 / §4.2）
 
-- `[架构待填]` **AR-06**：按角色模型的配置承载与传参形态；解析链中"按角色覆盖"相对环境变量的位置（本卡暂按 0011"env 高于配置层"处理，见 `prd.md` 疑问 2）。
-- `[架构待填]` **AR-07**：模型标识的可观察面（判定某角色实际使用了配置的模型）。
+- **AR-06 承载、传参与解析链位置**：承载 = `cluster.json` 的 `roles.<role>.model`（可选字符串；缺省不写 = 用全局默认）→ `cluster up` 解析后以 `--model <值>` 传给该角色窗口；**不写 env、不改 `oamp/config.json`**。解析链（每轮独立解析，沿用 0011 §7.1 语义）：`payload.model > OAMP_OMP_MODEL(env) > --model(角色级) > config.defaults.model > 内置 'deepseek/deepseek-v4-flash'` —— 即**"env 高于配置层"不变，按角色覆盖属配置层内部、整体低于环境变量**（回答 `prd.md` 疑问 2）。`--model` 取值按既有 `MODEL_RE = ^[A-Za-z0-9._/-]{1,128}$` 校验，非法 → 退出码 2；模型不可用沿用 0011「明确失败、绝不静默回退默认」。
+- **AR-07 模型标识的可观察面**：① agent 事件日志（stdout，经集群 `tee` 同时落盘 `oamp/.runtime/cluster/<instance>.log`）：启动行 `AGENT_START {instance, role, model, tools, permission, role_file}` 与每轮 `TASK_STARTED {task_id, chat_id, model}`；② 落库 out 记录的 `model` 字段 = 该轮**实际生效**值（agent 从 ACP `configOptions` 回读 `currentValue`，0011 §7.4 不变，回读失败为 `null`）。判定用法：给某角色配 `model=X` 重启 → 该角色 out 记录为 `X`，同一集群内未覆盖角色仍为默认值（对应验收 2/3/5）。

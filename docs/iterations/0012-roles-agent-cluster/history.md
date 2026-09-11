@@ -1,16 +1,16 @@
 # history.md — 0012-roles-agent-cluster
 
-### 2026-09-10 18:35:00 · 调度决策 · 阶段推进核查
+### 2026-09-11 11:00:55 · 调度决策 · 阶段推进核查
 
 - 决策内容：启动 workflow-pb 迭代 0012-roles-agent-cluster；前置条件已完成（iteration/0011-chat-context-protocol 合并进 main，commit 2980ed5，分支已删除）
-- 触发依据：用户 2026-09-10 决策「先合 0011 进 main」；`git log --oneline main` 顶部为 2980ed5 merge commit；`git diff main iteration/0011` 为空
+- 触发依据：用户 2026-09-11 决策「先合 0011 进 main」；`git log --oneline main` 顶部为 2980ed5 merge commit；`git diff main iteration/0011` 为空
 
-### 2026-09-10 18:35:10 · 派发 · demand
+### 2026-09-11 11:04:55 · 派发 · demand
 
 - 阶段：阶段 1（需求收敛）
 - 任务：通过结构化对话消除模糊、界定边界，产出有澄清依据的需求合同
 
-### 2026-09-10 18:52:00 · 收到报告 · demand
+### 2026-09-11 11:08:55 · 收到报告 · demand
 
 - 1. demand.md 路径：docs/iterations/0012-roles-agent-cluster/demand.md（v1.0.0，234 行，两段完整）
 - 2. 第一段摘要：D-1~D-7 决策（含 TC-04 改判 tmux、TC-08 改判按角色 cwd）；F-1~F-10 仓库事实（角色真源=仓库根 roles/，12 目录→10 角色；.pb-agents/roles 为 gitignored 副本）；V-1~V-8 技术侦察（ACP 无 per-session 注入面）；六维诊断 G/M/N/C/E 全套；方案雏形 A+B
@@ -19,17 +19,17 @@
 - 5. 待确认项：无（TC-01~09 + G-1/2/4/5 全部 user_confirmed）
 - 6. 疑问/越界：无实时用户 → 第 6 维改由提案转呈；未写 data/ 决策记录（brief 限定唯一可写文件）
 
-### 2026-09-10 18:53:00 · 调度决策 · 阶段推进核查
+### 2026-09-11 11:12:55 · 调度决策 · 阶段推进核查
 
 - 决策内容：阶段 1（需求收敛）推进条件全部满足，创建迭代分支 iteration/0012-roles-agent-cluster 并进入阶段 2（功能规格）
 - 触发依据：demand.md 两段均有内容且零 model_inferred 残留（demand 报告第 5 项为空）；用户逐条确认记录（本会话 ask 结果）；无活跃冲突（demand 报告第 6 项仅记录处理方式）
 
-### 2026-09-10 18:53:10 · 派发 · prd
+### 2026-09-11 11:16:55 · 派发 · prd
 
 - 阶段：阶段 2（功能规格）
 - 任务：将需求合同原子化为可独立验证的功能卡，只做产品维度，不做架构决策
 
-### 2026-09-10 19:05:00 · 收到报告 · prd
+### 2026-09-11 11:20:55 · 收到报告 · prd
 
 - 1. prd.md 路径 + 功能点数：docs/iterations/0012-roles-agent-cluster/prd.md；功能点 7（F01~F07）
 - 2. prd/ 文件列表：F01-role-instance-identity-lifecycle / F02-role-definition-loading / F03-model-default-per-role-override / F04-tool-toggle-per-role / F05-permission-policy / F06-cluster-script-config-tmux / F07-role-working-directory
@@ -37,17 +37,40 @@
 - 4. 架构待填列表：AR-01~AR-20（20 条）
 - 5. 疑问/越界：模型解析链按 env 高于配置层处理（待架构阶段裁定）；E5 配置超时取值归 AR-10；无 demand 矛盾、无新增功能点
 
-### 2026-09-10 19:06:00 · 调度决策 · 阶段推进核查
+### 2026-09-11 11:24:55 · 调度决策 · 阶段推进核查
 
 - 决策内容：阶段 2（功能规格）推进条件全部满足，进入阶段 3（技术架构）；阶段 2 的独立验证与阶段 3 合并进行（在阶段 3 产物完成后一次验证 prd 覆盖性与 architecture 补全）
 - 触发依据：prd.md 索引与 7 张卡齐备（feature_count=7）；`grep -rn '\[model_inferred\]' prd.md prd/` 零命中（用户 M-01/02/03 已确认）；每卡均含功能 ID/用户价值/验收标准/边界（卡片文件清单可读）；架构待填 20 条已标注
 
-### 2026-09-10 19:06:10 · 派发 · architect
+### 2026-09-11 11:28:55 · 派发 · architect
 
 - 阶段：阶段 3（技术架构）
 - 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
 
-### 2026-09-10 19:06:20 · 派发 · progress-observer
+### 2026-09-11 11:32:55 · 派发 · progress-observer
 
 - 阶段：阶段 3（技术架构）
 - 任务：独立核查迭代真实 git 状态与声称状态的一致性，产出 progress.md
+
+### 2026-09-11 11:51:26 · 收到报告 · architect
+
+- 1. architecture.md 路径 + 核心组件：docs/iterations/0012-roles-agent-cluster/architecture.md（v1.1.0，703 行）；核心组件 = src/cluster.js（新增，tmux 编排 up/down/status）、src/cluster-config.js + src/role-binding.js（新增叶子模块）、src/acp-client.js（改造：argv 参数化 + permission 应答 + 审计事件）、src/agent.js + src/context-pool.js（改造：4 flag + pb-<role> 推断 + 两条 LLM 路径注入 + 模型链插层）、src/cli.js + src/status.js（微改造）+ cluster.json + 4 个新测试文件
+- 2. L1 决策清单：L1-1 注入 = 进程级 --append-system-prompt（用户采纳）；L1-2 工具默认放开 + permission（采纳）；L1-3 oamp cluster 子命令（采纳）；L1-4 仓库根 cluster.json（采纳）；L1-5 不常驻 LLM（采纳）；L1-6 4 flag + pb-<role> 推断（采纳）—— 六项全按推荐，已落定 §11.1
+- 3. 新引入技术组件：cluster.js / cluster-config.js / role-binding.js / cluster.json / 4 个 agent flag / OAMP_TMUX_BIN + OAMP_CLUSTER_WAIT_MS（测试注入点）；零新第三方依赖
+- 4. 已补全 [架构待填] 条目数：20（AR-01~AR-20）
+- 5. 疑问/越界：E5 审计口径收窄为"每次受门禁的工具调用恰一条"（§11.2，已确认为实现口径）；F02-6 判定口径已定（cluster.json 非规则类文件）；未改产品维度/demand/roles/oamp
+
+### 2026-09-11 11:51:26 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 3（技术架构）推进条件全部满足，进入阶段 4（PR 规划）；阶段 2/3 独立验证与阶段 4 并行进行
+- 触发依据：L1-1~L1-6 已由用户确认（architecture.md §11.1 确认结果，状态行「L1 全部已确认」）；AR-01~AR-20 全部回填（architect 报告第 4 项 = 20）；architect 自检 0 处「待确认/未确认前」残留、0 处 [架构待填]（architecture.md v1.1.0 自检段）
+
+### 2026-09-11 11:51:26 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划）
+- 任务：反射出可独立合并的提交单元划分及单元间真实依赖，产出 prs/ 目录下的 PR 文件
+
+### 2026-09-11 11:51:26 · 派发 · verifier
+
+- 阶段：阶段 3（技术架构）
+- 任务：独立验证阶段 2（prd）+ 阶段 3（architecture）产物（覆盖性、[架构待填] 补全、L1 确认留痕、产品维度未被改动）
