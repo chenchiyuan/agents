@@ -2,9 +2,9 @@
 
 **工作流**: workflow-pb v0.8.0
 **迭代**: 0014-chat-rename
-**当前阶段**: 独立验证（阶段 6）
-**迭代分支**: iteration/0014-chat-rename
-**状态**: 进行中
+**当前阶段**: 已完成
+**迭代分支**: iteration/0014-chat-rename（已合并）
+**状态**: 已完成
 **history**: 开启
 
 ## 阶段状态
