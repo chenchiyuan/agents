@@ -28,3 +28,26 @@
 
 - 阶段：阶段 2（功能规格）
 - 任务：将需求合同原子化为可独立验证的功能卡，只做产品维度，不做架构决策
+
+### 2026-09-10 19:05:00 · 收到报告 · prd
+
+- 1. prd.md 路径 + 功能点数：docs/iterations/0012-roles-agent-cluster/prd.md；功能点 7（F01~F07）
+- 2. prd/ 文件列表：F01-role-instance-identity-lifecycle / F02-role-definition-loading / F03-model-default-per-role-override / F04-tool-toggle-per-role / F05-permission-policy / F06-cluster-script-config-tmux / F07-role-working-directory
+- 3. model_inferred 列表：M-01（F04 验收 5 明确回绝不静默失败）/ M-02（F02 验收 6 不污染仓库根判定面）/ M-03（F06 验收 1 角色清单不硬编码判定面）—— 用户已全部确认，prd 内标记已改为 user_confirmed、零残留
+- 4. 架构待填列表：AR-01~AR-20（20 条）
+- 5. 疑问/越界：模型解析链按 env 高于配置层处理（待架构阶段裁定）；E5 配置超时取值归 AR-10；无 demand 矛盾、无新增功能点
+
+### 2026-09-10 19:06:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 2（功能规格）推进条件全部满足，进入阶段 3（技术架构）；阶段 2 的独立验证与阶段 3 合并进行（在阶段 3 产物完成后一次验证 prd 覆盖性与 architecture 补全）
+- 触发依据：prd.md 索引与 7 张卡齐备（feature_count=7）；`grep -rn '\[model_inferred\]' prd.md prd/` 零命中（用户 M-01/02/03 已确认）；每卡均含功能 ID/用户价值/验收标准/边界（卡片文件清单可读）；架构待填 20 条已标注
+
+### 2026-09-10 19:06:10 · 派发 · architect
+
+- 阶段：阶段 3（技术架构）
+- 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
+
+### 2026-09-10 19:06:20 · 派发 · progress-observer
+
+- 阶段：阶段 3（技术架构）
+- 任务：独立核查迭代真实 git 状态与声称状态的一致性，产出 progress.md
