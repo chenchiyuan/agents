@@ -3,10 +3,12 @@
 //       经 NodeClient/RpcPeer 连 Router（UDS）——浏览器不直连 UDS；历史真源 = SQLite（src/persist.js）。
 // API：
 //   GET  /api/agents                 → Router 拓扑快照（活跃 agent 列表）
-//   GET  /api/chats                  → chat 列表（读库；q/agent/state/from/to/limit/offset）
+//   GET  /api/chats                  → chat 列表（读库；q/agent/state/from/to/archived/limit/offset；archived 缺省 0 = 排除已归档，1 = 只看已归档）
 //   GET  /api/chats/<chat_id>        → chat 详情（读库；消息 created_at ASC, id ASC）
-//   POST /api/messages               → {chat_id?, agent_id, text, model?, one_shot?} 落库 + 派发任务
+//   POST /api/messages               → {chat_id?, agent_id, text, model?, one_shot?} 落库 + 派发任务（归档 / 已关闭 → 409）
+//   POST /api/chats/archive          → 批量归档（服务端算范围、逐条提交）→ {archived, failed, failed_ids}；不发 SSE
 //   POST /api/chats/<chat_id>/close  → 关闭 chat（幂等）+ 通知 agent 释放该 chat 上下文
+//   POST /api/chats/<chat_id>/activate → 激活归档 chat（清标记 + closed→completed + 置顶）+ 推送 chat_state
 //   GET  /api/stream?chat_id=<id>    → SSE（message / task_update / chat_state / notice 四类事件）
 // 语义（0011 迭代，architecture §4/§5/§9.1）：一次提问 = 恰一条 in + 一条 out（过程不入库）；
 //   执行路径判定顺序：`!` → shell（0010 原样）｜one_shot:true → omp 一次性（0010 原样）｜默认 → omp-daemon 常驻上下文。
@@ -378,6 +380,7 @@ export default async function startWeb(restArgs) {
             state: qs.get('state') ?? undefined,
             from: num('from'),
             to: num('to'),
+            archived: num('archived'),
             limit: num('limit'),
             offset: num('offset'),
           });
@@ -417,6 +420,55 @@ export default async function startWeb(restArgs) {
         for (const m of found.messages) if (m.agent_id) agents.add(m.agent_id);
         for (const agentId of agents) sendControlNotice(agentId, { kind: 'context_release', chat_id: chatId }).catch(() => {});
         sendJson(res, 200, { chat_id: chatId, state: 'closed' });
+        return;
+      }
+      if (req.method === 'POST' && p === '/api/chats/archive') {
+        // §5.1：后端一次编排——候选集由服务端计算（一条 SELECT，不受分页限制），逐条独立提交
+        // （单语句 autocommit ⇒ 成功项不回滚）；失败项 archived_at 仍为 NULL ⇒ 仍在主列表可重试。
+        const archivedIds = [];
+        const failedIds = [];
+        for (const chatId of db.listArchivable()) {
+          try {
+            if (db.archiveChat(chatId)) archivedIds.push(chatId);
+          } catch {
+            failedIds.push(chatId);
+          }
+        }
+        // §4.3 / AR-07：对每个成功归档的 chat 逐条释放上下文（best-effort，与 /close 同口径）
+        for (const chatId of archivedIds) {
+          try {
+            const found = db.getChat(chatId);
+            if (!found) continue;
+            const agents = new Set();
+            if (found.chat.agent_id) agents.add(found.chat.agent_id);
+            for (const m of found.messages) if (m.agent_id) agents.add(m.agent_id);
+            for (const agentId of agents) sendControlNotice(agentId, { kind: 'context_release', chat_id: chatId }).catch(() => {});
+          } catch {
+            /* 释放失败不影响归档结果计数 */
+          }
+        }
+        // 不发 SSE（§5.1）：归档不改 state、主列表不由 SSE 驱动；可见性由响应 + 前端重载承载。
+        sendJson(res, 200, { archived: archivedIds.length, failed: failedIds.length, failed_ids: failedIds });
+        return;
+      }
+      if (req.method === 'POST' && p.startsWith('/api/chats/') && p.endsWith('/activate')) {
+        const chatId = decodeURIComponent(p.slice('/api/chats/'.length, -'/activate'.length));
+        const found = db.getChat(chatId);
+        if (!found) {
+          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          return;
+        }
+        if (found.chat.archived_at === null) {
+          sendJson(res, 409, { error: 'chat 未归档，无法激活' }); // N-5：非归档的 closed 在此被挡住
+          return;
+        }
+        if (!db.activateChat(chatId)) {
+          sendJson(res, 409, { error: 'chat 未归档，无法激活' }); // 防御性：② 之后已非归档（单进程下不可达）
+          return;
+        }
+        const after = db.getChat(chatId);
+        publishState(chatId, after.chat.state); // §5.3 ④：状态读库值，不在 JS 里复刻 SQL 的 CASE
+        sendJson(res, 200, { chat_id: chatId, state: after.chat.state });
         return;
       }
       if (req.method === 'GET' && p === '/api/stream') {
@@ -459,9 +511,13 @@ export default async function startWeb(restArgs) {
           return;
         }
         const chatId = typeof body.chat_id === 'string' && body.chat_id ? body.chat_id : `chat-${randomUUID()}`;
+        // §4.4：两条独立判定路径，任一条命中即拒收（归档优先；closed 文案与状态码逐字不变）
         const existing = db.getChat(chatId);
-        if (existing && existing.chat.state === 'closed') {
-          sendJson(res, 409, { error: 'chat 已关闭，不接受新输入' });
+        if (existing && (existing.chat.archived_at !== null || existing.chat.state === 'closed')) {
+          sendJson(res, 409, {
+            error:
+              existing.chat.archived_at !== null ? 'chat 已归档（只读），不接受新输入' : 'chat 已关闭，不接受新输入',
+          });
           return;
         }
         // 消息文本 = 去掉 @agent 前缀后的剩余内容（入库 text 仍为原文，§4.3）
