@@ -132,3 +132,23 @@
 
 - 阶段：阶段 6（独立验证）
 - 任务：对迭代最终产物做整体验证（阶段 5 推进条件、依赖正确性、PR 粒度、产物一致性、测试、搭置文件、前端行为可达性）
+
+### 2026-09-11 16:58:31 · 收到报告 · dev（pr-001 实现）
+
+- 1. 产出：oamp/src/persist.js（TITLE_MAX_MANUAL=100 / readTitle 校验 / stmts.renameChat 独立单列 UPDATE / 写口返回权威标题或 null / 导出表 +1）、oamp/test/persist.test.js（白名单 7→8 + 6 个新用例）；commit 8ed6901
+- 2. changes 语义证据：命中（新值≠旧值）返回 trim 权威标题、同值幂等成功、不存在/已归档/已关闭 → null（三态实测）
+- 3. 列不变证据：除 title 外 9 列逐项 before/after 相等（含 updated_at 不变）
+- 4. 测试：persist.test.js 42/42；全仓串行 221/221
+- 5. 越界：编辑相对路径一度误写主仓库 persist.js，已 `git checkout HEAD --` 回滚并复核主仓库 oamp/ 零改动
+
+### 2026-09-11 16:58:31 · 收到报告 · verifier（阶段 6）
+
+- 1. 报告路径：docs/iterations/0014-chat-rename/clarifications/verify-20260911-164500-stage6.md；结论 PASS（7 pass / 1 不适用 / 0 fail / 0 partial / 7 偏差）
+- 2. 逐项判定摘要：两实施提交均为 HEAD 祖先且 oamp/ 零差异；自建 SQLite 探针 30/30；干净 clone 串行全量 226/226；搭置文件不存在
+- 3. 最需关注发现：cluster-actions.test.js 非密闭（实跑会截断活集群 .runtime/cluster 日志；本次观测日志被截零但集群进程/socket/sql.db 均正常）→ 下一迭代优先修
+- 4. 疑问/越界：偏差 7 条（口径/锚点/非密闭），无一条指向本迭代代码或验收缺陷
+
+### 2026-09-11 16:58:31 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 6 推进条件满足（0 fail / 0 partial）；迭代分支合入 main；修正偏差 1（有效上限按公式重算）与偏差 2（history 补 pr-001 实现事件）
+- 触发依据：stage6 报告结论 PASS；偏差 1/2 由 verifier 精确指出；cluster-actions 非密闭记入下一迭代候选
