@@ -190,3 +190,47 @@
 - 阶段：阶段 5（PR 实现）
 - 任务：实现 PR-004（agent 参数面 + 两条 LLM 路径注入 + auditContext 透传 + permission_denied 早退）
 - PR：prs/pr-004-agent-role-binding.md
+
+### 2026-09-11 12:49:49 · 收到报告 · verifier（pr-002 验收）
+
+- 1. 报告路径：docs/iterations/0012-roles-agent-cluster/clarifications/verify-20260911-122919-pr002.md；结论 PASS（0 fail / 0 partial / 5 偏差）
+- 2. 逐项判定摘要：卡验收全 pass；roles Map 键为角色名（契约原文）、instanceId 来自 role-binding（单点）、校验完备、cluster.json tracked 且零凭据、测试 182/182
+- 3. 最需关注发现：5 条偏差（含 model 不预置为架构口径一致行为，非缺陷）
+- 4. 疑问/越界：无阻塞项
+
+### 2026-09-11 12:49:49 · 收到报告 · verifier（pr-004 验收）
+
+- 1. 报告路径：docs/iterations/0012-roles-agent-cluster/clarifications/verify-20260911-123246-pr004.md；结论 PASS（0 fail / 1 partial / 6 偏差）
+- 2. 逐项判定摘要：16 项 pass；参数面/推断绑定/两条路径注入/auditContext 透传/permission_denied 早退/回归 16 项均核实
+- 3. 最需关注发现：A8 partial —— 匿名实例渲染行缺 `role=` 键，根因为 `log.js:22` 跳过 null（本 PR 边界外）
+- 4. 疑问/越界：D-2（一次性路径模型链层级差）、D-3（卡括注含 onPermissionRequest 但未透传）、D-4（tasks 未跟踪文件）——已分派修正（architect 修 §4.5/§11.2/§14 口径与 D-2 留档；pr-planner 修卡措辞；主 agent 提交 tasks 归档）
+
+### 2026-09-11 12:49:49 · 调度决策 · 槛位释放
+
+- 决策内容：pr-002 与 pr-004 合并进迭代分支 → 槛位释放（累计 2→4）；当前有效上限维持硬上限 5；pr-005（依赖 pr-002）与 pr-006（依赖 pr-003+pr-004）依赖均已满足，立即派发（第 3 批）
+- 触发依据：`git log` merge commits（6da6200 / e78ba20 / ad00c91）；迭代分支全量 `npm test` 182/182（bg_8）；prs/pr-005 与 prs/pr-006 的 depends_on 均已合并
+
+### 2026-09-11 12:49:49 · 派发 · dev（pr-005-cluster-entry）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-005（集群入口 up/down/status）
+- PR：prs/pr-005-cluster-entry.md
+
+### 2026-09-11 12:49:49 · 派发 · dev（pr-006-e2e-and-docs）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-006（端到端断言扩展 + README 集群一节）
+- PR：prs/pr-006-e2e-and-docs.md
+
+### 2026-09-11 12:49:49 · 收到报告 · dev（pr-005 / pr-006 实现完成）
+
+- 1. pr-005 产出：oamp/src/cluster.js（594 行）+ cli.js（+11）+ status.js（抽 queryNodes）+ test/cluster-actions.test.js（549 行，13 用例）；commit 564f49c；测试 195/195（串行全绿）
+- 2. pr-006 产出：test/acp-daemon.test.js（+273，纯追加 2 用例）+ README.md（+85，集群一节 + 4 个 env）；commit 76a10ac；测试 184/184
+- 3. 已知事实：cluster 用例共享仓库级 `.runtime/cluster`（并发 npm test 会互相 truncate；串行无问题）——记入阶段 6 候选
+- 4. 疑问/越界：pr-006 的审计断言取渲染行解析 fields（e2e 无进程内 recorder），口径与 §4.5 两层一致
+
+### 2026-09-11 12:49:49 · 派发 · verifier（pr-005 验收 / pr-006 验收）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：独立验收 pr-005 与 pr-006（含因果隔离抽查、串行全量测试、边界核查）
+- PR：prs/pr-005-cluster-entry.md、prs/pr-006-e2e-and-docs.md

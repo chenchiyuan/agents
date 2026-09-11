@@ -230,6 +230,7 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 | 理由 | 沿用 0011 §7.1 的"env 高于配置层"不变（env 是运维级显式覆盖）；角色级模型属**配置层内部**的按角色覆盖，落在全局配置默认之上、env 之下——即 prd 疑问 2 的"按角色覆盖属配置层内部、整体低于环境变量" |
 | 生效时机 | 每轮独立解析（0011 §7.1 语义不变）：未指定的轮次回到该实例的默认链 |
 | 校验 | `--model` 值按既有 `MODEL_RE = ^[A-Za-z0-9._/-]{1,128}$` 校验，非法 → 退出 2；模型不可用仍走 0011 §7.3「明确失败、不静默回退」 |
+| 一次性 `omp -p` 路径的**层级差（已知口径，非缺陷；阶段 5 验收 D-2）** | 该路径 argv 只带 `payload.model`（`runOmpTask`），其后各级交由 **omp 自身**解析（omp 的 env / 自身配置 / 内置默认）⇒ 生效链 = `payload.model > omp 自身解析`；**agent 不介入该路径的模型解析**：`config.defaults.model` 与角色级 `--model` 都**不作用于**一次性路径（与 0011 一致）。故当 `oamp/config.json` 或 `cwd` 级配置写了非默认模型时，常驻路径与一次性路径可能取到不同模型——**这是两条路径的既定分层，不是本迭代引入的缺陷**。承载卡面：F03 的验收以常驻（默认对话）路径为准；若后续要求一次性路径也覆盖角色级模型，属新增范围（需改 `runOmpTask` 的取模逻辑），本迭代不夹带（§14.8） |
 
 ### 4.2 模型标识的可观察面（AR-07）
 
@@ -274,7 +275,7 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 | 实现面 | `AcpClient._handleMessage()` 增加分支：`id` 存在**且** `method` 为字符串 → 服务端请求 → `_handleServerRequest(msg)`。**必须放在既有 pending 表查找之前**（今天这类帧会在 `:267` 的 `if (!entry) return;` 被静默丢掉 → 正是 V-6 的挂起根因，`acp-client.js:262-267`） |
 | 已知方法 | `session/request_permission` → 按策略回上述结果 |
 | 未知方法 | 回 JSON-RPC 错误 `-32601 Method not found`（**响亮失败，绝不静默丢弃**）——即使未来 omp 新增 `fs/*` / `terminal/*` 请求，也只会得到明确错误而非挂起（W-5 说明当前不会发生） |
-| 策略来源 | `cluster.json` 的 `roles.<role>.permission`（`allow` 缺省 / `deny`），经 `--permission` → `ContextPool` → `AcpClient` |
+| 策略来源 | `cluster.json` 的 `roles.<role>.permission`（`allow` 缺省 / `deny`），经 `--permission` → `ContextPool` → `AcpClient`（**静态档**）。另存在可选**动态策略钩子** `onPermissionRequest(info) ⇒ 'allow'\|'deny'`，给了则优先于静态档；**本迭代池层不传**（无验收标准要求按轮动态决策），保留为扩展点（§12.2 契约 1） |
 | 允许档行为 | 恒回 `allow_once`。**不用 `allow_always`**：omp 会按 cacheKey 缓存（`#V.set(cacheKey,'allow_always')`），此后同类调用**不再发请求** → 审计记录数 < 工具调用数，直接违反 F05-2 的 N=N |
 | 拒绝档行为 | ① 回 `reject_once`（工具调用以 `Tool call rejected by user (<tool>)` 抛错，模型可见）；② 立即发 `session/cancel` 终止本轮；③ 置 `permission_denied` 标记 → `prompt()` 在结算时**抛 `AcpError('permission_denied')`** → 该轮 `task.result{state:'failed', error:'permission_denied', text:'工具调用被 permission 策略拒绝（permission=deny）'}` → 落一条失败 out 记录（0011 §4.4 口径）。**三步使终态确定**：不依赖模型是否自行收敛 |
 | 拒绝后的会话 | **保留**（不是会话级失败）：`permission_denied` 列入 `_failSession` 的早退名单（与 `model_unavailable` / `context_busy` 同级），上下文与常驻进程不受影响，下一轮可继续 |
@@ -291,7 +292,7 @@ oamp agent start <instance-id> [--role <role>] [--model <model>] [--tools on|off
 | 项 | 定案 |
 |---|---|
 | 事件名 | **`TOOL_APPROVED`**（允许档）/ **`TOOL_DENIED`**（拒绝档）——一次 permission 请求**恰好一行**（N 次受门禁的工具调用 = N 条记录，F05-2 的字面判据） |
-| 字段 | **身份组**（来自 `auditContext` 注入）：`instance`（如 `pb-dev`）、`role`、`chat_id`、`context_id`；**协议组**（协议层自身可得）：`pid`、`tool`（`bash`/`edit`/`delete`/`move`）、`title`（截断 120 字符）、`tool_call_id`、`option`（`allow_once`/`reject_once`）。**取值口径（定案）**：以上键**恒定存在**（"无条件字段" = 键必有）；**未提供身份时其值为 `null`**（不等于"一定有非空值"）。集群路径下 `ContextPool` 恒透传 `auditContext`（§12.2 契约 1）⇒ 身份字段恒非空；阶段 6 对审计行的断言按"键存在 + 集群路径取值非空"判定 |
+| 字段 | **身份组**（来自 `auditContext` 注入）：`instance`（如 `pb-dev`）、`role`、`chat_id`、`context_id`；**协议组**（协议层自身可得）：`pid`、`tool`（`bash`/`edit`/`delete`/`move`）、`title`（截断 120 字符）、`tool_call_id`、`option`（`allow_once`/`reject_once`）。**取值口径（定案，作用域 = 事件对象层）**：**`AcpClient._audit()` 构造的事件对象中键恒定存在**（"无条件字段" = 事件对象键必有）；**未提供身份时其值为 `null`**。**渲染层会吞掉 `null`**：事件行由 `log.js` 的 `formatEventLine` 渲染，其中 `value === null` 即 `continue`（`log.js:22`）⇒ **匿名实例（无角色绑定）的渲染行中不出现 `role=` / `chat_id=` 等身份键**。集群路径下 `ContextPool` 恒透传 `auditContext`（§12.2 契约 1）⇒ 渲染行含身份键。**阶段 6 判定必须区分两层**：审计条数按渲染行计（一次受门禁调用恰一行）；身份键的有无按渲染行断言（集群实例有、匿名实例无）——不得把"渲染行含身份键"当作"事件对象无条件含非空值"的证据，也不得断言"行内恒有 9 键" |
 | 落点 | agent 的 stdout 事件行（`createEventLog().event()`，永不节流）→ 经 tmux `tee` 同时**落盘** `<PKG_ROOT>/.runtime/cluster/<instance>.log` 并在窗口可见（F06-6 的"每进程至少一份日志"） |
 | 为什么不落 SQLite | E-5/F02-5 明令"仅两类记录"（0011 §4.7 的模块边界）；审计是运行期事件，与 0010 以来"事件日志 = 终端事件行"的既有形态一致（F05 边界也要求"不新增日志面之外的检索面"） |
 | **覆盖范围的诚实边界** | 受门禁的工具只有 `bash`/`edit`/`delete`/`move`（W-3）；只读工具（read/glob/grep/todo/…）**不产生请求**，因而**没有记录**。E5 的"每一次工具调用都留下放行记录"在实现口径下 = "**每一次受门禁（可变更）的工具调用**恰好一条记录"。阶段 6 的审计断言必须用**变更类**指令（如"创建文件"→ `edit`；"执行 echo"→ `bash`），否则会误判（见 §14 疑问 1） |
@@ -629,6 +630,7 @@ has-session? 否 → 打印并退出 0
 > **已确认口径**：E5「每一次工具调用都留下放行记录」= **每一次受门禁（可变更）的工具调用恰好一条审计记录**（`TOOL_APPROVED` / `TOOL_DENIED`，一次 permission 请求一行）。受门禁工具仅 `bash` / `edit` / `delete` / `move`（omp 侧门禁集合；建文件走 `edit`，无 `write` 工具）；只读工具（read / glob / grep / todo / task / web_search）不经过门禁、因而无记录——这是 ACP 客户端可观察面的边界（ACP 不发 tool_call 帧，W-3 / W-4），**不是实现缺陷**。
 > **阶段 4/5 实现约束**：允许档恒回 `allow_once`（**不得**用 `allow_always`——omp 会按 cacheKey 缓存，此后同类调用不再发请求，审计记录数会少于调用数）；审计走 `logger.event()`（永不节流）。
 > **阶段 6 断言约束**：审计用例必须使用**变更类**指令（如"创建文件"→ `edit`、"执行命令"→ `bash`），断言"审计行数 = 受门禁调用数"；不得用只读指令断言字面 N=N。
+> **字段口径（作用域 = 事件对象层）**：`AcpClient._audit()` 的事件对象中身份键（`instance` / `role` / `chat_id` / `context_id`）恒定存在（未注入时为 `null`）；但**渲染层跳过 `null`**（`log.js:22`）⇒ **匿名实例（无角色绑定）的渲染行不含身份键**，集群实例的渲染行含。断言时按渲染行断言"键有无"（不得断言"行内恒有 9 键"），也不得把渲染行当作"事件对象无条件含非空值"的证据（详见 §4.5 / §14.8）。
 
 > **产品层已锁事项（本方案不推翻）**：tmux 多窗口形态（D-05）、按角色可配 cwd（缺省仓库根）、工具默认全开可按角色关、permission 默认允许 + 审计、默认模型 `deepseek/deepseek-v4-flash`、不改 workflow-pb 派发路径、零新第三方依赖。
 
@@ -670,9 +672,9 @@ has-session? 否 → 打印并退出 0
 
 - 跨组契约（必须在 G4/G5 开工前锁定，写进阶段 4 的 PR 卡）：
   1. `AcpClient` 构造参数（10 项）：`{ bin, model, cwd, tools, roleFile, permission, logger, onExit, onPermissionRequest, auditContext }`
-     - `onPermissionRequest(info) → 'allow'|'deny'`：策略判定与审计落行归调用方（`ContextSession`）。
-     - **`auditContext = { instance, role, chat_id, context_id } | null`（缺省 `null`）**：把审计事件所需的身份字段注入协议封装层——`AcpClient` 只知道 `pid`/session，无从获知 instance / role / chat_id，`context_id`（`ctx-<pid>-<generation>`）更是由池层生成。
-     - **pr-004 落地要求**：`ContextPool._ensureClient()`（`AcpClient` 的唯一构造点）**必须透传 `auditContext`**，不得留 `null` 而使审计行身份缺失。
+     - **`auditContext = { instance, role, chat_id, context_id } | null`（缺省 `null`）**：注入审计身份字段——`AcpClient` 只知道 `pid`/session，无从获知 instance / role / chat_id，`context_id`（`ctx-<pid>-<generation>`）由池层生成。**审计落行在协议层内部完成**（`AcpClient._audit()` → `logger.event()`，键集合固定、值缺省 `null`，§4.5），不回调调用方。
+     - `onPermissionRequest(info) → 'allow'|'deny'`（**可选**）：动态策略钩子，给了则**优先于**静态 `permission` 档；**本迭代池层不传**（策略由静态档决定，§4.4；无验收标准要求按轮动态决策），保留为扩展点。
+     - **pr-004 落地要求**：`ContextPool._ensureClient()`（`AcpClient` 的唯一构造点）**必须透传 `auditContext`**（pr-004 已按此落地：池层传入 `instance` / `role` / `chat_id` / `context_id` 四键，其中 `context_id` 因依赖 spawn 后的 pid 而由**惰性取值器**解析），不得留 `null` 而使集群路径的审计行身份缺失。
   2. `role-binding.js` 导出：`instanceIdForRole(role)` / `roleFromInstanceId(id)` / `resolveRoleRoot(env)` / `resolveRoleFile(root, role)`。
   3. `cluster-config.js` 导出：`loadClusterConfig({ path, env }) → { session, root, web, router, roles: Map<role, {instanceId, enabled, model, tools, permission, cwd}> }`（校验失败抛错）。
   4. `status.js` 导出：`queryNodes(config) → nodes[]`（默认导出行为不变）。
@@ -706,3 +708,4 @@ has-session? 否 → 打印并退出 0
 5. **F02-6 的判定口径需要一次澄清（口径已定案文本化，见 §2.4 / §3.2）**：本迭代在**仓库根新增 `cluster.json`**（F06-7 要求 tracked 的集群配置）。它不是"规则类文件"（omp 规则发现面是 `AGENTS.md`/`CLAUDE.md`/`SYSTEM.md`/`APPEND_SYSTEM.md` 一族，`cluster.json` 不在其中，且**不参与注入路径**）。F02-6/M-02 的判定表述为"**就地加载角色规则这一动作**前后，仓库根无新增/变更的**规则类文件**"。**处理**：架构不改产品维度；阶段 6 判定时按此口径执行，若用户认为 `cluster.json` 也算"新增文件"，则需把集群配置改放到 `oamp/`（会连带 §5.1 的路径基准调整）——**已随 L1-4 确认（2026-09-11）：配置保留在仓库根，判定按本节口径执行（见 §2.4 / §11.1）**。
 6. **改动边界（准确表述）**：`prd.md` / `prd/*.md` 仅回填架构维度（AR-01~AR-20）与两处架构性疑问的裁定标注，**未改动产品维度的判定内容**（验收标准 / 用户价值 / 边界 / model_inferred 列表）。`demand.md` **未由本角色改动**；该文件在阶段 3 期间经主 agent 授权做了**用户确认日期的时间口径修正**（2026-09-10 → 2026-09-11，仅日期、不涉产品内容）。`roles/**`、`oamp/**`（代码与配置）本迭代阶段 3 未改动；零新第三方依赖。
 7. **L1 已确认，可进入阶段 4**：L1-1~L1-6 于 2026-09-11 经用户全部确认（六项均按推荐方案，逐项记录见 §11.1），本文件的"定案"即为实现契约；后续若推翻任一项，属架构级变更——需回到本文件改 §7 / §11 并同步受影响的功能卡维度与阶段 6 判定面。
+8. **一次性 `omp -p` 路径的模型链层级差（已知口径，非缺陷；阶段 5 验收 D-2 留档）**：该路径 argv 只带 `payload.model`，其余层级交由 omp 自身解析 ⇒ 生效链 `payload.model > omp 自身解析`，**角色级 `--model` 与 `config.defaults.model` 均不作用于该路径**（0011 既有行为，agent 不介入一次性路径的模型解析）；常驻路径为五层链（§4.1）。当仓库配置了非默认模型时两条路径可能不一致——属既定分层。若后续把 F03 解读为"覆盖一次性路径"，属新增范围（需改 `runOmpTask` 取模逻辑），本迭代不夹带。
