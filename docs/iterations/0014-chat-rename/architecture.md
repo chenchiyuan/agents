@@ -28,7 +28,7 @@
 | `oamp/web/app.js`（691 行） | `state`（:15-26）；`renderChats()`（:94-148，含归档视图分支与 `escapeHtml(c.title)`）；`renderChat()`（:152-170，`:156` 空态文案 / `:163` 标题 / `:165` 关闭按钮禁用条件）；`handleEvent`（:340）；`loadChats`（:402）；`openChat`（:427）；`bind()`（:628-670） | **改造**：`state` +`titleEdit`；`renderChat()` 的标题落点改为 `renderTitle(chat)`、关闭按钮改用 `isReadonly(chat)`；新增 `isReadonly` / `renderTitle` / `beginTitleEdit` / `exitTitleEdit` / `commitTitle`；`bind()` 绑 3 个事件 |
 | `oamp/web/style.css`（321 行） | `.detail-head{display:flex;align-items:baseline;gap:12px}`（:155-162）、`.detail-head h1{margin:0;font-size:14px;font-weight:600}`（:163）、`.mention.hidden{display:none}`（:255） | **微改造**：`.detail-head h1.editable`、`.detail-title-input`、`.detail-title-input.hidden` 三条规则 |
 | `oamp/test/persist.test.js`（617 行） | 逐字断言 schema 对象集与 `chats` 9 列（:60-78）、写口白名单（:171-179）、`deepEqual` 详情对象（:383-386 等）、生成规则（:233-244） | **同步（AR-13）**：写口白名单 **+1 项**；新增改名语句用例（§8.1）。**列名断言与生成规则断言不动** |
-| `oamp/test/web.test.js`（1240 行） | API 契约（列表 / 过滤 / 详情 404 / close / 归档 / 激活 / 409 / SSE）+ 前端静态契约（:1000-1043）与 "后续输入不改标题"（:415-431） | **同步（AR-13）**：新增改名用例与静态契约追加断言（§8.2）。**既有断言全部不动** |
+| `oamp/test/web.test.js`（1240 行） | API 契约（列表 / 过滤 / 详情 404 / close / 归档 / 激活 / 409 / SSE）+ 前端静态契约（:1000-1043）、"后续输入不改标题"（:415-431）与 0013 段静态契约的 `:1235`（只读表达式字面顺序断言） | **同步（AR-13）**：新增改名用例与静态契约追加断言（§8.2）。**既有断言全部不动** |
 | `oamp/README.md` | 左栏 / 右栏 UI 描述（:126-128）、API 表（:153-161）、对话状态段（:165-168） | **同步（AR-13）**：见 §8.3 |
 | `oamp/src/{router,registry,rpc,node-client,config,log,transport,task,agent,acp-client,context-pool,cluster,cluster-config,role-binding,status,cli}.js`、`oamp/bin/`、`oamp/package.json`、`.gitignore` | 0010~0013 交付面 | **不改**（本次不触碰集群 / agent / 上下文池 / 传输 / 归档编排） |
 
@@ -38,7 +38,7 @@
 |---|---|---|
 | A | `readBody(req)` 的 `status` 语义（畸形 JSON → `err.status = 400`、超限 → `413`）与 `/api/messages` 的照办式应答（含 413 时 `connection: close`）（`web.js:66-99`、`:486-492`） | `/rename` 的请求体读取**逐字复用**同一个函数与同一段错误应答，零新解析逻辑 |
 | B | `readLimit`/`readArchived` 的"非法值抛 `Error`，调用方转 400"校验风格（`persist.js:90-134`；`web.js:377-391` 的 try/catch → 400） | `readTitle()` 加入同一函数族，风格一致；`/rename` 用同样的 try/catch → 400 |
-| C | 只读判定表达式 `archived_at !== null \|\| state === 'closed'`（**判定唯一落点** `web.js:516`，在 :515-522 的 409 分支内；前端**完整表达式仅** `app.js:165`，另有 `app.js:164`（「· 已关闭（只读）」文案，仅判 `closed`）与 `:510`（`closeCurrentChat` 的 `closed` 幂等守卫）两处**单条件方言**） | 提取为具名谓词 `isReadonly(chat)`（前后端各一份、同形同值），`/api/messages` 与 `/rename` 共用；SQL 侧同值守卫作结构性兜底（§4）；`:164` / `:510` 属展示与守卫、不参与"可否改名"判定 ⇒ 不纳入本次统一范围（§1.3-5） |
+| C | 只读判定表达式 `archived_at !== null \|\| state === 'closed'`（**判定唯一落点** `web.js:516`，在 :515-522 的 409 分支内；前端**完整表达式仅** `app.js:165`，另有 `app.js:164`（「· 已关闭（只读）」文案，仅判 `closed`）与 `:510`（`closeCurrentChat` 的 `closed` 幂等守卫）两处**单条件方言**） | 提取为具名谓词 `isReadonly(chat)`（前后端各一份、**同值**；前端字面顺序为 `closed` 在前，受 `web.test.js:1235` 既有静态契约断言约束），`/api/messages` 与 `/rename` 共用；SQL 侧同值守卫作结构性兜底（§4）；`:164` / `:510` 属展示与守卫、不参与"可否改名"判定 ⇒ 不纳入本次统一范围（§1.3-5） |
 | D | "单条状态变更"端点形态：预检 `getChat` → 404 / 域内拒绝 → 变更 → 回最小响应（`/close` `web.js:404-424`、`/activate` `web.js:454-473`） | `/rename` 完全同形：404 → 409（只读）→ 400（非法标题）→ 200 `{chat_id,title}` |
 | E | `sendJson(res, status, body)`（`web.js:59-63`，`cache-control: no-store`） | 全部响应沿用，零新工具 |
 | F | 前端 `#hint` 行 + `hint error` 类是既有的"一次性操作反馈 / 失败提示"承载（`openChat`/`send`/`closeCurrentChat`/`activate`/`archiveAll` 五处） | 改名失败提示**同级复用**（`改名失败：${err.message}`），零新提示面 |
@@ -234,7 +234,7 @@ function readTitle(value) {
 |---|---|---|---|
 | **①** | `web.js` 模块级 `isReadonly(chat)` | **判定真源（服务端）**——`/api/messages` 的 409 与 `/rename` 的 409 **共用同一个函数** | 就是 0013 既有表达式 `chat.archived_at !== null \|\| chat.state === 'closed'`，**逐字**提取为具名函数，求值结果不变 |
 | **②** | `stmts.renameChat` 的 `WHERE ... AND archived_at IS NULL AND state != 'closed'` | **结构性兜底**：判定与写入之间有竞态窗口时（单进程 + 同步语句下实际不可达），写入侧自己也不放行；未命中 ⇒ `changes = 0` ⇒ 上层报错而非静默成功 | SQL 侧同值表达（SQL 不能调用 JS，故必须字面重写；这是"同一规则的第二处文字"，不是第二套口径） |
-| **③** | `app.js` 模块级 `isReadonly(chat)` | **客户端门**：① 详情头标题能否进入编辑（F03 验收 1/2/3）；② 既有「关闭对话」按钮禁用条件（`app.js:165`，**前端唯一的完整只读面表达式**）。**同一函数同时服务这两处** ⇒ 前端没有第二套**判定**。**范围外记录**：`app.js:164`（只读文案，仅判 `closed`）与 `:510`（`closeCurrentChat` 的 `closed` 守卫）是同一概念的单条件落点，不参与"可否改名"判定，故不纳入统一（§1.3-5） | 与 ① **同形同值** |
+| **③** | `app.js` 模块级 `isReadonly(chat)` | **客户端门**：① 详情头标题能否进入编辑（F03 验收 1/2/3）；② 既有「关闭对话」按钮禁用条件（`app.js:165`，**前端唯一的完整只读面表达式**）。**同一函数同时服务这两处** ⇒ 前端没有第二套**判定**。**字面顺序说明**：前端字面取 `closed` 在前（受 `web.test.js:1235` 既有静态契约断言约束，见下方代码块），与服务端 ① 的 `archived` 在前**字面不同、语义同值**。**范围外记录**：`app.js:164`（只读文案，仅判 `closed`）与 `:510`（`closeCurrentChat` 的 `closed` 守卫）是同一概念的单条件落点，不参与"可否改名"判定，故不纳入统一（§1.3-5） | 与 ① **同值**（字面顺序不同：前端 `closed` 在前，受既有静态契约约束；见上方「字面顺序说明」） |
 
 ```js
 // src/web.js —— 模块级（放在 sendJson 之前，与其它 http 小工具同区）
@@ -262,10 +262,13 @@ function isReadonly(chat) {
 
 ```js
 // web/app.js —— 模块级（放在 badge() 附近，与其它纯函数同区）
-/** 只读面单一真源（前端侧，与 src/web.js 的 isReadonly 同形同值）：已归档 或 已关闭。
- *  标题编辑门（F03 验收 3）与「关闭对话」按钮禁用条件共用本函数。 */
+/** 只读面单一真源（前端侧，与 src/web.js 的 isReadonly 同值）：已归档 或 已关闭。
+ *  标题编辑门（F03 验收 3）与「关闭对话」按钮禁用条件共用本函数。
+ *  **字面顺序固定为 closed 在前**：`web.test.js:1235` 的既有静态契约断言（0013 段）按
+ *  `/chat\.state === 'closed' \|\| chat\.archived_at !== null/` 做逐字正则匹配，而 §8.2 要求既有断言不得修改
+ *  ⇒ 前端字面顺序受既有契约约束；`||` 交换不影响求值结果 ⇒ 与 §4.1 ① 的服务端谓词**同值**。 */
 function isReadonly(chat) {
-  return chat.archived_at !== null || chat.state === 'closed';
+  return chat.state === 'closed' || chat.archived_at !== null;
 }
 ```
 
@@ -705,6 +708,7 @@ graph LR
 | "后续输入不改标题" | `web.test.js:415-431` | F05 验收 2 |
 | `chats` 9 列列名与 schema 对象集 | `persist.test.js:60-78` | 零数据层变更（`title` 列已存在；本次不加列） |
 | closed 的 409 文案与状态码 | `web.test.js`（归档 / 关闭用例） | §4.2 只读提取的对外零变化 |
+| 前端只读表达式的**字面顺序**（`chat.state === 'closed' \|\| chat.archived_at !== null`） | `web.test.js:1235`（0013 段静态契约） | §4.1 ③：前端 `isReadonly` 的字面顺序受此正则约束（**只约束前端字面**；服务端 `web.js:516` 仍按 `archived` 在前逐字提取） |
 
 > F05 验收 3（`@agent` 前缀计入）与验收 4（改名后保持手动值）：前者由既有断言覆盖（`persist.test.js:233-244` 的生成路径逐字未动）；后者是新用例（§8.2 ⑦）——**它验证的是本次新增能力与既有路径的隔离**，不是对既有断言的修改。
 
