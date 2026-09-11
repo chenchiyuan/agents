@@ -55,6 +55,7 @@ const LIMIT_DEFAULT = 50;
 const LIMIT_MAX = 200;
 const TITLE_MAX = 40; // AR-02：标题 = 首条输入去空白后截断
 const TITLE_FALLBACK = '新对话'; // AR-02：空标题兜底
+const TITLE_MAX_MANUAL = 100; // §3.1：手动标题上限，UTF-16 code unit（= String.length，D-5）；与 TITLE_MAX 互不引用
 const LIKE_ESCAPE = '\\'; // §4.6：LIKE 通配符转义字符
 
 const CHAT_COLUMNS = 'chat_id, title, agent_id, state, created_at, updated_at, closed_at, archived_at, context_released';
@@ -128,6 +129,22 @@ function readOptionalString(value, name) {
   return value;
 }
 
+/** 手动标题校验与归一（§3.3 / F02-1/2/4/6）：trim（首尾去空白，内部保留）→ 非空 → ≤ 100。
+ *  非法入参抛错（由 renameChat 内建调用）⇒ 调用方转 400；绝不静默兜底。 */
+function readTitle(value) {
+  if (typeof value !== 'string') {
+    throw new Error(`标题非法: 需为字符串（当前值 ${JSON.stringify(value)}）`);
+  }
+  const title = value.trim();
+  if (title === '') {
+    throw new Error('标题非法: 不能为空或全为空白');
+  }
+  if (title.length > TITLE_MAX_MANUAL) {
+    throw new Error(`标题非法: 长度需 <= ${TITLE_MAX_MANUAL}（当前 ${title.length}）`);
+  }
+  return title;
+}
+
 /**
  * openDb — 建库/开库并返回持久层句柄。
  * 目录不存在 → mkdir -p（§4.2，`data/` 被 gitignore，首次运行必然不存在）；
@@ -153,6 +170,12 @@ export function openDb(dbPath) {
        ON CONFLICT(chat_id) DO UPDATE SET
          title = excluded.title, agent_id = excluded.agent_id, updated_at = excluded.updated_at
        WHERE chats.state != 'closed'`,
+    ),
+    // ★ 改名（§3.1 硬契约 ①）：SET 只有 title 一列 ⇒ updated_at（不置顶）/ agent_id / state / archived_at /
+    //    closed_at / created_at / context_released 全不被触碰；双守卫与只读面同值（archived_at IS NULL、state != 'closed'）；
+    //    未命中 ⇒ changes = 0，由包装函数转为"未写入"，绝不静默报成功。
+    renameChat: db.prepare(
+      `UPDATE chats SET title = ? WHERE chat_id = ? AND archived_at IS NULL AND state != 'closed'`,
     ),
     insertMessage: db.prepare(
       `INSERT INTO messages (chat_id, direction, agent_id, text, model, duration_ms, error, created_at, meta)
@@ -231,6 +254,13 @@ export function openDb(dbPath) {
     return stmts.chatExists.get(chatId) !== undefined;
   }
 
+  /** 改名：返回已写入的权威标题（trim 后）；未写入（不存在 / 已归档 / 已关闭）→ null。
+   *  非法标题由 readTitle 抛错（不进 SQL）。返回值即 changes 校验的对外表达（§3.1）。 */
+  function renameChat({ chatId, title } = {}) {
+    const normalized = readTitle(title);
+    return stmts.renameChat.run(normalized, chatId).changes > 0 ? normalized : null;
+  }
+
   function archiveChat(chatId, nowMs = Date.now()) {
     return stmts.archiveChat.run(nowMs, chatId).changes > 0;
   }
@@ -277,7 +307,7 @@ export function openDb(dbPath) {
   }
 
   return {
-    insertInput, insertOutput, upsertChat, closeChat,
+    insertInput, insertOutput, upsertChat, closeChat, renameChat,
     archiveChat, activateChat, listArchivable,
     startupSweep, listChats, getChat, close: () => db.close(),
   };
