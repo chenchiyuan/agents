@@ -236,3 +236,28 @@
 - 工作区地址：各自 PR worktree 绝对地址（pr-001: `.pb-agents/worktrees/0018-pr-001-transport-call-key-namespace`；pr-002: `.pb-agents/worktrees/0018-pr-002-registry-task-list-model`）
 - 任务：按各自 `prs/pr-{NNN}-tasks.md` 实现最小改动
 - 简报附带：① 工作目录纪律硬性段（含本仓库实测的 `edit` 相对路径按会话 cwd 解析的坑）；② 已裁定的 2 条 `[model_inferred]` 实现口径（仅 pr-001）；③ pr-002 的 §1.1 括注口径提示（以 README 7 项为判据宿主）
+
+### 2026-09-12 23:34:00 · 收到报告 · dev（pr-002）
+
+- 1. 改了什么文件：`oamp/src/registry.js` 1 文件 / +1 行（`listTasks` 投影追加 `model: task.result?.model ?? null,`），提交 `a827f4e`
+- 2. 测试结果：PR 验收 5 条全 PASS（T1/T2 逐条 evidenced：键恒存在且进行中为 `null`；终态读 `result.model`；diff 单 hunk 归位于 `listTasks`；`node --test oamp/test/task.test.js` 6/6 绿且该文件 diff 0 行；`router.js` diff 0 行；方法面 7 项断言单跑 1/1 通过）
+- 3. 疑问/待办：① 上游口径（architecture §1.1 括注 vs README 7 项）已按 tasks.md 判据宿主执行，未据括注改动；② T1 验收 3 提到的 `agent.js` 终态实报点未逐行复核（超出本 PR 范围，零改动 agent.js）
+- 4. 违反边界的事：无（未新增依赖/配置键；未触碰 roles/.claude/docs/test/router.js；未 push/merge/切分支；未用 --no-verify）；三处 git status 中报告会话工作区出现游离未跟踪文件 `docs/iterations/0018-chat-agent-subprotocol-x`
+
+### 2026-09-12 23:34:30 · 调度决策 · 阶段推进核查
+
+- 决策内容：**清理主 agent 自身造成的游离文件**——23:14 主 agent 在会话工作区误执行 `cat >> docs/iterations/0018-chat-agent-subprotocol-x`（笔误重定向）产生 0 字节未跟踪文件；已 `rm` 删除，会话工作区恢复干净（0 处改动）。**未提交、未进任何分支**，无下游影响。根因 = 命令拼接时残留的错误重定向片段
+
+### 2026-09-12 23:41:00 · 收到报告 · dev（pr-001）
+
+- 1. 改了什么文件：`oamp/src/transport.js` 1 文件 / +68 -19（三个具名键构造函数 + `chatKeyOrGlobal` + `subscribe/publishTo/closeKey` 内核抽取 + 4 个新方法 + `closeAll` 遍历三键空间），提交 `cb1bdc8`
+- 2. 测试结果：PR 验收 6 条全 PASS + T3 附加 3 项 PASS；既有 `oamp/test/transport.test.js` **13/13 绿且该文件 diff 0 行**；真实 node:http SSE 客户端验证双键写入、串键窗口不成立（`chat_id='call:C1'` 收不到 `publishCall('C1')`）；`dependencies` 仍 `{}`、零新 import
+- 3. 疑问/待办（4 条判断项，均已说明，无阻塞）：① 新增架构 §4.2 未命名的内部函数 `chatKeyOrGlobal`（理由：`chatKey` 保持纯前缀模板以逐字对齐架构，null 分支收敛在一处；影响仅源码形态）；② `publishCall` 对缺失 `event.data.chat_id` 不做守卫（与既有 `publish` 同口径；入参校验属调用面职责）；③ return 对象改两行排版（键集合/顺序/语义不变）；④ 无阻塞疑问
+- 4. 违反边界的事：无
+
+### 2026-09-12 23:42:00 · 派发 · verifier（pr-001 ∥ pr-002，同批并发）
+
+- 阶段：阶段 5 首波 PR 级验收（合并前门禁）
+- 产出物：各自 PR worktree 分支的实现提交 + PR 文件 + tasks 文件
+- 验证标准：A 全部「验收标准」（自跑命令）/ B tasks 内任务验收 / C 改动面零越界 / D 既有测试零改写 / E 无回归（另跑一个受影响文件）/ F 实现自陈与代码一致性（含新增未命名符号的偏差登记）
+- 报告落点：会话工作区 `clarifications/verify-pr-{NNN}-{timestamp}.md`（不写 PR worktree）
