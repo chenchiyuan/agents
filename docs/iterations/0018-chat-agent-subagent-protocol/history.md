@@ -261,3 +261,25 @@
 - 产出物：各自 PR worktree 分支的实现提交 + PR 文件 + tasks 文件
 - 验证标准：A 全部「验收标准」（自跑命令）/ B tasks 内任务验收 / C 改动面零越界 / D 既有测试零改写 / E 无回归（另跑一个受影响文件）/ F 实现自陈与代码一致性（含新增未命名符号的偏差登记）
 - 报告落点：会话工作区 `clarifications/verify-pr-{NNN}-{timestamp}.md`（不写 PR worktree）
+
+### 2026-09-12 23:48:00 · 收到报告 · verifier（pr-001 / pr-002 验收）
+
+- pr-001：`clarifications/verify-pr-001-20260912-232019.md`，**PASS 32 项 / fail 0 / partial 0**；偏差 5 条（含 4 个未命名内部符号为函数体搬迁、`publishGlobal`/`closeAll` 内部换用新内核、`tasks` 内行号为阶段 3 快照）；回归：`web.test.js` 39/39、`delivery-contract.test.js` 12/12
+- pr-002：`clarifications/verify-pr-002-20260912-231911.md`，**PASS 19 项 / fail 0 / partial 0**；偏差 3 条（tasks T2.2 的 diff 字面读法、README 方法面 7 项 vs `router.js` 实际 8 个 case、`message.deliver` 无入站 case）；回归：`project-workspace.test.js` 21/21
+- 两报告均把字面读法差异按权威读法判 pass 并登记为偏差（主 agent 口径已预先写入简报）
+
+### 2026-09-12 23:49:00 · 调度决策 · 槛位释放
+
+- 决策内容：**合并 pr-001 与 pr-002** 进迭代分支：`b92ad82`（pr-001，含 tasks 文件）/ `95051b0`（pr-002）；现场清理 = 两 PR worktree `remove` + 两 `feat/*` 分支 `-d`；槛位释放 2 ⇒ `累计槛位释放次数` 0→2、`当前有效上限` = min(3+2×3,5) = **5**（已触硬上限）
+- 触发依据：两 PR 的 PR 级验收均 PASS（规范：合并进迭代分支才算解锁）
+- 解锁结果：**pr-003 解锁**（`depends_on` = pr-001 + pr-002，两者均已合并）；pr-004/pr-005 仍阻塞（依赖 pr-003）
+
+### 2026-09-12 23:50:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：修正 `status.md` 两处过期占位块（「PR 实现子状态」占位表未替换为真表；残留一份「并发配置」占位块）——占位块零残留；PR 子状态表已填入五个 PR 的真实状态与合并 commit
+- 触发依据：主 agent 台账一致性自检（规范要求 status.md 与文件系统不一致时以文件系统为准修正）
+
+### 2026-09-12 23:51:00 · 派发 · planner（pr-003）+ progress-observer（同批并发）
+
+- planner：阶段 5 第二波（pr-003，6 文件 / 15 张卡 / 含既有测试断言改写）；工作区地址 = `.pb-agents/worktrees/0018-pr-003-call-http-surface-and-contract-docs`
+- progress-observer：规范「自动触发」——每次一个 PR 完成 merge 后刷新 `progress.md`（本次覆盖首波两个 merge）
