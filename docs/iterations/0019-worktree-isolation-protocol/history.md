@@ -187,3 +187,76 @@
 
 - 阶段：阶段 4（PR 规划）
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖，从架构方案+代码库现状出发，不经过全局任务图这一中间环节
+### 2026-09-12 19:03:00 · 收到报告 · pr-planner
+
+- 1. prs/ 目录路径：docs/iterations/0019-worktree-isolation-protocol/prs/
+- 2. 文件列表：pr-001-workflow-pb-workspace-isolation-protocol.md、pr-002-cross-iteration-d2-registration.md
+- 3. 每 PR 摘要：**pr-001**（协议本体）= 涉及 F01~F14；文件范围 = `roles/workflow-pb/workflow-pb.md`（W1~W19）+ `roles/workflow-pb/data/workflow-pb-changelog.md` + `roles/workflow-pb/memory.md` + `.claude/skills/workflow-pb/SKILL.md`（S1~S10）+ `.claude/skills/workflow-pb/data/skill-optimization-v1.12.0.md`（新建）+ `.claude/skills/workflow-pb/memory.md`；depends_on（无）；batch 1。**pr-002**（跨迭代 D-2 登记）= 涉及 F15；文件范围收缩为 `docs/iterations/0017-project-workspace/status.md` + `docs/iterations/0019-worktree-isolation-protocol/status.md`；depends_on（无）；batch 1
+- 4. 疑问/越界：越界无（只创建 prs/ 与 2 个 PR 文件；未改任何只读输入；未执行 git、未跑测试）。上报 4 项疑问：Q-1 architecture 内部矛盾（`workflow-pb.md:114` 判定为「要改」却在 §5.1 无承载条目且被列为零改动）；Q-2 SKILL 版本引用 3 处中 2 处可能漏改；Q-3 F15 的 0018 落点在本迭代分支不可达；Q-4 pr-002 改动 0019 status 与我（主线）争用同一文件。**粒度裁决**：按物理文件切分成立（两组文件真交集为空）——否决同文件内区域切分，理由为三条整文件扫描判据（F13 验收 2 / F14 验收 1 / F07 验收 5）会使区域切分产生无法自检的「半改进」状态，且规范与 SKILL 之间存在单向引用（SKILL 新增引用要求规范先落地）
+
+### 2026-09-12 19:05:00 · 调度决策 · Gate确认
+
+- 决策内容：主 agent 对 pr-planner 4 项疑问的裁定（均 L2 级）—— **Q-1 = ①**（`:114` 的 `worktree` 加术语限定为「PR worktree」；零改动清单中 `## 阶段定义` 收窄为「除该术语限定外的全部内容」；依据 F07 验收 5 的整文件扫描判据）；**Q-2 = ①**（SKILL 三处版本引用全部同步）；**Q-3 = ②**（不开跨工作区写入例外——规则 F 例外为闭集两项；0018 一侧已由既有提交 `89182b7` 的 C-3 行完成，pr-002 收缩为两个文件并把 0018 侧写成「已完成的外部证据」条目）；**Q-4 = (a)**（pr-002 只改 0019 status 的 §待确认项 D-2 单段，合并前以当时迭代分支重基线；不得触碰其余段落）
+- 决策内容（配套）：派发 architect 做**收口后台账修正轮**（只改 architecture.md）→ architecture.md 升 **v1.2.0**：§5.1 新增 **W19** 承载 `:114` 术语限定、零改动清单收窄、§2.3-#4 补承载条目指针、§12 增一致性行；**无新 L1 候选**
+- 触发依据：pr-planner 报告 Q-1~Q-4；主 agent 一手核对 `roles/workflow-pb/workflow-pb.md:114` 与 architecture §2.3-#4、§5.1；0017 复盘与 0015/0017/0018 体例先例（不开跨工作区写入例外）
+
+### 2026-09-12 19:08:00 · 收到报告 · pr-planner
+
+- 1. prs/ 目录路径：docs/iterations/0019-worktree-isolation-protocol/prs/（修订轮，未新建 PR 编号）
+- 2. 文件列表：仍为 2 个（pr-001 / pr-002）
+- 3. 每 PR 摘要：pr-001 按 Q-1/Q-2 更新（`:114` 术语限定条目 + 引用 architecture v1.2.0 + SKILL 三处版本同步）；pr-002 按 Q-3/Q-4 收缩（两个文件 + 0018 侧改为外部证据条目 + 单段改动与重基线前置说明）
+- 4. 疑问/越界：越界无；**四项推进条件自检全通过**（七字段齐备 / F01~F15 全覆盖 / 文件范围真交集为空 / 依赖图无环）；预期并发度不变（pr-001 ∥ pr-002 同波次，关键路径 = pr-001）；遗留（非阻塞）：pr-001 未引用 architecture §2.3 的 26/27/28 计数（该三处计数在 architecture 内部不一致），只引用其判定规则
+
+### 2026-09-12 19:09:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 4 四项推进条件**全部通过** → 标记 ✅；进入「Gate: 阶段 4 → 5 入口」——派发 `verifier` 对 `docs/iterations/0019-worktree-isolation-protocol/prs/` 做独立验证（内联验证标准：七字段格式规范；PR 粒度三条锚点；依赖正确性（每条 depends_on 有证据 / 依赖图无环 / 文件范围无重叠 / F01~F15 全覆盖）；与 architecture.md v1.2.0 §5 变更面清单（W1~W19 / S1~S10 / 零改动清单）的一致性）。验证结论必须为 pass 才进入阶段 5
+- 触发依据：pr-planner 自检四项全过 + 主 agent 核对（`ls prs/` 两个文件；architecture v1.2.0 已落盘）；workflow-pb §Gate: 阶段 4 → 5 入口
+
+### 2026-09-12 19:09:00 · 派发 · verifier
+
+- 阶段：Gate（阶段 4 → 5 入口，独立验证阶段 4 产物）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
+### 2026-09-12 19:17:30 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0019-worktree-isolation-protocol/clarifications/verify-gate-stage4-20260912-191730.md
+- 结论：**FAIL / 未通过 Gate**（verifier 自报「结论 FAIL」，但汇总为 fail 0 / partial 2 / pass 4 / blocked 0——按 Gate 规则「所有条目必须 pass」判定为**未通过**；其自报结论字面与汇总不一致，主 agent 按 Gate 规则从严判定，并已作为偏差登记）
+- 验证者身份反射：独立 PR 规划审查者（发布/集成规划审查者）
+- 逐项：① 格式规范 pass（两文件各恰含七字段）② PR 粒度 pass（两 PR 的原子性/可审查性/独立性均成立）③ 依赖正确性 pass（depends_on 空集且可核实、无环、文件真交集为空、F01~F15 全覆盖）④ 与 architecture 一致性 **partial**（W1~W19 / S1~S10 全覆盖且零改动面未被误列；但不符 3 条 + 编号冲突 1 条：0018/status 登记落点在 pr-002 缺失、§5.2-S10 行号枚举过期、术语限定处计数三套、PR 引用的 Q-1~Q-4 与 architecture §7 同号不同义）⑤ 交付前置 **partial**（pr-001 21 项中 20 项可直接判定，`:53` 术语限定面因计数自相矛盾不可判定；pr-002 7 项中 6 项可判定，0018 一条依赖迭代外证据）⑥ 格式硬冲突检查 pass（文件范围无重叠未被违反、也不存在不可避免被违反）
+- 偏差记录：**5 条**（#1 计数三套 / #2 S10 行号过期 / #3 0018 落点需裁决 / #4 Q 编号冲突且裁定原文不可查 / #5 200 字口径歧义）
+- 下一迭代候选：按报告（不在本次验收标准范围内）
+- 已知事实核对：`deferred-demand-changes.md` 实测不存在，不影响任何判定（无搭置需求变更）
+
+### 2026-09-12 19:20:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：Gate **未通过**（2 项 partial）→ **不进入阶段 5**；按规范「回到阶段 4 修订 PR 文件」处置。判定：**PR 边界 / 依赖图 / 文件范围 / batch 全部无需重规划**（标准 ②③⑥ 全 pass），失败项全部属「architecture 基准台账不一致 + PR 引用编号歧义」⇒ 处置 = 派发 architect 修正台账（v1.2.1）+ 派发 pr-planner 同步引用，然后**重新派发一个新的 verifier 复验**（不复用原 verifier，保持独立性；并明确 Gate 结论规则 = 全部条目 pass 才通过）
+- 触发依据：Gate 报告 §逐项（④⑤ partial）、§偏差记录 #1~#5、§需主 agent 处理项 4 条
+
+### 2026-09-12 19:20:00 · 派发 · architect
+
+- 阶段：阶段 3 台账的第二轮修正（由 Gate 的 partial 与偏差触发）
+- 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
+
+### 2026-09-12 19:26:00 · 收到报告 · architect
+
+- 1. architecture.md 路径 + 核心组件列表：docs/iterations/0019-worktree-isolation-protocol/architecture.md（**v1.2.1**）；核心组件不变
+- 2. L1 决策清单：无新增（三条 L1 已确认；本轮无新 L1 候选）
+- 3. 新引入的技术组件/技术栈：0 条
+- 4. prd/*.md 中已填写的 `[架构待填]` 条目数：16/16 不变（本轮仅同步 F07 卡的架构维度）
+- 5. 疑问/越界：越界无；**Gate 四项偏差逐条闭合** —— ① 术语限定计数单一口径 = **7 处（规范 6 + SKILL 1，按行计）**，写入 §2.3 文末作为唯一验收基准，并同步 §4-L2-7 / W19 / F07 卡 / §12；② S10 行号改为实测 `:4` / `:30` / `:58`（判据 `grep -n 'v0\.8\.0'` 改后 0 命中），并复查 §5.2 其余条目行号一致、修正 §5.1-W15 的 `:350-` → `:348-`；③ 新增 §6.1 登记 **ADR-1~ADR-4**（按 history.md 19:05:00 条目原文），§5.4 与 §8.7 收窄为「0017/0019 两处由 pr-002 承担、0018 只引用不写入」；④ §7 顶部声明两套编号空间 + 映射，此后一律用 ADR 编号。未处理项：Gate 偏差 #5（200 字口径 / prd.md:8 计数，属 prd/规范侧且 prd.md 禁改）
+
+### 2026-09-12 19:28:00 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划，第三轮——按 Gate 结论同步引用）
+- 任务：反射出可独立合并的提交单元划分及单元间真实依赖，从架构方案+代码库现状出发，不经过全局任务图这一中间环节
+
+### 2026-09-12 19:33:00 · 收到报告 · pr-planner
+
+- 1. prs/ 目录路径：docs/iterations/0019-worktree-isolation-protocol/prs/
+- 2. 文件列表：仍 2 个（pr-001 91 行 / pr-002 52 行）
+- 3. 每 PR 摘要：pr-001 F01~F14、6 文件、无依赖、batch 1；pr-002 F15、2 文件（0018 一处移入 ADR-3 外部证据、不写入）、无依赖、batch 1
+- 4. 疑问/越界：越界无；**Gate 中与 PR 文件相关的不可判定项逐条闭合** —— ① 术语限定面改为引用 architecture v1.2.1 §2.3 文末枚举（7 处，按行计），声明不引用其它计数口径；② S10 写定 3 处实测位置 + `grep` 0 命中判据，`:31`/`:365` 写明随 S6/S1/S5 同步；③ 全部 Q 引用改为 ADR-1/ADR-2（pr-001）与 ADR-3/ADR-4（pr-002），并附 history.md 指针，W11 与参考资料中的 Q-1=A/Q-5 显式限定为 architecture §7 编号空间；④ pr-002 的 0018 段落改写为 ADR-3 外部证据条目（证据 = 分支 iteration/0018-… 提交 89182b7 的 C-3 行）。**四项推进条件自检全通过**；PR 边界/依赖/文件范围未变化；预期并发度不变（2）
+
+### 2026-09-12 19:34:00 · 派发 · verifier
+
+- 阶段：Gate（阶段 4 → 5 入口，**复验**——新实例，不复用原 verifier）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
