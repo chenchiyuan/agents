@@ -30,8 +30,8 @@
 ## 待确认项
 
 - [ ] **C-1（工作区共享冲突，已登记；用户已知晓）**：外部会话在同一工作区完成迭代 0017 收口（阶段 6 PASS → 合并 main `03a2f00` → 删除 0017 分支），其收口提交 `028ca8a` 落在本迭代分支上且**不在 main**。主 agent 的处置：不改写任何 ref、不删除他人提交、不替 0017 做提交决策。用户裁决（本轮）：这正是需要 0019 解决的根因。
-- [ ] **C-2（0017 两处残留，已被 stash 具名保存）**：① `docs/iterations/0017-project-workspace/history.md`（外部会话 17:42:52 收口记录）；② `docs/iterations/0017-project-workspace/clarifications/verify-stage6-20260912-173934.md`（工作区版本比 `028ca8a` 中版本第 160 行有一处 `:695-699` → `:695-698` 修正）。两者已 `git stash push` 具名为 `0017 收口残留（外部会话未提交）: history 17:42:52 记录 + verify-stage6 :695-698 修正`，原始副本另备份于 `/tmp/pb-0017-residual/`。恢复 0018 时在同一分支 `git stash pop` 即可。
-- [ ] **C-3（0017 遗留缺陷 D-2，用户裁决：不纳入）**：`/api/chats`、`/api/messages` 路由登记元数据缺 `project_id` —— **不在本迭代完成**；0017 的 status.md 已登记为「下一迭代第一优先候选」，后续迭代处理。
+- [ ] **C-2（0017 两处残留的最终去向；2026-09-12 18:20 按 progress-observer 独立核实修正）**：① `docs/iterations/0017-project-workspace/history.md`（外部会话 17:42:52 收口记录）；② `docs/iterations/0017-project-workspace/clarifications/verify-stage6-20260912-173934.md`（工作区版本曾比 `028ca8a` 中版本第 160 行多一处 `:695-699` → `:695-698` 修正）。**实际情况（修正原表述）**：主 agent 执行 `git stash push` 时已无内容可保存——外部会话已抢先把两处残留提交进 main（`9ede9ea`，17:46:02）；实测 `git stash list` 为空、`refs/stash` 不存在，**恢复 0018 时无需 stash pop**。工作区版本的 `:695-698` 修正仅存于 `/tmp/pb-0017-residual/`（3 文件备份，mtime 17:42~17:44）。0017 收尾产物以 main 中的版本为准；其提交版内部的一字符自相矛盾见 0019 台账 D-4 留痕。
+- [ ] **C-3（0017 遗留缺陷 D-2，用户裁决：不纳入本迭代）**：`/api/chats`、`/api/messages` 路由登记元数据缺 `project_id` —— 不在本迭代完成。**归属（2026-09-12 18:20 更新）**：用户裁决由 **0019 完成后起的单独小迭代承接**，三处 status（0017 / 0018 / 0019）互相引用留痕；0018 恢复时不承接该项（除非用户另行指示）。
 - **无其他用户待确认项**（P-1~P-11、Q-1、MI-01~MI-08 均已裁决并落盘）。
 
 ## 用户确认记录（Gate）
