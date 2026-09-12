@@ -64,3 +64,27 @@
 
 - 阶段：阶段 4（PR 规划）
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖，产出 prs/ 目录下的 PR 文件
+
+### 2026-09-12 11:08:45 · 收到报告 · pr-planner
+
+- 1. prs/ 路径 + 文件列表：docs/iterations/0015-hub-orchestration-open-api/prs/；pr-001-heartbeat-two-tier.md、pr-002-open-api-and-agent-panel.md、pr-003-api-doc.md
+- 2. 每 PR 摘要：pr-001（心跳两档：config/registry/router/node-client/agent + agent-heartbeat.test.js；F03/F08）；pr-002（开放接口 + 顶栏面板：transport/web/index.html/app.js/style.css + transport.test.js/web.test.js；F01/F02/F04/F05/F06）；pr-003（API.md + README；F07）
+- 3. depends_on 证据：pr-001/pr-002 均无依赖（各附代码级证据：snapshot 4 字段投影、web.js 路由表自足、transport 键结构）；pr-003 → pr-001 + pr-002（文档必须描述已存在的代码符号）
+- 4. 校验：七字段齐备、文件范围互斥、依赖图无环（fan-in）、F01~F08 全覆盖且无重复归属
+- 5. 疑问/越界：G2+G3 合并为 pr-002 的边界裁决（web.test.js 互斥下唯一无环解，替代路径会成环）；三处更细切分被评估后否决（理由充分）；architecture 一处行数引用偏差（647 vs 644，不影响判断）
+
+### 2026-09-12 11:08:45 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 4（PR 规划）推进条件满足，进入阶段 5；初始化并发配置（起始 3 / 硬上限 5 / 有效上限 3）；**首批并发派发 pr-001 ∥ pr-002**（依赖均为空）；阶段 2/3/4 验证合并为一次 verifier
+- 触发依据：3 PR 七字段齐备；depends_on 有代码级证据；文件范围互斥；依赖图无环；F01~F08 全覆盖
+
+### 2026-09-12 11:08:45 · 派发 · verifier（阶段 2/3/4 合并验证）
+
+- 阶段：阶段 3（技术架构）
+- 任务：独立验证 prd 覆盖性、architecture 补全度与 L1 判定、prs 依赖正确性与格式
+
+### 2026-09-12 11:08:45 · 派发 · dev（pr-001-heartbeat-two-tier ∥ pr-002-open-api-and-agent-panel）
+
+- 阶段：阶段 5（PR 实现，并发首批）
+- 任务：pr-001（心跳两档与租约联动）；pr-002（开放接口 + 全局事件流 + 统一错误 + 顶栏面板）
+- PR：prs/pr-001-heartbeat-two-tier.md、prs/pr-002-open-api-and-agent-panel.md
