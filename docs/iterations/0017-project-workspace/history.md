@@ -364,3 +364,55 @@
 - 阶段：阶段 5（PR 实现，PR 级验收）
 - 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
 - PR：prs/pr-004-project-workspace-acceptance.md（worktree feat/pr-004 @ 60ba902）
+
+### 2026-09-12 17:32:04 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0017-project-workspace/clarifications/verify-pr-004-20260912-172839.md
+- 结论：**PASS**（fail 0 / partial 0 / blocked 0 / 偏差记录 9 条）；验证者身份 = 测试工程师（兼代码审查者）+ 接口契约审查者 + 前端契约审查者
+- 逐项：PR 验收 8/8 pass；文件范围 pass（唯一新文件，22 个既有测试文件与 src/**、web/**、API.md/llms.txt/README.md/package.json 零改动）；功能卡产品维度 **53/53 pass**（F01 7 / F02 5 / F03 5 / F04 6 / F05 6 / F06 6 / F07 7 / F08 6 / F10 5）；断言强度 pass；实际执行 pass；隔离 pass
+- 实证与变异实验：三处易假绿点全部证伪成功（删外键 → 2 红；DB_REBUILT 改 stderr → 红；末位 argv 多一个 \n → 红），另 M4/M5/M6 如期变红；变异实验全在 /tmp 副本进行
+- 执行证据：单文件 21/21；全量 272/272（安静环境第 2 次；第 1 次 1 fail 为既有 router-registry SIGINT 用例在外部负载下的偶发，单跑 5 次全绿）
+- 主要偏差：D1 旧库 fixture 用 7 列而非真实前版 9 列（验证者已用真实 9 列复验通过）；D3/D4/D6 方法面、MIGRATIONS、POLL_MS 属源码/文本锁；D5 既有 SIGINT 竞态非本 PR 引入；D8 F04/F05 无运行期断言（验证者已用真实浏览器独立复核）；余为信息级
+
+### 2026-09-12 17:32:04 · 调度决策 · 槛位释放
+
+- 决策内容：pr-004 验收 PASS → 合并进迭代分支（merge commit `428e672`）→ 清理 worktree 与分支；**4/4 PR 全部合并**，阶段 5 线性主体完成；进入阶段 6 最终独立验证
+- 合并证据：`428e672` 在 iteration/0017-project-workspace 上；合并后迭代分支全量 **272/272**（60.1s，含 pr-004 新增 21 例）；`git worktree list` 仅剩主工作树
+- 并发配置更新：累计槛位释放次数 3 → 4；已派发总数 4；当前有效上限维持 5（min(3+4×3,5) 触顶）
+- 触发依据：verifier 结论 PASS 且 fail 0；`git diff --name-only 0d726f2...HEAD` 恰为新文件；全量 272/272
+
+### 2026-09-12 17:32:04 · 派发 · verifier
+
+- 阶段：阶段 6（独立验证，阶段 5 全部合并后的最终验证）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
+
+### 2026-09-12 17:32:04 · 派发 · progress-observer
+
+- 阶段：阶段 5（PR 实现，最终 merge 后自动触发）
+- 任务：独立核实 git 状态与 status.md 声明是否一致
+
+### 2026-09-12 17:41:44 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0017-project-workspace/clarifications/verify-stage6-20260912-173934.md
+- 结论：**PASS**（fail 0 / partial 0 / blocked 0 / 偏差记录 7 条）；验证者身份 = 发布前评审者（需求/架构/测试/交付四重视角）
+- 六项标准：① 阶段 5 推进条件复核 pass 12/12（四个 PR 的文件范围与各自 PR 文件逐条相等；既有 11 条路由元数据与 main 零差异）② 并发调度真实执行证据 **3/3 pass**（两特性提交同基点且早于首个合并 + 两份 PR 级验收报告均观测到 worktree 磁盘共存；并发配置五字段跨 5 提交真实更新 0→2→3→4 与 3→5；爬升终值 `min(3+4×3,5)=5` 正确）③ 合并态自跑全量 **272/272** ④ 十张功能卡全 pass，重点 (a) pr-003 遗留 3 项 partial 在合并态已真实成立（三路证据）(b) A-7 确认为用户可见缺陷（/docs 参数面缺项、/debug 实测 400）⑤ 文档与事实一致性 9 项对拍 7 项一致、2 项滞后记偏差 ⑥ 26 条偏差全部如实留痕、无阻塞交付、无静默忽略
+- 主要偏差：D-2（中·用户可见缺陷，唯一）`/api/chats` 与 `/api/messages` 的 params 未登记 `project_id`；D-1（中）`POST /api/projects` errors 缺 `PAYLOAD_TOO_LARGE`；D-3/D-4（低）status.md 有效上限注记算式滞后 + 更新日志未覆盖 pr-004；D-5/D-6/D-7（低）未知项目回落双次取数与脏状态 / router-registry SIGINT 负载敏感 / 旧库 fixture 7 列
+- 独立性：未读 history.md、未采信任何角色报告结论；全程只读；真实库 `oamp/data/sql.db` mtime 未变
+
+### 2026-09-12 17:41:44 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 6（独立验证）最终验证 PASS → 标记 ✅✅；迭代状态置「已完成」；迭代分支合并进 main 并删除迭代分支
+- 偏差处置（主 agent 裁定）：D-2 / D-1 **不在本迭代返工** —— 二者根因是 architecture §6.1「既有 11 条内文逐字不动」这一已批准硬契约，修复属架构级变更且会使阶段 6 PASS 失效；按工作流「偏差记录不阻塞交付」原则登记为**下一迭代第一优先候选**并向用户显式点出。D-3/D-4 随本次收口修正台账。
+- 未触发用户决策点核查：阶段 1~6 全程 `[model_inferred]` 与待转呈项均已由用户裁决或主 agent 裁定闭合；L1 决策 0 条；依赖图无环；无「执行角色报告阻塞且无法不修改上游产物解决」的情形
+- 触发依据：verifier 报告结论 PASS、fail 0；阶段 6 六项标准全 pass；status.md 与文件系统/git 事实一致（滞后 2 项已修正）
+
+### 2026-09-12 17:41:44 · 调度决策 · 迭代收口
+
+- 决策内容：`git checkout main` → `git merge --no-ff iteration/0017-project-workspace` → `git branch -d iteration/0017-project-workspace`；status.md 的迭代分支字段改为「（已合并）」
+- 依据：工作流 §「迭代分支合并进 main」协议；阶段 6 判定 pass
+
+### 2026-09-12 17:42:52 · 调度决策 · 阶段推进核查
+
+- 决策内容：迭代 0017-project-workspace **收口完成** —— 迭代分支已合并进 main（merge commit `03a2f00`）并删除；main 合并态全量 **272/272**（57.2s）；四个 worktree 与特性分支全部清理，无失败/阻塞现场保留
+- 触发依据：阶段 6 判定 pass；`git branch` 仅剩 main（另有他人在建分支 iteration/0018-chat-agent-subagent-protocol，非本次工作，未触碰）
+- 遗留：下一迭代第一优先候选 D-2（`/api/chats`、`/api/messages` 登记元数据缺 `project_id` ⇒ `/docs` 参数面不完整、`/debug` 实测 400）已写入 status.md「下一迭代候选」并将在向用户的交付汇报中点出
