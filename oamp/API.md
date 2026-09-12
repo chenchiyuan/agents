@@ -702,7 +702,7 @@ type ∈ { object, array, string, number, integer, boolean, null }
 | `PAYLOAD_TOO_LARGE` | 413 | 请求体 > 64 KiB（响应带 `connection: close`） | `请求体过大（上限 65536 字节）` |
 | `UPSTREAM_UNAVAILABLE` | 502 | 派发失败（首项之外的其它原因）；内部故障兜底 | `调用派发失败: <原因>` / `router 不可达或请求失败: …` |
 
-- **判定先于写入**：归属 / 目标 / 入参形态三类校验全部完成前，不写库、不登记、不派发 ⇒ `INVALID_PARAM` 与「角色不可寻址」的失败请求**零副作用**（`GET /api/calls` 无新增行、对话消息数不变）。
+- **判定先于写入**：归属 / 目标 / 入参形态三类校验全部完成前，不写库、不登记、不派发 ⇒ **`INVALID_PARAM` 与「角色不可寻址」（`agent` 不是可寻址的角色名）两类**失败请求**零副作用**（`GET /api/calls` 无新增行、对话消息数不变）；**「角色可解析但当前离线」不在这条表述的范围内**——那条路径派发失败时仍按既有行为在对话侧补 1 条 `in` + 1 条 `out`（`error: "dispatch_failed"`，见下条），只是不创建调用（`GET /api/calls` 无新增行）。
 - 首项派发失败（角色离线 / 不存在）⇒ `404` 且**零调用被创建**；首项成功、后续项失败（竞态窗口）⇒ `502`，**已派出的项保留**（可从 `GET /api/calls` 查回其 id）。派发失败时对话侧仍按 §3.8 的既有行为补一条 `out`（`error: "dispatch_failed"`）——调用面只是**额外**把失败表达成明确的 4xx/5xx，不再吞成「200 + warning」。
 - 调用面对**已归档 / 已关闭**的对话不做只读判定（归属只要求「对话存在」）；只读语义仍只由 §3.8 / §3.7 承担。
 
@@ -731,7 +731,7 @@ type ∈ { object, array, string, number, integer, boolean, null }
 }
 ```
 
-- 六列固定：`call_id`（= 既有 `task_id`）、`agent`（角色名；不可解析 → `null`）、`state`（任务记录原值，封闭词表 `submitted` / `working` / `completed` / `failed`）、`started_at`（受理时刻）、`ended_at`（**终态时**为进入终态的时刻，**进行中为 `null`**；终态时必 `>= started_at`）、`model`（终态 = 执行侧实报的生效模型；**进行中为 `null`**，不显示推测值）。
+- 六列固定：`call_id`（= 既有 `task_id`）、`agent`（角色名；不可解析 → `null`）、`state`（终态单一真源：任务记录原值 + `schema_mode: "strict"` 且终态结构未通过时的 `failed` 覆写，封闭词表 `submitted` / `working` / `completed` / `failed`）、`started_at`（受理时刻）、`ended_at`（**终态时**为进入终态的时刻，**进行中为 `null`**；终态时必 `>= started_at`）、`model`（终态 = 执行侧实报的生效模型；**进行中为 `null`**，不显示推测值）。
 - 排序：`created_at` 倒序（新调用在前）。
 - **范围**：只列本 hub 派发的调用（调用面 + 既有对话入口）；CLI（`oamp task *`）派发的任务**不出现**——那类任务没有对话归属。
 - 列表**不含**执行开销类派生列（成因与核对方式见 §7.3 第 ⑭ 条）。
@@ -756,7 +756,7 @@ type ∈ { object, array, string, number, integer, boolean, null }
 retry: 1000
 
 event: call_result
-data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","state":"completed","duration_ms":2999,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"…","structured_output":null,"error":null,"exit_code":null}
+data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","state":"completed","duration_ms":2999,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"…","structured_output":null,"error":null,"exit_code":0}
 
 ```
 
@@ -859,7 +859,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
   "text": "…",
   "structured_output": null,
   "error": null,
-  "exit_code": null
+  "exit_code": 0
 }
 ```
 
@@ -874,11 +874,11 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 | `text` | string \| null | 终态产出的原文；失败且无文本时 `null` |
 | `structured_output` | object \| null | 带 `output_schema` 且终态校验通过时的对象；否则 `null`（不带 `output_schema` 时恒 `null`，只交付 `text`） |
 | `error` | string \| null | `failed` 时的机器可读原因（如 `structured_output_invalid`）；否则 `null` |
-| `exit_code` | number \| null | 可得时给出；常驻执行路径为 `null` |
+| `exit_code` | number \| string \| null | 常驻（`omp-daemon`）执行**成功** = `0`；常驻执行**失败** / 不可得 = `null`；shell / 一次性执行路径 = 进程真实退出码（被信号终止时为信号名 / `killed`）。`schema_mode: "strict"` 的结构覆写只改 `state` / `error`，不改执行侧退出码 |
 
-- `state` 与 §3.15 的 `state` **同真源**（同一任务记录），两处不会漂移。
+- `state` 与 §3.15 的 `state` **同真源**（同一任务记录 + `schema_mode: "strict"` 未通过时的 `failed` 覆写），两处不会漂移。
 - 信封**不含** `chat_id`（任务记录没有该字段）——归属核对请走 `GET /api/chats/<chat_id>` 的 `messages[].meta.task_id`（§3.14 已说明）。
-- 信封的键集合是**封闭的 11 键**（上表）——参照契约里那几类本仓库拿不到的字段在这里**不提供**：**无数据源，不造假、不估算**（见 §7.3 第 ⑧ 条）。
+- 信封的键集合是**封闭的 10 键**（上表）；SSE 的 `call_result` 帧 = 该信封 + `chat_id`（**11 键**，见 §4.4）——参照契约里那几类本仓库拿不到的字段在这里**不提供**：**无数据源，不造假、不估算**（见 §7.3 第 ⑧ 条）。
 
 **错误**
 
@@ -1316,7 +1316,7 @@ curl -s -X POST http://127.0.0.1:7788/api/calls \
 期望输出（`state` 为 `completed` 或 `failed`；`model` 是执行侧**实报**的生效模型）：
 
 ```json
-{"calls":[{"call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是一个本机多智能体运行时。","structured_output":null,"error":null,"exit_code":null}]}
+{"calls":[{"call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是一个本机多智能体运行时。","structured_output":null,"error":null,"exit_code":0}]}
 ```
 
 ### 5.14 按调用 id 取终态
@@ -1328,7 +1328,7 @@ curl -s http://127.0.0.1:7788/api/calls/<call_id>
 期望输出（进行中时同形状，`state` 为 `submitted` / `working`，`duration_ms` / `model` / `text` / `exit_code` 为 `null`）：
 
 ```json
-{"call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是一个本机多智能体运行时。","structured_output":null,"error":null,"exit_code":null}
+{"call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是一个本机多智能体运行时。","structured_output":null,"error":null,"exit_code":0}
 ```
 
 ### 5.15 按调用 id 取转录
@@ -1377,7 +1377,7 @@ event: call_update
 data: {"chat_id":"chat-demo-shell","call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","kind":"chunk","text":"这是"}
 
 event: call_result
-data: {"chat_id":"chat-demo-shell","call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是本机多智能体运行时。","structured_output":null,"error":null,"exit_code":null}
+data: {"chat_id":"chat-demo-shell","call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是本机多智能体运行时。","structured_output":null,"error":null,"exit_code":0}
 
 ```
 

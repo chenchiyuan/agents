@@ -382,6 +382,13 @@ function composeCallEnvelope(task, call = null) {
   };
 }
 
+/** 调用状态单一读法（★ pr-003 修复轮 FIX-1，§2.5 的 strict 覆写落到终态写入处）：终态在 `publishCallResult`
+ *  一次记入调用登记（`call.terminal`）⇒ 信封 / roster / 转录三面读**同一记录**——F09 验收 3 的「状态与事实
+ *  一致」由单一写点保证，不靠约定；无登记 / 未终态 ⇒ 任务记录原值（既有无 schema 面零变化）。 */
+function callState(task, call) {
+  return call?.terminal?.state ?? task.state;
+}
+
 function serveStatic(res, file) {
   const full = path.join(PKG_ROOT, file);
   if (!full.startsWith(PKG_ROOT)) {
@@ -1064,7 +1071,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
           publishState(chatId, 'working');
           let resolve = null;
           const done = item.mode === CALL_MODES[1] ? new Promise((r) => { resolve = r; }) : null; // 阻塞等待句柄（释放点 = 终态单一发布点）
-          const call = { callId, role, chatId, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false };
+          const call = { callId, role, chatId, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
           const entry = { chatId, agentId, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null, call };
           tasks.set(callId, entry); // 登记先于 await（首个增量可能与 send 响应同 chunk 到达）
           if (item.outputSchema !== null) callSchemas.set(callId, call); // 终态后仍可按同一 schema 复算 structured_output
@@ -1121,14 +1128,18 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
         // 范围 = 本 hub 派发的调用（SENDER_ID='web'）；CLI（from='main'）派发的任务无 chat 归属，不进调用面（§3.4）
         const rows = (r.tasks || []).filter((t) => t.from === SENDER_ID);
         sendJson(res, 200, {
-          calls: rows.map((t) => ({
-            call_id: t.task_id,
-            agent: roleOfInstance(t.to),
-            state: t.state,
-            started_at: t.created_at,
-            ended_at: t.state === 'completed' || t.state === 'failed' ? t.updated_at : null,
-            model: t.model ?? null, // listTasks 投影的 model = task.result?.model ?? null（进行中恒 null，不显示推测值）
-          })),
+          calls: rows.map((t) => {
+            // ★ FIX-1：state 与 §3.19 同读法（终态真源 = 调用登记）——strict 覆写下 roster 与按 id 不再漂移
+            const state = callState(t, callSchemas.get(t.task_id) ?? null);
+            return {
+              call_id: t.task_id,
+              agent: roleOfInstance(t.to),
+              state,
+              started_at: t.created_at,
+              ended_at: state === 'completed' || state === 'failed' ? t.updated_at : null,
+              model: t.model ?? null, // listTasks 投影的 model = task.result?.model ?? null（进行中恒 null，不显示推测值）
+            };
+          }),
         });
       },
     },
@@ -1197,11 +1208,12 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
           sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
           return;
         }
+        const state = callState(task, callSchemas.get(callId) ?? null); // ★ FIX-1：与信封 / roster 同读法（终态真源 = 调用登记）
         const entries = [...task.updates]; // 原样透出（不裁剪 detail）
-        if (task.state === 'completed' || task.state === 'failed') {
-          entries.push({ at: task.updated_at, from: task.to, state: task.state, detail: { event: 'result', ...(task.result || {}) } });
+        if (state === 'completed' || state === 'failed') {
+          entries.push({ at: task.updated_at, from: task.to, state, detail: { event: 'result', ...(task.result || {}) } });
         }
-        sendJson(res, 200, { call_id: task.task_id, agent: roleOfInstance(task.to), state: task.state, truncated: callTruncated(task), entries });
+        sendJson(res, 200, { call_id: task.task_id, agent: roleOfInstance(task.to), state, truncated: callTruncated(task), entries });
         return;
       },
     },
@@ -1349,6 +1361,8 @@ export default async function startWeb(restArgs) {
   // schema 复算 structured_output（GET /api/calls/:call_id 的 structured_output），而任务表条目不存该 schema
   // （既有 UDS 面零改动）。与任务表同为进程内内存态（差异 ⑩ 同一生命周期口径）；只登记带 output_schema 的
   // 调用 ⇒ 常驻开销可忽略。
+  // ★ FIX-1：该登记同时是调用**终态的单一写点/读点**（`publishCallResult` 写 `terminal`，信封 / roster / 转录读它）——
+  // 覆写只可能发生在带 output_schema 的调用上，故与登记范围天然一致，既有面不受影响。
   const callSchemas = new Map();
   const reconcileIntervalMs = readPositiveMs('OAMP_WEB_RECONCILE_INTERVAL_MS', RECONCILE_DEFAULT_MS);
   const reconcileSlowMs = readPositiveMs('OAMP_WEB_RECONCILE_SLOW_MS', RECONCILE_SLOW_DEFAULT_MS);
@@ -1369,6 +1383,8 @@ export default async function startWeb(restArgs) {
     call.published = true;
     const envelope = task === null ? null : composeCallEnvelope(task, call);
     if (envelope !== null) {
+      // ★ FIX-1：终态在此**写入**调用登记——strict 覆写随信封一并落到真源，roster / 转录读同一记录，零漂移
+      call.terminal = { state: envelope.state, error: envelope.error };
       transport.publishCall(call.callId, { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } });
     }
     if (call.resolve !== null) call.resolve(envelope);
