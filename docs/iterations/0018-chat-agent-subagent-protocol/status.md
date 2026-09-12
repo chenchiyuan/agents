@@ -41,7 +41,7 @@
 | **起始并发数** | 3 |
 | **硬上限** | 5（公式 `2×起始-1`） |
 | **当前有效上限** | 5（= min(3 + 3×3, 5) → 钳到硬上限；三次槛位释放后维持 5） |
-| **累计槛位释放次数** | 3（pr-001 +1；pr-002 +1；pr-003 +1） |
+| **累计槛位释放次数** | 4（pr-001 +1；pr-002 +1；pr-003 +1；pr-004 +1） |
 | **已派发总数** | 5（pr-001~pr-005 全部已派发） |
 
 依赖图（阶段 4 产出）：`{pr-001, pr-002} → pr-003 → {pr-004, pr-005}`；首波解锁 = {pr-001, pr-002}。
@@ -53,7 +53,7 @@
 | pr-001-transport-call-key-namespace.md | （无） | ✅ 已合并 | `feat/0018-pr-001-transport-call-key-namespace`（已删除） | `b92ad82` | 已释放 |
 | pr-002-registry-task-list-model.md | （无） | ✅ 已合并 | `feat/0018-pr-002-registry-task-list-model`（已删除） | `95051b0` | 已释放 |
 | pr-003-call-http-surface-and-contract-docs.md | pr-001, pr-002 | ✅ 已合并（验收 FAIL→修复→复验 PASS 28/28） | `feat/0018-pr-003-call-http-surface-and-contract-docs`（已删除） | `7e351fa` | 已释放 |
-| pr-004-console-call-page.md | pr-003 | ⏸ 进行中（planner 已派发） | `feat/0018-pr-004-console-call-page` | — | — |
+| pr-004-console-call-page.md | pr-003 | ✅ 已合并（验收 PASS 14/14） | `feat/0018-pr-004-console-call-page`（已删除） | 见 git log（merge pr-004） | 已释放 |
 | pr-005-call-protocol-acceptance-tests.md | pr-003 | ⏸ 进行中（planner 已派发） | `feat/0018-pr-005-call-protocol-acceptance-tests` | — | — |
 
 ## 待确认项
@@ -91,3 +91,5 @@
 - 2026-09-12: 首波 {pr-001, pr-002} 并发实现并验收（pr-001 PASS 32 项 / pr-002 PASS 19 项）→ 合并 `b92ad82`/`95051b0` → 槛位释放 2（有效上限 3→5=硬上限）；下游 pr-003 解锁。
 
 - 2026-09-13: pr-003 验收 FAIL（终态漂移 A20 + `exit_code` 文档 D2）→ 修复轮两轮（`f771ae5`/`baf9c43`）→ **复验 PASS 28/28** → 合并 `7e351fa`；槛位释放 3（有效上限钳至硬上限 5）；**pr-004 与 pr-005 同时解锁**（末波并发）。
+
+- 2026-09-13: pr-004 验收 **PASS 14/14**（含浏览器实测）→ 合并进迭代分支；槛位释放 4（有效上限维持硬上限 5）。
