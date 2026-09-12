@@ -16,19 +16,18 @@ src/web.js 扁平 if 链改为 11 项有序路由表并由表驱动分发（hand
 
 - oamp/src/web.js（修改）
 - oamp/scripts/gen-llms-txt.mjs（新建）
-- oamp/web/llms.txt（新建）
+- oamp/llms.txt（新建）
 - oamp/API.md（修改）
 - oamp/test/api-routes.test.js（新建）
 
 ## 验收标准
 
 - [ ] `oamp/src/web.js` 新增具名导出 `createApiRoutes` / `matchRoute` / `projectRoutes` / `renderLlmsTxt`；`createApiRoutes({})` 返回 11 个表项（10 条既有 API + `GET /api/docs`；静态面不入表）且不抛错（纯构造：不调用依赖、不读磁盘、不起定时器）。
-- [ ] 分发仍由表驱动且顺序 = 改造前 `if` 链顺序：`GET /api/chats/archive` → 404 `chat 不存在: archive`；`GET /api/chats/` → `chat 不存在: `；`GET /api/chats/a/b` → `chat 不存在: a/b`；`POST /api/chats/a/b/close` → `chat 不存在: a/b`；`GET /api/agents/` → 404 `not found: GET /api/agents/`。
-- [ ] 参数段"前缀 + 后缀重叠"的既有语义原样保持：`POST /api/chats/close` → 404 `chat 不存在: `（**捕获为空串**）、`POST /api/chats/activate` → `chat 不存在: `、`POST /api/chats/rename` → `chat 不存在: `（改造前实测值）。等价形态 = `startsWith(前缀)` + `endsWith(后缀)` + 双侧 `slice`，**允许前后缀重叠**；**不得**用要求完整后缀字面量的锚定正则实现——`^/api/chats/(.*)/close$` 对 `/api/chats/close` 不命中，会退化成 `not found: POST /api/chats/close`，与今日错误文案不一致（反例：`/api/chats/a/b/close` → `chat 不存在: a/b`、`/api/chats//close` → `chat 不存在: `，两形态一致）。
-- [ ] `node --test oamp/test/api-routes.test.js` 全绿：F06 三条漂移锁各一个独立顶层用例 + C-5 七条与 Q-1~Q-8 的 L2 探针 + 匹配器 L3 单测（含"每个表项不被更靠前表项吞掉"的可达性断言）。
+- [ ] 分发仍由表驱动且顺序 = 改造前 `if` 链顺序：`GET /api/chats/archive` → 404 `chat 不存在: archive`；`GET /api/chats/` → `chat 不存在: `；`GET /api/chats/a/b` → `chat 不存在: a/b`；`POST /api/chats/a/b/close` → `chat 不存在: a/b`；`GET /api/agents/` → 404 `not found: GET /api/agents/`；**前后缀重叠三条（Q-9~Q-11）**：`POST /api/chats/close`、`POST /api/chats/activate` → 404 `chat 不存在: `（捕获为空串），`POST /api/chats/rename` 发畸形 JSON 体 → **400** `请求体非法 JSON: …`（证明该请求确实命中 rename 表项，且 `readBody` 先于存在性预检）。匹配器规格 = **两种、无正则**：`exact`（`pathname === path`）与 `prefixSuffix`（`startsWith(prefix) && endsWith(suffix)`、参数值 = `slice(prefix.length, length - suffix.length)`，**允许前后缀重叠**，重叠时参数为空串）；**不得**改成"要求完整后缀字面量"的判据——`^/api/chats/(.*)/close$` 这类正则在 `/api/chats/close` 上不命中，会把今日的 `chat 不存在: ` 漂移成 `not found: POST /api/chats/close`（对照：`/api/chats/a/b/close` → `chat 不存在: a/b`、`/api/chats//close` → `chat 不存在: `，两种形态一致）。
+- [ ] `node --test oamp/test/api-routes.test.js` 全绿：F06 三条漂移锁各一个独立顶层用例 + C-5 七条与 Q-1~Q-11 的 L2 探针 + 匹配器 L3 单测（含"每个表项不被更靠前表项吞掉"的可达性断言）。
 - [ ] `oamp/test/web.test.js` 零字节改动（对该文件 `git diff` 为空）且其全部顶层用例通过；其余 19 个既有测试文件未改动且通过。
 - [ ] 起真实 web 实例：`GET /api/docs` → 200 `application/json; charset=utf-8`，`routes` 为 11 条（含本接口自身），每项含 `danger`（由 `method !== 'GET'` 派生）与 `docLink`。
-- [ ] `GET /llms.txt` → 200 `text/plain; charset=utf-8`，响应内容与 `oamp/web/llms.txt` 逐字节相等；`node oamp/scripts/gen-llms-txt.mjs` 重新生成后工作区无差异（快照新鲜）。`/llms.txt` 的全部断言（可达性 + 响应类型 + 逐字节相等）都落在本 PR 的 `oamp/test/api-routes.test.js`，pr-002 不重复断言。
+- [ ] `GET /llms.txt` → 200 `text/plain; charset=utf-8`，响应内容与 `oamp/llms.txt`（包根）逐字节相等；`node oamp/scripts/gen-llms-txt.mjs` 重新生成后工作区无差异（快照新鲜）。`/llms.txt` 的全部断言（可达性 + 响应类型 + 逐字节相等）都落在本 PR 的 `oamp/test/api-routes.test.js`，pr-002 不重复断言。
 - [ ] 锁③双向差集为空：登记侧 11 条签名集合与从 `oamp/API.md` 抽取的路径签名集合互不缺失、不多出。
 - [ ] 错误兜底覆盖面不缩小：`GET /api/chats/%E0%A4%A` → 502 且文案为 `router 不可达或请求失败: URI malformed`；`PUT /api/agents` → 404 `not found: PUT /api/agents`（无 405）。
 - [ ] `oamp/package.json` 未改动（`dependencies` 仍为 `{}`），`oamp/test/hygiene.test.js` 通过。
