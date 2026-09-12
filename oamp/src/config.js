@@ -22,6 +22,9 @@ const NUMERIC_DEFAULTS = {
   OAMP_HB_LOG_WINDOW_MS: 60000,
   OAMP_RECONNECT_MAX_MS: 10000,
 };
+// F03 心跳空闲档倍率（§3.4）：heartbeatIdleMs = HEARTBEAT_IDLE_FACTOR × heartbeatIntervalMs。
+// 派生值，不是 env 键（N9：不新增用户可调旋钮）；测试 env（interval=50）自动压缩为 300ms。
+const HEARTBEAT_IDLE_FACTOR = 6;
 
 function readPositiveInt(name, env) {
   const raw = env[name];
@@ -103,13 +106,16 @@ function readConfigFile(filePath) {
 
 export function loadConfig(env = process.env) {
   const file = readConfigFile(readNonEmptyString(env.OAMP_CONFIG) || CONFIG_FILE);
+  const heartbeatIntervalMs = readPositiveInt('OAMP_HEARTBEAT_INTERVAL_MS', env);
   const reconnectRaw = env.OAMP_RECONNECT === undefined ? '1' : String(env.OAMP_RECONNECT);
   if (reconnectRaw !== '0' && reconnectRaw !== '1') {
     throw new Error(`OAMP 配置错误: OAMP_RECONNECT 仅支持 0/1（当前值 "${env.OAMP_RECONNECT}"）`);
   }
   return {
     socketPath: env.OAMP_SOCKET || path.join(PKG_ROOT, '.runtime', 'router.sock'),
-    heartbeatIntervalMs: readPositiveInt('OAMP_HEARTBEAT_INTERVAL_MS', env),
+    heartbeatIntervalMs,
+    // F03：空闲档派生值（默认 10000 × 6 = 60000）——协议侧只作为 heartbeatPlan 的 idleMs 初值
+    heartbeatIdleMs: heartbeatIntervalMs * HEARTBEAT_IDLE_FACTOR,
     heartbeatTimeoutMs: readPositiveInt('OAMP_HEARTBEAT_TIMEOUT_MS', env),
     hbLogWindowMs: readPositiveInt('OAMP_HB_LOG_WINDOW_MS', env),
     // D22（demo 自愈）：断线/连接失败后自动重连重注册（0 = 旧行为：断线即退）；退避上限

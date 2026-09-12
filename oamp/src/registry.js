@@ -13,6 +13,13 @@ export function isValidMessageId(value) {
   // §4.5 message_id：非空、≤64、可打印 ASCII（防日志注入）
   return typeof value === 'string' && value.length >= 1 && value.length <= 64 && /^[\x21-\x7E]+$/.test(value);
 }
+// F03/§3.3 通告值上界（与 agent.js 的 MAX_TIMEOUT_MS 同量级）：最坏 20 分钟僵尸窗口
+export const MAX_ANNOUNCED_INTERVAL_MS = 600000;
+
+/** F03/§3.3 心跳通告校验：正整数毫秒且 ≤ 上界；非法或缺失 ⇒ 视为未通告（fail-closed）。 */
+export function isValidAnnouncedInterval(value) {
+  return Number.isInteger(value) && value >= 1 && value <= MAX_ANNOUNCED_INTERVAL_MS;
+}
 
 export function newSessionId() {
   // D5：crypto.randomUUID()
@@ -22,7 +29,9 @@ export function newSessionId() {
 /**
  * createRegistry — 注册表工厂。
  * 条目 schema（§5.2）：
- *   { instance_id, session_id, state:'online'|'offline', last_heartbeat:epochMs, connId:number|null }
+ *   { instance_id, session_id, state:'online'|'offline', last_heartbeat:epochMs, connId:number|null,
+ *     next_interval_ms:number|null }
+ * `next_interval_ms`（F03/§3.3）= 该实例最近一次心跳通告的"距下一跳间隔"；null = 未通告（阈值回退基准）。
  * 连接身份反查 connIdent: Map<connId, {instance_id, session_id}>
  * 投递等待集 pendingDeliveries: Map<message_id, {toInstance, toSession}>（§5.5，行为验收载体=pr-004）
  */
@@ -55,13 +64,13 @@ export function createRegistry() {
     if (prev && prev.connId !== connId && prev.connId !== null && prev.state === 'online' && prev.session_id !== sessionId) {
       // 同 id 不同连接 live 冲突 → 替换（latest-wins）
       const replaced = { session_id: prev.session_id, connId: prev.connId };
-      const entry = { instance_id: instanceId, session_id: sessionId, state: 'online', last_heartbeat: now, connId };
+      const entry = { instance_id: instanceId, session_id: sessionId, state: 'online', last_heartbeat: now, connId, next_interval_ms: null };
       entries.set(instanceId, entry);
       connIdent.delete(prev.connId);
       connIdent.set(connId, { instance_id: instanceId, session_id: sessionId });
       return { entry, replaced };
     }
-    const entry = { instance_id: instanceId, session_id: sessionId, state: 'online', last_heartbeat: now, connId };
+    const entry = { instance_id: instanceId, session_id: sessionId, state: 'online', last_heartbeat: now, connId, next_interval_ms: null };
     entries.set(instanceId, entry);
     connIdent.set(connId, { instance_id: instanceId, session_id: sessionId });
     return { entry, replaced: null };
@@ -69,12 +78,14 @@ export function createRegistry() {
 
   /**
    * heartbeat — 仅当 entry.session_id===上报 session 且 state=online 才更新 last_heartbeat（§4.6）。
+   * F03/§3.3：可选 nextIntervalMs 校验后落条目（非法/缺省 ⇒ null＝未通告）；**不影响** last_heartbeat 更新。
    * 返回是否更新；offline/未知/旧会话 → false（忽略，不产生状态变更）。
    */
-  function heartbeat({ instanceId, sessionId, now }) {
+  function heartbeat({ instanceId, sessionId, nextIntervalMs, now }) {
     const entry = entries.get(instanceId);
     if (!entry || entry.state !== 'online' || entry.session_id !== sessionId) return false;
     entry.last_heartbeat = now;
+    entry.next_interval_ms = isValidAnnouncedInterval(nextIntervalMs) ? nextIntervalMs : null;
     return true;
   }
 
@@ -107,11 +118,19 @@ export function createRegistry() {
     return ident;
   }
 
-  /** 租约到期判定（纯逻辑）：遍历 online 条目，返回 now-last_heartbeat > timeoutMs 的实例。 */
-  function findExpired(now, timeoutMs) {
+  /**
+   * 租约到期判定（纯逻辑）：遍历 online 条目，返回超期的实例。
+   * F03/§3.3 阈值推导（唯一落点）：timeoutMs 为**基准**；已通告实例按其通告值抬到 max(基准, 2 × 通告值)
+   * ⇒ 不变式"判活阈值 ≥ 2 × 心跳间隔"由构造保证（未通告 ⇒ 逐字沿用基准＝迭代前行为）。
+   */
+  function findExpired(now, baseTimeoutMs) {
     const expired = [];
     for (const entry of entries.values()) {
-      if (entry.state === 'online' && now - entry.last_heartbeat > timeoutMs) {
+      if (entry.state !== 'online') continue;
+      const timeoutMs = entry.next_interval_ms == null
+        ? baseTimeoutMs
+        : Math.max(baseTimeoutMs, 2 * entry.next_interval_ms);
+      if (now - entry.last_heartbeat > timeoutMs) {
         expired.push(entry.instance_id);
       }
     }

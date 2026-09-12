@@ -34,6 +34,8 @@ test('无配置文件：新增三键取内置默认，既有六键取值逐字�
   assert.deepEqual(config, {
     socketPath: path.join(OAMP_ROOT, '.runtime', 'router.sock'),
     heartbeatIntervalMs: 10000,
+    // F03/§3.4（PR-001）：空闲档派生值 = 6 × heartbeatIntervalMs（默认 10000 × 6 = 60000）
+    heartbeatIdleMs: 60000,
     heartbeatTimeoutMs: 30000,
     hbLogWindowMs: 60000,
     reconnect: true,
@@ -122,6 +124,7 @@ test('既有键回归：env 覆盖与校验行为不变（验收 1）', () => {
   const config = loadConfig(env);
   assert.equal(config.socketPath, '/tmp/x.sock');
   assert.equal(config.heartbeatIntervalMs, 1234);
+  assert.equal(config.heartbeatIdleMs, 1234 * 6, '空闲档随活跃档等比派生（无独立旋钮）');
   assert.equal(config.reconnect, false);
 
   assert.throws(() => loadConfig({ OAMP_CONFIG: missingConfig(), OAMP_HEARTBEAT_INTERVAL_MS: '0' }), /OAMP 配置错误/);
