@@ -154,7 +154,7 @@ data: <JSON>
 | 9 | `GET /api/stream?chat_id=<id>` | 按对话订阅实时事件（SSE） |
 | 10 | `GET /api/events` | 全局事件订阅：agent 上线 / 下线（SSE） |
 
-> 非 API 面的静态资源（`/`、`/app.js`、`/style.css`）不在错误契约范围内（路径穿越仍返回 `403` 文本）。
+> 非 API 面的静态资源（`/`、`/app.js`、`/style.css`）不在错误契约范围内：静态面只按固定文件名提供（不做路径拼接），路径穿越类请求落 404 兜底（`{"error":"not found: …","code":"NOT_FOUND"}`）。
 
 ---
 
@@ -183,7 +183,7 @@ data: <JSON>
 }
 ```
 
-- 无参时**逐字透传** Router 快照：数组含 `state: "offline"` 的墓碑项（实例注销 / 判活超时后仍保留记录，`session_id` 为最后一次会话）。
+- 无参时**逐字透传** Router 快照，含两类记录：**在线**（`state: "online"`）与**判活超时被判离线的墓碑**（`state: "offline"`，保留最后一次的 `session_id`，直到该实例重新注册）。**优雅注销不保留记录**——agent 主动退出（`agent.deregister`）时该实例直接从列表消失。因此无参列表无法区分「从未注册」与「已注销」；只关心在线实例请用 `?state=online`。
 - 列表里可能还出现 **`instance_id` = `web` 的节点**——那是 web 进程自身的常驻发送方身份（它在本进程**首次派发消息 / 控制通知时**注册，随后按心跳保活）。客户端按实例做业务判断时应排除它。
 - `state` 取值只有 `online` / `offline`；`last_heartbeat` 为 epoch ms。
 - `?state=online` 与无参响应**同形状**（只是逐项过滤），不新增 / 不改动字段。
@@ -210,7 +210,7 @@ data: <JSON>
 | `state` | string | 否 | 无 | 对话状态：`working` / `completed` / `failed` / `closed` 之一 |
 | `from` | integer | 否 | 无 | `updated_at >= from`（epoch ms） |
 | `to` | integer | 否 | 无 | `updated_at <= to`（epoch ms）；须 `from <= to` |
-| `archived` | integer | 否 | `0` | 归档视图三态：`0` = **排除**已归档（主列表）、`1` = **只看**已归档（按归档时间倒序） |
+| `archived` | integer | 否 | `0` | 已归档过滤，**合法值只有 `0` / `1`**：`0` = **排除**已归档（主列表）、`1` = **只看**已归档（按归档时间倒序）；其它值 → 400 |
 | `limit` | integer | 否 | `50` | 每页条数，`1..200` |
 | `offset` | integer | 否 | `0` | 偏移，非负整数 |
 
@@ -222,8 +222,8 @@ data: <JSON>
 {
   "chats": [
     {
-      "chat_id": "chat-demo-1",
-      "title": "你好",
+      "chat_id": "chat-demo-shell",
+      "title": "!echo hello-oamp",
       "agent_id": "demo-1",
       "state": "completed",
       "created_at": 1789184746362,
@@ -255,15 +255,19 @@ data: <JSON>
 
 对话详情（含消息，按 `created_at ASC, id ASC`）。
 
-**参数**：无（`chat_id` 在路径中，按 URI 解码）。
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `chat_id` | string | 是 | — | 目标对话 id（在**路径**中，按 URI 解码） |
 
 **成功响应** `200`
 
 ```json
 {
   "chat": {
-    "chat_id": "chat-demo-1",
-    "title": "你好",
+    "chat_id": "chat-demo-shell",
+    "title": "!echo hello-oamp",
     "agent_id": "demo-1",
     "state": "completed",
     "created_at": 1789184746362,
@@ -438,7 +442,7 @@ data: <JSON>
 }
 ```
 
-- `message_id`：本次输入在对话库中的消息 id（`msg-<uuid>` 是派发信封 id，与此处的库内 id 不同）。
+- `message_id`：**派发信封 id**（`msg-<uuid>`）——它随 `task.request` 发给 agent，用于链路追踪；**不是库内消息 id**。库内自增 id 见 `GET /api/chats/<id>` 的 `messages[].id`（即 `message` SSE 事件里的 `message.id`）。
 - `warning`：`null` = 派发成功；非 null（**状态码仍为 200**）= 派发失败，已落库一条失败的 `out` 记录，例如：
 
 ```json
@@ -535,7 +539,7 @@ data: {"instance_id":"demo-2","last_heartbeat":1789184787786}
 
 - **判定源**：`router.status` 的 `state === "online"` 集合（注册表是唯一真源，不是日志、不是另一条推送通道）。
   web 按 `OAMP_WEB_TOPOLOGY_POLL_MS`（默认 **2000ms**）拉取快照并做**集合差值**：新出现的实例发 `agent_online`，消失的发 `agent_offline`。
-- **时延**：≤ 2s + 传输延迟（判定界 5s，余量 2.5×）。
+- **时延**：**轮询腿 ≤ 2s** + 传输延迟（判定界 5s，余量 2.5×）。注意这只是「已判定离线**之后**」的推送时延：**优雅注销**（Ctrl-C / `agent.deregister`）时事件在 ≤2s 内到达；实例被**强杀**时还要先等租约判活（默认 `OAMP_HEARTBEAT_TIMEOUT_MS` = 30s，已通告间隔的实例按其 `2×` 抬升）判离线，故总时延默认约 30s。
 - **只在有全局订阅者时运行**：无人订阅时不轮询、不产生任何开销。
 - **首次订阅会「播种基线」**：订阅建立瞬间不会为**已在线**的实例补发 `agent_online`（避免虚报上线）。
 - **键隔离**：全局链路上**只**有这两类事件；`message` / `task_update` / `chat_state` / `notice` 永远只发往对应 `chat_id` 的订阅者 —— 两个方向互为隔离，不靠过滤实现。
@@ -593,19 +597,21 @@ curl -s 'http://127.0.0.1:7788/api/chats?archived=1'
 有数据时（示例单条）：
 
 ```json
-{"chats":[{"chat_id":"chat-demo-1","title":"你好","agent_id":"demo-1","state":"completed","created_at":1789184746362,"updated_at":1789184746372,"archived_at":null,"message_count":2}],"total":1,"limit":50,"offset":0}
+{"chats":[{"chat_id":"chat-demo-shell","title":"!echo hello-oamp","agent_id":"demo-1","state":"completed","created_at":1789184746362,"updated_at":1789184746372,"archived_at":null,"message_count":2}],"total":1,"limit":50,"offset":0}
 ```
 
 ### 5.3 读对话消息
 
+（`chat-demo-shell` 由下面 §5.4 的 shell 演示创建——按顺序阅读时先执行那一组；若已有自己的对话，把路径里的 id 换掉即可。）
+
 ```sh
-curl -s 'http://127.0.0.1:7788/api/chats/chat-demo-1'
+curl -s 'http://127.0.0.1:7788/api/chats/chat-demo-shell'
 ```
 
 期望输出（`messages` 按时间升序，输入 `in` 在前、输出 `out` 在后）：
 
 ```json
-{"chat":{"chat_id":"chat-demo-1","title":"你好","agent_id":"demo-1","state":"completed","created_at":1789184746362,"updated_at":1789184746372,"closed_at":null,"archived_at":null,"context_released":0},"messages":[{"id":1,"direction":"in","agent_id":"demo-1","text":"!echo hello-oamp","model":null,"duration_ms":null,"error":null,"created_at":1789184746362,"meta":{"task_id":"task-6d034e35-ffc9-4c85-8395-f570535a9f08"}},{"id":2,"direction":"out","agent_id":"demo-1","text":"hello-oamp","model":null,"duration_ms":5,"error":null,"created_at":1789184746372,"meta":null}]}
+{"chat":{"chat_id":"chat-demo-shell","title":"!echo hello-oamp","agent_id":"demo-1","state":"completed","created_at":1789184746362,"updated_at":1789184746372,"closed_at":null,"archived_at":null,"context_released":0},"messages":[{"id":1,"direction":"in","agent_id":"demo-1","text":"!echo hello-oamp","model":null,"duration_ms":null,"error":null,"created_at":1789184746362,"meta":{"task_id":"task-6d034e35-ffc9-4c85-8395-f570535a9f08"}},{"id":2,"direction":"out","agent_id":"demo-1","text":"hello-oamp","model":null,"duration_ms":5,"error":null,"created_at":1789184746372,"meta":null}]}
 ```
 
 ### 5.4 发消息（两个变体）
