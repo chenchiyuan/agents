@@ -3,7 +3,8 @@
 // 职责边界：只做「一组进程」的生命周期编排（一个 tmux session：router / web / 各启用角色各占一窗口，
 //   输出 tee 双通道落盘）。不读单个进程的配置（config.js 归各进程自身消费），不决定谁给谁派活。
 // 角色清单不硬编码：角色集合、instance_id、cwd、模型/工具/permission 全部取自 loadClusterConfig。
-// 测试注入点：OAMP_TMUX_BIN（tmux 可执行文件，缺省 tmux）、OAMP_CLUSTER_WAIT_MS（等待毫秒，0 = 不等）。
+// 测试注入点：OAMP_TMUX_BIN（tmux 可执行文件，缺省 tmux）、OAMP_CLUSTER_WAIT_MS（等待毫秒，0 = 不等）、
+//   OAMP_CLUSTER_LOG_DIR（日志目录，缺省 <包根>/.runtime/cluster；相对路径按 cwd 归一）。
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,7 @@ import { queryNodes, renderTable } from './status.js';
 // 路径基准 = 包根（按本模块位置推导，与 cwd 无关；与 src/config.js、src/role-binding.js 同口径）。
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(PKG_ROOT, 'bin', 'oamp.js');
-const LOG_DIR = path.join(PKG_ROOT, '.runtime', 'cluster');
+const LOG_DIR = path.resolve(process.env.OAMP_CLUSTER_LOG_DIR || path.join(PKG_ROOT, '.runtime', 'cluster'));
 
 const TMUX_DEFAULT = 'tmux';
 const ROUTER_WINDOW = 'router';
