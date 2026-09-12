@@ -40,6 +40,6 @@
 ## 架构落定（阶段 3；完整契约见 `architecture.md` §5.3 / §3.7）
 
 - **AR-05-a 生成方式与生成函数落点**：具名导出的**纯函数 `renderLlmsTxt(routes)`**（落在 `src/web.js`，与登记表同模块），输入 = `projectRoutes(createApiRoutes({}))` 的投影结果；两个消费点共用同一实现——① CLI 包装 `oamp/scripts/gen-llms-txt.mjs`（覆盖写快照）；② 漂移锁②（比对生成结果与文件字节）。**纯函数**意味着不读磁盘、不看时间、不看 env、不看运行端口 ⇒ 生成结果逐字节确定（锁②才有意义）。
-- **AR-05-b HTTP 侧承载**：静态映射表新增一项 `/llms.txt → web/llms.txt`；`STATIC_TYPES` 追加 **`.txt → text/plain; charset=utf-8`**（验收 2 / C-6 / E10）。文件同时是"HTTP 产物"与"仓库快照"——**单产物结构（一个文件两个出口）**，验收 3 的逐字节相等与验收 7 的"不产生第三份副本"都由构造保证。
+- **AR-05-b HTTP 侧承载**：静态映射表新增一项 **`/llms.txt → llms.txt`（仓库/包根，用户已确认落点：`demand.md` D-3 / D-11 / W4；与 `/API.md`、`/README.md` 共用包根相对路径基准，**不落 `web/` 下**）**；`STATIC_TYPES` 追加 **`.txt → text/plain; charset=utf-8`**（验收 2 / C-6 / E10）。文件同时是"HTTP 产物"与"仓库快照"——**单产物结构（一个文件两个出口）**，验收 3 的逐字节相等与验收 7 的"不产生第三份副本"都由构造保证。
 - **AR-05-c 快照新鲜度与提交方式**：改动登记后**人工运行** `node oamp/scripts/gen-llms-txt.mjs` 覆盖写并随 PR 入库（`.gitignore` 不放行）；漏做 → `npm test` 的锁②红，失败信息含**首处差异的行号/列号 + 字节偏移 + 修复命令**。生成内容里的服务地址写**默认端口 7788** 并紧跟"`--port` / `OAMP_WEB_PORT` 可改"的说明（保证生成确定性）。
 - **AR-05-d 链接形态**：每行给两种写法——**HTTP 绝对 URL（默认端口 7788）** + **仓库内相对文件名**（如 `…/API.md（仓库内：API.md）`）；文档页给 HTTP 地址。内容严格为索引式：项目一句话说明、接入方式（启动命令 + 地址 + 端口可改）、按接口分组的清单摘要（方法 / 路径 / 一句话）、指向 `API.md` / `README.md` / `/docs` 与 `/api/docs` 的链接；**不含**非 HTTP 面语料与 `API.md` 全量内容（验收 4、7）。

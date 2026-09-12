@@ -49,7 +49,7 @@
 
 ### 2026-09-12 13:23:21 · 收到报告 · architect
 
-- 1. architecture.md 路径 + 核心组件：docs/iterations/0016-api-reflection-docs/architecture.md（943 行）；组件 = 有序路由表 API_ROUTES（12 项）+ 具名导出 createApiRoutes(deps)（闭包注入，handler 体零改写）、matchRoute 匹配器（顺序即今日 if 链顺序）+ 表驱动分发（单 try/catch、不包装返回值）、GET /api/docs（projectRoutes 请求时投影）、renderLlmsTxt 纯函数 + gen 脚本 + 单产物 llms.txt、两个新页面资产 + api-pages.css、两个新测试文件
+- 1. architecture.md 路径 + 核心组件：docs/iterations/0016-api-reflection-docs/architecture.md（943 行）；组件 = 有序路由表 API_ROUTES（11 项：10 条既有 API + GET /api/docs；静态面不入表）+ 具名导出 createApiRoutes(deps)（闭包注入，handler 体零改写）、matchRoute 匹配器（顺序即今日 if 链顺序）+ 表驱动分发（单 try/catch、不包装返回值）、GET /api/docs（projectRoutes 请求时投影）、renderLlmsTxt 纯函数 + gen 脚本 + 单产物 llms.txt、两个新页面资产 + api-pages.css、两个新测试文件
 - 2. L1 决策清单：L1-01 新增 `GET /api/docs`、L1-02 静态白名单加 `/API.md`/`/README.md` —— 均经用户确认采纳
 - 3. 新引入技术组件：无（零新模块/依赖；新增具名导出沿用既有 diffTopology 先例；新增 2 个测试文件、5 个 web 资产、1 个 scripts 包装）
 - 4. 已补全 [架构待填] 条目数：35（AR-01~AR-09 子项）
@@ -98,3 +98,10 @@
 
 - 决策内容：阶段 2/3/4 验证判 **FAIL**（1 fail / 3 partial）→ 立即三路返工（不阻塞 in-flight 实现）：① 通知 pr-001 实现体纠正**匹配语义**（`(.*)+^…$` 与今日 `startsWith+endsWith+双侧 slice` 不等价，后缀可重叠；须改 `prefixSuffix` 形态并补三类边界输入探针）② 通知 architect 修 §3.3 匹配语义 + 消除「12 vs 11 表项」自相矛盾（统一 11）+ 修 §4.5 清单标题范围 + llms.txt 落点回改为仓库根 ③ 通知 pr-planner 修 pr-001 验收 1（12 → 11）
 - 触发依据：verify-20260912-132718-stage234.md 标准 6 判 fail（正则等价性不成立，实测 3 个输入行为漂移）；标准 3 判 partial（表项数 12 vs 11 自相矛盾；架构阶段含产品维度文本改写）；标准 4 判 partial（llms.txt 快照落点被静默偏离用户已确认的仓库根口径）；标准 8 判 partial（pr-001 验收 1 与 5/7 互斥）
+
+### 2026-09-12 13:37:23 · 收到报告 · architect（FAIL 返工）
+
+- 1. architecture.md 返工完成（957 行）：① §3.3 匹配语义改为**等价形态**（`exact` 精确串 / `prefixSuffix` 前后缀双侧 slice，**允许重叠、无正则**；并保留反例记录"正则 `^/api/chats/(.*)/close$` 不等价、禁止使用"）② 表项数全文件 17 处统一为 **11 条**（保留"12 条分支"= 今日 if 链的现状描述）③ §4.2 探针补 Q-9~Q-11 三条重叠输入 ④ §4.5 标题范围化为"`/api/chats` 列表查询参数的 400 清单"+ 清单外 400/413 列明 ⑤ **llms.txt 落点改回包根 `oamp/llms.txt`**（含落点依据 demand D-3/D-11/W4；§5.3 标注"阶段 3 初稿写 web/llms.txt 属未经确认的偏离，已改回"）⑥ 顺手修 D-4（产品维度表述归因）与 D-5（S-10 计数 13→35 处）
+- 2. 连带件已转 pr-planner（pr-001 的 llms.txt 路径 2 处 + 补 Q-9~Q-11 探针）
+- 3. 主 agent 侧：history 报告快照的"12 项"已更正为 11 项
+- 4. 触发依据：verify-20260912-132718-stage234.md（标准 6 fail + 标准 3/4/8 partial）

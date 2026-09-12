@@ -12,7 +12,7 @@
 
 ## 0. 一句话架构
 
-> **把 `src/web.js` 里那 277 行扁平 `if` 链原样搬进一个「有序路由表」（一项 = 元数据 + handler，handler 体逐字不动），分发收敛为「遍历表 → 首个命中 → 调 handler」的 12 行循环；匹配用「字面段 + `(.*)` 贪婪参数段 + `^…$` 整串锚定」精确复刻今日 `p.slice(...)` 的语义，因此路径优先级 = 表项声明顺序 = 今日 `if` 链顺序，`GET /api/chats/archive` 这类现存怪癖由构造保持；表本身经 `GET /api/docs` 投影成**唯一机器可读派生面**，文档页 `/docs`、调试台 `/debug`、AI 索引 `oamp/web/llms.txt` 三个产物全部从它长出来（前两者页面加载时取，后者由同一生成函数产出快照文件、经静态面提供）；三条漂移锁一律以「调用生成逻辑得到的真实结果 / 遍历表项得到的真实字段 / 两个路径集合求差」为检查对象，不读源码正则。**
+> **把 `src/web.js` 里那 277 行扁平 `if` 链原样搬进一个「有序路由表」（一项 = 元数据 + handler，handler 体逐字不动），分发收敛为「遍历表 → 首个命中 → 调 handler」的 12 行循环；匹配用「精确串相等 + 前缀/后缀包含（`startsWith && endsWith`，**允许前缀尾斜杠与后缀重叠**）两种匹配规格，精确复刻今日 `p === '…'` 与 `p.slice(P, -S)` 的语义，因此路径优先级 = 表项声明顺序 = 今日 `if` 链顺序，`GET /api/chats/archive` 这类现存怪癖由构造保持；表本身经 `GET /api/docs` 投影成**唯一机器可读派生面**，文档页 `/docs`、调试台 `/debug`、AI 索引 `oamp/llms.txt`（包根）三个产物全部从它长出来（前两者页面加载时取，后者由同一生成函数产出快照文件、经静态面提供）；三条漂移锁一律以「调用生成逻辑得到的真实结果 / 遍历表项得到的真实字段 / 两个路径集合求差」为检查对象，不读源码正则。**
 
 ---
 
@@ -22,7 +22,7 @@
 
 | 文件 | 现状职责（阶段 3 复核，附行号） | 与本次迭代的关系 |
 |---|---|---|
-| `oamp/src/web.js`（770 行） | 内建 http + JSON API + SSE。常量：`WEB_ROOT`(:33) / `DEFAULT_PORT=7788`(:35) / `STATIC_TYPES`(:57-63，**仅 html/js/css/svg/png**)；工具：`isReadonly`(:69) / `sendJson`(:68) / `ERR_CODE`(:81-87) / `sendError`(:91) / `readBody`(:96，畸形 400 / 超限 413) / `queryOnce`(:133，一次性 UDS RPC)；具名导出：`diffTopology`(:161) / `createTopologyWatch`(:181)；静态：`serveStatic(res, file)`(:239-253，白名单外无入口，`WEB_ROOT` 前缀守卫 + 扩展名 MIME 映射)；`startWeb`(:255) 内构造 `db`/`transport`/`topologyWatch`/`tasks`/`publishMessage`/`publishState`/`finishTask`/`reconcileTask`/`scheduleReconcile`/`handleDeliver`/`ensureSender`/`sendTask`/`sendControlNotice`；**分发**：`http.createServer`(:469) 内 `url`/`p`/`qs`/`num`(:470-476) + 单 `try`(:477) 覆盖 12 条分支（:478/:494/:514/:524/:545/:574/:594/:635/:644/:650/:733/:737）+ 404 兜底(:741) + 单 `catch`→502(:742) | **改造（核心）**：抽出有序路由表（12 项，10 条 API + 新增 `GET /api/docs`；**不含静态面**）、表驱动分发、静态文件映射表 + `.txt`/`.md` MIME、4 个新具名导出（`createApiRoutes` / `matchRoute` / `projectRoutes` / `renderLlmsTxt`）。**既有 handler 体逐字不动**（§3.6 给出零改写路径） |
+| `oamp/src/web.js`（770 行） | 内建 http + JSON API + SSE。常量：`WEB_ROOT`(:33) / `DEFAULT_PORT=7788`(:35) / `STATIC_TYPES`(:57-63，**仅 html/js/css/svg/png**)；工具：`isReadonly`(:69) / `sendJson`(:68) / `ERR_CODE`(:81-87) / `sendError`(:91) / `readBody`(:96，畸形 400 / 超限 413) / `queryOnce`(:133，一次性 UDS RPC)；具名导出：`diffTopology`(:161) / `createTopologyWatch`(:181)；静态：`serveStatic(res, file)`(:239-253，白名单外无入口，`WEB_ROOT` 前缀守卫 + 扩展名 MIME 映射)；`startWeb`(:255) 内构造 `db`/`transport`/`topologyWatch`/`tasks`/`publishMessage`/`publishState`/`finishTask`/`reconcileTask`/`scheduleReconcile`/`handleDeliver`/`ensureSender`/`sendTask`/`sendControlNotice`；**分发**：`http.createServer`(:469) 内 `url`/`p`/`qs`/`num`(:470-476) + 单 `try`(:477) 覆盖 12 条分支（:478/:494/:514/:524/:545/:574/:594/:635/:644/:650/:733/:737）+ 404 兜底(:741) + 单 `catch`→502(:742) | **改造（核心）**：抽出有序路由表（**11 条** = 10 条既有 API + 新增 `GET /api/docs`；**不含静态面**）、表驱动分发、静态文件映射表 + `.txt`/`.md` MIME、4 个新具名导出（`createApiRoutes` / `matchRoute` / `projectRoutes` / `renderLlmsTxt`）。**既有 handler 体逐字不动**（§3.6 给出零改写路径） |
 | `oamp/src/transport.js`（79 行） | `createSseTransport`：键式订阅 + `handle` + `publish` + `keepalive` + 自清理 | **零改动**（调试台的订阅面板复用 `/api/stream` 与 `/api/events` 两条既有 SSE 路径，从浏览器侧直连） |
 | `oamp/src/{router,registry,node-client,agent,config,persist,rpc,status,log,task,cluster,...}.js`、`oamp/bin/` | 0010~0015 交付面 | **零改动**（本次不碰协议、心跳、任务、持久层、集群） |
 | `oamp/web/index.html`（73 行） | 顶栏 `.topnav` 三个死链 span（`Workspace` 活动 / `Agents` / `Tasks`，:13-16）；`.topright` 内 `#conn-status` + `#agent-panel` | **改造（极小）**：`.topnav` 内**追加** 2 个真实入口（文档 `/docs`、调试 `/debug`），既有 3 项逐字不动（F03 验收 2 / F04 验收 1） |
@@ -68,7 +68,7 @@
 | **S-7** | `qs` 是 `URLSearchParams`、`num(key)` = `raw === null \|\| raw === '' ? undefined : Number(raw)`，**每请求新建**；空值语义三处实现各异但结果一致（见 §4.2 Q-6 的实测修正） | `web.js:470-476`、`persist.js:105-113/122-129/280-287` |
 | **S-8** | `STATIC_TYPES` 无 `.txt` ⇒ 今日 `.txt` 会落 `application/octet-stream` 兜底；静态面**不在统一错误契约内**（403/404 均 `text/plain`） | `web.js:57-63/239-253` |
 | **S-9** | `oamp/test/web.test.js` **39** 条顶层用例、`oamp/test/` 共 20 文件 / **239** 条（`sed -n 's/^test(.*/T/p' \| wc -l`）；`web.test.js:1025-1034/1248-1270/1601-1635` 为**前端静态契约**（读 `app.js`/`index.html`/`style.css` 做 `assert.match`） | 阶段 3 实测 |
-| **S-10** | `oamp/API.md` 中反引号包裹的 `METHOD /api/...` 签名共 **13** 处，归一化（截断 `?`、`<…>`→`:`）后**恰好等于**既有 10 条路由的形态集合，无多余无缺失 | 阶段 3 实测（§7.2 的抽取规则据此定） |
+| **S-10** | `oamp/API.md` 中反引号包裹的 `METHOD /api/...` 签名共 **35 处命中、12 种拼写变体**（`<chat_id>` / `<id>` / 带 `?state=online` / 带 `?chat_id=<id>` 等），归一化（截断 `?`、`<…>`→`:`）后**恰好等于**既有 10 条路由的形态集合，无多余无缺失 | 阶段 3 实测（`grep -oE` 计数；§7.2 的抽取规则据此定） |
 | **S-11** | `web.test.js` 内的 `startWeb` 辅助函数**未导出**（文件内局部） | `web.test.js:118-143` |
 
 ---
@@ -84,11 +84,11 @@ graph TB
   C3["可交互调试台 ★新<br/>debug.html + debug.js"]
   C4["AI 客户端（读 /llms.txt 与 API.md）"]
   CSS["api-pages.css ★新（表格 + prose 排版）"]
-  W["oamp web（src/web.js）★<br/>API_ROUTES 有序表（12 项）<br/>matchRoute 匹配器<br/>projectRoutes 投影<br/>renderLlmsTxt 生成器<br/>STATIC_FILES 静态映射表"]
+  W["oamp web（src/web.js）★<br/>API_ROUTES 有序表（11 条）<br/>matchRoute 匹配器<br/>projectRoutes 投影<br/>renderLlmsTxt 生成器<br/>STATIC_FILES 静态映射表"]
   T["src/transport.js（既有）"]
   R["oamp router（既有）"]
   D["src/persist.js + SQLite（既有）"]
-  F["web/llms.txt ★新<br/>（快照 = HTTP 产物，同一文件）"]
+  F["oamp/llms.txt（包根）★新<br/>（快照 = HTTP 产物，同一文件）"]
   G["scripts/gen-llms-txt.mjs ★新"]
   L["test/api-routes.test.js ★新<br/>test/api-pages.test.js ★新"]
   A["API.md（人工同步 +1 小节/1 行）"]
@@ -131,8 +131,8 @@ graph TB
 
 | 层 | 文件 | 本次改动性质 |
 |---|---|---|
-| HTTP 分发 | `src/web.js` | 新增 4 个具名导出 + 有序路由表（12 项）+ 分发循环 + 静态映射表 + `.txt`/`.md` MIME；handler 体零改写 |
-| 静态资产 | `web/docs.html`、`web/docs.js`、`web/debug.html`、`web/debug.js`、`web/api-pages.css`、`web/llms.txt`（**全部新建**） | 新页面与索引快照 |
+| HTTP 分发 | `src/web.js` | 新增 4 个具名导出 + 有序路由表（11 条）+ 分发循环 + 静态映射表 + `.txt`/`.md` MIME；handler 体零改写 |
+| 静态资产 | `web/docs.html`、`web/docs.js`、`web/debug.html`、`web/debug.js`、`web/api-pages.css`（**新建**）、`llms.txt`（**包根新建**） | 新页面与索引快照 |
 | 控制台 | `web/index.html`（+2 入口）、`web/style.css`（+1 条新规则） | 极小改动 |
 | 生成器 | `scripts/gen-llms-txt.mjs`（**新建**） | 一行调用的 CLI 包装 |
 | 测试 | `test/api-routes.test.js`、`test/api-pages.test.js`（**新建**） | 三条漂移锁 + C-5 探针 + 表/匹配器单测 + 页面静态契约 |
@@ -162,7 +162,7 @@ graph TB
 | 字段 | 类型 | 必填 | 语义 | 被谁消费 |
 |---|---|---|---|---|
 | `method` | `'GET' \| 'POST'`（本轮实际取值） | ✅ | HTTP 方法；**同时是写标记的真源**（`danger = method !== 'GET'`，§6.6） | 匹配器 / 文档页 / 调试台 / llms.txt |
-| `path` | `string`（`/` 开头，`:` 前缀段 = 路径参数） | ✅ | 路径模式；**路径参数段写作 `:name`** | 匹配器（编译正则）/ 文档页 / 调试台 / llms.txt / 漂移锁③ |
+| `path` | `string`（`/` 开头，`:` 前缀段 = 路径参数） | ✅ | 路径模式（**形态契约**：纯字面量，或 字面量 + 单个 `:name` 段 + 字面量；匹配规格由构造器从 `path` **纯派生**——`exact` 或 `prefixSuffix`，**不写正则**；见 §3.3） | 匹配器（派生 `kind`/`prefix`/`suffix`）/ 文档页 / 调试台 / llms.txt / 漂移锁③ |
 | `summary` | `string` | ✅ | 一句话说明 | 文档页 / 调试台 / llms.txt |
 | `params` | `Param[]` | ✅（可为 `[]`） | **路径 / 查询 / 请求体三种位置统一承载**（`in` 区分）；"**是否有请求体**" = `params.some(p => p.in === 'body')`，**不另设布尔位**（同一事实不落两处） | 文档页（字段表）/ 调试台（表单生成） |
 | `response` | `string` | ✅ | 响应形态（MI-01 口径：**成功响应的类别 + 关键字段名清单**，**不含示例报文**；SSE 路由写事件名清单） | 文档页 |
@@ -184,7 +184,7 @@ graph TB
 
 **导出常量（供锁与实现共用同一份字段清单，避免测试里抄第二份）**：`ROUTE_META_FIELDS = ['method','path','summary','params','response','errors','kind','docLink']`、`PARAM_FIELDS = ['name','in','type','required','desc']`、`PARAM_IN`、`PARAM_TYPES`、`ROUTE_KINDS`。`ERR_CODE` 的**值集合**即 `errors` 的白名单。
 
-**12 条表项的元数据底稿来源**：`oamp/API.md` §3.1~§3.10（现成的字段级说明、错误码清单、响应形态），人工转写 + 补齐 `docLink`/`kind`。**不机械提取**（参数语义散落在 handler 与 `persist` 校验层，抽取即第二真源）。
+**11 条表项的元数据底稿来源**：`oamp/API.md` §3.1~§3.10（现成的字段级说明、错误码清单、响应形态），人工转写 + 补齐 `docLink`/`kind`。**不机械提取**（参数语义散落在 handler 与 `persist` 校验层，抽取即第二真源）。
 
 ### 3.2 登记的物理形态与放置（落地 AR-01-a、AR-01-e）
 
@@ -214,59 +214,66 @@ const routes = createApiRoutes({ db, transport, config, topologyWatch, tasks, pu
 ```
 
 - **注入集恰为 9 个 `startWeb()` 局部名**（S-1 实测）：`db`、`transport`、`config`、`topologyWatch`、`tasks`、`publishMessage`、`publishState`、`sendTask`、`sendControlNotice`。其余名字（`readBody`/`sendJson`/`sendError`/`ERR_CODE`/`queryOnce`/`isReadonly`/`MODEL_RE`/`LABEL_MAX`/`randomUUID`）是模块级，构造器直接用。
-- **`createApiRoutes` 必须是纯构造**：构造期不调用任何 dep、不读磁盘、不起定时器、不发请求。⇒ 锁①③可传 `{}` 调用（handler 不会被调用），构造期不抛错。**这条是契约**（可单测：`createApiRoutes({})` 返回 12 项、不抛错）。
+- **`createApiRoutes` 必须是纯构造**：构造期不调用任何 dep、不读磁盘、不起定时器、不发请求。⇒ 锁①③可传 `{}` 调用（handler 不会被调用），构造期不抛错。**这条是契约**（可单测：`createApiRoutes({})` 返回 **11 条**表项、不抛错）。
 - **未选"独立 `src/api-routes.js` 模块"**：搬运 handler 需要同时搬运 `readBody`/`sendJson`/`sendError`/`ERR_CODE`/`isReadonly`/`queryOnce` 等既有模块级工具（或反向 import），diff 与理解成本都为负数收益；本仓既有风格是大模块（`router.js` 21KB、`web.js` 37KB、`agent.js` 34KB）。**同文件、加导出**是最小演进。
 - **未选"表放模块级常量"**：handler 需要 `startWeb()` 的局部实例（`db`/`transport`/`tasks`…），常量表无法承载 ⇒ 必然退化成"元数据表 + handler 映射表"两处登记，直接违反 F01 验收 1。
 
 ### 3.3 匹配算法（落地 AR-01-c；**优先级与今日同序的构造性保证**）
 
-**编译规则（表构造期一次完成，每项编译一条正则 + 参数名数组）**：
+**匹配规格（表构造期一次完成；**不用正则**，两种规格都是今日分支条件的字面转写）**：
 
-| 规则 | 内容 | 为什么必须这样 |
+| 规则 | 内容 | 为什么必须这样（与今日的等价性） |
 |---|---|---|
-| C1 | 按 `/` 切段；**字面段**转义后原样保留；**`:` 前缀段编译为 `(.*)`** | `(.*)` = 贪婪、**可空**、**可含 `/`**，精确复刻今日 `p.slice(前缀长度[, -后缀长度])` 的"取剩余全串"语义（S-2） |
-| C2 | 整串锚定 `^…$` | 复刻今日 `p === '…'`（精确串）与 `endsWith` 的"到串尾"语义；也让贪婪参数在 `/(.*)/`/`suffix$` 形态下自动回溯到正确切点 |
-| C3 | **不做**大小写归一、**不做**尾斜杠归一、**不做**路径归一 | 今日 `p` 是 `URL.pathname` 原文比较（`/api/agents/` 是 404 而不是命中 `/api/agents`） |
-| C4 | 匹配层的**唯一后处理** = 对每个捕获组 `decodeURIComponent` | 等价于今日 4 处 handler 内解码（S-3），包括"畸形编码 → `URIError`"这一路径 |
-| C5 | 匹配顺序 = **表项声明顺序**，首个命中立即返回；**没有"最长匹配"/"具体优先"/打分排序** | 让"表顺序"就是"优先级"，与今日 `if` 链一一对应；排序器会引入第二套语义 |
+| M1 | `exact`（`path` 无 `:param`）：命中 ⟺ `pathname === path` | 与今日 `p === '/api/agents'` 这类**精确串**分支逐字等价 |
+| M2 | `prefixSuffix`（`path` 含单个 `:param`）：命中 ⟺ `pathname.startsWith(prefix) && pathname.endsWith(suffix)`，其中 `prefix` = `:param` 之前的部分、`suffix` = `:param` 之后的部分（后缀可为空串） | 与今日 `p.startsWith(P) && p.endsWith(S)` 逐字等价，**包括两侧可重叠**：`POST /api/chats/close` 同时满足 `startsWith('/api/chats/')` 与 `endsWith('/close')`（共享那个 `/`），今日因此**命中**该分支。**正则 `^/api/chats/(.*)/close$` 不命中它**（要求多一个 `/close`）⇒ 正则形态**不等价，禁止使用** |
+| M3 | 参数值 = `pathname.slice(prefix.length, pathname.length - suffix.length)`（后缀为空串时即为 `pathname.slice(prefix.length)`） | 与今日 handler 内 `p.slice(13, -6)` / `p.slice(13)` **同一个表达式**；JS `slice` 在 `start > end` 时返回空串，因此"重叠到参数为空"的边界也逐字一致 |
+| M4 | 匹配层**唯一后处理** = 对参数值 `decodeURIComponent`（仅当该表项有参数时执行） | 等价于今日 4 处 handler 内解码（S-3），含"畸形百分号编码 → `URIError` → 502"这一路径 |
+| M5 | 匹配顺序 = **表项声明顺序**，首个命中立即返回；**没有"最长匹配"/"具体优先"/打分排序** | 让"表顺序"就是"优先级"，与今日 `if` 链一一对应；排序器会引入第二套语义 |
+| M6 | **不做**大小写归一、**不做**尾斜杠归一、**不做**路径归一 | 今日 `p` 是 `URL.pathname` 原文比较（`/api/agents/` 是 404，不命中 `/api/agents`） |
 
-**匹配器（纯函数，具名导出）**：
+**匹配器（纯函数，具名导出；无正则）**：
 
 ```js
 export function matchRoute(routes, method, pathname) {
   for (const route of routes) {
-    if (route.method !== method) continue;          // 方法不匹配 = 不进入候选（无 405 分支）
-    const m = route.matcher.exec(pathname);
-    if (!m) continue;
+    if (route.method !== method) continue;               // 方法不匹配 = 不进入候选（无 405 分支）
+    const raw = route.kind === 'exact'
+      ? (pathname === route.path ? '' : null)            // 精确串：命中即为"无参数"
+      : (!pathname.startsWith(route.prefix) || !pathname.endsWith(route.suffix)
+          ? null
+          : pathname.slice(route.prefix.length, pathname.length - route.suffix.length)); // 前缀/后缀（可重叠）
+    if (raw === null) continue;                          // '' 是合法参数值（重叠边界），不是"未命中"
     const params = {};
-    for (const [i, name] of route.paramNames.entries()) params[name] = decodeURIComponent(m[i + 1]);
-    return { route, params };                       // 首个命中即返回
+    for (const name of route.paramNames) params[name] = decodeURIComponent(raw);
+    return { route, params };                            // 首个命中即返回
   }
   return null;
 }
 ```
 
+**路径形态契约**：本轮 11 条表项里，7 条是 `exact`、4 条是 `prefixSuffix`（`GET /api/chats/:chat_id` 的后缀为空串；`close`/`activate`/`rename` 三条带非空后缀）。`prefix`/`suffix`/`paramNames`/`kind` 全部由 `createApiRoutes` 从 `path` **纯派生**（按 `:` 段切开，最多一个参数段）。**两个以上参数段的路径不在本迭代契约内**——若将来出现，其"不被吞掉 / 不被误配"由 §3.5 的可达性断言先红兜住（探针路径不能命中自己即报错点名）。
+
 **"与今日同序"的逐条对照表（表顺序 = 今日 `if` 链顺序）**：
 
 | 表序 | 表项 | 今日分支（行号） | 今日条件形态 | 表驱动下的等价形态 |
 |---|---|---|---|---|
-| 1 | `GET /api/agents` | :478 | `method==='GET' && p==='/api/agents'` | 精确正则 |
-| 2 | `GET /api/chats` | :494 | `p==='/api/chats'` | 精确正则 |
-| 3 | `GET /api/chats/:chat_id` | :514 | `p.startsWith('/api/chats/')` + `slice(13)` 贪婪尾 | `/api/chats/(.*)`，**可空、可含 `/`** |
-| 4 | `POST /api/chats/:chat_id/close` | :524 | `startsWith` + `endsWith('/close')` + 双侧 `slice` | `/api/chats/(.*)/close`（`$` 锚定 ⇒ 贪婪自动回溯） |
-| 5 | `POST /api/chats/archive` | :545 | `p === '/api/chats/archive'` | 精确正则 |
-| 6 | `POST /api/chats/:chat_id/activate` | :574 | 同 4 形态 | `/api/chats/(.*)/activate` |
-| 7 | `POST /api/chats/:chat_id/rename` | :594 | 同 4 形态 | `/api/chats/(.*)/rename` |
-| 8 | `GET /api/stream` | :635 | `p==='/api/stream'` | 精确正则 |
-| 9 | `GET /api/events` | :644 | `p==='/api/events'` | 精确正则 |
-| 10 | `POST /api/messages` | :650 | `p==='/api/messages'` | 精确正则 |
-| 11 | `GET /api/docs` ★新增 | —（今日不存在） | — | 精确正则；**追加在末位**（无任何表项会吞它） |
-| — | （静态面，**不入表**，仅列此对照顺序） | :733/:737 | 两个静态 `if` | 见 §3.7 |
+| 1 | `GET /api/agents` | :478 | `method==='GET' && p==='/api/agents'` | `pathname === path`（精确串） |
+| 2 | `GET /api/chats` | :494 | `p==='/api/chats'` | `pathname === path`（精确串） |
+| 3 | `GET /api/chats/:chat_id` | :514 | `p.startsWith('/api/chats/')` + `slice(13)` 贪婪尾 | `prefixSuffix(prefix='/api/chats/', suffix='')`：`startsWith` 前缀包含，参数 = `slice(13)`（贪婪、可空、可含 `/`） |
+| 4 | `POST /api/chats/:chat_id/close` | :524 | `startsWith` + `endsWith('/close')` + 双侧 `slice` | `prefixSuffix(prefix='/api/chats/', suffix='/close')`：两侧可重叠，参数 = `slice(13, -6)` |
+| 5 | `POST /api/chats/archive` | :545 | `p === '/api/chats/archive'` | `pathname === path`（精确串） |
+| 6 | `POST /api/chats/:chat_id/activate` | :574 | 同 4 形态 | `prefixSuffix(prefix='/api/chats/', suffix='/activate')`（两侧可重叠） |
+| 7 | `POST /api/chats/:chat_id/rename` | :594 | 同 4 形态 | `prefixSuffix(prefix='/api/chats/', suffix='/rename')`（两侧可重叠） |
+| 8 | `GET /api/stream` | :635 | `p==='/api/stream'` | `pathname === path`（精确串） |
+| 9 | `GET /api/events` | :644 | `p==='/api/events'` | `pathname === path`（精确串） |
+| 10 | `POST /api/messages` | :650 | `p==='/api/messages'` | `pathname === path`（精确串） |
+| 11 | `GET /api/docs` ★新增 | —（今日不存在） | — | `pathname === path`（精确串）；**追加在末位**（无任何表项会吞它） |
+**静态面的先后（不入表、不占表项）**：API 表全部不命中 → 静态映射命中则服务文件 → 否则 404 兜底；与今日 :733-740 的两个静态分支同序（见 §3.7）。
 
 **表顺序规则（写进表头注释、被 §3.5 的可达性断言强制）**：
 
 - **R1**：匹配顺序 = 声明顺序 = 今日 `if` 链顺序（对照表逐条对应）；新增表项默认**追加在末位**。
-- **R2**：若某新增路径会被**更靠前**的表项吞掉（含参数表项的贪婪尾），必须显式插到该表项**之前**——这正是今日契约的继承：`GET /api/chats/:chat_id` 会吞掉任何 `/api/chats/<单段>`（今日 `startsWith` 分支同样如此），因此**任何 `GET /api/chats/<字面量>` 形态的新接口都必须登记在它之前**。
+- **R2**：若某新增路径会被**更靠前**的表项吞掉（含参数表项的**前缀包含**；前后缀重叠亦属命中），必须显式插到该表项**之前**——这正是今日契约的继承：`GET /api/chats/:chat_id` 会吞掉任何 `/api/chats/<单段>`（今日 `startsWith` 分支同样如此），因此**任何 `GET /api/chats/<字面量>` 形态的新接口都必须登记在它之前**。
 - **R3**：方法不匹配不是一种"命中"（无 405、无 405 兜底文案），直接落 404 兜底（§4 约束①）。
 
 **`GET /api/chats/archive` 怪癖的保持方式（F02 验收 4 的显式点名项）**：
@@ -325,7 +332,7 @@ const server = http.createServer(async (req, res) => {
 | `const chatId = decodeURIComponent(p.slice('/api/chats/'.length));` | `const chatId = params.chat_id;` | **仅这一行**（`:515/:525/:575/:595` 共 5 处） |
 
 - 解构 `query: qs` 让体内所有 `qs.get(...)` 原样可用；解构 `num` 同上；`params` 是匹配结果。
-- 因此 diff = 12 个**新增**"表项包装行 + 签名行" + 5 行 `chatId` 取值行 + 分发循环替换（27 行 → 约 16 行）；**handler 逻辑零改写**，`git diff --stat` 可直观核验"只有结构性行在动"。
+- 因此 diff = 11 个**新增**"表项包装行 + 签名行" + 5 行 `chatId` 取值行 + 分发循环替换（27 行 → 约 16 行）；**handler 逻辑零改写**，`git diff --stat` 可直观核验"只有结构性行在动"。
 
 ### 3.7 静态面（**不在接口登记内**；F05/AR-03/AR-09 的承载）
 
@@ -343,7 +350,7 @@ const server = http.createServer(async (req, res) => {
 | `/debug` ★ | `web/debug.html` | 调试台独立地址（F04 验收 1） |
 | `/debug.js` ★ | `web/debug.js` | 调试台脚本（独立文件） |
 | `/api-pages.css` ★ | `web/api-pages.css` | 两个新页面共享样式（§6.8） |
-| `/llms.txt` ★ | `web/llms.txt` | AI 索引（**快照 = HTTP 产物，同一文件**，§5.3） |
+| `/llms.txt` ★ | `llms.txt`（**包根**） | AI 索引（**快照 = HTTP 产物，同一文件**，§5.3；落点依据见 §5.3） |
 | `/API.md` ★ | `API.md` | 契约文档（使 F03 验收 8 / F08 验收 4 的链接**真的可点开**） |
 | `/README.md` ★ | `README.md` | 项目说明（使 F05 验收 4 的链接可点开） |
 
@@ -363,7 +370,7 @@ const server = http.createServer(async (req, res) => {
 | # | 约束（C-5 / F02） | 结构性保证（本方案如何做到） | 判定探针（新测试文件内，硬编码期望值） |
 |---|---|---|---|
 | ① | **不引入 405**：已知路径用错动词 → 走既有"找不到"兜底 | 匹配器只有"命中/不命中"，**不存在**"路径命中但方法不符"这一状态；无 405 分支、无 `Allow` 头 | `PUT /api/agents` → 404 且 body `{error:'not found: PUT /api/agents', code:'NOT_FOUND'}`；`POST /api/chats/archive` 之外的 `DELETE /api/chats/archive` → 404 `not found: DELETE /api/chats/archive` |
-| ② | **路径匹配优先级与处理顺序不变** | 表顺序 = 今日 `if` 链顺序（§3.3 对照表）；`(.*)` + `^…$` 复刻 `slice`/`endsWith` 语义 | §4.2 的 Q-1~Q-5 逐条（`archive` 怪癖、空尾、贪婪 `/`、后缀路由的贪婪参数） |
+| ② | **路径匹配优先级与处理顺序不变** | 表顺序 = 今日 `if` 链顺序（§3.3 对照表）；`exact` 表项 = 精确串、`prefixSuffix` 表项 = `startsWith && endsWith`（**允许前缀尾斜杠与后缀重叠**）+ 同一个 `slice` 表达式（M1~M3，无正则） | §4.2 的 Q-1~Q-5 与 **Q-9~Q-11** 逐条（`archive` 怪癖、空尾、含 `/` 的参数、后缀路由参数、**两侧重叠导致参数为空串**） |
 | ③ | **`readBody` 留在 handler 体内**（改名的"读体(400/413) → 404 → 409 → 400"顺序） | 分发层**从不读体**（S-5）；`readBody` 调用点与后续预检顺序逐字不动 | `POST /api/chats/<未知 id>/rename` 发畸形 JSON → **400**（不是 404）；发 70KB 体 → **413 + `connection: close`**；`POST /api/messages` 畸形 JSON → 400 |
 | ④ | **SSE 路由独占 `res`**，分发层不得包装/检查返回值 | 分发循环 `await handler(...); return;`——不读返回值、不写响应（§3.4 契约 2） | `GET /api/events` → 200 + `text/event-stream`，首帧 `retry: 1000`，事件按序到达；`GET /api/stream?chat_id=<真实 id>` 同上（既有用例已覆盖，本轮追加一条"事件不被包装"的探针：收到的 `data` 可直接 `JSON.parse` 且含 `type` 字段） |
 | ⑤ | **单 try/catch 覆盖面不缩小** | 匹配 + 调用同处一个 `try`（§3.4 契约 1）；handler 体内的局部 try（读体/写库）逐字不动 | ① `GET /api/chats/%E0%A4%A` → **502** `router 不可达或请求失败: URI malformed`（证明**匹配期**抛错也落 502）；② Router 停掉 → `GET /api/agents` → 502（既有用例已覆盖） |
@@ -376,15 +383,18 @@ const server = http.createServer(async (req, res) => {
 
 | # | 请求 | 期望响应（与今日逐字一致） | 保持机制 |
 |---|---|---|---|
-| **Q-1** | `GET /api/chats/archive` | `404 {error:'chat 不存在: archive', code:'NOT_FOUND'}` | 表项 3 的 `(.*)` 吞掉 `archive`；登记中不存在 `GET /api/chats/archive`（§3.3） |
-| **Q-2** | `GET /api/chats/` | `404 {error:'chat 不存在: ', code:'NOT_FOUND'}`（**空值尾部**） | `(.*)` 可空（C1）；今日 `slice(13)` 同样得 `''` |
-| **Q-3** | `GET /api/chats/a/b` | `404 {error:'chat 不存在: a/b', code:'NOT_FOUND'}`（**参数含 `/`**） | `(.*)` 贪婪、可含 `/` |
-| **Q-4** | `POST /api/chats/a/b/close` | `404 {error:'chat 不存在: a/b', code:'NOT_FOUND'}` | 表项 4 的 `(.*)` 回溯到 `/close$` 前的最后一段 |
-| **Q-5** | `POST /api/chats/archive/rename` | `404 {error:'chat 不存在: archive', code:'NOT_FOUND'}` | 表项 7 命中（`endsWith('/rename')` 的等价形态） |
-| **Q-5b** | `GET /api/agents/` | `404 {error:'not found: GET /api/agents/', code:'NOT_FOUND'}` | `^…$` 锚定，不做尾斜杠归一（C3） |
+| **Q-1** | `GET /api/chats/archive` | `404 {error:'chat 不存在: archive', code:'NOT_FOUND'}` | 表项 3（`prefixSuffix`，后缀为空）前缀包含吞掉 `archive`；登记中不存在 `GET /api/chats/archive`（§3.3） |
+| **Q-2** | `GET /api/chats/` | `404 {error:'chat 不存在: ', code:'NOT_FOUND'}`（**空值尾部**） | M3 的 `slice(13)` 允许空串；今日同样得 `''` |
+| **Q-3** | `GET /api/chats/a/b` | `404 {error:'chat 不存在: a/b', code:'NOT_FOUND'}`（**参数含 `/`**） | M3 取"前缀之后的全部剩余串"，可含 `/` |
+| **Q-4** | `POST /api/chats/a/b/close` | `404 {error:'chat 不存在: a/b', code:'NOT_FOUND'}` | 表项 4 的 `endsWith('/close')` 判据 + `slice(13, -6)` 取中间全串 |
+| **Q-5** | `POST /api/chats/archive/rename` | `404 {error:'chat 不存在: archive', code:'NOT_FOUND'}` | 表项 7 命中（`startsWith` + `endsWith('/rename')`） |
+| **Q-5b** | `GET /api/agents/` | `404 {error:'not found: GET /api/agents/', code:'NOT_FOUND'}` | M1 精确串相等，不做尾斜杠归一（M6） |
 | **Q-6** | 空值参数（**阶段 3 实测修正**，见下注） | `GET /api/agents?state=` → **200**（显式视为无参）；`GET /api/chats?state=` → **200**（`readOptionalString` 把 `''` 归一为 `null` = 不过滤）；`GET /api/chats?archived=` → **200**（`num` 把 `''` → `undefined` → 默认 `0`）；`GET /api/chats?limit=` → **200**（默认 50） | `num`/`qs` 逐字不动；`persist.readArchived`/`readOptionalString` 零改动 |
 | **Q-7** | `GET /api/chats?limit=0` / `?archived=2` / `?state=bogus` | `400 {error:'查询参数非法: …', code:'INVALID_PARAM'}` | handler 内 `sendError` 与 `persist` 校验逐字不动（既有用例已覆盖 `limit=0`） |
 | **Q-8** | `GET /api/stream`（缺参） | `400 {error:'需要 chat_id（不做全局订阅）', code:'INVALID_PARAM'}` | handler 体内逐字不动（既有用例 `web.test.js:936` 覆盖） |
+| **Q-9** | `POST /api/chats/close` | `404 {error:'chat 不存在: ', code:'NOT_FOUND'}`（**chatId = 空串**：`startsWith('/api/chats/')` 与 `endsWith('/close')` **重叠在同一个 `/` 上**，今日 `slice(13, 11)` → `''`） | M2 的"两侧可重叠"语义（**独立验证发现项**：正则 `^/api/chats/(.*)/close$` 在此**不命中**，会错落 `not found: …` 而丢掉今日行为） |
+| **Q-10** | `POST /api/chats/activate` | `404 {error:'chat 不存在: ', code:'NOT_FOUND'}`（同上，重叠在 `/activate` 的 `/` 上） | 同 Q-9（M2） |
+| **Q-11** | `POST /api/chats/rename`（三种体） | ① 畸形 JSON 体 → `400 {error:'请求体非法 JSON: …', code:'INVALID_PARAM'}`（**读体先于 404 预检** ⇒ 证明该请求确实命中 rename 表项）；② 70KB 体 → `413` + `connection: close`；③ 合法 `{}` 体 → `404 {error:'chat 不存在: ', code:'NOT_FOUND'}` | 同 Q-9（M2）+ §4.1 约束③（`readBody` 留在 handler 体内、顺序不变） |
 
 > **注（更正阶段 0/2 上游侦察与验证报告的口径；完整纠错段见 §4.5，已报备主 agent 用于迭代记录留档）**："`?archived=` 空 → 400"与实现不符：阶段 3 按代码取证，`web.js:470-476` 的 `num()` 把空串映射为 `undefined`，`persist.js:105-113` 的 `readArchived(undefined)` 返回 `0`（默认）⇒ 空值取回 **200**；`/api/chats?state=` 空亦为 200（`persist.js:122-129` 归一为 `null` ⇒ 该过滤条件不参与 WHERE）；真正产生 400 的是 `limit`/`offset` 非整数或越界（如 `limit=0`）、`archived ∉ {0,1}`、`state ∉ CHAT_STATES`（`persist.js:280-287`）。**本方案不依赖该结论做任何设计**——契约是"`num`/`qs` 与全部调用点逐字不动"，空值语义由构造保持；探针的期望值以**改造前实测**为准（阶段 5 第一步固化，不照抄上游报告）。
 
@@ -394,9 +404,9 @@ const server = http.createServer(async (req, res) => {
 
 | 层 | 范围 | 执行方式 | 服务的验收 |
 |---|---|---|---|
-| **L1 既有回归面** | `oamp/test/web.test.js`（39 条，**文本零改写**）+ 其余 19 个测试文件 | `npm test` 全绿；另对 `web.test.js` 做 `git diff` **应为空** | F02 验收 1、2（E3 的"diff 为空 + 全绿"） |
+| **L1 既有回归面** | `oamp/test/web.test.js`（39 条，**文本零改写、零追加**）+ 其余 19 个测试文件 | `npm test` 全绿；另对 `web.test.js` 做 `git diff` **应为空** | F02 验收 1、2（E3 的"diff 为空 + 全绿"） |
 | **L2 新增特征化面** | §4.1 探针 + §4.2 怪癖清单（硬编码期望值） | 新文件 `test/api-routes.test.js`；**先在未改造的代码上跑一遍，期望值即实测值**（特征化测试先绿），再改造，改造后必须仍全绿 | F02 验收 3~7（C-5①②③④⑤⑥ 的逐条可执行化） |
-| **L3 匹配器单测面** | 表结构 / 顺序 / 贪婪 / 空尾 / 锚定 / 方法不匹配 / 参数解码 / 可达性 | 同文件内直接 import `createApiRoutes({})` + `matchRoute`（**不起进程**） | F01 验收 4、5；§3.3 R1~R3 |
+| **L3 匹配器单测面** | 表结构 / 顺序 / `exact` 精确串 / `prefixSuffix`（含**前后缀重叠**、空尾、含 `/` 的参数）/ 方法不匹配 / 参数解码 / 可达性 | 同文件内直接 import `createApiRoutes({})` + `matchRoute`（**不起进程**） | F01 验收 4、5；§3.3 M1~M6 / R1~R3 |
 
 **行为等价抽查的取样**：不引入"改造前后快照对比"这类外部产物——**L2 的期望值本身就是取样结果**（改造前实测一次、固化进用例），改造后逐字比对即等价证明。抽查覆盖：每条既有路由的 1 条成功路径（由 L1 的 39 条承担）+ 每条路由的 1 条边界（由 L2 承担）。
 
@@ -404,7 +414,7 @@ const server = http.createServer(async (req, res) => {
 
 - **`oamp/test/web.test.js` 一个字都不改（不追加、不改写）** —— **实现契约（2026-09-12 用户口径确认，主 agent 转达）**。理由：F02 验收 1「既有 HTTP 面测试文件一个字都不改」与 E3「对该文件做 diff 应为空」是**产品维度**的判定；阶段 2 该 AR 待填项写的"仅追加"提示属**架构维度**（且已被本节取代），与产品判定冲突时以产品判定为准（按 §13 R-4 报备）。**落地形态**：新增断言全部落 `test/api-routes.test.js`（三层锁 + L2 探针 + L3 匹配器单测）与 `test/api-pages.test.js`（页面静态契约 + 新页面 HTTP 可达性）；因 `web.test.js` 内的 `startWeb` 辅助是文件局部且不可导出，两个新文件各自自带同款约 25 行启动辅助，**不抽公共 helper、不触碰既有测试文件的任何字节**。
 - 因此**全部新增断言落在两个新文件**（新文件不触碰既有文件的任何字节）：
-  - `test/api-routes.test.js`：L2（C-5 七条 + 怪癖 Q-1~Q-8 探针）+ L3（匹配器单测与可达性）+ **F06 三条漂移锁** + **`GET /api/docs` 的响应形状 + `GET /llms.txt` 的全部断言（200 / `text/plain; charset=utf-8` / 与仓库快照逐字节相等）**。
+  - `test/api-routes.test.js`：L2（C-5 七条 + 怪癖 Q-1~Q-11 探针）+ L3（匹配器单测与可达性）+ **F06 三条漂移锁** + **`GET /api/docs` 的响应形状 + `GET /llms.txt` 的全部断言（200 / `text/plain; charset=utf-8` / 与仓库快照逐字节相等）**。
   - `test/api-pages.test.js`：两个新页面、控制台顶栏入口与 `api-pages.css` 的**静态契约**（HTML/CSS/JS 的 `assert.match`，沿用既有 `web.test.js:1601-1635` 的体例）+ `GET /docs`、`GET /debug`、`GET /api-pages.css` 的 HTTP 可达性与响应类型。
 - **断言归属裁决（2026-09-12 主 agent 裁决，禁止再漂移）**：`GET /llms.txt` 的**全部**断言（200 + `text/plain; charset=utf-8` + 与仓库快照逐字节相等）**只归 `test/api-routes.test.js`**（与生成函数、快照文件、漂移锁② 同批，语义最内聚）；`test/api-pages.test.js` **不断言 llms.txt**，只负责两个新页面资产、顶栏入口与 `/api-pages.css` 的可达性 / MIME / 静态契约。
 - **`startWeb` 辅助的重复**：`web.test.js` 内的 `startWeb` 是文件局部、不可导出（S-11），且该文件禁止改动 ⇒ 新文件**自带同款约 25 行**（`spawn` + 等 `WEB_READY` + 随机端口 + 临时 `OAMP_DB` + `LEASE_ENV`）。这是"零改写既有测试文件"这一硬约束的**唯一代价**，可接受；**禁止**为此改 `web.test.js` 或抽公共 helper。
@@ -423,9 +433,10 @@ const server = http.createServer(async (req, res) => {
 | 2 | `?state=`（空值）在对话列表视为参数错误 | **200**（等价于"不传"）：`readOptionalString('')` 归一为 `null` ⇒ 该过滤条件不参与 WHERE | `persist.js:122-129`、`persist.js:280-287` |
 | 3 | （未区分）"空值参数一处 400" | **今日不存在任何"空值 → 400"路径**；`/api/agents?state=` 是**显式**判空（当无参处理），对话列表的空值则由 `readOptionalString` / `num` 两条不同实现归一，**两处实现不同、结果同为"无参/默认值"**——这才是 W1 要求"原样保留"的那个"既有不一致" | `web.js:482-491`（显式判空）+ `persist.js:122-129`、`persist.js:91-103` |
 
-**真正产生 400 的输入（更正后的正确清单）**：`limit` / `offset` 非整数或越界（如 `?limit=0`、`?limit=201`、`?limit=abc`）、`archived ∉ {0,1}`（如 `?archived=2`）、`state ∉ CHAT_STATES`（如 `?state=bogus`）、时间戳非整数（`from`/`to`）、`from > to`。证据：`persist.js:91-103`、`persist.js:105-113`、`persist.js:284-287`（抛错 → handler 内 `sendError(400, INVALID_PARAM, …)`，`web.js:507-510`）。
+**`/api/chats` 列表查询参数的 400 清单（更正后的正确范围）**：`limit` / `offset` 非整数或越界（如 `?limit=0`、`?limit=201`、`?limit=abc`）、`archived ∉ {0,1}`（如 `?archived=2`）、`state ∉ CHAT_STATES`（如 `?state=bogus`）、时间戳非整数（`from`/`to`）、`from > to`。证据：`persist.js:91-103`、`persist.js:105-113`、`persist.js:284-287`（抛错 → handler 内 `sendError(400, INVALID_PARAM, …)`，`web.js:507-510`）。
 
 **对本架构的影响**：**无**。契约不依赖任何具体空值取值，而是"`num` 函数体、`qs` 调用点、`persist` 层校验**逐字不动**"⇒ 全部空值语义按构造保持；§4.2 的 Q-6 探针期望值以**改造前实测**为准（阶段 5 第一步先跑一遍固化，而非照抄上游报告）。
+**范围限定（避免误读为"全站 400 只有这些"）**：本节清单只覆盖 **`/api/chats` 列表查询参数**。其余接口各自的 400/413 **不在本次更正范围、按现状保持**：`/api/agents?state=<非法>` → 400（`web.js:487-489`）；`GET /api/stream` 缺 `chat_id` → 400（`web.js:637-639`）；`POST /api/messages` 畸形 JSON → 400、缺 `agent_id` → 400（`web.js:667-669`）、空 `text` → 400（`web.js:671-673`）、非法 `model` → 400（`web.js:676-678`）、请求体 > 64KiB → 413 + `connection: close`（`readBody` `web.js:111-113` + 调用点 `web.js:654-660`）；`POST /api/chats/:id/rename` 非法标题 → 400（`web.js:621-624`）、超限 → 413（同段）。
 
 ---
 
@@ -510,17 +521,18 @@ export function renderLlmsTxt(routes) { /* projected routes → string（LF 换�
 - **确定性来源**：端口写**默认值 7788** 并紧跟一行"可改"说明（若把端口做成参数，快照就与运行环境耦合，锁②无法逐字节锁定）。
 - **链接形态（AR-05-d）**：每行同时给"HTTP 绝对 URL（默认端口）+ 仓库内相对文件名"两种写法——AI 客户端无论从 HTTP 还是从仓库读，都能定位。
 
-**单产物结构（关键简化）**：`oamp/web/llms.txt` **既是** HTTP 产物（经静态面 `/llms.txt` 提供）**又是**仓库快照文件——**一个文件两个出口**。⇒
+**单产物结构（关键简化）**：`oamp/llms.txt` **既是** HTTP 产物（经静态面 `/llms.txt` 提供）**又是**仓库快照文件——**一个文件两个出口**。⇒
 
 - F05 验收 3「HTTP 内容与快照逐字节相等」**由构造保证**（同一份字节，不存在副本）。
 - F05 验收 7「不产生第三份需要同步的副本」**由构造保证**（根本没有第二份文件）。
 - 真正有漂移风险的量只剩一个：**文件 vs 表** → 由锁②（§7.2）硬锁。
+- **落点依据（用户已确认）**：快照落**仓库/包根 `oamp/llms.txt`**（`demand.md` D-3 / D-11 / W4 / §3「已知受影响文件」；`status.md` 亦记该落点），**不落在 `web/` 下**；静态面用**包根相对路径**映射（`/llms.txt → llms.txt`），与 `/API.md`、`/README.md` 共用同一基准，`serveStatic` 不需要第二套根。（阶段 3 初稿曾写 `oamp/web/llms.txt`，属未经确认的偏离，**已按用户已确认决策改回包根**。）
 
 **同步机制（AR-05-c）**：
 
 | 环节 | 契约 |
 |---|---|
-| 生成 | `node oamp/scripts/gen-llms-txt.mjs`（脚本 = `renderLlmsTxt(projectRoutes(createApiRoutes({})))` → 覆盖写 `oamp/web/llms.txt`，导出同一函数，**不重复实现**） |
+| 生成 | `node oamp/scripts/gen-llms-txt.mjs`（脚本 = `renderLlmsTxt(projectRoutes(createApiRoutes({})))` → 覆盖写 `oamp/llms.txt`，导出同一函数，**不重复实现**） |
 | 提交 | 快照随 PR 提交入库（`.gitignore` 不放行、不生成到 `data/` 或 `.runtime/`） |
 | 漏做检测 | `npm test` 的锁②红，失败信息含**首处差异的行号/列号 + 字节偏移 + 修复命令**（§7.2） |
 | 触发时机 | 改动登记（新增/修改/删除表项）后；`API.md`/`README.md` 只以链接出现，其文案变化**不影响**快照 |
@@ -532,7 +544,7 @@ export function renderLlmsTxt(routes) { /* projected routes → string（LF 换�
 | `GET /api/docs`（JSON） | `projectRoutes`（+ 表） | `/docs` 页面、`/debug` 页面、锁①③ | 请求时 | F01 验收 2/3/4/5、F03 验收 5/6、F04 验收 2/3 |
 | `/docs`（HTML+JS 渲染） | `docs.js` + 投影 | 人 | 页面加载 | F03 全部、F08 验收 4/5 |
 | `/debug`（HTML+JS 渲染） | `debug.js` + 投影 | 人 | 页面加载 | F04 全部、F07 全部 |
-| `oamp/web/llms.txt`（文件 = HTTP） | `renderLlmsTxt`（经 `gen-llms-txt.mjs`） | AI 客户端、锁② | 人工生成 + 入库 | F05 全部、F06 验收 2 |
+| `oamp/llms.txt`（包根；文件 = HTTP） | `renderLlmsTxt`（经 `gen-llms-txt.mjs`） | AI 客户端、锁② | 人工生成 + 入库 | F05 全部、F06 验收 2 |
 
 **★ HTTP 面断言落点（本表四行产物的可测承载；归属已由主 agent 裁决，2026-09-12，禁止再漂移）**：`GET /api/docs` 的响应形状 → `test/api-routes.test.js`（PR-1）；**`GET /llms.txt` 的全部断言（200 + `text/plain; charset=utf-8` + 与仓库文件逐字节相等）→ 同一文件（PR-1）**，与生成函数 / 快照 / 漂移锁② 同批；`GET /docs`、`GET /debug`、`GET /api-pages.css` 的可达性 / MIME 与两个页面的静态契约 → `test/api-pages.test.js`（PR-2）。**`test/api-pages.test.js` 不断言 llms.txt**（同一事实不在两处断言，避免漂移）。
 
@@ -642,8 +654,8 @@ const elapsedMs = Math.round(performance.now() - t0);
 
 | 锁 | 检查对象（真实对象） | 取法 |
 |---|---|---|
-| ① 元数据必填 | **登记构造器的真实返回值**：`createApiRoutes({})` 得到的 12 个表项 | 进程内 `import { createApiRoutes } from '../src/web.js'` 直接调用（纯构造、传空 dep 不抛错）——**不是**读 `web.js` 文本 |
-| ② 索引快照逐字节 | **生成函数的真实输出** vs **文件的真实字节** | `renderLlmsTxt(projectRoutes(createApiRoutes({})))` vs `fs.readFileSync('oamp/web/llms.txt')`（Buffer 比对） |
+| ① 元数据必填 | **登记构造器的真实返回值**：`createApiRoutes({})` 得到的 11 条表项 | 进程内 `import { createApiRoutes } from '../src/web.js'` 直接调用（纯构造、传空 dep 不抛错）——**不是**读 `web.js` 文本 |
+| ② 索引快照逐字节 | **生成函数的真实输出** vs **文件的真实字节** | `renderLlmsTxt(projectRoutes(createApiRoutes({})))` vs `fs.readFileSync('oamp/llms.txt')`（Buffer 比对） |
 | ③ 契约文档路径级 | **登记路径集合** vs **`API.md` 文本中抽取的签名集合** | 登记侧：遍历表项取 `method + shape(path)`；文档侧：从 `API.md` 抽取反引号签名并按 §7.2 规则归一 |
 
 **为什么不用"读源码正则"**：读源码断言只能锁"文本恰好长这样"，锁不住"表项真的缺少某个元数据字段"（字段即使缺失，正则仍可匹配到相邻文本）；而且任何一次重排/注释改动都会误红。锁①②③的检查对象都是**运行结果**，锁的是"产出是否完整/一致"。
@@ -663,7 +675,7 @@ const elapsedMs = Math.round(performance.now() - t0);
 
 **锁② 索引快照逐字节锁**
 
-- `expected = renderLlmsTxt(projectRoutes(createApiRoutes({})))`；`actual = fs.readFileSync(<oamp/web/llms.txt>, 'utf8')`。
+- `expected = renderLlmsTxt(projectRoutes(createApiRoutes({})))`；`actual = fs.readFileSync(<oamp/llms.txt>（包根）, 'utf8')`。
 - 逐字节比较（按 `Buffer` 比长度与内容）；不等时计算**首处差异**：按 `\n` 切分后逐行比对得到 `line`（1-based），在该行内逐字符比对得到 `col`（1-based），并给出**字节偏移**。
 - 失败信息：
   ```text
@@ -694,7 +706,7 @@ const elapsedMs = Math.round(performance.now() - t0);
 - **文件**：`test/api-routes.test.js`（新文件，`npm test` 的 glob 自动纳入）。
 - **形态**：三条锁各写成一个**独立顶层 `test(...)`**（与 `hygiene.test.js` 的三条并列体例一致）⇒ 一条失败不掩盖另两条的结论（F06 验收 4）；三条的 `findings` 收集器彼此独立，无共享可变状态。
 - **零 I/O 之外的副作用**：只读文件、不写文件、不起进程、不占端口 ⇒ 可与其他测试文件并行（`node --test` 的默认并发）而不互相干扰。
-- **运行时长**：三条锁都是毫秒级（比对 12 项 + 一份几 KB 文件），不引入新的慢测试面。
+- **运行时长**：三条锁都是毫秒级（比对 11 条 + 一份几 KB 文件），不引入新的慢测试面。
 
 ---
 
@@ -705,11 +717,11 @@ const elapsedMs = Math.round(performance.now() - t0);
 ```mermaid
 sequenceDiagram
   participant Dev as 开发者
-  participant Tbl as API_ROUTES（12 项）
+  participant Tbl as API_ROUTES（11 条）
   participant Web as web 进程（src/web.js）
   participant Page as /docs 与 /debug（浏览器）
   participant Gen as scripts/gen-llms-txt.mjs
-  participant Snap as web/llms.txt（HTTP 同一文件）
+  participant Snap as oamp/llms.txt（包根；HTTP 同一文件）
 
   Note over Dev,Tbl: 只在登记处追加一项（元数据 + handler），不改三个面的任何实现
   Dev->>Tbl: 追加表项
@@ -774,7 +786,7 @@ sequenceDiagram
 |---|---|---|
 | 1 | 「Web 控制台（demo）」段 | 浏览器打开后清单 +2 条：顶栏「文档」→ `/docs`（字段级接口文档，不含示例）；顶栏「调试」→ `/debug`（真实发送、写操作需确认） |
 | 2 | 「对话持久化…」段的 HTTP 表 | +1 行：`\| GET /api/docs \| 接口元数据（文档页 / 调试台 / AI 索引文件的数据源） \|` |
-| 3 | 新增一小段「接口文档与索引（0016）」 | 三个地址（`/docs`、`/debug`、`/llms.txt`）+ 索引快照现址（`oamp/web/llms.txt`）+ 重新生成命令（`node scripts/gen-llms-txt.mjs`）+ 三条漂移锁由 `npm test` 强制 |
+| 3 | 新增一小段「接口文档与索引（0016）」 | 三个地址（`/docs`、`/debug`、`/llms.txt`）+ 索引快照现址（`oamp/llms.txt`，包根）+ 重新生成命令（`node scripts/gen-llms-txt.mjs`）+ 三条漂移锁由 `npm test` 强制 |
 
 ### 9.3 零同步面（明确不必改的）
 
@@ -795,6 +807,7 @@ sequenceDiagram
   3. **接口面口径 = 11 条**：文档页（F03 验收 5）、调试台（F04 验收 2）、`llms.txt`（F05 验收 5）的接口集合与登记集合一致 ⇒ 三处都会列出它；`API.md` §3 标题改为"11 条"并新增 `### 3.11` 小节（§9.1）；漂移锁③的登记侧集合按 11 条取值。
   4. `llms.txt` 的"接口（N 条）"与 API 清单行随之为 11（由 `renderLlmsTxt` 生成，不手写）。
   5. **不再保留任何"接口面 10 条"的表述**（`API.md` §3 标题、`README.md` 的 HTTP 表行数说明如涉及，同 PR 同步；§9）。
+  6. **`llms.txt` 快照落点 = 包根 `oamp/llms.txt`**（用户已确认：`demand.md` D-3 / D-11 / W4；静态面用包根相对路径映射 `/llms.txt → llms.txt`，见 §5.3）。**禁止**落在 `oamp/web/` 下。
 - **已否决备选（记录备查）**：两个页面改服务端渲染（`web.js` 读 `web/*.html` 模板并注入投影 JSON）——引入模板注入机制（含 `</script>` 转义）、页面断言退化为"渲染后 HTML 字符串匹配"，且与"以真实生成结果为准"的取向不一致。
 
 **L1-02：静态面新增两个仓库文档 URL（`/API.md`、`/README.md`）——已采纳**
@@ -812,7 +825,7 @@ sequenceDiagram
 | # | 决策 | 落点 |
 |---|---|---|
 | L2-01 | 登记形态 = **具名导出的纯构造器 `createApiRoutes(deps)`**，在 `startWeb()` 体内以局部名调用（零 handler 改写） | §3.2 |
-| L2-02 | 匹配 = **声明顺序 + `(.*)` 贪婪参数段 + `^…$` 锚定**，不引入优先级打分/最长匹配 | §3.3 |
+| L2-02 | 匹配 = **声明顺序 + 两种规格（`exact` 精确串 / `prefixSuffix` 前缀-后缀包含，允许重叠）**，不引入正则、优先级打分或最长匹配 | §3.3 |
 | L2-03 | 静态面 = **显式映射表 `STATIC_FILES`**（URL → 包根相对文件），仍是白名单；`.txt`/`.md` 补 MIME | §3.7 |
 | L2-04 | 派生产物数据源 = **`GET /api/docs` 请求时投影**（不缓存、不预快照） | §5.1/§5.2 |
 | L2-05 | `llms.txt` = **单产物结构**（HTTP 与仓库快照是同一文件），不设副本同步步骤 | §5.3 |
@@ -826,7 +839,7 @@ sequenceDiagram
 
 ### L3（实现细节，无需专门说明）
 
-导出名（`createApiRoutes`/`matchRoute`/`projectRoutes`/`renderLlmsTxt`）、常量名（`ROUTE_META_FIELDS`/`STATIC_FILES`/`ROUTE_KINDS`）、文件名（`web/docs.html`/`web/docs.js`/`web/debug.html`/`web/debug.js`/`web/api-pages.css`/`web/llms.txt`/`scripts/gen-llms-txt.mjs`/`test/api-routes.test.js`/`test/api-pages.test.js`）、CSS 类名、DOM id、探针哨兵值、`docLink` 锚点字符串、锁定信息的措辞。
+导出名（`createApiRoutes`/`matchRoute`/`projectRoutes`/`renderLlmsTxt`）、常量名（`ROUTE_META_FIELDS`/`STATIC_FILES`/`ROUTE_KINDS`）、文件名（`web/docs.html`/`web/docs.js`/`web/debug.html`/`web/debug.js`/`web/api-pages.css`/`llms.txt`（包根）/`scripts/gen-llms-txt.mjs`/`test/api-routes.test.js`/`test/api-pages.test.js`）、CSS 类名、DOM id、探针哨兵值、`docLink` 锚点字符串、锁定信息的措辞。
 
 ---
 
@@ -834,14 +847,14 @@ sequenceDiagram
 
 | AR | 落定结论 | 详见 |
 |---|---|---|
-| **AR-01-a** 物理形态与放置 | 具名导出的**纯构造器 `createApiRoutes(deps)`** 内的一张有序数组字面量（12 项），`startWeb()` 体内以 9 个局部名调用；每项 = 元数据 + handler（一处登记）；`handler` 体零改写（签名行 + 5 行 `chatId` 取值行） | §3.2、§3.6 |
+| **AR-01-a** 物理形态与放置 | 具名导出的**纯构造器 `createApiRoutes(deps)`** 内的一张有序数组字面量（11 条），`startWeb()` 体内以 9 个局部名调用；每项 = 元数据 + handler（一处登记）；`handler` 体零改写（签名行 + 5 行 `chatId` 取值行） | §3.2、§3.6 |
 | **AR-01-b** 表项字段 schema | 8 个元数据字段（`method`/`path`/`summary`/`params`/`response`/`errors`/`kind`/`docLink`）+ 1 个 `handler`；`Param` 5 字段（`name`/`in`/`type`/`required`/`desc`，可选 `enum`）；"是否有请求体"由 `params.in === 'body'` 派生 | §3.1 |
-| **AR-01-c** 分发实现 | 匹配器 `matchRoute`（顺序遍历 + 首个命中 + 参数解码）+ 分发循环（单 try/catch、不包装返回值、静态面其次、404 兜底文案不变）；优先级 = 声明顺序；怪癖靠 `(.*)`/`^…$` 复刻 | §3.3、§3.4 |
+| **AR-01-c** 分发实现 | 匹配器 `matchRoute`（顺序遍历 + 首个命中 + 参数解码；两种规格 `exact` / `prefixSuffix`，**无正则**）+ 分发循环（单 try/catch、不包装返回值、静态面其次、404 兜底文案不变）；优先级 = 声明顺序；怪癖（含前后缀重叠）靠 M1~M3 复刻 | §3.3、§3.4 |
 | **AR-01-d** 生成时机 | **请求时投影**（`/api/docs`）；页面加载时取一次；快照类产物（`llms.txt`）在生成器运行时刻产出 | §5.2 |
 | **AR-01-e** 与既有实现结合 | 9 个局部名经构造器入参注入；handler 体内自由变量名**一个都不改**（`query: qs`、`num`、`params` 解构） | §3.6 |
 | **AR-02-a** 回归验证范围与执行方式 | 三层：既有 39 条零改写全绿（L1）+ 新增特征化探针（L2）+ 匹配器单测（L3）；等价证据 = "改造前实测固化 + 改造后逐字比对" | §4.3 |
 | **AR-02-b** 新增断言落点 | **`web.test.js` 零字节改动**（不追加）；全部新增断言在两个新文件；新文件自带 25 行 `startWeb` 辅助 | §4.4 |
-| **AR-02-c** 行为保持的实现路径 | C-5 七条逐条 → 结构性保证 → 判定探针（表）；另附 8 条今日怪癖清单（Q-1~Q-8） | §4.1、§4.2 |
+| **AR-02-c** 行为保持的实现路径 | C-5 七条逐条 → 结构性保证 → 判定探针（表）；另附 11 条今日怪癖清单（Q-1~Q-11，含独立验证发现的"前后缀重叠"三条） | §4.1、§4.2 |
 | **AR-03-a** 承载与文件划分 | 静态 `web/docs.html` + `web/docs.js`；与调试台**共享 `api-pages.css` 与 `/api/docs` 数据源**，不共享 JS | §6.1 |
 | **AR-03-b** 取数与数据格式 | 页面 load 时 `fetch('/api/docs')`；数据格式见 §5.1 | §6.2、§5.1 |
 | **AR-03-c** 生成时机 | 请求时（不缓存、不预快照） | §5.2 |
@@ -855,7 +868,7 @@ sequenceDiagram
 | **AR-04-e** 防护挂载点 | 发送函数内唯一一处 `if (route.danger && !window.confirm(...)) return;`（与 AR-07-d 同一落点） | §6.6 |
 | **AR-04-f** 样式落点 | 同 AR-03-e（共享 `api-pages.css`） | §6.8 |
 | **AR-05-a** 生成方式与落点 | 具名纯函数 `renderLlmsTxt(routes)`（`src/web.js` 导出）+ CLI 包装 `scripts/gen-llms-txt.mjs`；HTTP 侧由静态面直接提供同一文件 | §5.3 |
-| **AR-05-b** HTTP 侧承载 | 静态映射表项 `/llms.txt → web/llms.txt`；`STATIC_TYPES` 追加 `.txt → text/plain; charset=utf-8` | §3.7、§5.3 |
+| **AR-05-b** HTTP 侧承载 | 静态映射表项 `/llms.txt → llms.txt`（**包根**，用户已确认落点）；`STATIC_TYPES` 追加 `.txt → text/plain; charset=utf-8` | §3.7、§5.3 |
 | **AR-05-c** 快照新鲜度与提交 | 人工运行生成器覆盖写并随 PR 入库；漏做由锁②在 `npm test` 红（含差异定位与修复命令） | §5.3、§7.2 |
 | **AR-05-d** 链接形态 | 每行给"HTTP 绝对 URL（默认端口 7788）+ 仓库内相对文件名" | §5.3 |
 | **AR-06-a** 测试组织形态 | 新文件 `test/api-routes.test.js`；三条锁各一个独立顶层 `test`；只读、无副作用、毫秒级 | §7.3 |
@@ -878,7 +891,7 @@ sequenceDiagram
 
 | PR | 文件范围 | 涉及功能点 | depends_on | 为什么这样切 |
 |---|---|---|---|---|
-| **PR-1：表驱动分发 + 静态面 + 派生面 + 三条锁** | `oamp/src/web.js`、`oamp/scripts/gen-llms-txt.mjs`、`oamp/web/llms.txt`、`oamp/API.md`、`oamp/test/api-routes.test.js` | F01、F02、F05、F06、F08（验收 1、2、3） | （无） | 这五件事**共享同一个文件**（`web.js` 是唯一代码落点），拆开必冲突；`API.md` 的路径行与锁③必须同 PR（否则本 PR 的测试红）；`llms.txt` 与锁②必须同 PR |
+| **PR-1：表驱动分发 + 静态面 + 派生面 + 三条锁** | `oamp/src/web.js`、`oamp/scripts/gen-llms-txt.mjs`、`oamp/llms.txt`（包根）、`oamp/API.md`、`oamp/test/api-routes.test.js` | F01、F02、F05、F06、F08（验收 1、2、3） | （无） | 这五件事**共享同一个文件**（`web.js` 是唯一代码落点），拆开必冲突；`API.md` 的路径行与锁③必须同 PR（否则本 PR 的测试红）；`llms.txt` 与锁②必须同 PR |
 | **PR-2：文档页 + 调试台 + 控制台入口 + 既有资产同步** | `oamp/web/docs.html`、`oamp/web/docs.js`、`oamp/web/debug.html`、`oamp/web/debug.js`、`oamp/web/api-pages.css`、`oamp/web/index.html`、`oamp/web/style.css`、`oamp/README.md`、`oamp/test/api-pages.test.js` | F03、F04、F07、F08（验收 4、5、6） | `PR-1`（理由：页面消费 `GET /api/docs` 的响应形状与元数据字段，且 `/docs`、`/debug`、`/api-pages.css` 三个 URL 由 PR-1 加进 `STATIC_FILES`；README 的 HTTP 表行也引用 PR-1 新增的接口） | 页面资产与源码文件**零重叠**，可独立 review / 独立回滚；因依赖真实符号与静态映射，必须排在 PR-1 之后 |
 
 **并发性提示**：两个 PR 的文件范围零重叠，但存在**真实代码依赖**（PR-2 的页面调用 PR-1 的接口、依赖 PR-1 的静态映射），因此**不可并发**——阶段 5 应串行派发（PR-2 的 worktree 必须从"已合入 PR-1 的迭代分支"拉出）。若阶段 4 认为需要更高并发度，可把 PR-1 中"三条锁 + 生成器 + 快照"再拆一个 PR（`PR-1b`），但它依赖 `createApiRoutes`/`projectRoutes`/`renderLlmsTxt` 三个导出，仍**必须排在 PR-1a 之后**，不产生真实并发。**不做**这种拆法（只增串行层级，不增并发）。
@@ -898,7 +911,7 @@ sequenceDiagram
 | **R-5** | **口径更正（已记录为显式纠错段，2026-09-12）** | 阶段 0/2 侦察与验证报告口径"`?archived=` 空 → 400"与代码实测不符（实测为 200；空值一律等价于无参/默认值） | **见 §4.5「口径更正」**（含代码级证据与正确的 400 来源）；本方案不依赖该结论，契约是"`num`/`qs` 与调用点逐字不动"，探针期望值以改造前实测为准 |
 | **R-6** | 产品边界（**用户已接受"不新增"，2026-09-12**） | 两个新页面**不加页面内导航 / 返回控制台的入口**（`demand.md` 未要求，AR-09 明确"不得据此新增功能"） | 本方案不新增（§11 AR-09）；若后续要加，属产品侧追加，不由架构自作主张 |
 | **R-7** | 模型推导（**已确认，无残留**） | 本方案按 MI-01（响应形态口径）、MI-02（耗时口径）、MI-03（可停止订阅）、MI-04（链接粒度）、MI-05（接入方式含服务地址与启动方式）、MI-06（判定界 = 不改三处实现，服务重载 + 刷新 / 重新生成即出现，**不要求运行期热更新**）、MI-07（防护随登记自动生效）落地 | **7 项推导已由用户全部确认（7/7，2026-09-12；卡内标记 `[user_confirmed MI-0x]`）** ⇒ 本架构按确认值落地，无待决假设。为使阶段 6 可复核，各条的落点仍逐条标注：MI-01→§5.1/§6.2；MI-02→§6.4；MI-03→§6.5；MI-04→§6.7；MI-05→§5.3；MI-06→§5.2；MI-07→§6.6 |
-| **R-8** | 表顺序陷阱 | `GET /api/chats/:chat_id` 的贪婪尾会吞掉任何 `GET /api/chats/<单段>` 形态的新接口（今日契约亦如此） | §3.3 R2 + §3.5 的**可达性断言**（吞掉即 `npm test` 红并点名） |
+| **R-8** | 表顺序陷阱 | `GET /api/chats/:chat_id` 的**前缀包含**会吞掉任何 `GET /api/chats/<任意尾串>` 形态的新接口（今日 `startsWith` 契约亦如此） | §3.3 R2 + §3.5 的**可达性断言**（吞掉即 `npm test` 红并点名） |
 | **R-9** | 锁③的约定依赖 | 文档中的反例若写成反引号签名形态，会被判为"未登记路径" | §6.7 的约定说明 + 失败信息提示；现状实测零假阳性（S-10） |
 | **R-10** | 浏览器侧验收留白 | 两个新页面的**视觉与交互**（表格可读性、确认对话框、订阅面板）只能由浏览器人工验证 | 架构只给资产与行为契约；阶段 5 用 `browser` 类工具实测（F03 验收 1/3/7/8、F04 验收 1/3/4/5、F07 验收 1/3/4） |
 
@@ -909,7 +922,7 @@ sequenceDiagram
 - F04 验收 6（不出现登记之外接口）↔ N9（不引入 agent 启停）：调试台只渲染投影，登记中没有启停路由 ⇒ 结构性满足（§6.5）。
 - F05 验收 3（两份逐字节相等）↔ F05 验收 7（不产生第三份副本）↔ F06 验收 2（快照锁）：单产物结构同时满足三条（§5.3）。
 - F07（防护）↔ F04（渲染层）↔ F01（登记）：`danger` 由 `method` 派生、挂载点唯一（§6.6），三卡不冲突。
-- F02（零行为变化）↔ F01（表驱动）：由"表顺序 = 今日 `if` 链顺序 + `(.*)`/`^…$` 复刻 + handler 体零改写"三条同时成立保证（§3、§4）。
+- F02（零行为变化）↔ F01（表驱动）：由"表顺序 = 今日 `if` 链顺序 + `exact`/`prefixSuffix` 对 `p === '…'` 与 `startsWith+endsWith+slice` 的逐字复刻 + handler 体零改写"三条同时成立保证（§3、§4）。
 - F06 三条锁的对象**互不相同**（登记构造值 / 生成输出 vs 文件字节 / 两个路径集合），满足验收 4 的"互不掩盖"（§7.3）。
 
 ---
@@ -925,7 +938,7 @@ sequenceDiagram
 | `STATIC_FILES` 映射表 | 每个新资产要加一条 `if`；且 `/docs`、`/debug` 无法成为"独立地址 + 可点开链接" | 必需（F03/F04 验收 1、F08 验收 4） |
 | `/docs` + `docs.js`、`/debug` + `debug.js` | F03、F04、F07 全部交付物不存在 | 必需 |
 | `api-pages.css` | 既有样式面零表格/零 prose（F-19），字段表与正文无排版规则；写进 `style.css` 会碰既有断言面（N12） | 必需 |
-| `web/llms.txt` + `renderLlmsTxt` + `gen-llms-txt.mjs` | F05 全部验收无法成立 | 必需（W4） |
+| `llms.txt`（包根）+ `renderLlmsTxt` + `gen-llms-txt.mjs` | F05 全部验收无法成立 | 必需（W4） |
 | `test/api-routes.test.js`（三条锁 + 探针） | F06 三条锁无落点；C-5 七条无独立可测承载（F02 是本次新引入的回归风险） | 必需（W5 + F02） |
 | `test/api-pages.test.js` | 两个新页面与控制台入口无回归面（后续改动会静默破坏） | 必需（首轮即需要静态契约面） |
 
@@ -935,7 +948,7 @@ sequenceDiagram
 
 ## 15. 越界声明
 
-1. **未修改任何产品维度**：`prd.md` / `prd/F01~F08*.md` 的验收标准、边界、用户价值、需求追溯、MI 列表、疑问与越界章节**一字未改**；本次只回填各卡的 `[架构待填]` 段（AR 落定）并按需更新 `prd.md` 的状态行、功能点索引的"架构维度"列与"架构待填列表"（改为落定索引）。
+1. **未修改任何产品维度**：`prd.md` / `prd/F01~F08*.md` 的验收标准、边界、用户价值、需求追溯、MI 列表、疑问与越界章节的**结论**未被阶段 3 改动——阶段 3 只回填各卡的 `[架构待填]` 段（AR 落定）并更新 `prd.md` 的状态行、功能点索引的"架构维度"列与"架构待填列表"（改为落定索引）。**归因说明（独立验证 D-4 提示）**：同一提交区间内还含**阶段 2 第二轮**的 MI 标注同步（`model_inferred` → `user_confirmed`，见 `prd.md` 状态行与 `F01:18`/`F03:19`/`F05:21` 等行内标注），由阶段 2 产物侧完成、与阶段 3 **同批提交**，故 `git log -p` 无法按提交区分；该同步只改标注状态，产品结论未变形。
 2. **未修改 `demand.md`**、未修改 `oamp/**`（阶段 3 只读取证）、未修改 `roles/**`。
 3. **未做 PR 拆解**：§12 仅为阶段 4 的输入（文件范围、涉及功能点、`depends_on`、并发性判断），未产出 `prs/*.md`。
 4. **未写实现代码**：§3~§8 的代码块均为**契约描述**（形状、伪码、映射表、落点清单），非可交付实现。

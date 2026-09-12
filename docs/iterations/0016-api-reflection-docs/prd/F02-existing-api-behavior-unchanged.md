@@ -42,11 +42,11 @@
 
 ## 架构落定（阶段 3；完整契约见 `architecture.md` §4）
 
-- **AR-02-a 回归验证的范围与执行方式**：**三层证据**。① L1 既有回归面 = `oamp/test/web.test.js`（**39 条**）文本零改写 + 其余 19 个测试文件，`npm test` 全绿，另对 `web.test.js` 做 `git diff` 应为空；② L2 新增特征化面 = 本卡 C-5 七条与 8 条怪癖（Q-1~Q-8）的硬编码探针，**先在未改造的代码上跑一遍（期望值 = 实测值），改造后必须仍全绿**；③ L3 匹配器单测 = 表结构 / 顺序 / 贪婪 / 空尾 / 锚定 / 方法不匹配 / 参数解码 / 可达性（不起进程）。**不引入"改造前后快照文件"**——L2 的期望值本身就是取样结果（§4.3）。
+- **AR-02-a 回归验证的范围与执行方式**：**三层证据**。① L1 既有回归面 = `oamp/test/web.test.js`（**39 条**）文本零改写 + 其余 19 个测试文件，`npm test` 全绿，另对 `web.test.js` 做 `git diff` 应为空；② L2 新增特征化面 = 本卡 C-5 七条与 11 条怪癖（Q-1~Q-11）的硬编码探针，**先在未改造的代码上跑一遍（期望值 = 实测值），改造后必须仍全绿**；③ L3 匹配器单测 = 表结构 / 顺序 / `exact` 精确串 / `prefixSuffix`（含前后缀重叠、空尾、含 `/` 的参数） / 方法不匹配 / 参数解码 / 可达性（不起进程）。**不引入"改造前后快照文件"**——L2 的期望值本身就是取样结果（§4.3）。
 - **AR-02-b 新增断言的落点**：**`oamp/test/web.test.js` 一个字都不改（不追加、不改写）**——本卡验收 1「文本零改写」与 E3「diff 应为空」是产品判定；阶段 2 该 AR 待填项写的"仅追加"提示与之冲突，按产品判定取"零字节改动"，**2026-09-12 主 agent 已确认取此口径，并写为实现契约**（见 `architecture.md` §4.4 / §10 L2-10 / §13 R-4）。全部新增断言落在**新文件** `test/api-routes.test.js`；因 `web.test.js` 内的 `startWeb` 辅助是文件局部且不可导出，新文件自带同款约 25 行（不抽公共 helper、不改既有文件）。
-- **AR-02-c 行为保持的实现路径（C-5 七条逐条落点）**：
+- **AR-02-c 行为保持的实现路径（C-5 七条逐条落点；完整版见 `architecture.md` §4.1/§4.2）**：
   ① **无 405**：匹配器只有"命中/不命中"，方法不符即不进入候选，落 404 兜底（无 405 分支、无 `Allow` 头）；探针 `PUT /api/agents` → 404 `` `not found: PUT /api/agents` ``。
-  ② **优先级与处理顺序**：**表顺序 = 今日 `if` 链顺序**（逐条对照表见 `architecture.md` §3.3），`(.*)` + `^…$` 复刻 `slice`/`endsWith`；`GET /api/chats/archive` 由 `GET /api/chats/:chat_id` 吞掉成 `chat_id='archive'` → 404 `chat 不存在: archive`（**登记中不放 `GET /api/chats/archive` 表项**，与今日一致）。
+  ② **优先级与处理顺序**：**表顺序 = 今日 `if` 链顺序**（逐条对照表见 `architecture.md` §3.3）；`exact` 表项 = 今日 `p === '…'`，`prefixSuffix` 表项 = 今日 `startsWith(prefix) && endsWith(suffix)` + 同一个 `slice` 表达式（**无正则**）。`GET /api/chats/archive` 由 `GET /api/chats/:chat_id`（前缀包含）吞掉成 `chat_id='archive'` → 404 `chat 不存在: archive`（**登记中不放 `GET /api/chats/archive` 表项**，与今日一致）；**前后缀重叠**这一边界由三条新探针锁定：`POST /api/chats/close` 与 `POST /api/chats/activate` → 404 `chat 不存在: `（chatId = 空串）、`POST /api/chats/rename` 带畸形体 → 400（证明命中该表项且读体先于 404 预检）。
   ③ **`readBody` 留在 handler 体内**：分发层从不读体；改名的「读体(400/413) → 404 → 409 → 400」顺序逐字不动（探针：畸形 JSON → 400 而非 404；70KB 体 → 413 + `connection: close`）。
   ④ **SSE 独占响应流**：分发层 `await handler(...); return;`——不读返回值、不写响应、不包装；探针：`/api/events` 与 `/api/stream?chat_id=…` 的 `data` 可原样 `JSON.parse` 且形状不变。
   ⑤ **502 覆盖面不缩小**：单 `try` 同时覆盖**匹配期**与 handler 期；探针 `GET /api/chats/%E0%A4%A` → 502 `router 不可达或请求失败: URI malformed`；Router 停掉 → `GET /api/agents` → 502。

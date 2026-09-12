@@ -2,7 +2,7 @@
 
 ## 上下文摘要
 
-src/web.js 扁平 if 链改为 12 项有序路由表并由表驱动分发（handler 体逐字不动），新增 GET /api/docs 投影、静态映射表与 .txt/.md MIME、llms.txt 快照与生成器、三条漂移锁，API.md 补路径登记。既有用例零字节改动。/docs、/debug 只登记映射，页面由 pr-002 交付。
+src/web.js 扁平 if 链改为 11 项有序路由表并由表驱动分发（handler 体逐字不动），新增 GET /api/docs 投影、静态映射表与 .txt/.md MIME、llms.txt 快照与生成器、三条漂移锁，API.md 补路径登记。既有用例零字节改动。/docs、/debug 只登记映射，页面由 pr-002 交付。
 
 ## 涉及功能点
 
@@ -22,8 +22,9 @@ src/web.js 扁平 if 链改为 12 项有序路由表并由表驱动分发（hand
 
 ## 验收标准
 
-- [ ] `oamp/src/web.js` 新增具名导出 `createApiRoutes` / `matchRoute` / `projectRoutes` / `renderLlmsTxt`；`createApiRoutes({})` 返回 12 个表项且不抛错（纯构造：不调用依赖、不读磁盘、不起定时器）。
+- [ ] `oamp/src/web.js` 新增具名导出 `createApiRoutes` / `matchRoute` / `projectRoutes` / `renderLlmsTxt`；`createApiRoutes({})` 返回 11 个表项（10 条既有 API + `GET /api/docs`；静态面不入表）且不抛错（纯构造：不调用依赖、不读磁盘、不起定时器）。
 - [ ] 分发仍由表驱动且顺序 = 改造前 `if` 链顺序：`GET /api/chats/archive` → 404 `chat 不存在: archive`；`GET /api/chats/` → `chat 不存在: `；`GET /api/chats/a/b` → `chat 不存在: a/b`；`POST /api/chats/a/b/close` → `chat 不存在: a/b`；`GET /api/agents/` → 404 `not found: GET /api/agents/`。
+- [ ] 参数段"前缀 + 后缀重叠"的既有语义原样保持：`POST /api/chats/close` → 404 `chat 不存在: `（**捕获为空串**）、`POST /api/chats/activate` → `chat 不存在: `、`POST /api/chats/rename` → `chat 不存在: `（改造前实测值）。等价形态 = `startsWith(前缀)` + `endsWith(后缀)` + 双侧 `slice`，**允许前后缀重叠**；**不得**用要求完整后缀字面量的锚定正则实现——`^/api/chats/(.*)/close$` 对 `/api/chats/close` 不命中，会退化成 `not found: POST /api/chats/close`，与今日错误文案不一致（反例：`/api/chats/a/b/close` → `chat 不存在: a/b`、`/api/chats//close` → `chat 不存在: `，两形态一致）。
 - [ ] `node --test oamp/test/api-routes.test.js` 全绿：F06 三条漂移锁各一个独立顶层用例 + C-5 七条与 Q-1~Q-8 的 L2 探针 + 匹配器 L3 单测（含"每个表项不被更靠前表项吞掉"的可达性断言）。
 - [ ] `oamp/test/web.test.js` 零字节改动（对该文件 `git diff` 为空）且其全部顶层用例通过；其余 19 个既有测试文件未改动且通过。
 - [ ] 起真实 web 实例：`GET /api/docs` → 200 `application/json; charset=utf-8`，`routes` 为 11 条（含本接口自身），每项含 `danger`（由 `method !== 'GET'` 派生）与 `docLink`。
@@ -40,7 +41,7 @@ src/web.js 扁平 if 链改为 12 项有序路由表并由表驱动分发（hand
 - docs/iterations/0016-api-reflection-docs/prd/F05-llms-txt.md
 - docs/iterations/0016-api-reflection-docs/prd/F06-drift-locks.md
 - docs/iterations/0016-api-reflection-docs/prd/F08-api-md-cross-link.md
-- docs/iterations/0016-api-reflection-docs/architecture.md（§3 路由表与匹配、§4 行为保真、§5 派生产物、§7 三条漂移锁、§9.1 API.md 同步点、§10 L1-01/L1-02）
+- docs/iterations/0016-api-reflection-docs/architecture.md（§3.3 路由表与匹配算法——含 `:name` 段编译为 `(.*)`、"前缀 + 后缀重叠"的等价形态及其反例、§4 行为保真、§5 派生产物、§7 三条漂移锁、§9.1 API.md 同步点、§10 L1-01/L1-02）
 
 ## depends_on
 

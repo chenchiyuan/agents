@@ -35,8 +35,8 @@
 - **AR-06-a 三条检查的测试组织形态**：新增文件 `oamp/test/api-routes.test.js`（`npm test` 的 glob 自动纳入），**三条锁各写一个独立顶层 `test(...)`**（与 `hygiene.test.js` 的并列体例一致）⇒ 一条失败不掩盖另两条（验收 4）；三条只读文件、不起进程、不占端口、毫秒级，可与其他测试并行。
 - **AR-06-b 检查对象的取法（核心：不读源码正则）**：
   ① **元数据必填锁** → 检查对象 = **`createApiRoutes({})` 返回的真实表项**（进程内直接调用登记构造器；构造器是纯构造，传空依赖即可）。逐项校验 `ROUTE_META_FIELDS` 存在且非空、`params[]` 的 `PARAM_FIELDS` 齐备且 `in`/`type` 在枚举内、`errors` 元素 ∈ `ERR_CODE` 值集合、`kind ∈ ROUTE_KINDS`。
-  ② **索引快照逐字节锁** → 检查对象 = **`renderLlmsTxt(projectRoutes(createApiRoutes({})))` 的真实生成结果** vs **`oamp/web/llms.txt` 的文件字节**（Buffer 比对）。
-  ③ **契约文档路径级双向覆盖锁** → 检查对象 = **两个集合求差**：登记侧 `R = { '{METHOD} {shape(path)}' }`（`shape` 把 `/<…>/` 与 `/:name` 归一为 `/:`）；文档侧 `D` = 从 `oamp/API.md` 文本中抽取的反引号签名 `` `(GET|POST) (/api/…)` ``（截断 `?`/`#` 后归一）。`R\D` 与 `D\R` 都必须为空。**只锁路径集合，不锁任何文案**（F06 边界 / C-2 / D-6）。**实测（阶段 3）**：该规则作用于当前 `API.md` 得到的 `D` **恰好等于**既有 10 条路由的 `R`（13 处签名含 `<chat_id>` / `<id>` / 带查询串三种拼写），现状零假阳性 —— 本轮只需把新增的 `GET /api/docs` 按 `architecture.md` §6.7 的格式加进 `API.md`。
+  ② **索引快照逐字节锁** → 检查对象 = **`renderLlmsTxt(projectRoutes(createApiRoutes({})))` 的真实生成结果** vs **`oamp/llms.txt`（仓库/包根）的文件字节**（Buffer 比对）。
+  ③ **契约文档路径级双向覆盖锁** → 检查对象 = **两个集合求差**：登记侧 `R = { '{METHOD} {shape(path)}' }`（`shape` 把 `/<…>/` 与 `/:name` 归一为 `/:`）；文档侧 `D` = 从 `oamp/API.md` 文本中抽取的反引号签名 `` `(GET|POST) (/api/…)` ``（截断 `?`/`#` 后归一）。`R\D` 与 `D\R` 都必须为空。**只锁路径集合，不锁任何文案**（F06 边界 / C-2 / D-6）。**实测（阶段 3）**：该规则作用于当前 `API.md` 得到的 `D` **恰好等于**既有 10 条路由的 `R`（35 处命中 / 12 种拼写变体：`<chat_id>`、`<id>`、带查询串等），现状零假阳性 —— 本轮只需把新增的 `GET /api/docs` 按 `architecture.md` §6.7 的格式加进 `API.md`。
 - **AR-06-c 失败信息格式（逐条点名）**：
   ① `元数据缺项: [POST /api/chats/:chat_id/rename] params[1].desc`（每条一行，先收集再一次性断言）；
   ② `llms.txt 与生成结果不一致：首处差异 line 14 col 21（byte 412）` + 期望/实际行 + `修复：node oamp/scripts/gen-llms-txt.mjs`（长度不等时另报"期望 N 行 / 实际 M 行"）；
