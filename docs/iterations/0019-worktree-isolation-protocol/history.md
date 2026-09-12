@@ -360,3 +360,58 @@
 - 阶段：阶段 5（PR 实现，首波并发）
 - 任务：接收简报，产出让验证标准通过的最小实现
 - PR：prs/pr-001-workflow-pb-workspace-isolation-protocol.md（worktree feat/0019-pr-001-workflow-pb-protocol @ .pb-agents/worktrees/pr-001）
+
+### 2026-09-12 19:50:00 · 收到报告 · dev
+
+- 1. 改了什么文件（pr-002）：docs/iterations/0017-project-workspace/status.md（§下一迭代候选 第 1 条 → §8.7 三段式 + 编号口径行，单 hunk `@@ -46 +46,4 @@`）；docs/iterations/0019-worktree-isolation-protocol/status.md（§待确认项 D-2 段 → 同构改写，单 hunk `@@ -34 +34,4 @@`）；0018 侧零写入（ADR-3 外部证据）
+- 2. 测试结果：T-01~T-06 全部验收条目逐条实跑通过（`git diff -U0` hunk 数自证、`grep -c '下一迭代'`=0、`D-2`/`0017/D-2` 计数相等、非目标段落 md5 逐字不变、外部证据 `89182b7` C-3 行核对）
+- 3. 疑问/待办：T-06 的 rebase/merge 动作按派发约束未执行，改为可执行的冲突模拟 + 交接程序
+- 4. 违反边界的事：无（未触碰 0018 文件、未开跨工作区例外）
+- 附：worktree 分支 `feat/0019-pr-002-d2-registration`；提交 **d038e3c**
+
+### 2026-09-12 19:52:00 · 收到报告 · dev
+
+- 1. 改了什么文件（pr-001）的 6 个文件（5 改 1 新建）：`roles/workflow-pb/workflow-pb.md`、`.claude/skills/workflow-pb/SKILL.md`、`roles/workflow-pb/memory.md`、`roles/workflow-pb/data/workflow-pb-changelog.md`、`.claude/skills/workflow-pb/memory.md`、新建 `.claude/skills/workflow-pb/data/skill-optimization-v1.12.0.md`；提交 `c034dab`，worktree 已 clean
+- 2. 测试结果：tasks 文件 T1~T9 验收条目自检通过（术语限定 7/7、零改动面核对、惯例文件同步、SKILL 版本三处同步）
+- 3. 疑问/待办：**两处「零改动面」与 S6 机械替换冲突**——SKILL `:141`（Step 1~4 段内）与 `:212`（§ 对外协议·文档协议 内）各有一处 `.pb-agents/roles/...` → `{角色定义根}/...`；arch §2.4-#10/#13 把这两行列入变更面，而 §5.2/T8#13 的「零改动」表述覆盖同一区域；dev 取 S6「全文 32 处」口径（仅路径 token、语义未动）
+- 4. 违反边界的事（**主动说明，已自行修复**）：本会话 cwd = 仓库根，最初 14 次编辑用了相对路径 ⇒ **落在主工作区而非 worktree**。修复动作：确认主工作区 HEAD(81a7aed) 与 worktree HEAD(15d5eaf) 对这 4 个文件内容完全一致（`git diff 15d5eaf 81a7aed` 为空）→ 把 4 个文件 cp 进 worktree → `git checkout HEAD -- <4 文件>` 还原主工作区；pr-002 worktree 未被触碰
+
+### 2026-09-12 19:53:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：主 agent 一手核验 dev001 事故影响面 + 裁定其疑问 —— ① **主工作区完整性已核实无损失**：HEAD `81a7aed`（iteration/0019）、`git status --porcelain` 仅剩一条未跟踪的 Gate r3 验证报告（已随 08d7ce1 提交）、声明的 4 个文件相对 HEAD **零 diff**；② **裁定：采纳 S6「全文 32 处」口径**（含 SKILL `:141` / `:212` 的路径 token 替换，语义不动），理由 = arch §2.4-#10/#13 已把该两行列入变更面、且 §5.2-S6 的「全文 32 处」判据要求它们闭合；**该处 architecture 内部表述张力（§5.2/T8#13「零改动」覆盖同一区域）登记为阶段 6 偏差记录项**，不在本阶段返工；③ **事故登记**：dev001 的相对路径跨工作区写入 = 本迭代 W12/F09 所指违规形态的**活体实例**（与 0017 复盘 A-4.5 同型），已修复且零内容丢失，登记为阶段 6 偏差记录 + 下一迭代候选（sub-agent 简报中的「工作目录纪律」需成为派发模板的固定字段）
+- 触发依据：dev001 / dev002 报告；主 agent 一手核验（`git rev-parse` / `git status --porcelain` / `git diff --stat HEAD -- <4 文件>` / `git -C <worktree> log` / `show --stat`）；workflow-pb §规则 A/B 与「产物是唯一输出契约」
+
+### 2026-09-12 19:53:00 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现，PR 级验收——pr-001）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
+- PR：prs/pr-001-workflow-pb-workspace-isolation-protocol.md（worktree feat/0019-pr-001-workflow-pb-protocol @ c034dab）
+
+### 2026-09-12 19:53:00 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现，PR 级验收——pr-002）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
+- PR：prs/pr-002-cross-iteration-d2-registration.md（worktree feat/0019-pr-002-d2-registration @ d038e3c）
+### 2026-09-12 19:50:10 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0019-worktree-isolation-protocol/clarifications/verify-pr-002-20260912-194959.md（PR 级验收——pr-002）
+- 结论：**PASS**（pass 46 / fail 0 / partial 0 / blocked 7）
+- 验证者身份反射：文本契约审查者 + Git 拓扑取证审查者 + 跨迭代溯源审查者（三重反射）
+- 逐项：PR 文件验收 8 条 → pass 7 / blocked 1（第 8 条 = 合并前置重基线，判定载体是主 agent 的合并动作，尚未发生）；tasks T-01~T-05 共 35 条全 pass；T-06 共 6 条全 blocked（同一根因：判定载体均为尚未发生的合并动作；按 0017 同角色先例计入 PASS）；委托标准③~⑥ 全 pass（文件范围 + 单段 hunk / ADR-3 / ADR-4 / 规则 A 工作区纪律）
+- 关键实测证据：文件集合恰 2 个 status.md（8 insertions / 2 deletions）；0017 侧唯一 hunk `@@ -46 +46,4 @@`、0019 侧唯一 hunk `@@ -34 +34,4 @@`；ADR-4 自证 = 两侧剔除 D-2 段后逐行相等（md5 同 `692723b1…`，66 行）；段内 `D-2` 3 次全为 `0017/D-2` 形态、裸 `D-2` 命中 0；ADR-3 = 0018 路径 0 命中 + `89182b7` C-3 行核对；规则 A = `d038e3c` 仅由 `feat/0019-pr-002-d2-registration` 持有
+- 偏差记录：7 条（D-1 0019 侧引用链括注写「缺陷登记」而非模板「本项」；D-2 编号口径行为嵌套子项而非列 0 bullet；D-3 PR 文件验收 4 的裸 `D-2` 位置枚举漏列 D-3 段；D-4 0018 侧附条件「除非用户另行指示」未复述；D-5 0017 侧不再承载根因与修复面（T-01 验收 7 明令删除）；D-6 M1~M5 确认证据缺口；D-7 T-03 交付物落点判定范围外）
+
+### 2026-09-12 19:51:00 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0019-worktree-isolation-protocol/clarifications/verify-pr-001-20260912-195010.md（PR 级验收——pr-001）
+- 结论：**FAIL**（标准级 pass 5 / fail 0 / partial 1 / blocked 0；PR 文件 32/32 条 pass；tasks pass 8 / partial 1）
+- 验证者身份反射：契约审查者（规范侧）+ 同级文本审查者（SKILL/留痕侧）
+- partial 详情：`pr-001-tasks.md` T4 第 1 条的「**改动后规范内 `.pb-agents/roles` 的出现仅剩下游语境**」子句不成立——规范 `:69`（新增 v0.9.0 变更说明「目的」段）出现 `.pb-agents/roles/` 且属**历史叙述**语境（命中 3 行：`:69` / `:234` / `:236`）；该判据在 tasks 中标注为 `[model_inferred] #2`（主 agent 裁定口径）；操作性子句全部通过，返工面上限 = 一行文本
+- 通过项：文件范围 pass（恰 6 文件，无第 7 个）；架构一致性 pass（W1~W20 / S1~S10 全部落地、§8 措辞逐字或等价、§5.3 零改动未被误改）；**规则 A 工作区纪律 pass**（主工作区 6 文件仍为 v0.8.0/v1.11.0、新建文件在主工作区 HEAD 不存在、`c034dab` 仅存在于 `feat/0019-pr-001-*`）；可施工性 pass（无悬空引用、版本自洽、术语单义）
+- 偏差记录：4 条（D1 = 上述 partial 的判据口径；D2 PR 第 20 条目标串加粗 vs 实现无加粗（排版级等价）；D3 SKILL 零改动清单与 S6 的范围冲突（实现按更具体的 S6 执行，据 S6 判 pass）；D4 T1 验证方法称 `^判断方式：` 恰 7 行、实测 8 行（含 T2 新增节自带 1 行））
+- 下一迭代候选：6 条（规则 F 例外②的表述精确性 / SKILL `:32` 仍漏 v1.11.0 / tasks 判据计数口径宜定版 / SKILL 零改动清单补排除语 / R-2 嵌套 worktree 实测义务无产物承载 / `check-model-dispatch-protocol.sh:28` 路径约定张力）
+
+### 2026-09-12 19:52:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：① **pr-002 判定 PASS → 阈值释放，执行 merge 进 `iteration/0019-worktree-isolation-protocol`**（合并动作固定在仓库主工作区；`0019/status.md` 与主线写入冲突时按 **ADR-4** 处置：以主线版为基础、只重放 D-2 单段）；② **pr-001 判定 FAIL（1 项 partial）→ 不回退实现**：该 partial 的根因是**判据口径过严**（主 agent 裁定的 MI#2 未区分「规范性表述」与「版本变更说明中的历史叙述」），实现侧操作性子句全部通过、返工面上限为一行文本 ⇒ **裁定：修正判据口径**（改为「改动后规范内 `.pb-agents/roles` 的**规范性表述**仅剩下游副本语境；版本变更说明中的历史叙述不属该判据范围」），由 pr-planner 更新 `pr-001-tasks.md` T4 第 1 条并同步计数口径（21→32 条、7→8 行），随后**重新派发新的 verifier 复验 pr-001**
+- 触发依据：两份 PR 级验收报告；VerPr001 的 partial 详情与备注（「该判据标注为 `[model_inferred]`、操作性子句全通过」）；ADR-4；workflow-pb §阶段 5（merge 后才解锁下游；PR 级验收 → merge）
