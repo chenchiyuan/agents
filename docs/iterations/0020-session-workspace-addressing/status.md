@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.9.0（本迭代按规则 C/D 的**修正方向**运行：会话在仓库主工作区启动、以显式寻址操作本迭代工作区——见「偏离记录 D-1」）
 **迭代**: 0020-session-workspace-addressing
-**当前阶段**: 功能规格（阶段 2）
+**当前阶段**: 技术架构（阶段 3）
 **迭代分支**: iteration/0020-session-workspace-addressing（base = main @ `dbc99b5`，含 0017 与 0019 全部产出）
 **会话工作区**: `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0020-session-workspace-addressing`
 **状态**: 进行中
@@ -14,8 +14,8 @@
 | # | 阶段 | 完成 | 已验证 | 备注 |
 |---|---|---|---|---|
 | 1 | 需求收敛 | ✅ | ⬜ | demand.md **v1.0.0**；三轮共 **P-1~P-17** 全部经用户裁决（P-1 经用户升级为「声明式协议产物」；P-17 经用户自定选项落 `docs/worktrees/`）；`model_inferred` 归零；C-1~C-9 全部已决 |
-| 2 | 功能规格 | ⏸ | ⬜ | 已派发 prd；输入 = demand.md v1.0.0（W/N/E 全量 + 三处地址分层 + supersede 清单） |
-| 3 | 技术架构 | ⬜ | ⬜ | |
+| 2 | 功能规格 | ✅ | ⬜ | prd.md **v0.2.0** 已收敛；**21 张卡**（18 需求功能点 + 2 保证项 + 1 登记项）；W1~W23 / E1~E17 全覆盖、无新增功能点；MI-01~MI-08 经用户裁决全部按推荐；`[model_inferred]` 零残留；T-01~T-16 待填 |
+| 3 | 技术架构 | ⏸ | ⬜ | 已派发 architect；输入 = prd.md v0.2.0 + prd/F01~F21（重点填 T-01~T-16） |
 | 4 | PR 规划 | ⬜ | ⬜ | |
 | 5 | PR 实现 | ⬜ | ⬜ | 逐 PR 状态见下 |
 | 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
@@ -48,5 +48,7 @@
 - 2026-09-12: 创建 status.md + history.md → 派发 demand（第一轮），简报带「工作目录纪律」固定段与绝对路径。
 - 2026-09-12: 阶段 1 三轮收敛：v0.1.0（P-1~P-16 待裁决）→ 用户裁决（P-1 升级为「协议先行 + 声明式产物」、P-2/P-3 会话自建零前置、其余按推荐）→ v0.2.0（仅 P-17 待裁决）→ 用户自定选项「落 `docs/worktrees/`」→ **v1.0.0 归零** ⇒ **阶段 1 推进条件三项通过 ✅**。
 - 2026-09-12: 进入阶段 2（功能规格），派发 prd。
+- 2026-09-12: 阶段 2 两轮：prd 首版 21 张卡 + 8 项 MI → 用户裁决组 A/B/C 全部按推荐 → **v0.2.0 收敛**（`[model_inferred]` 零残留）⇒ **阶段 2 推进条件三项通过 ✅**。
+- 2026-09-12: 进入阶段 3（技术架构），派发 architect。
 
 > **本迭代的运行形态（同时是需求的实证）**：主 agent 会话在仓库主工作区（分支 `main`）启动，全程以**绝对路径 + `git -C <WS>`** 操作 `<WS> = .pb-agents/worktrees/0020-session-workspace-addressing`；三份 demand 产物与两轮简报均无污染主工作区（demand 每轮自证：`git -C <WS> status --porcelain -uall` 仅含其 3 份文件；主工作区 `status -uall` 为空）。
