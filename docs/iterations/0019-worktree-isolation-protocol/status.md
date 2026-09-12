@@ -3,8 +3,8 @@
 **工作流**: workflow-pb v0.8.0
 **迭代**: 0019-worktree-isolation-protocol
 **当前阶段**: 独立验证（阶段 6）
-**迭代分支**: iteration/0019-worktree-isolation-protocol（base = main @ `9ede9ea`，含 0017 全部产出）
-**状态**: 已完成（阶段 6 PASS；迭代分支待合并 main）
+**迭代分支**: iteration/0019-worktree-isolation-protocol（**已合并进 main `9b6507b`，分支已删除**；base = main @ `9ede9ea`）
+**状态**: **已完成**（阶段 6 PASS；迭代分支已合并 main，分支已删除）
 **history**: 开启
 **前置**: 本迭代由用户临时插入并定为**最高优先级**，0018-chat-agent-subagent-protocol 已按其裁决暂停在阶段 2 已收敛处。
 
@@ -48,6 +48,11 @@
 | D-5 | 本迭代发生一次跨工作区写入（pr-001 dev 相对路径误写主工作区 14 次编辑），无前置备份动作——属规则 F 的活体反例；主工作区零内容损失 | 已登记为下一迭代候选：sub-agent 简报的「工作目录纪律」应成为派发模板固定字段 |
 | D-6 | SKILL `:32` 变更历史行与 `:367` Resources 未含 v1.11.0/v1.12.0（经裁定刻意不改） | 登记备考；下一迭代可一并清理 |
 | D-7 | `skill-optimization-v1.12.0.md` 两处写「规范 §8.4」，实为 `architecture.md` 的 §8.4 | 下一迭代修正交叉引用措辞 |
+## 收口（迭代分支合并进 main）
+
+- 合并动作：在仓库主工作区执行 `git checkout main` → `git merge --no-ff iteration/0019-worktree-isolation-protocol`（成 **`9b6507b`**，无冲突）→ `git branch -d iteration/0019-worktree-isolation-protocol`。
+- 合并后冒烟：`tests/test-check-role-structure.sh` **PASS（6/6）**；`tests/test-check-model-dispatch-protocol.sh` **4 项 FAIL（预存失败，与本迭代无关）**——该脚本断言「当前 worktree 必须为 `.pb-agents/worktrees/agents-0004-model-dispatch`」（0004 遗留的陈旧检查），`grep` 证实其不涉及 `workflow-pb` / `SKILL` 任何内容；已登记为下一迭代候选。
+- 迭代 ID 目录保留 `status.md` / `history.md` / `demand.md` / `prd.md` + `prd/` / `architecture.md` / `prs/` / `clarifications/` / `progress.md` 全部产物，不删除。
 
 ## PR 验证（Gate 阶段 4 → 5 入口）
 
@@ -103,3 +108,5 @@
 - 2026-09-12: **pr-002 合并进迭代分支**（`1ca983d`，ADR-4 处置生效：`0019/status.md` 自动合并、主线段落完整保留）；pr-002 worktree 与分支已清理；槛位释放 1、当前有效上限爬升至 5。
 - 2026-09-12: progress-observer 二次观测（观测基线 `1ca983d`）发现 7 条台账不一致（抬头/阶段表落后于 git 事实、architecture 版本引用滞后、pr-002 验收条的「重基线」与实际 merge 方式差异等）→ 主 agent 逐条修正：阶段 4 置 ✅ 且已验证 ✅（Gate r3 PASS）、阶段 5 置 ⏸、抬头改为阶段 5、architecture 版本引用改 v1.2.2。
 - 2026-09-12: pr-001 复验 **PASS**（115/115，0 fail/partial；3 条偏差均为标准文档计数/举例面不完备，非实现缺陷）→ **pr-001 合并进迭代分支**（`dbef2b5`）→ worktree 与分支清理 → **阶段 5 全部 PR 合并完成**，阶段 5 置 ✅。
+- 2026-09-12: 阶段 6 最终独立验证 **PASS（8/8，0 fail/partial/blocked）**——含「并发调度真实执行证据」三项核查全 pass（worktree 时间窗重叠 19:35–19:52 / 并发配置五字段跨四版本真实更新、累计槛位释放 0→1→2 / 爬升公式真实触发 3→5）、MI-05 构造样本 85 条命令闭合 E1~E4 与 R-2、需求 E1~E13 与 F01~F15 逐条追溯 pass；偏差 7 条不阻塞、下一迭代候选 8 条 → **阶段 6 置 ✅**。
+- 2026-09-12: **迭代分支合并进 main**（`9b6507b`，无冲突）并删除迭代分支；合并后跑仓库自带检查：角色结构 **6/6 PASS**、model-dispatch 协议检查 4 项预存 FAIL（与本迭代无关，已登记）；**迭代 0019 完成**。
