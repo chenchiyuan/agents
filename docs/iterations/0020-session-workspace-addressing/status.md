@@ -24,18 +24,18 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-addressing-contract-and-host-skill.md | （无） | ⏸ | feat/0020-pr-001-addressing-contract | ⬜ | 占用 |
-| pr-002-worktrees-protocol-artifact.md | pr-001 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-003-version-records-and-d7-trace.md | pr-001, pr-004 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-004-d7-reference-correction.md | （无） | ⏸ | feat/0020-pr-004-d7-correction | ⬜ | 占用 |
+| pr-001-addressing-contract-and-host-skill.md | （无） | ✅ | (已清理) | ✅ ede5190 | 已释放  |
+| pr-002-worktrees-protocol-artifact.md | pr-001 | ⏸ | feat/0020-pr-002-protocol-artifact | ⬜ | 占用  |
+| pr-003-version-records-and-d7-trace.md | pr-001, pr-004 | ⏸ | feat/0020-pr-003-version-records | ⬜ | 占用  |
+| pr-004-d7-reference-correction.md | （无） | ✅ | (已清理) | ✅ 6a99505 | 已释放  |
 
 ## 并发配置（阶段 5）
 
 **起始并发数**: 3
 **硬上限**: 5（公式 `2×起始-1`）
-**当前有效上限**: 3
-**累计槛位释放次数**: 0
-**已派发总数**: 2
+**当前有效上限**: 5（按公式 `min(3 + 2×3, 5)` 重算，已达硬上限）
+**累计槛位释放次数**: 2
+**已派发总数**: 4
 
 ## PR 验证（Gate 阶段 4 → 5 入口）
 
@@ -77,7 +77,7 @@
 - 2026-09-12: 进入阶段 3（技术架构），派发 architect。
 - 2026-09-12: 阶段 3 两轮：architecture v1.0.0（三 L1 待确认、T-01~T-16 全填、零新增技术栈）→ 用户裁决 L1-1/L1-2/L1-3 全部按推荐 → 主 agent 裁定 L1-4 维持 L2 → **v1.1.0**（三条 L1 落盘 + 连带同步 + §12 一致性自查 20 项）⇒ **阶段 3 推进条件三项通过 ✅**。
 - 2026-09-12: 阶段 4 三轮 + Gate 五轮：pr-planner 产出 4 个 PR → Gate r1~r4 逐轮 FAIL（根因依次为独立性读法、段构成自相矛盾、残留双写法、PR 行号引用）→ architect v1.1.1~v1.1.4 + pr-planner 六轮同步（含**行号引用根因处置**：PR 文件改引文/检索式、零反引号行号）→ Gate r5 实质通过（附条件，见上）⇒ **阶段 4 通过 ✅**。
-- 2026-09-12: 进入阶段 5（PR 实现）；初始化并发配置；首波派发 {pr-001, pr-004}。
+- 2026-09-12: 阶段 5 首波：worktree 建在**会话工作区内**（规则的层级形态首次真实成立）；两个 PR 完成 planner → dev → PR 级验收（**pr-001 PASS 49/49**、**pr-004 PASS 14/14**）→ 双双合并进迭代分支（`ede5190` / `6a99505`）→ 现场清理 → 依赖图重扫：**pr-002 与 pr-003 解锁**，立即派发 wave 2。
 
 ## 本轮台账项
 
