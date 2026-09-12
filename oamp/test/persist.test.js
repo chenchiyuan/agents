@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,10 @@ function tmpDir() {
 
 function openTempDb() {
   const dbPath = path.join(tmpDir(), 'sql.db');
-  return { dbPath, db: openDb(dbPath) };
+  const db = openDb(dbPath);
+  // 0017 pr-002：chats.project_id 是 NOT NULL + 外键 ⇒ 每个临时库先建 1 个项目 fixture，建行调用点共用它
+  const project = db.createProject({ repoUrl: 'https://example.com/oamp-persist.git', nowMs: T0 });
+  return { dbPath, db, projectId: project.project_id };
 }
 
 // 独立连接直读库文件（用于核对落盘的原始形态），与 persist 句柄无关
@@ -42,23 +45,28 @@ test('建库：多级目录不存在时自动创建并建库（验收 4 / §4.2�
 });
 
 test('建库幂等：重复 openDb 同一路径不抛错，close 后可再开（验收 4）', () => {
-  const { dbPath, db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'hello', nowMs: T0 });
+  const { dbPath, db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'hello', nowMs: T0 });
   const again = openDb(dbPath);
-  assert.equal(again.listChats().total, 1);
+  assert.equal(again.listChats({ project: projectId }).total, 1);
   again.close();
   db.close();
   const third = openDb(dbPath);
-  assert.equal(third.listChats().total, 1);
+  assert.equal(third.listChats({ project: projectId }).total, 1);
   third.close();
 });
 
-test('schema：chats/messages 两表与两索引齐备，列与 §4.1 一致（验收 4 / §4.1）', () => {
+test('schema：projects/chats/messages 三表与三索引齐备，列与 §2.1 一致（验收 4 / §2.1）', () => {
   const { dbPath, db } = openTempDb();
   db.close();
   assert.deepEqual(
+    rawAll(dbPath, "SELECT name FROM pragma_table_info('projects')").map((r) => r.name),
+    ['project_id', 'name', 'repo_url', 'created_at'],
+  );
+  // 列序契约：既有 9 列相对顺序逐位不变，project_id 插在第 2 列（紧跟 chat_id）
+  assert.deepEqual(
     rawAll(dbPath, "SELECT name FROM pragma_table_info('chats')").map((r) => r.name),
-    ['chat_id', 'title', 'agent_id', 'state', 'created_at', 'updated_at', 'closed_at', 'archived_at', 'context_released'],
+    ['chat_id', 'project_id', 'title', 'agent_id', 'state', 'created_at', 'updated_at', 'closed_at', 'archived_at', 'context_released'],
   );
   assert.deepEqual(
     rawAll(dbPath, "SELECT name FROM pragma_table_info('messages')").map((r) => r.name),
@@ -66,11 +74,11 @@ test('schema：chats/messages 两表与两索引齐备，列与 §4.1 一致（�
   );
 });
 
-const CHATS_COLUMNS_9 = [
-  'chat_id', 'title', 'agent_id', 'state', 'created_at', 'updated_at', 'closed_at', 'archived_at', 'context_released',
+const CHATS_COLUMNS = [
+  'chat_id', 'project_id', 'title', 'agent_id', 'state', 'created_at', 'updated_at', 'closed_at', 'archived_at', 'context_released',
 ];
 
-test('迁移：旧库（7 列）openDb 后补两列，列序与新建库逐位相同、旧行语义正确、二次运行不变（M-1~M-3 / 验收 1）', () => {
+test('旧库重建：旧结构（7 列）openDb ⇒ 删库重建（新列集 + projects 表 + 旧行消失）、二次 openDb 不重建、删库文件后重启 = 新建空库（F08 验收 2/3/5）', () => {
   const oldDbPath = path.join(tmpDir(), 'legacy.db');
   const legacy = new DatabaseSync(oldDbPath);
   legacy.exec(`CREATE TABLE chats (
@@ -86,40 +94,59 @@ test('迁移：旧库（7 列）openDb 后补两列，列序与新建库逐位�
     VALUES ('chat-old', '旧对话', 'a1', 'closed', ${T0}, ${T0 + 1}, ${T0 + 1})`);
   legacy.close();
 
+  // ① 判为旧结构 ⇒ 删库重建：新列集 + projects 表存在 + 旧行消失（不可恢复，无迁移兼容路径）
   const db = openDb(oldDbPath);
   assert.deepEqual(
     rawAll(oldDbPath, "SELECT name FROM pragma_table_info('chats')").map((r) => r.name),
-    CHATS_COLUMNS_9,
-    '旧库应补列到与新建库同构的列序（M-2）',
+    CHATS_COLUMNS,
+    '旧库应被重建为新列集（列序与新建库逐位相同）',
   );
-  const old = db.getChat('chat-old').chat;
-  assert.equal(old.archived_at, null, '既有行视为未归档（M-3 / N-9）');
-  assert.equal(old.context_released, 0);
-  assert.equal(old.state, 'closed', '既有状态不变');
-  assert.equal(old.title, '旧对话');
-  assert.equal(old.updated_at, T0 + 1);
+  assert.deepEqual(
+    rawAll(oldDbPath, "SELECT name FROM pragma_table_info('projects')").map((r) => r.name),
+    ['project_id', 'name', 'repo_url', 'created_at'],
+    '重建后 projects 表存在',
+  );
+  assert.equal(db.getChat('chat-old'), null, '旧行随旧结构一并消失');
+  assert.equal(rawAll(oldDbPath, 'SELECT COUNT(*) AS n FROM chats')[0].n, 0);
+  assert.equal(rawAll(oldDbPath, 'SELECT COUNT(*) AS n FROM messages')[0].n, 0);
   db.close();
 
   assert.deepEqual(
     rawAll(oldDbPath, "SELECT type, name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' ORDER BY name"),
     [
       { type: 'table', name: 'chats' },
+      { type: 'index', name: 'idx_chats_project_updated' },
       { type: 'index', name: 'idx_chats_updated' },
       { type: 'index', name: 'idx_messages_chat_time' },
       { type: 'table', name: 'messages' },
+      { type: 'table', name: 'projects' },
     ],
-    '迁移不引入新表 / 迁移版本号表（M-4）',
+    '重建不引入迁移表 / 迁移版本号表（F08 验收 6）',
   );
 
+  // ② 已是新结构 ⇒ 不重建：列集不变、既有数据保留
   const again = openDb(oldDbPath);
   assert.deepEqual(
     rawAll(oldDbPath, "SELECT name FROM pragma_table_info('chats')").map((r) => r.name),
-    CHATS_COLUMNS_9,
-    '二次 openDb 列集不变（M-1 幂等）',
+    CHATS_COLUMNS,
+    '二次 openDb 列集不变（新结构不触发重建）',
   );
-  assert.equal(again.getChat('chat-old').chat.archived_at, null);
-  assert.equal(again.listChats({ state: 'closed' }).total, 1);
+  const project = again.createProject({ repoUrl: 'https://example.com/keep.git', nowMs: T0 });
+  again.insertInput({ chatId: 'chat-new', projectId: project.project_id, text: 'q', nowMs: T0 });
   again.close();
+  const third = openDb(oldDbPath);
+  assert.equal(third.getProject(project.project_id).repo_url, 'https://example.com/keep.git', '新结构库再开不重建：数据保留');
+  assert.equal(third.getChat('chat-new').chat.title, 'q');
+  third.close();
+
+  // ③ 删库文件后重启 = 新建空库且可用（CREATE … IF NOT EXISTS 幂等）
+  rmSync(oldDbPath, { force: true });
+  const fresh = openDb(oldDbPath);
+  assert.deepEqual(fresh.listProjects(), []);
+  const freshProject = fresh.createProject({ repoUrl: 'https://example.com/fresh.git', nowMs: T0 });
+  fresh.insertInput({ chatId: 'chat-fresh', projectId: freshProject.project_id, text: 'ok', nowMs: T0 });
+  assert.equal(fresh.getChat('chat-fresh').messages.length, 1, '新建空库可用');
+  fresh.close();
 });
 
 test('外键开启：向不存在的 chat 写 out 记录被拒绝（验收 4 / §4.2）', () => {
@@ -137,9 +164,9 @@ test('.gitignore 含 data/ 且保留 .runtime/（F07 架构维度 2 / §8.4）',
 });
 
 test('写接口：一次 insertInput + insertOutput 恰 2 行，direction 恰 {in,out}（E-5 / 验收 5）', () => {
-  const { dbPath, db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: 'T', agentId: 'a1', nowMs: T0 });
-  const inInfo = db.insertInput({ chatId: 'chat-1', text: '问题', agentId: 'a1', nowMs: T0 + 1 });
+  const { dbPath, db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'T', agentId: 'a1', nowMs: T0 });
+  const inInfo = db.insertInput({ projectId, chatId: 'chat-1', text: '问题', agentId: 'a1', nowMs: T0 + 1 });
   const outInfo = db.insertOutput({ chatId: 'chat-1', text: '答复', agentId: 'a1', nowMs: T0 + 2 });
   assert.deepEqual(inInfo, { chat_id: 'chat-1', message_id: 1 });
   assert.deepEqual(outInfo, { chat_id: 'chat-1', message_id: 2 });
@@ -149,18 +176,18 @@ test('写接口：一次 insertInput + insertOutput 恰 2 行，direction 恰 {i
 });
 
 test('结构面：能写 messages 的入口只有 insertInput/insertOutput，direction 不由调用方传入（§4.7 / 验收 5）', () => {
-  const { db } = openTempDb();
+  const { db, projectId } = openTempDb();
   const writers = Object.keys(db)
     .filter((key) => typeof db[key] === 'function' && !['listChats', 'getChat', 'close', 'listArchivable'].includes(key))
     .sort();
-  assert.deepEqual(writers, ['activateChat', 'archiveChat', 'closeChat', 'insertInput', 'insertOutput', 'renameChat', 'startupSweep', 'upsertChat'], '不得存在接受 direction 的通用写口');
-  db.insertInput({ chatId: 'chat-1', text: 'hi', direction: 'out' });
+  assert.deepEqual(writers, ['activateChat', 'archiveChat', 'closeChat', 'createProject', 'getProject', 'insertInput', 'insertOutput', 'listProjects', 'projectByChat', 'renameChat', 'startupSweep', 'upsertChat'], '不得存在接受 direction 的通用写口');
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'hi', direction: 'out' });
   assert.deepEqual(db.getChat('chat-1').messages.map((m) => m.direction), ['in']);
 });
 
 test('状态流转：输入 → working；输出无 error → completed；输出带 error → failed（§4.3/§4.4）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'q1', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q1', nowMs: T0 });
   assert.equal(db.getChat('chat-1').chat.state, 'working');
 
   db.insertOutput({ chatId: 'chat-1', text: 'a1', nowMs: T0 + 1 });
@@ -168,7 +195,7 @@ test('状态流转：输入 → working；输出无 error → completed；输出
   assert.equal(done.state, 'completed');
   assert.equal(done.updated_at, T0 + 1, '写入后 updated_at 应前移');
 
-  db.insertInput({ chatId: 'chat-1', text: 'q2', nowMs: T0 + 2 });
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q2', nowMs: T0 + 2 });
   assert.equal(db.getChat('chat-1').chat.state, 'working');
   db.insertOutput({ chatId: 'chat-1', text: '模型不可用：x/y', error: 'model_unavailable', nowMs: T0 + 3 });
   const failed = db.getChat('chat-1').chat;
@@ -177,9 +204,9 @@ test('状态流转：输入 → working；输出无 error → completed；输出
 });
 
 test('meta 落盘与读回：insertInput 写 {task_id}、insertOutput 写 {context_id,pid} 可原样 JSON.parse（验收 6 / §4.1/§4.3）', () => {
-  const { dbPath, db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: 'T', nowMs: T0 });
-  db.insertInput({ chatId: 'chat-1', text: 'q', meta: { task_id: 'task-1' }, nowMs: T0 });
+  const { dbPath, db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'T', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q', meta: { task_id: 'task-1' }, nowMs: T0 });
   db.insertOutput({ chatId: 'chat-1', text: 'a', meta: { context_id: 'ctx-123-1', pid: 4321 }, nowMs: T0 + 1 });
 
   const raw = rawAll(dbPath, 'SELECT direction, meta FROM messages ORDER BY id');
@@ -192,15 +219,15 @@ test('meta 落盘与读回：insertInput 写 {task_id}、insertOutput 写 {conte
 });
 
 test('meta 未提供 → 落 NULL、读回 null（不抛错）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-1', text: 'a', nowMs: T0 + 1 });
   assert.deepEqual(db.getChat('chat-1').messages.map((m) => m.meta), [null, null]);
 });
 
 test('agent 归属：agentId 落 messages.agent_id，输出侧字段（model/duration_ms/error）可读回（F03-5 / §4.1）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'q', agentId: 'a1', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q', agentId: 'a1', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-1', text: 'a', agentId: 'a2', model: 'openai/gpt-5.6-luna', durationMs: 812, nowMs: T0 + 1 });
   const { messages } = db.getChat('chat-1');
   assert.equal(messages[0].agent_id, 'a1');
@@ -211,39 +238,39 @@ test('agent 归属：agentId 落 messages.agent_id，输出侧字段（model/dur
 });
 
 test('缺 chat 行时 insertInput 防御性建行：标题取输入前 40 字符、空标题兜底「新对话」（I-2 / AR-02）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-long', text: 'x'.repeat(50), agentId: 'a1', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-long', text: 'x'.repeat(50), agentId: 'a1', nowMs: T0 });
   const chat = db.getChat('chat-long').chat;
   assert.equal(chat.title, 'x'.repeat(40));
   assert.equal(chat.state, 'working');
   assert.equal(chat.agent_id, 'a1');
   assert.equal(chat.created_at, T0);
 
-  db.insertInput({ chatId: 'chat-blank', text: '   ', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-blank', text: '   ', nowMs: T0 });
   assert.equal(db.getChat('chat-blank').chat.title, '新对话');
 });
 
 test('列表：默认排序 updated_at DESC, chat_id DESC（同毫秒按 chat_id 兜底）（验收 7 / F03-2）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-a', title: 'A', nowMs: T0 });
-  db.upsertChat({ chatId: 'chat-b', title: 'B', nowMs: T0 });
-  db.upsertChat({ chatId: 'chat-c', title: 'C', nowMs: T0 + 10 });
-  const listed = db.listChats();
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-a', title: 'A', nowMs: T0 });
+  db.upsertChat({ projectId, chatId: 'chat-b', title: 'B', nowMs: T0 });
+  db.upsertChat({ projectId, chatId: 'chat-c', title: 'C', nowMs: T0 + 10 });
+  const listed = db.listChats({ project: projectId });
   assert.deepEqual(listed.chats.map((c) => c.chat_id), ['chat-c', 'chat-b', 'chat-a']);
   assert.equal(listed.total, 3);
 });
 
 test('列表：分页稳定、total 为匹配总数、message_count 为该 chat 消息数（验收 7 / §4.5）', () => {
-  const { db } = openTempDb();
+  const { db, projectId } = openTempDb();
   for (let i = 0; i < 5; i += 1) {
-    db.upsertChat({ chatId: `chat-${i}`, title: `T${i}`, nowMs: T0 + i });
+    db.upsertChat({ projectId, chatId: `chat-${i}`, title: `T${i}`, nowMs: T0 + i });
   }
-  db.insertInput({ chatId: 'chat-4', text: 'q', nowMs: T0 + 10 });
+  db.insertInput({ projectId, chatId: 'chat-4', text: 'q', nowMs: T0 + 10 });
   db.insertOutput({ chatId: 'chat-4', text: 'a', nowMs: T0 + 11 });
 
-  const page1 = db.listChats({ limit: 2, offset: 0 });
-  const page2 = db.listChats({ limit: 2, offset: 2 });
-  const page3 = db.listChats({ limit: 2, offset: 4 });
+  const page1 = db.listChats({ project: projectId, limit: 2, offset: 0 });
+  const page2 = db.listChats({ project: projectId, limit: 2, offset: 2 });
+  const page3 = db.listChats({ project: projectId, limit: 2, offset: 4 });
   const ids = [...page1.chats, ...page2.chats, ...page3.chats].map((c) => c.chat_id);
   assert.equal(new Set(ids).size, 5, '分页无重叠无遗漏');
   assert.deepEqual(ids, ['chat-4', 'chat-3', 'chat-2', 'chat-1', 'chat-0']);
@@ -255,87 +282,87 @@ test('列表：分页稳定、total 为匹配总数、message_count 为该 chat 
 });
 
 test('列表：limit/offset 非法 → 抛错（默认 50、上限 200）（验收 7 / I-5 / §4.5）', () => {
-  const { db } = openTempDb();
-  assert.throws(() => db.listChats({ limit: 201 }), /limit/);
-  assert.throws(() => db.listChats({ limit: 0 }), /limit/);
-  assert.throws(() => db.listChats({ limit: 1.5 }), /limit/);
-  assert.throws(() => db.listChats({ offset: -1 }), /offset/);
+  const { db, projectId } = openTempDb();
+  assert.throws(() => db.listChats({ project: projectId, limit: 201 }), /limit/);
+  assert.throws(() => db.listChats({ project: projectId, limit: 0 }), /limit/);
+  assert.throws(() => db.listChats({ project: projectId, limit: 1.5 }), /limit/);
+  assert.throws(() => db.listChats({ project: projectId, offset: -1 }), /offset/);
 });
 
 test('列表：时间过滤作用于 updated_at 且为闭区间（验收 7 / F03-3 / §4.6）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: 'A', nowMs: T0 });
-  db.upsertChat({ chatId: 'chat-2', title: 'B', nowMs: T0 + 100 });
-  db.upsertChat({ chatId: 'chat-3', title: 'C', nowMs: T0 + 200 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'A', nowMs: T0 });
+  db.upsertChat({ projectId, chatId: 'chat-2', title: 'B', nowMs: T0 + 100 });
+  db.upsertChat({ projectId, chatId: 'chat-3', title: 'C', nowMs: T0 + 200 });
 
-  assert.deepEqual(db.listChats({ from: T0, to: T0 + 100 }).chats.map((c) => c.chat_id), ['chat-2', 'chat-1'], '端点应被包含');
-  assert.deepEqual(db.listChats({ from: T0 + 101 }).chats.map((c) => c.chat_id), ['chat-3']);
-  assert.deepEqual(db.listChats({ to: T0 + 99 }).chats.map((c) => c.chat_id), ['chat-1']);
-  assert.equal(db.listChats({ from: T0 + 201 }).total, 0);
-  assert.throws(() => db.listChats({ from: T0 + 1, to: T0 }), /from/);
-  assert.throws(() => db.listChats({ from: 'x' }), /from/);
+  assert.deepEqual(db.listChats({ project: projectId, from: T0, to: T0 + 100 }).chats.map((c) => c.chat_id), ['chat-2', 'chat-1'], '端点应被包含');
+  assert.deepEqual(db.listChats({ project: projectId, from: T0 + 101 }).chats.map((c) => c.chat_id), ['chat-3']);
+  assert.deepEqual(db.listChats({ project: projectId, to: T0 + 99 }).chats.map((c) => c.chat_id), ['chat-1']);
+  assert.equal(db.listChats({ project: projectId, from: T0 + 201 }).total, 0);
+  assert.throws(() => db.listChats({ project: projectId, from: T0 + 1, to: T0 }), /from/);
+  assert.throws(() => db.listChats({ project: projectId, from: 'x' }), /from/);
 });
 
 test('列表：关键词命中标题或消息文本，已关闭 chat 也在结果内（验收 7 / F03-6 / §4.6）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-title', title: 'Plan A', nowMs: T0 });
-  db.upsertChat({ chatId: 'chat-body', title: 'plain', nowMs: T0 + 1 });
-  db.upsertChat({ chatId: 'chat-closed', title: 'Plan C', nowMs: T0 + 2 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-title', title: 'Plan A', nowMs: T0 });
+  db.upsertChat({ projectId, chatId: 'chat-body', title: 'plain', nowMs: T0 + 1 });
+  db.upsertChat({ projectId, chatId: 'chat-closed', title: 'Plan C', nowMs: T0 + 2 });
   db.closeChat('chat-closed', T0 + 3);
-  db.insertInput({ chatId: 'chat-body', text: 'needle-in-message', nowMs: T0 + 4 });
+  db.insertInput({ projectId, chatId: 'chat-body', text: 'needle-in-message', nowMs: T0 + 4 });
 
-  assert.deepEqual(db.listChats({ q: 'plan' }).chats.map((c) => c.chat_id), ['chat-closed', 'chat-title'], 'ASCII 大小写不敏感且含已关闭');
-  assert.deepEqual(db.listChats({ q: 'needle' }).chats.map((c) => c.chat_id), ['chat-body'], '应命中消息文本');
-  assert.equal(db.listChats({ q: 'missing' }).total, 0);
+  assert.deepEqual(db.listChats({ project: projectId, q: 'plan' }).chats.map((c) => c.chat_id), ['chat-closed', 'chat-title'], 'ASCII 大小写不敏感且含已关闭');
+  assert.deepEqual(db.listChats({ project: projectId, q: 'needle' }).chats.map((c) => c.chat_id), ['chat-body'], '应命中消息文本');
+  assert.equal(db.listChats({ project: projectId, q: 'missing' }).total, 0);
 });
 
 test('列表：关键词中的 % _ \\ 被转义，只命中字面量（验收 7 / §4.6）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-plain', title: 'plain title', nowMs: T0 });
-  db.upsertChat({ chatId: 'chat-percent', title: 'discount 100%', nowMs: T0 + 1 });
-  db.upsertChat({ chatId: 'chat-underscore', title: 'snake_case', nowMs: T0 + 2 });
-  db.upsertChat({ chatId: 'chat-backslash', title: 'path c:\\tmp', nowMs: T0 + 3 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-plain', title: 'plain title', nowMs: T0 });
+  db.upsertChat({ projectId, chatId: 'chat-percent', title: 'discount 100%', nowMs: T0 + 1 });
+  db.upsertChat({ projectId, chatId: 'chat-underscore', title: 'snake_case', nowMs: T0 + 2 });
+  db.upsertChat({ projectId, chatId: 'chat-backslash', title: 'path c:\\tmp', nowMs: T0 + 3 });
 
-  assert.deepEqual(db.listChats({ q: '%' }).chats.map((c) => c.chat_id), ['chat-percent'], '未转义时报 % 会命中全部');
-  assert.deepEqual(db.listChats({ q: '_' }).chats.map((c) => c.chat_id), ['chat-underscore'], '未转义时 _ 会命中全部单字符位');
-  assert.deepEqual(db.listChats({ q: '\\' }).chats.map((c) => c.chat_id), ['chat-backslash'], '未转义时 \\ 会转义掉后随字符');
+  assert.deepEqual(db.listChats({ project: projectId, q: '%' }).chats.map((c) => c.chat_id), ['chat-percent'], '未转义时报 % 会命中全部');
+  assert.deepEqual(db.listChats({ project: projectId, q: '_' }).chats.map((c) => c.chat_id), ['chat-underscore'], '未转义时 _ 会命中全部单字符位');
+  assert.deepEqual(db.listChats({ project: projectId, q: '\\' }).chats.map((c) => c.chat_id), ['chat-backslash'], '未转义时 \\ 会转义掉后随字符');
 });
 
 test('列表：agent 相关性 = chats.agent_id 命中或 messages.agent_id 参与过（验收 7 / F03-5 / §4.6）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-default', title: 'A', agentId: 'a1', nowMs: T0 });
-  db.upsertChat({ chatId: 'chat-other', title: 'B', agentId: 'a2', nowMs: T0 + 1 });
-  db.insertInput({ chatId: 'chat-other', text: 'q', agentId: 'a9', nowMs: T0 + 2 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-default', title: 'A', agentId: 'a1', nowMs: T0 });
+  db.upsertChat({ projectId, chatId: 'chat-other', title: 'B', agentId: 'a2', nowMs: T0 + 1 });
+  db.insertInput({ projectId, chatId: 'chat-other', text: 'q', agentId: 'a9', nowMs: T0 + 2 });
 
-  assert.deepEqual(db.listChats({ agent: 'a1' }).chats.map((c) => c.chat_id), ['chat-default']);
-  assert.deepEqual(db.listChats({ agent: 'a9' }).chats.map((c) => c.chat_id), ['chat-other'], '参与过该 chat 的 agent 也应命中');
-  assert.deepEqual(db.listChats({ agent: 'a2' }).chats.map((c) => c.chat_id), ['chat-other']);
-  assert.equal(db.listChats({ agent: 'ghost' }).total, 0);
+  assert.deepEqual(db.listChats({ project: projectId, agent: 'a1' }).chats.map((c) => c.chat_id), ['chat-default']);
+  assert.deepEqual(db.listChats({ project: projectId, agent: 'a9' }).chats.map((c) => c.chat_id), ['chat-other'], '参与过该 chat 的 agent 也应命中');
+  assert.deepEqual(db.listChats({ project: projectId, agent: 'a2' }).chats.map((c) => c.chat_id), ['chat-other']);
+  assert.equal(db.listChats({ project: projectId, agent: 'ghost' }).total, 0);
 });
 
 test('列表：状态过滤 + 四类条件 AND 组合，非法状态抛错（验收 7 / F03-4/7 / §4.6）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-working', text: 'plan q', agentId: 'a1', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-working', text: 'plan q', agentId: 'a1', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-working', text: 'a', agentId: 'a1', nowMs: T0 + 1 });
-  db.upsertChat({ chatId: 'chat-closed', title: 'closed plan', agentId: 'a1', nowMs: T0 + 2 });
+  db.upsertChat({ projectId, chatId: 'chat-closed', title: 'closed plan', agentId: 'a1', nowMs: T0 + 2 });
   db.closeChat('chat-closed', T0 + 3);
 
-  assert.deepEqual(db.listChats({ state: 'completed' }).chats.map((c) => c.chat_id), ['chat-working']);
-  assert.deepEqual(db.listChats({ state: 'closed' }).chats.map((c) => c.chat_id), ['chat-closed']);
-  assert.equal(db.listChats({ state: 'failed' }).total, 0);
+  assert.deepEqual(db.listChats({ project: projectId, state: 'completed' }).chats.map((c) => c.chat_id), ['chat-working']);
+  assert.deepEqual(db.listChats({ project: projectId, state: 'closed' }).chats.map((c) => c.chat_id), ['chat-closed']);
+  assert.equal(db.listChats({ project: projectId, state: 'failed' }).total, 0);
   assert.deepEqual(
-    db.listChats({ q: 'plan', agent: 'a1', state: 'closed', from: T0, to: T0 + 100 }).chats.map((c) => c.chat_id),
+    db.listChats({ project: projectId, q: 'plan', agent: 'a1', state: 'closed', from: T0, to: T0 + 100 }).chats.map((c) => c.chat_id),
     ['chat-closed'],
     '多条件应同时满足',
   );
-  assert.throws(() => db.listChats({ state: 'idle' }), /state/);
+  assert.throws(() => db.listChats({ project: projectId, state: 'idle' }), /state/);
 });
 
 test('详情：消息按 created_at ASC, id ASC 升序，字段与 §4.1 一致，未知 chat → null（验收 7 / F03-8 / §4.5）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'q1', agentId: 'a1', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q1', agentId: 'a1', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-1', text: 'a1', model: 'm', durationMs: 5, nowMs: T0 });
-  db.insertInput({ chatId: 'chat-1', text: 'q2', agentId: 'a1', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q2', agentId: 'a1', nowMs: T0 });
 
   const detail = db.getChat('chat-1');
   assert.deepEqual(detail.messages.map((m) => m.text), ['q1', 'a1', 'q2'], '同毫秒时按自增 id 稳定升序');
@@ -347,19 +374,19 @@ test('详情：消息按 created_at ASC, id ASC 升序，字段与 §4.1 一致�
 });
 
 test('空库启动：列表为空、total 0（F02-7 / 验收 7）', () => {
-  const { db } = openTempDb();
-  assert.deepEqual(db.listChats(), { chats: [], total: 0, limit: 50, offset: 0 });
+  const { db, projectId } = openTempDb();
+  assert.deepEqual(db.listChats({ project: projectId }), { chats: [], total: 0, limit: 50, offset: 0 });
 });
 
 test('upsertChat：建行即 working，重复调用改标题/updated_at 但保留 created_at，已关闭不被改写（AR-01 / §4.3）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: 'first', agentId: 'a1', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'first', agentId: 'a1', nowMs: T0 });
   const created = db.getChat('chat-1').chat;
   assert.deepEqual(created, {
     chat_id: 'chat-1', title: 'first', agent_id: 'a1', state: 'working', created_at: T0, updated_at: T0, closed_at: null, archived_at: null, context_released: 0,
   });
 
-  db.upsertChat({ chatId: 'chat-1', title: 'second', agentId: 'a2', nowMs: T0 + 5 });
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'second', agentId: 'a2', nowMs: T0 + 5 });
   const updated = db.getChat('chat-1').chat;
   assert.equal(updated.title, 'second');
   assert.equal(updated.agent_id, 'a2');
@@ -367,7 +394,7 @@ test('upsertChat：建行即 working，重复调用改标题/updated_at 但保�
   assert.equal(updated.updated_at, T0 + 5);
 
   db.closeChat('chat-1', T0 + 10);
-  db.upsertChat({ chatId: 'chat-1', title: 'third', nowMs: T0 + 20 });
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'third', nowMs: T0 + 20 });
   const closed = db.getChat('chat-1').chat;
   assert.equal(closed.state, 'closed');
   assert.equal(closed.title, 'second', '已关闭 chat 不应被 upsert 改写');
@@ -375,8 +402,8 @@ test('upsertChat：建行即 working，重复调用改标题/updated_at 但保�
 });
 
 test('closeChat：置终态并记 closed_at，未知 chat 返回 false（F01-5 / §4.5）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: 'T', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'T', nowMs: T0 });
   assert.equal(db.closeChat('chat-1', T0 + 7), true);
   assert.deepEqual(db.getChat('chat-1').chat, {
     chat_id: 'chat-1', title: 'T', agent_id: null, state: 'closed', created_at: T0, updated_at: T0 + 7, closed_at: T0 + 7, archived_at: null, context_released: 0,
@@ -385,8 +412,8 @@ test('closeChat：置终态并记 closed_at，未知 chat 返回 false（F01-5 /
 });
 
 test('closeChat 幂等：重复关闭不改写 closed_at/updated_at（验收 9 / §4.5）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: 'T', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'T', nowMs: T0 });
   db.closeChat('chat-1', T0 + 7);
   assert.equal(db.closeChat('chat-1', T0 + 99), true);
   const chat = db.getChat('chat-1').chat;
@@ -395,10 +422,10 @@ test('closeChat 幂等：重复关闭不改写 closed_at/updated_at（验收 9 /
 });
 
 test('closed 哨兵：迟到输入/输出不改写已关闭 chat 状态与更新时间（验收 9 / §4.3/§4.7）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q', nowMs: T0 });
   db.closeChat('chat-1', T0 + 1);
-  db.insertInput({ chatId: 'chat-1', text: 'late-q', nowMs: T0 + 2 });
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'late-q', nowMs: T0 + 2 });
   db.insertOutput({ chatId: 'chat-1', text: 'late-a', nowMs: T0 + 3 });
 
   const chat = db.getChat('chat-1').chat;
@@ -408,30 +435,30 @@ test('closed 哨兵：迟到输入/输出不改写已关闭 chat 状态与更新
 });
 
 test('startupSweep：遗留 working → failed，返回影响行数，其余状态不动（验收 9 / AR-05 / §4.3）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-w1', text: 'q', nowMs: T0 });
-  db.insertInput({ chatId: 'chat-w2', text: 'q', nowMs: T0 });
-  db.insertInput({ chatId: 'chat-done', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-w1', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-w2', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-done', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-done', text: 'a', nowMs: T0 + 1 });
-  db.insertInput({ chatId: 'chat-failed', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-failed', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-failed', text: 'e', error: 'timeout', nowMs: T0 + 1 });
-  db.upsertChat({ chatId: 'chat-closed', title: 'T', nowMs: T0 });
+  db.upsertChat({ projectId, chatId: 'chat-closed', title: 'T', nowMs: T0 });
   db.closeChat('chat-closed', T0 + 1);
 
   assert.equal(db.startupSweep(), 2);
   assert.equal(db.startupSweep(), 0, '再次扫尾无遗留 working');
-  const states = Object.fromEntries(db.listChats().chats.map((c) => [c.chat_id, c.state]));
+  const states = Object.fromEntries(db.listChats({ project: projectId }).chats.map((c) => [c.chat_id, c.state]));
   assert.deepEqual(states, {
     'chat-closed': 'closed', 'chat-done': 'completed', 'chat-failed': 'failed', 'chat-w1': 'failed', 'chat-w2': 'failed',
   });
 });
 
 test('archiveChat：未归档且非 working → 标记+时间+释放位；working 与已归档 → false 且不变（F01-2/4、F02-2）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-working', text: 'q', nowMs: T0 });
-  db.insertInput({ chatId: 'chat-done', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-working', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-done', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-done', text: 'a', nowMs: T0 + 1 });
-  db.insertInput({ chatId: 'chat-closed', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-closed', text: 'q', nowMs: T0 });
   db.closeChat('chat-closed', T0 + 2);
 
   assert.equal(db.archiveChat('chat-working', T0 + 10), false, '进行中不可归档（范围兜底）');
@@ -454,8 +481,8 @@ test('archiveChat：未归档且非 working → 标记+时间+释放位；workin
 });
 
 test('activateChat：未归档 → false 全不变；closed/completed 来源 → 清标记+状态还原+清 closed_at+置顶；重复 → false（F05-3/4/8）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-live', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-live', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-live', text: 'a', nowMs: T0 + 1 });
   assert.equal(db.activateChat('chat-live', T0 + 50), false, '未归档不可激活（N-5 结构性收窄）');
   assert.deepEqual(db.getChat('chat-live').chat, {
@@ -463,7 +490,7 @@ test('activateChat：未归档 → false 全不变；closed/completed 来源 →
     closed_at: null, archived_at: null, context_released: 0,
   });
 
-  db.insertInput({ chatId: 'chat-closed', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-closed', text: 'q', nowMs: T0 });
   db.closeChat('chat-closed', T0 + 2);
   db.archiveChat('chat-closed', T0 + 3);
   assert.equal(db.activateChat('chat-closed', T0 + 100), true);
@@ -477,7 +504,7 @@ test('activateChat：未归档 → false 全不变；closed/completed 来源 →
   assert.equal(db.activateChat('chat-closed', T0 + 200), false, '重复激活 → false');
   assert.equal(db.getChat('chat-closed').chat.updated_at, T0 + 100, '重复激活不再前移');
 
-  db.insertInput({ chatId: 'chat-done', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-done', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-done', text: 'a', nowMs: T0 + 1 });
   db.archiveChat('chat-done', T0 + 3);
   assert.equal(db.activateChat('chat-done', T0 + 100), true);
@@ -489,15 +516,15 @@ test('activateChat：未归档 → false 全不变；closed/completed 来源 →
 });
 
 test('listArchivable：未归档且非 working 的候选集（completed/failed/closed 入选，working 与已归档排除）（F01-2）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-working', text: 'q', nowMs: T0 });
-  db.insertInput({ chatId: 'chat-done', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-working', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-done', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-done', text: 'a', nowMs: T0 + 1 });
-  db.insertInput({ chatId: 'chat-failed', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-failed', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-failed', text: 'e', error: 'timeout', nowMs: T0 + 1 });
-  db.insertInput({ chatId: 'chat-closed', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-closed', text: 'q', nowMs: T0 });
   db.closeChat('chat-closed', T0 + 2);
-  db.insertInput({ chatId: 'chat-archived', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-archived', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-archived', text: 'a', nowMs: T0 + 1 });
   db.archiveChat('chat-archived', T0 + 3);
 
@@ -507,8 +534,8 @@ test('listArchivable：未归档且非 working 的候选集（completed/failed/c
 });
 
 test('context_released：归档置 1，产生新回答后置 0（AR-16 / F05-6 提示消失时机）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-1', text: 'a', nowMs: T0 + 1 });
   assert.equal(db.getChat('chat-1').chat.context_released, 0, '常规回答 → 0');
   db.archiveChat('chat-1', T0 + 2);
@@ -520,8 +547,8 @@ test('context_released：归档置 1，产生新回答后置 0（AR-16 / F05-6 �
 });
 
 test('renameChat：只写 title 一列（其余 8 列逐项不变、updated_at 不刷新），返回权威标题（§3.1 硬契约 ① / F01 写入侧）', () => {
-  const { dbPath, db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: 'q', agentId: 'a1', nowMs: T0 });
+  const { dbPath, db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: 'q', agentId: 'a1', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-1', text: 'a', nowMs: T0 + 1 });
 
   const row = () => rawAll(dbPath, 'SELECT * FROM chats WHERE chat_id = ?', 'chat-1')[0];
@@ -546,8 +573,8 @@ test('renameChat：只写 title 一列（其余 8 列逐项不变、updated_at �
 });
 
 test('renameChat：同值改名幂等成功（SQLite 按命中行数计 changes，不视为失败）（§3.1 changes 语义表）', () => {
-  const { dbPath, db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: '保留标题', agentId: 'a1', nowMs: T0 });
+  const { dbPath, db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: '保留标题', agentId: 'a1', nowMs: T0 });
   const row = () => rawAll(dbPath, 'SELECT * FROM chats WHERE chat_id = ?', 'chat-1')[0];
   const before = row();
 
@@ -557,11 +584,11 @@ test('renameChat：同值改名幂等成功（SQLite 按命中行数计 changes�
 });
 
 test('renameChat：未写入三态 → null 且库值不变（不存在 / 已归档 / 已关闭）（§3.1 双守卫 / F03）', () => {
-  const { dbPath, db } = openTempDb();
+  const { dbPath, db, projectId } = openTempDb();
   assert.equal(db.renameChat({ chatId: 'chat-ghost', title: 'X' }), null, '不存在 → 未命中');
   assert.equal(db.getChat('chat-ghost'), null, '不存在的行不会被创建');
 
-  db.insertInput({ chatId: 'chat-arch', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-arch', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-arch', text: 'a', nowMs: T0 + 1 });
   db.archiveChat('chat-arch', T0 + 2);
   const archRow = () => rawAll(dbPath, 'SELECT * FROM chats WHERE chat_id = ?', 'chat-arch')[0];
@@ -569,7 +596,7 @@ test('renameChat：未写入三态 → null 且库值不变（不存在 / 已归
   assert.equal(db.renameChat({ chatId: 'chat-arch', title: 'X' }), null, '已归档 → 守卫①拦截');
   assert.deepEqual(archRow(), archBefore, '已归档行逐列不变');
 
-  db.insertInput({ chatId: 'chat-closed', text: 'q', nowMs: T0 + 3 });
+  db.insertInput({ projectId, chatId: 'chat-closed', text: 'q', nowMs: T0 + 3 });
   db.closeChat('chat-closed', T0 + 4);
   const closedRow = () => rawAll(dbPath, 'SELECT * FROM chats WHERE chat_id = ?', 'chat-closed')[0];
   const closedBefore = closedRow();
@@ -579,8 +606,8 @@ test('renameChat：未写入三态 → null 且库值不变（不存在 / 已归
 });
 
 test('renameChat：非法标题抛错（消息以「标题非法: 」开头）且库值不变（§3.3 / F02 服务端校验）', () => {
-  const { dbPath, db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: '原标题', nowMs: T0 });
+  const { dbPath, db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: '原标题', nowMs: T0 });
   const row = () => rawAll(dbPath, 'SELECT * FROM chats WHERE chat_id = ?', 'chat-1')[0];
   const before = row();
 
@@ -597,8 +624,8 @@ test('renameChat：非法标题抛错（消息以「标题非法: 」开头）�
 });
 
 test('renameChat：边界通过（100 单位、50×emoji、内部空白保留、trim 落库）（§3.1 / F02）', () => {
-  const { db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: 'T', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: 'T', nowMs: T0 });
 
   assert.equal(db.renameChat({ chatId: 'chat-1', title: 'x'.repeat(100) }), 'x'.repeat(100), '100 单位通过');
   assert.equal(db.getChat('chat-1').chat.title, 'x'.repeat(100));
@@ -610,60 +637,60 @@ test('renameChat：边界通过（100 单位、50×emoji、内部空白保留、
 });
 
 test('renameChat：与自动标题路径隔离（改名后再 insertInput 保持手动值）（F05 / §3.3 结构性保证）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-1', text: '第一条输入', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-1', text: '第一条输入', nowMs: T0 });
   assert.equal(db.getChat('chat-1').chat.title, '第一条输入', '自动标题 = 首条输入');
 
   db.renameChat({ chatId: 'chat-1', title: '手动标题' });
-  db.insertInput({ chatId: 'chat-1', text: '第二条输入', nowMs: T0 + 1 });
+  db.insertInput({ projectId, chatId: 'chat-1', text: '第二条输入', nowMs: T0 + 1 });
   assert.equal(db.getChat('chat-1').chat.title, '手动标题', 'ensureChat 的 ON CONFLICT DO NOTHING 未被破坏');
   assert.equal(db.getChat('chat-1').chat.updated_at, T0 + 1, '后续输入照常刷新 updated_at');
   db.close();
 });
 
 test('双视图：缺省排除已归档、archived=1 只取已归档且 archived_at DESC, chat_id DESC、total 与集合同源（F03-2/3 / V-1~V-3）', () => {
-  const { db } = openTempDb();
-  db.insertInput({ chatId: 'chat-live-working', text: 'q', nowMs: T0 });
-  db.insertInput({ chatId: 'chat-live-done', text: 'q', nowMs: T0 });
+  const { db, projectId } = openTempDb();
+  db.insertInput({ projectId, chatId: 'chat-live-working', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-live-done', text: 'q', nowMs: T0 });
   db.insertOutput({ chatId: 'chat-live-done', text: 'a', nowMs: T0 + 1 });
   for (const chatId of ['chat-arch-a', 'chat-arch-b']) {
-    db.insertInput({ chatId, text: 'q', nowMs: T0 });
+    db.insertInput({ projectId, chatId, text: 'q', nowMs: T0 });
     db.insertOutput({ chatId, text: 'a', nowMs: T0 + 1 });
   }
-  db.insertInput({ chatId: 'chat-arch-c', text: 'q', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-arch-c', text: 'q', nowMs: T0 });
   db.closeChat('chat-arch-c', T0 + 2);
 
   db.archiveChat('chat-arch-a', T0 + 10);
   db.archiveChat('chat-arch-b', T0 + 10); // 同归档时间 → 由 chat_id DESC 兜底
   db.archiveChat('chat-arch-c', T0 + 11);
 
-  const main = db.listChats();
+  const main = db.listChats({ project: projectId });
   assert.deepEqual(main.chats.map((c) => c.chat_id).sort(), ['chat-live-done', 'chat-live-working']);
   assert.equal(main.total, 2, 'total 与主列表集合同源');
   assert.equal(main.chats.every((c) => c.archived_at === null), true);
 
-  const archived = db.listChats({ archived: 1 });
+  const archived = db.listChats({ project: projectId, archived: 1 });
   assert.deepEqual(archived.chats.map((c) => c.chat_id), ['chat-arch-c', 'chat-arch-b', 'chat-arch-a'], 'archived_at DESC，同值 chat_id DESC');
   assert.equal(archived.total, 3, 'total 与归档视图集合同源');
   assert.deepEqual(archived.chats.map((c) => c.archived_at), [T0 + 11, T0 + 10, T0 + 10]);
 
-  assert.deepEqual(db.listChats({ state: 'closed' }).chats.map((c) => c.chat_id), [], 'state 过滤同时排除已归档（V-5）');
-  assert.deepEqual(db.listChats({ state: 'closed', archived: 1 }).chats.map((c) => c.chat_id), ['chat-arch-c']);
+  assert.deepEqual(db.listChats({ project: projectId, state: 'closed' }).chats.map((c) => c.chat_id), [], 'state 过滤同时排除已归档（V-5）');
+  assert.deepEqual(db.listChats({ project: projectId, state: 'closed', archived: 1 }).chats.map((c) => c.chat_id), ['chat-arch-c']);
 
-  assert.throws(() => db.listChats({ archived: 2 }), /archived/);
-  assert.throws(() => db.listChats({ archived: '1' }), /archived/);
-  assert.throws(() => db.listChats({ archived: -1 }), /archived/);
+  assert.throws(() => db.listChats({ project: projectId, archived: 2 }), /archived/);
+  assert.throws(() => db.listChats({ project: projectId, archived: '1' }), /archived/);
+  assert.throws(() => db.listChats({ project: projectId, archived: -1 }), /archived/);
 });
 
 test('归档视图分页：limit 20 三页并集无重复无遗漏、total = 60（F04-1/3/4）', () => {
-  const { db } = openTempDb();
+  const { db, projectId } = openTempDb();
   for (let i = 0; i < 60; i += 1) {
     const chatId = `chat-${String(i).padStart(2, '0')}`;
-    db.insertInput({ chatId, text: 'q', nowMs: T0 + i });
+    db.insertInput({ projectId, chatId, text: 'q', nowMs: T0 + i });
     db.insertOutput({ chatId, text: 'a', nowMs: T0 + i });
     db.archiveChat(chatId, T0 + 1000 + i);
   }
-  const pages = [0, 20, 40].map((offset) => db.listChats({ archived: 1, limit: 20, offset }));
+  const pages = [0, 20, 40].map((offset) => db.listChats({ project: projectId, archived: 1, limit: 20, offset }));
   const ids = pages.flatMap((page) => page.chats.map((c) => c.chat_id));
   assert.equal(ids.length, 60);
   assert.equal(new Set(ids).size, 60, '分页无重叠无遗漏');
@@ -672,15 +699,15 @@ test('归档视图分页：limit 20 三页并集无重复无遗漏、total = 60�
 });
 
 test('E-3 落盘侧：关闭连接后用同一路径重开，chat 与输入/输出（含 meta）一致可读回（验收 9 / F02-6）', () => {
-  const { dbPath, db } = openTempDb();
-  db.upsertChat({ chatId: 'chat-1', title: '重启前', agentId: 'a1', nowMs: T0 });
-  db.insertInput({ chatId: 'chat-1', text: '重启前的问题', agentId: 'a1', meta: { task_id: 'task-1' }, nowMs: T0 + 1 });
+  const { dbPath, db, projectId } = openTempDb();
+  db.upsertChat({ projectId, chatId: 'chat-1', title: '重启前', agentId: 'a1', nowMs: T0 });
+  db.insertInput({ projectId, chatId: 'chat-1', text: '重启前的问题', agentId: 'a1', meta: { task_id: 'task-1' }, nowMs: T0 + 1 });
   db.insertOutput({ chatId: 'chat-1', text: '重启前的答复', agentId: 'a1', model: 'openai/gpt-5.6-luna', meta: { context_id: 'ctx-9-1', pid: 99 }, nowMs: T0 + 2 });
   const before = db.getChat('chat-1');
   db.close();
 
   const reopened = openDb(dbPath);
   assert.deepEqual(reopened.getChat('chat-1'), before);
-  assert.deepEqual(reopened.listChats().chats.map((c) => c.chat_id), ['chat-1']);
+  assert.deepEqual(reopened.listChats({ project: projectId }).chats.map((c) => c.chat_id), ['chat-1']);
   reopened.close();
 });
