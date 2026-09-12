@@ -138,3 +138,85 @@
 - 决策内容：Gate（阶段 4 → 5 入口）独立验证结论 PASS → 放行进入阶段 5（依赖解锁式并发派发）
 - 触发依据：verifier 报告结论 PASS、fail 0 项；阶段 4 四条推进条件均经独立复核通过（格式 / 覆盖 / 无重叠 / 无环 / 依赖证据）
 - 并发策略（据依赖图）：首批 = pr-001 ∥ pr-003（均无依赖）；pr-002 待 pr-001 合并进迭代分支后派发；pr-004 待三者全合并后派发。B-4 偏差不阻塞（pr-003 与 pr-002 文件范围不相交），按 pr-planner 的无环分组同波次并发
+
+### 2026-09-12 16:09:41 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）
+- 任务：将技术架构方案分解为带验收标准的有向无环任务图
+- PR：prs/pr-001-project-context-injection.md
+- worktree 分支：feat/pr-001
+
+### 2026-09-12 16:09:41 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）
+- 任务：将技术架构方案分解为带验收标准的有向无环任务图
+- PR：prs/pr-003-project-layer-ui.md
+- worktree 分支：feat/pr-003
+
+### 2026-09-12 16:12:48 · 收到报告 · planner
+
+- 1. tasks 路径 + 任务总数：docs/iterations/0017-project-workspace/prs/pr-001-project-context-injection-tasks.md；4 个任务（T1 共性层解析与渲染 / T2 一次性路径 argv 前缀 / T3 常驻路径首轮注入 / T4 回归与边界证据），全部 P0
+- 2. 依赖图摘要：无环，拓扑序 T1 → T2/T3 → T4；最长链 3 跳；关键路径 = T1、T4；T2（agent.js）∥ T3（context-pool.js + agent.js 装配点）
+- 3. `[model_inferred]` 列表：1 条（T1 第 2 条「合法 project」判据 = 三要素 name/repo_url/agreement 均为非空字符串）
+- 4. 循环依赖：无
+- 5. 疑问/越界：提请主 agent 裁决两点（合法判据；本 PR 是否须带仓库内测试证据——planner 说明新断言按 arch §8.1 归 pr-004、载荷观测断言改写归 pr-002，本 PR 证据 = 既有 22 文件零改写 + 临时探针）；仅写该 tasks 文件
+
+### 2026-09-12 16:12:48 · 收到报告 · planner
+
+- 1. tasks 路径 + 任务总数：docs/iterations/0017-project-workspace/prs/pr-003-project-layer-ui-tasks.md；6 个任务（T-01 index.html 静态节点 / T-02 style.css 追加规则 / T-03 app.js 项目层取数渲染创建 / T-04 当前项目解析与 boot 三态分派 / T-05 工作台带参调用点 / T-06 零改写核对与回归）
+- 2. 依赖图摘要：无环，拓扑序 T-01/T-02 → T-03 → T-04/T-05 → T-06；最长链 4 层；可并行点 T-01 ∥ T-02、T-04 ∥ T-05
+- 3. `[model_inferred]` 列表：3 条（T-01 main.layout 是否源码预置 hidden 不作规定；T-02 复用既有 :root 变量不新增变量与字体族；T-03 loadProjects() 失败沿用既有静默 try/catch 体例）
+- 4. 循环依赖：无
+- 5. 疑问/越界：无越界；提请裁决两点（是否要求源码预置 hidden 以消除列表模式下的工作台闪现；showProjectList/showWorkspace 归 T-04 的拆分口径）；行号引用已实测（web.js:261-274 STATIC_FILES 12 键、style.css:64/203/204/295、app.js:574/586/632/800/882、test/web.test.js:295/1030-1031/1606、test/api-pages.test.js:59-63/188-189）
+
+### 2026-09-12 16:12:48 · 调度决策 · 阶段推进核查
+
+- 决策内容：两个首批 PR 的 planner 阶段完成（tasks 文件均七要素齐备、依赖无环、验收标准可追溯）→ 并发派发 dev（pr-001 ∥ pr-003），PR 子状态表标记「占用」
+- 裁定（主 agent，对 planner 提请的 5 条推断）：① pr-001「合法 project」判据 = 三要素均为非空字符串，否则视为未携带且不拒收（采纳）；② pr-001 验收证据 = 既有 22 测试文件零改写 + 临时探针不落仓库，新断言归 pr-004、载荷观测断言改写归 pr-002（按 arch §8.1/§8.2，不扩该 PR 文件范围）；③ pr-003 **要求** `main.layout` 源码预置 `hidden`（消除列表模式首屏闪现，且给出文本级静态可判据），最终可见性仍为验收判据；④ pr-003 新增 CSS 复用既有 `:root` 变量、不新增变量与字体族（采纳）；⑤ pr-003 `loadProjects()` 失败沿用既有静默 try/catch 体例（采纳）；另接受 showProjectList/showWorkspace 归 T-04 的拆分口径
+- 触发依据：两份 tasks 文件均含任务 ID/描述/验收标准/前置依赖/优先级；验收标准带 arch/prd 追溯标注；无环已画图核对
+
+### 2026-09-12 16:12:48 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）
+- 任务：按任务简报产出让验证标准通过的最小实现
+- PR：prs/pr-001-project-context-injection.md（tasks：prs/pr-001-project-context-injection-tasks.md）
+- worktree 分支：feat/pr-001
+
+### 2026-09-12 16:12:48 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）
+- 任务：按任务简报产出让验证标准通过的最小实现
+- PR：prs/pr-003-project-layer-ui.md（tasks：prs/pr-003-project-layer-ui-tasks.md）
+- worktree 分支：feat/pr-003
+
+### 2026-09-12 16:22:23 · 收到报告 · dev
+
+- 1. 改了什么文件：oamp/src/agent.js（+31/-1）、oamp/src/context-pool.js（+13/-3）；worktree /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/pr-001，分支 feat/pr-001，提交 2e9a950
+- 2. 测试结果：PR 验收 7 条全 PASS（唯一渲染点与解析 / 13 例三形态不改既有裁决 / 一次性路径末位 argv / 常驻首轮一次与重建重注 / 三条失败路径不消费名额 / 未携带时既有行为逐字不变 / 方法面与池语义不变）；探针 /tmp/pr001-probe/probe.mjs 45/45；`cd oamp && npm test` 251/251 连续 4 次全绿
+- 3. 疑问/待办：首次 npm test 出现 1 例未捕获用例名的失败、其后同代码连续 4 次全绿（推断为 harness 时序抖动，与本次改动无关）；注释原含 web.js 的 PROJECT_AGREEMENT 字面量（会命中 grep 式校验）已改写为不含标识符的表述
+- 4. 违反边界的事：无（为取得「既有 22 文件全绿」证据在隔离 worktree 内跑 npm test；未碰 oamp/test/**、oamp/web/**、docs/**；未 push/merge/--no-verify）
+
+### 2026-09-12 16:22:23 · 收到报告 · dev
+
+- 1. 改了什么文件：oamp/web/app.js（+109/-4）、oamp/web/index.html（+19/-1）、oamp/web/style.css（+52/-0 纯追加）；worktree /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/pr-003，分支 feat/pr-003，提交 40151ff
+- 2. 测试结果：PR 验收 6 条全 PASS（静态节点 8 个 / boot 三态分派浏览器实测 / 三处带 project_id / 项目层取数与渲染含 409 提示逐字 / CSS 三条真隐藏且既有 364 行逐字未变 / 零新增静态资产与既有断言零改写——`node --test test/web.test.js test/api-pages.test.js` 44/44）
+- 3. 疑问/待办：① `fmtAgo(null)` 实际渲染「497000h 前」（`Number(null) === 0` 是有限值），已用调用处 `fmtAgo(p.last_activity_at ?? undefined)` 归一到既有「非有限值 → —」路径，fmtAgo 本体零改写；② showProjectList() 内再取一次 /api/projects（按验收字面量实现），未知 id 路径共取两次，非轮询、无功能影响
+- 4. 违反边界的事：**主工作树误写三笔 edit 已完全还原**（发现后 cp 备份 → `git checkout --` 还原主工作树 → 复核 `-- oamp/` diff 为空 → 同一内容改写入 worktree）；另仅 /tmp 下临时冒烟桩，验证后已删
+
+### 2026-09-12 16:22:23 · 调度决策 · 阶段推进核查
+
+- 决策内容：两个首批 PR 的 dev 阶段完成、自测全绿、worktree diff 与 PR「文件范围」逐字一致（pr-001 恰 2 文件 / pr-003 恰 3 文件）、主工作树 `oamp/` 零残留 → 并发派发 PR 级 verifier（pr-001 ∥ pr-003），PR 子状态维持「占用」
+- 裁定（主 agent）：① 接受 pr-003 的 `?? undefined` 归一手法（不新增占位分支、`fmtAgo` 本体与既有规则零改写）；② 接受 showProjectList 路径的双次取数（非轮询、无功能影响，属验收字面量的自然结果）；③ pr-001 首次 npm test 的孤例失败不成立为缺陷（同代码连续 4 次全绿 + 改动只在既有载荷恒为 null 的 project 路径），若后续复现再抓用例名
+- 触发依据：`git diff --stat iteration/0017-project-workspace...HEAD` 两 worktree 输出与 PR 文件范围一致；两 worktree `git status --short` 干净；主工作树 `git status` 仅含迭代 docs 改动与两份 tasks 文件（无 oamp/** 改动）
+
+### 2026-09-12 16:22:23 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现，PR 级验收）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
+- PR：prs/pr-001-project-context-injection.md（worktree feat/pr-001 @ 2e9a950）
+
+### 2026-09-12 16:22:23 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现，PR 级验收）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
+- PR：prs/pr-003-project-layer-ui.md（worktree feat/pr-003 @ 40151ff）
