@@ -825,6 +825,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 ```
 
 - `entries` = 任务记录里既有的过程条目**原样**透出（`{at, from, state, detail}` 四键，`detail` 不裁剪）；终态时**末尾追加一条** `detail.event` 为 `result` 的终态条目。**进行中的调用同样可读**（返回已有条目，不追加终态条目，也不报「未完成」错误）。
+- **末条终态条目的两处 `state` 刻意区分（不是漂移）**：`entries` 末尾条目的 `state` 反映**该调用的终态**（含 `schema_mode: "strict"` 未通过时的 `failed` 覆写，与 §3.19 信封同真源）；其 `detail` 仍是**执行侧原样终态体**（`detail.state` 为执行侧原值，如 `completed`）——外层表达调用终态，`detail` 保留执行原始事实。
 - `truncated`：本次调用的**过程记录**是否被既有上限截断（上限不变、不由本接口引入）；与 §3.19 信封的 `truncated` **同一口径、同一真源**。
 - **不持久**：转录是 Router 进程内的既有任务记录，不落库、不跨重启——Router 或 web 重启后旧 `call_id` 一律 `404`（明确的「不存在」，不是 5xx、也不是伪造内容）。既有「过程不入库」的声明不被推翻。
 
@@ -873,7 +874,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 | `truncated` | boolean | 过程记录是否被既有上限截断（与 §3.18 同一口径） |
 | `text` | string \| null | 终态产出的原文；失败且无文本时 `null` |
 | `structured_output` | object \| null | 带 `output_schema` 且终态校验通过时的对象；否则 `null`（不带 `output_schema` 时恒 `null`，只交付 `text`） |
-| `error` | string \| null | `failed` 时的机器可读原因（如 `structured_output_invalid`）；否则 `null` |
+| `error` | string \| null | `failed` 且执行侧 / 校验侧给出机器可读原因时给出（校验侧如 `structured_output_invalid`）；否则 `null`。**shell / 一次性失败以 `exit_code` 表达，此时 `error` 为 `null`** |
 | `exit_code` | number \| string \| null | 常驻（`omp-daemon`）执行**成功** = `0`；常驻执行**失败** / 不可得 = `null`；shell / 一次性执行路径 = 进程真实退出码（被信号终止时为信号名 / `killed`）。`schema_mode: "strict"` 的结构覆写只改 `state` / `error`，不改执行侧退出码 |
 
 - `state` 与 §3.15 的 `state` **同真源**（同一任务记录 + `schema_mode: "strict"` 未通过时的 `failed` 覆写），两处不会漂移。
