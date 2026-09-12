@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>oamp · 接口文档</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/api-pages.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="logo">◆</span><span class="brand-name">oamp</span><span class="brand-sub">接口文档</span></div>
+    </header>
+
+    <main class="api-page">
+      <h1>HTTP / SSE 接口文档</h1>
+      <!-- 反射边界标注（F03 验收 7）：参数语义说明为人工撰写，结构与分发来自路由表 -->
+      <p class="api-intro">
+        本页内容来自运行中服务的路由登记（加载时取 <code>GET /api/docs</code> 的投影），登记变化后刷新即出现，无需改动本页实现。
+        <strong>参数语义说明为人工撰写，结构与分发来自路由表</strong>；本页只承载结构与字段的派生视图，
+        叙述、使用场景与可粘贴示例见 <a href="/API.md">API.md</a>。
+      </p>
+      <div id="routes"></div>
+    </main>
+
+    <script src="/docs.js"></script>
+  </body>
+</html>

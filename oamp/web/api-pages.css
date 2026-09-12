@@ -1,0 +1,84 @@
+/* web/api-pages.css — 文档页（/docs）与调试台（/debug）共享样式（0016 / F03 / F04 / architecture §6.8）
+   两页同时 <link> 既有 /style.css 复用 :root token（--line/--muted/--green/--red/--code-bg/--radius）与顶栏排版，
+   本文件只补既有样式面缺的两类规则（表格 / prose 排版）与两页专属的卡片·徽标·表单·日志·结果框。
+   零 @media 断点、零主题变量、零动效（§6.8「明确不做」）；既有 style.css 零改动（N12）。 */
+
+/* ── 页面容器与标题 ── */
+.api-page { height: calc(100% - 48px); overflow-y: auto; padding: 20px 0 60px; }
+.api-page > * { max-width: 1040px; margin: 0 auto 12px; padding: 0 24px; }
+.api-page h1 { font-size: 19px; font-weight: 600; margin: 0; }
+.api-page h2 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+.api-page h3 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 12px 0 4px; }
+.api-intro { color: var(--muted); }
+
+/* ── 卡片与徽标 ── */
+.route-card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 10px; background: var(--bg); }
+.route-card.active { border-color: var(--green); }
+button.route-card { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.method-badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; }
+.method-badge.method-get { background: var(--green-soft); color: var(--green); }
+.method-badge.method-post { background: #fef3c7; color: var(--amber); }
+.route-path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+.danger-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: #fee2e2; color: var(--red); }
+
+/* ── 表格（F-19：既有样式面零表格规则，在此补齐） ── */
+.api-table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
+.api-table th, .api-table td { border: 1px solid var(--line); padding: 5px 8px; text-align: left; vertical-align: top; font-size: 12px; }
+.api-table th { background: var(--bg-sub); color: var(--muted); font-weight: 500; }
+.api-table code { background: var(--code-bg); border-radius: 3px; padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+/* ── 正文排版（F-19：既有样式面零 prose 规则，在此补齐；不复制 API.md 的叙述与示例） ── */
+.prose { margin: 4px 0 8px; }
+.prose p { margin: 0 0 8px; }
+.prose ul { margin: 0 0 8px; padding-left: 20px; }
+.prose li { margin-bottom: 2px; }
+.prose code { background: var(--code-bg); border-radius: 3px; padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.prose pre { background: var(--code-bg); border-radius: var(--radius); padding: 8px 10px; overflow-x: auto; }
+
+/* ── 调试台：表单（控件按元数据生成，§6.3） ── */
+.debug-form { margin: 10px 0 4px; }
+.debug-field { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-size: 12px; color: var(--muted); }
+.debug-field > span { flex: 0 0 300px; }
+.debug-field input[type="text"], .debug-field input[type="number"], .debug-field select, .debug-field textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.debug-field textarea { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.debug-field input:focus, .debug-field select:focus, .debug-field textarea:focus { outline: none; border-color: var(--green); }
+.debug-form button {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.debug-form button:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.debug-form button:disabled { opacity: 0.5; cursor: default; }
+
+/* ── 调试台：结果框与事件日志（耗时口径见 §6.4；订阅与停止见 §6.5） ── */
+.result-box {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.sse-log { margin-top: 10px; max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.sse-entry { padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12px; word-break: break-word; }
+.sse-entry:last-child { border-bottom: none; }
+.sse-entry code { background: var(--code-bg); border-radius: 3px; padding: 0 4px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>oamp · 接口调试台</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/api-pages.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="logo">◆</span><span class="brand-name">oamp</span><span class="brand-sub">接口调试台</span></div>
+    </header>
+
+    <main class="api-page">
+      <h1>接口调试台</h1>
+      <!-- 页面级风险提示（F07 验收 1）：静态段落，不依赖取数成功，永远可见 -->
+      <div class="notice-bar">该页面直接作用于本机正在运行的应用，请求真实生效。</div>
+      <p class="api-intro">
+        接口清单与表单完全来自路由登记（加载时取 <code>GET /api/docs</code> 的投影），页面不含登记之外的任何路径与快捷操作。
+        写接口（POST）在发送前有一次显式确认，并在接口列表与表单顶部带危险标识；刷新后不留任何请求历史。
+      </p>
+      <div id="route-list"></div>
+      <div id="route-panel"></div>
+    </main>
+
+    <script src="/debug.js"></script>
+  </body>
+</html>
