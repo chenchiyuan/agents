@@ -5,7 +5,7 @@
 **当前阶段**: 阶段 5（PR 实现，进行中；阶段 1~4 已完成）
 **迭代分支**: iteration/0018-chat-agent-subagent-protocol（含 0017+0019+0020 整合态）
 **基线**: 已并入当前 main（含迭代 0017 全部产出 + 0019 的 v0.9.0 + **0020 的 v0.10.0 / SKILL v1.13.0 / 协议产物 `docs/worktrees/README.md`**）
-**状态**: **进行中**（阶段 1~4 已完成；阶段 5 首波已合并，pr-003 进行中）
+**状态**: **进行中**（阶段 1~4 已完成；阶段 5：pr-001~pr-004 已合并、pr-005 定向修复中）
 **history**: 开启
 **前置**: 迭代 0019 已完成并合并 main（workflow-pb v0.9.0 / SKILL v1.12.0 生效）；用户裁决 ① = 按新规范为 0018 建自己的会话工作区后继续阶段 3。
 
@@ -19,7 +19,7 @@
 | 启动判据 | **v0.10.0 起改为「地址解析 + 寻址正确性」**（原 cwd 三项判据已随规则 D 改写删除）；实测：解析链得出的工作区地址 = 上表「会话工作区」行、`git -C <该地址> branch --show-current` = `iteration/0018-chat-agent-subagent-protocol` | 规则 C / 规则 D（v0.10.0） |
 | 角色定义来源 | `roles/workflow-pb/workflow-pb.md` 等**随检出即得**（被 git 追踪）；`.pb-agents/roles/` 在新工作区**不存在**（已由 v0.9.0 降级为面向下游的可选分发手段） | 规则 §角色定义来源与部署（W8） |
 | 生效协议版本 | **workflow-pb v0.10.0**（阶段 3~6 按此执行：任意位置启动 + 显式寻址 + PR worktree 为会话工作区子层 + 跨工作区写入禁止） | 迭代 0020 交付物；规则 C/D/H |
-| 下一步 | 阶段 3（技术架构）——输入 = 本迭代 `prd.md` v0.2.0 + `prd/F01~F16` | workflow-pb 阶段定义 |
+| 下一步 | 阶段 5 收尾（pr-005 合并）→ 阶段 6（独立验证）；输入 = `prs/` 五份 PR 文件 + `architecture.md` | workflow-pb 阶段定义 |
 
 > **启动形态（v0.10.0 规则 C/D/H）**：会话**可在任意位置启动**（含仓库主工作区、任意子目录）；须**解析并声明本迭代工作区地址**（见下表），此后一切文件写入与 git 写操作**显式寻址该地址**（绝对路径 / `git -C <地址>`）。**不再有 cwd 判据、不再要求 cd、不再有启动门**；会话工作区不存在时由会话自建；唯一硬停面 = 「工作区无法确定或无法创建」。
 
@@ -28,11 +28,11 @@
 | # | 阶段 | 完成 | 已验证 | 备注 |
 |---|---|---|---|---|
 | 1 | 需求收敛 | ✅ | ⬜ | demand.md v1.2.0 已收敛；P-1~P-11 与 Q-1 全部经用户逐条裁决；`model_inferred` 归零 |
-| 2 | 功能规格 | ✅ | ⬜ | prd.md v0.2.0 已收敛；16 张卡（F01~F13 + 保证项 F14~F16）；MI-01~MI-08 经用户裁决「全部按推荐」并落卡；卡内 `[model_inferred]` 零残留；T-01~T-17 架构待填 |
+| 2 | 功能规格 | ✅ | ⬜ | prd.md v0.2.0 已收敛；16 张卡（F01~F13 + 保证项 F14~F16）；MI-01~MI-08 经用户裁决「全部按推荐」并落卡；卡内 `[model_inferred]` 零残留（T-01~T-17 已于阶段 3 补齐） |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` v1.1.4（686 行）+ 16 卡 `[架构待填]` 全填；T-01~T-17 = 17/17；L1 = 0 条；自查 14 项全 ✅ |
 | 4 | PR 规划 | ✅ | ✅ | |
-| 5 | PR 实现 | ⏸ | ⬜ | 逐 PR 状态见下 |
-| 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
+| 5 | PR 实现 | 进行中 | ⬜ | 逐 PR 状态见下（pr-001~004 已合并；pr-005 修复中） |
+| 6 | 独立验证 | 待触发 | ⬜ | PR 级验证报告 6 份已存在；**迭代级阶段 6 尚未执行** |
 
 ## 并发配置（阶段 5）
 
@@ -40,7 +40,7 @@
 |---|---|
 | **起始并发数** | 3 |
 | **硬上限** | 5（公式 `2×起始-1`） |
-| **当前有效上限** | 5（= min(3 + 3×3, 5) → 钳到硬上限；三次槛位释放后维持 5） |
+| **当前有效上限** | 5（= min(3 + 4×3, 5) → 钳到硬上限；四次槛位释放后维持 5） |
 | **累计槛位释放次数** | 4（pr-001 +1；pr-002 +1；pr-003 +1；pr-004 +1） |
 | **已派发总数** | 5（pr-001~pr-005 全部已派发） |
 
@@ -53,8 +53,8 @@
 | pr-001-transport-call-key-namespace.md | （无） | ✅ 已合并 | `feat/0018-pr-001-transport-call-key-namespace`（已删除） | `b92ad82` | 已释放 |
 | pr-002-registry-task-list-model.md | （无） | ✅ 已合并 | `feat/0018-pr-002-registry-task-list-model`（已删除） | `95051b0` | 已释放 |
 | pr-003-call-http-surface-and-contract-docs.md | pr-001, pr-002 | ✅ 已合并（验收 FAIL→修复→复验 PASS 28/28） | `feat/0018-pr-003-call-http-surface-and-contract-docs`（已删除） | `7e351fa` | 已释放 |
-| pr-004-console-call-page.md | pr-003 | ✅ 已合并（验收 PASS 14/14） | `feat/0018-pr-004-console-call-page`（已删除） | 见 git log（merge pr-004） | 已释放 |
-| pr-005-call-protocol-acceptance-tests.md | pr-003 | ⏸ 进行中（planner 已派发） | `feat/0018-pr-005-call-protocol-acceptance-tests` | — | — |
+| pr-004-console-call-page.md | pr-003 | ✅ 已合并（验收 PASS 14/14） | `feat/0018-pr-004-console-call-page`（已删除） | `3a8f0d3` | 已释放 |
+| pr-005-call-protocol-acceptance-tests.md | pr-003 | 进行中（验收 PASS 30/30；定向修复轮中，未提交） | `feat/0018-pr-005-call-protocol-acceptance-tests`（tip `8e4fa86`） | — | 占用 |
 
 ## 待确认项
 
