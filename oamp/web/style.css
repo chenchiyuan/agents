@@ -362,3 +362,55 @@ code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-fa
 
 /* 0016 / F03 + F04：顶栏新入口是锚点（.nav-item 原为 cursor: default 的 span 样式）——仅追加，不改既有规则 */
 a.nav-item { text-decoration: none; cursor: pointer; }
+/* 0017 / F04 + F05：项目层视图 + 顶栏项目栏（仅追加；本仓 .hidden 逐组件定义，视图切换各需一条真隐藏规则） */
+.layout.hidden { display: none; }
+.projects-view.hidden { display: none; }
+.project-bar.hidden { display: none; }
+
+.projects-view { padding: 24px 28px; max-width: 860px; }
+.projects-title { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+.project-new { display: flex; gap: 8px; margin-bottom: 16px; }
+.project-input {
+  flex: 1;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.project-input:focus { outline: none; border-color: var(--green); }
+.project-create {
+  padding: 7px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.project-create:hover { border-color: var(--green); color: var(--green); }
+.project-list { display: flex; flex-direction: column; gap: 8px; }
+.project-item {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.project-item:hover { background: var(--bg-sub); border-color: var(--green); }
+.project-item .title { font-size: 13px; font-weight: 600; }
+.project-item .meta { display: flex; align-items: center; gap: 10px; margin-top: 4px; font-size: 11px; color: var(--muted); }
+.project-item .repo { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-empty { padding: 16px 0; color: var(--muted); font-size: 12px; }
+.project-hint { margin-top: 10px; font-size: 11px; color: var(--muted); min-height: 14px; }
+.project-hint.error { color: var(--red); }
+
+.project-bar { display: flex; align-items: baseline; gap: 12px; font-size: 13px; }
+.project-bar a { color: var(--muted); text-decoration: none; cursor: pointer; }
+.project-bar a:hover { color: var(--green); }
+#current-project-name { color: var(--text); font-weight: 500; }

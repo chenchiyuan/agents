@@ -16,6 +16,9 @@ const ARCHIVE_CONFIRM_TEXT = '将归档全部非进行中的对话，是否继�
 
 const state = {
   agents: [],
+  projectId: null, // 当前项目（唯一载体 = URL 的 ?project=<project_id>；boot 时解析写入）
+  project: null, // 当前项目对象（顶栏项目名的唯一来源）
+  projects: [], // 项目列表（GET /api/projects 全量，不分页）
   agentPanel: { open: false }, // 顶栏 agent 列表开合态（0015 / AR-01；与 state.mention 同款对象形态）
   chats: [],
   archive: { chats: [], total: 0, loading: false }, // 归档视图的独立状态（与 state.chats 互不污染；AR-12）
@@ -571,9 +574,98 @@ async function loadAgents() {
   }
 }
 
+// ── 项目层（0017 / F04 + F05）──
+/** 项目列表取数（F04）：全量、零分页；失败沿用既有取数体例静默（顶栏已提示）。 */
+async function loadProjects() {
+  try {
+    const { projects } = await api('/api/projects');
+    state.projects = projects || [];
+    renderProjects();
+  } catch {
+    /* 顶栏已提示 */
+  }
+}
+
+/** 项目行渲染（F04 验收 5）：项目名 + 仓库地址 + 对话数 + 最近活动时间。
+ *  无对话 ⇒ last_activity_at = null；Number(null) = 0 会被既有 fmtAgo 当成 epoch 0，故先归一到 undefined，
+ *  走既有「非有限值 → '—'」语义（不另写占位分支）。 */
+function renderProjects() {
+  const box = $('project-list');
+  if (state.projects.length === 0) {
+    box.innerHTML = '<div class="project-empty">还没有项目，填入仓库地址新建一个</div>';
+    return;
+  }
+  box.innerHTML = state.projects
+    .map(
+      (p) =>
+        `<button class="project-item" data-project="${escapeHtml(p.project_id)}"><div class="title">${escapeHtml(p.name)}</div><div class="meta"><span class="repo">${escapeHtml(p.repo_url)}</span><span>${p.chat_count} 个对话</span><span>${fmtAgo(p.last_activity_at ?? undefined)}</span></div></button>`,
+    )
+    .join('');
+  // 进入项目 = 整页导航（架构 §5.2）：上一个项目的内存态（chats / chat / SSE / 归档页）天然清空
+  for (const el of box.querySelectorAll('.project-item')) {
+    const projectId = el.dataset.project;
+    el.onclick = () => {
+      location.href = '/?project=' + encodeURIComponent(projectId);
+    };
+  }
+}
+
+/** 新建项目（F04）：repo_url = 输入框 trim 后原样字符串（前端不做形态 / 域名 / 可达性校验）；
+ *  成功 ⇒ 停留项目列表视图，重取一次原地出现（零轮询、不跳进工作台）；失败文案落列表视图自己的提示条。 */
+async function createProject() {
+  const hint = $('project-hint');
+  hint.className = 'project-hint';
+  hint.textContent = '';
+  const repo = $('project-repo').value.trim();
+  if (!repo) {
+    hint.textContent = '请填写仓库地址';
+    hint.className = 'project-hint error';
+    return;
+  }
+  const body = { repo_url: repo };
+  const name = $('project-name').value.trim();
+  if (name !== '') body.name = name;
+  try {
+    await api('/api/projects', { method: 'POST', body });
+    $('project-repo').value = '';
+    $('project-name').value = '';
+    await loadProjects();
+  } catch (err) {
+    hint.textContent = err.message;
+    hint.className = 'project-hint error';
+  }
+}
+
+/** 当前项目解析（架构 §5.2 T-13）：`?project=` 是唯一载体；项目名经现有 GET /api/projects 全量列表内定位。
+ *  返回 falsy ⇒ 无参数 / 未知 id ⇒ boot 回落项目列表视图（不报错、不渲染空工作台）。 */
+async function resolveCurrentProject() {
+  const projectId = new URLSearchParams(location.search).get('project');
+  if (!projectId) return null;
+  state.projectId = projectId;
+  await loadProjects();
+  state.project = state.projects.find((p) => p.project_id === projectId) || null;
+  return state.project;
+}
+
+/** 项目列表视图：主布局整块隐藏（含 composer ⇒ 看不到对话、不能发消息）。 */
+function showProjectList() {
+  document.querySelector('main.layout').classList.add('hidden');
+  $('project-bar').classList.add('hidden');
+  $('projects-view').classList.remove('hidden');
+  loadProjects();
+}
+
+/** 工作台视图：顶栏项目栏可见（返回入口 + 当前项目名）+ 主布局可见。 */
+function showWorkspace(project) {
+  $('projects-view').classList.add('hidden');
+  $('project-bar').classList.remove('hidden');
+  $('current-project-name').textContent = project.name;
+  document.querySelector('main.layout').classList.remove('hidden');
+}
+
 async function loadChats() {
   try {
-    const { chats } = await api('/api/chats');
+    const { chats } = await api(`/api/chats?project_id=${encodeURIComponent(state.projectId)}`);
     state.chats = chats || [];
     renderChats();
   } catch {
@@ -588,7 +680,9 @@ async function loadArchived({ append = false } = {}) {
   state.archive.loading = true;
   try {
     const offset = append ? state.archive.chats.length : 0;
-    const { chats, total } = await api(`/api/chats?archived=1&limit=${ARCHIVE_PAGE_SIZE}&offset=${offset}`);
+    const { chats, total } = await api(
+      `/api/chats?archived=1&limit=${ARCHIVE_PAGE_SIZE}&offset=${offset}&project_id=${encodeURIComponent(state.projectId)}`,
+    );
     state.archive = { chats: append ? [...state.archive.chats, ...(chats || [])] : chats || [], total: total || 0, loading: false };
   } catch {
     state.archive.loading = false;
@@ -654,7 +748,7 @@ async function send() {
     hint.textContent = `@${agentId} 不在线（当前在线：${state.agents.filter((a) => a.state === 'online').map((a) => a.instance_id).join(', ') || '无'}）`;
     hint.className = 'hint error';
   }
-  const payload = { chat_id: state.chat ? state.chat.chat_id : undefined, agent_id: agentId, text };
+  const payload = { chat_id: state.chat ? state.chat.chat_id : undefined, agent_id: agentId, text, project_id: state.projectId };
   const model = $('model-input').value.trim();
   if (model !== '') payload.model = model; // 未填写则不携带：默认链由 agent 侧解析（§7.2，web 不注入默认值）
   if ($('one-shot').checked) payload.one_shot = true;
@@ -823,6 +917,7 @@ function bind() {
     }
   });
   $('btn-archive-all').onclick = archiveAll;
+  $('btn-create-project').onclick = createProject; // 项目列表视图的新建入口（F04）
   const input = $('input');
   input.addEventListener('input', () => {
     const q = currentMentionQuery();
@@ -881,7 +976,13 @@ function bind() {
 bind();
 (async function init() {
   await loadAgents();
+  connectAgentEvents(); // 全局事件流（F05 的界面消费方 / F02）：页面打开即建立，全程 1 条
+  const project = await resolveCurrentProject();
+  if (!project) {
+    showProjectList(); // `/` 与未知 id：项目列表视图（不请求 /api/chats）
+    return;
+  }
+  showWorkspace(project);
   await loadChats();
   renderChat();
-  connectAgentEvents(); // 全局事件流（F05 的界面消费方 / F02）：页面打开即建立，全程 1 条
 })();

@@ -16,6 +16,11 @@
         <a class="nav-item" href="/docs">文档</a>
         <a class="nav-item" href="/debug">调试</a>
       </nav>
+      <!-- 0017 / F05：工作台顶栏项目栏（静态节点 + .hidden 切换；返回入口是静态链接，整页导航回落项目列表） -->
+      <div id="project-bar" class="project-bar hidden">
+        <a id="btn-back-projects" href="/">← 项目列表</a>
+        <span id="current-project-name"></span>
+      </div>
       <div class="topright">
         <span id="conn-status" class="conn conn-wait">连接中…</span>
         <!-- 顶栏 agent 只读列表（0015 / F01 / AR-01）：静态兄弟节点——setConn 写 #conn-status.textContent，子节点会被清空 -->
@@ -23,7 +28,19 @@
       </div>
     </header>
 
-    <main class="layout">
+    <!-- 0017 / F04：项目列表视图（未选项目时的唯一可见主体；静态节点 + .hidden 切换，零路由库） -->
+    <section id="projects-view" class="projects-view">
+      <h2 class="projects-title">项目</h2>
+      <div class="project-new">
+        <input id="project-repo" class="project-input" type="text" autocomplete="off" placeholder="仓库地址（必填）" />
+        <input id="project-name" class="project-input" type="text" autocomplete="off" placeholder="项目名（留空取地址尾段）" />
+        <button id="btn-create-project" class="project-create">新建项目</button>
+      </div>
+      <div id="project-list" class="project-list"></div>
+      <div id="project-hint" class="project-hint"></div>
+    </section>
+
+    <main class="layout hidden">
       <aside class="sidebar">
         <div class="sidebar-top">
           <button id="btn-new" class="new-chat">＋ New chat</button>
