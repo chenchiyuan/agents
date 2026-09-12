@@ -282,3 +282,66 @@
 - 任务：按任务简报产出让验证标准通过的最小实现
 - PR：prs/pr-002-project-data-and-http.md（tasks：prs/pr-002-project-data-and-http-tasks.md）
 - worktree 分支：feat/pr-002
+
+### 2026-09-12 17:07:34 · 收到报告 · dev
+
+- 1. 改了什么文件：9 个（oamp/src/persist.js、oamp/src/web.js、oamp/API.md、oamp/llms.txt、oamp/README.md、oamp/test/{persist,web,api-routes,acp-daemon}.test.js）；提交 f97cff3（711 insertions / 374 deletions）；未 push/merge/--no-verify
+- 2. 测试结果：PR 验收逐条通过（schema 与列序 / GET+POST /api/projects 形状与文案 / /api/chats 必填与范围 / /api/messages 新建归属校验 / 数据层 NOT NULL / 旧库删库重建 / 三面登记与锁 / 四份既有测试机械变更）
+- 3. 疑问/待办：实现细节均按 M1~M6 裁定落地；未见新疑问
+- 4. 违反边界的事：无（主工作树零残留）
+
+### 2026-09-12 17:07:34 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0017-project-workspace/clarifications/verify-pr-002-20260912-170519.md
+- 结论：**PASS**（fail 0 / partial 0 / blocked 0 / 偏差记录 7 条）；验证者身份 = 数据层 / HTTP 契约 / 测试面三重身份
+- 逐项：PR 验收逐条 pass；文件范围恰 9 文件 pass；七张卡产品维度 pass；既有变更面合规 pass（每一处改动均可归入 §8.3 四类形态；api-pages.test.js 与 hygiene.test.js 零改动）；三条漂移锁与零依赖锁 pass；实际执行证据 pass（worktree/oamp 全量 251/251 @ 55.9s；独立探针 64 项全 pass + 旧库启动 DB_REBUILT 实测 + 413 实测；llms.txt 由验证者独立重算字节相等 1995B）
+- 关键偏差：**A-1**（中）`POST /api/projects` 路由元数据 `errors` 缺 `PAYLOAD_TOO_LARGE`，但 handler 实测可达 413（API.md §3.13 已列）；**A-7**（中，待确认口径）`/api/chats` 与 `/api/messages` 的 `params` 未登记 `project_id`（实现遵从 architecture §6.1「既有 11 条内文逐字不动」），导致文档页/调试台无法呈现与填写该必填参数；A-2~A-6 为信息级（helper fixture 属①②必要前置 / writers 名单扩列 / C-7④ 语义反转对象 / 新断言归 pr-004 / 提交信息未标 F09）
+
+### 2026-09-12 17:07:34 · 调度决策 · 槛位释放
+
+- 决策内容：pr-002 验收 PASS → 合并进迭代分支（merge commit `0d726f2`）→ 清理 worktree 与分支；重新扫描依赖图 → **pr-004 三条依赖全部满足**（pr-001 ✅ / pr-002 ✅ / pr-003 ✅）→ 创建 feat/pr-004 worktree 并派发 planner；同时触发 progress-observer
+- 合并证据：`0d726f2` 在 iteration/0017-project-workspace 上；合并后迭代分支全量 **251/251**（56.3s）
+- 并发配置更新：累计槛位释放次数 2 → 3；当前有效上限按公式 min(3 + 3×3, 5) = **5**；已派发总数 4
+- 偏差处置（主 agent 裁定）：A-1 与 A-7 **不返工、不阻塞合并** —— 二者均源于 architecture §6.1 的「既有 11 条内文逐字不动」硬契约（属阶段 3 已批准口径），修复属架构级变更，登记为下一迭代候选；A-2~A-6 为信息级，随报告留痕
+- 触发依据：verifier 结论 PASS 且 fail 0；`git diff --name-only` 恰 9 文件；迭代分支全量 251/251
+
+### 2026-09-12 17:07:34 · 派发 · progress-observer
+
+- 阶段：阶段 5（PR 实现，merge 后自动触发）
+- 任务：独立核实 git 状态与 status.md 声明是否一致
+
+### 2026-09-12 17:07:34 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）
+- 任务：将技术架构方案分解为带验收标准的有向无环任务图
+- PR：prs/pr-004-project-workspace-acceptance.md
+- worktree 分支：feat/pr-004
+
+### 2026-09-12 17:12:23 · 收到报告 · progress-observer
+
+- 1. progress.md 路径：docs/iterations/0017-project-workspace/progress.md（整体覆盖，187 行；观测基 HEAD=0d726f2）
+- 2. 六部分摘要：阶段 1~4 产物存在性与声明一致、阶段 5「3/4 已合并」与 git 一致、阶段 6 无产物；4 条 depends_on 逐条核实（pr-004 三条依赖 3/3 满足）；PR 现场核实与声明一致；**可并发但闲置 = 0**；不一致 7 条（含 1 条已消解）；无法核实 12 条
+- 3. 最需关注的发现：① architecture.md 状态行未回填 D-01~D-04（自 2af9f3d 起未修改）；② 状态声明唯一载体是未提交的工作区 status.md/history.md，HEAD 处内容滞后；③ pr-004 现场已建但 0 commit/0 交付物（观测时刻 planner 在途）；④ pr-004 缺 tasks 文件（同上）；⑤ pr-001∥pr-003 的「进程级并行」不可由 git 证实（仅有拓扑证据：同基点 2af9f3d 且两提交时间早于首个 merge）；⑥ 阶段 6 行标记与备注字面不自洽
+- 4. 疑问/越界：无越界（只读 git、唯一写入 progress.md、未读 history.md 与各角色报告内容）
+
+### 2026-09-12 17:12:23 · 收到报告 · planner
+
+- 1. tasks 路径 + 任务总数：docs/iterations/0017-project-workspace/prs/pr-004-project-workspace-acceptance-tasks.md（341 行）；10 个任务（T-01 文件骨架与局部辅助 / T-02 F01 / T-03 F02 / T-04 F03 / T-05 F04+F05 / T-06 F06 / T-07 F07 / T-08 F08 / T-09 F10 / T-10 PR 级回归）
+- 2. 依赖图摘要：无环，形状 T-01 → {T-02…T-09} → T-10；最长链 3 跳；八组断言同层无相互依赖边，但同文件故声明「T-01 → T-02 → … → T-09 顺序追加，不得并发编辑」
+- 3. `[model_inferred]` 列表：8 条（M1 局部 startWeb 需暴露 stdout() 以观测 DB_REBUILT；M2 派生名为空的 fixture 取 repo_url='.git'；M3 以 README §协议速览为「仍 7 个方法」真源；M4 零路径断言只施加于 agreement 行不施于 repo_url 行；M5 零超能力承诺的正则词表；M6 sqlite_master 允许集合须含 sqlite_sequence；M7 /docs·/debug 零硬编码路径的断言形态；M8 fake ACP 桩最小方法集与渲染期望值拼接口径）
+- 4. 循环依赖：无
+- 5. 疑问/越界：无越界；未写生产代码与测试代码
+
+### 2026-09-12 17:12:23 · 调度决策 · 阶段推进核查
+
+- 决策内容：pr-004 的 planner 阶段完成 → 裁定其 8 条 `[model_inferred]` → 派发 dev（pr-004 占用 1 个槛位）
+- 裁定（主 agent）：**M1~M8 全部采纳推荐**（均为测试观测形态与 fixture 口径，不触碰 §2~§6 硬契约；M6 的 sqlite_sequence 属 AUTOINCREMENT 内建伴随表，必须纳入允许集合，否则「无迁移表」断言必红）
+- 另：progress-observer 指出的 ② 由本次提交迭代文档解决；⑥ 已修正 status.md 阶段 6 行的标记与备注口径；① 维持 architecture.md 作者时点表述（不改写执行角色产物），留痕于本迭代偏差；③④ 为观测时刻过早
+- 触发依据：tasks 文件含五要素且验收标准带 arch/prd 追溯；依赖无环；同文件串行约束已显式声明
+
+### 2026-09-12 17:12:23 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）
+- 任务：按任务简报产出让验证标准通过的最小实现
+- PR：prs/pr-004-project-workspace-acceptance.md（tasks：prs/pr-004-project-workspace-acceptance-tasks.md）
+- worktree 分支：feat/pr-004
