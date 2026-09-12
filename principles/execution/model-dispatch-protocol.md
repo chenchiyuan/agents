@@ -2,9 +2,9 @@
 name: model-dispatch-protocol
 description: 主 agent 与子 agent 的本地 CLI/模型路由协议。定义项目配置、默认目标、角色覆盖、解析期降级和统一 ACP 派发契约；不管理 provider 或凭据。
 type: 执行协议
-version: 0.1.0
+version: 0.1.1
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-09-10
 ---
 
 # 模型派发协议
@@ -17,7 +17,7 @@ updated: 2026-09-02
 派发目标 = executor CLI + model
 ```
 
-示例：`omp + gpt`、`omp + deepseek`、`codex + gpt`。
+示例：`omp + DeepSeek-V4.1-Flash`、`omp + deepseek`、`codex + gpt`。
 
 本协议负责：
 
@@ -64,10 +64,10 @@ version: 1
 defaults:
   main:
     executor: omp
-    model: gpt
+    model: DeepSeek-V4.1-Flash
   subagent:
     executor: omp
-    model: gpt
+    model: DeepSeek-V4.1-Flash
 
 roles:
   dev:
@@ -106,7 +106,7 @@ roles:
 主 agent 默认目标固定为：
 
 ```text
-omp + gpt
+omp + DeepSeek-V4.1-Flash
 ```
 
 主 agent 由人工管理。当前任务对应哪个 role，不会隐式改变主 agent 的模型。主 agent 如需改变自身目标，必须在自身派发请求中显式指定。
@@ -116,7 +116,7 @@ omp + gpt
 子 agent 默认目标固定为：
 
 ```text
-omp + gpt
+omp + DeepSeek-V4.1-Flash
 ```
 
 role 路由只对子 agent 生效。例如：
@@ -124,7 +124,7 @@ role 路由只对子 agent 生效。例如：
 ```text
 role=dev       → omp + deepseek
 role=architect → omp + minimax-k3
-未配置 role    → omp + gpt
+未配置 role    → omp + DeepSeek-V4.1-Flash
 ```
 
 ### 4.3 路由优先级
@@ -161,7 +161,7 @@ fallback：[deepseek, gpt]
 统一规则：
 
 - 没有配置 fallback 时，默认把 `defaults.subagent.model` 作为最后候选
-- `defaults.subagent.model` 为 `gpt`，因此默认链尾是 `omp + gpt`
+- `defaults.subagent.model` 为 `DeepSeek-V4.1-Flash`，因此默认链尾是 `omp + DeepSeek-V4.1-Flash`
 - role 已经是 `gpt` 时不得重复尝试 `gpt`
 - executor 本身不可用时不得静默换成另一个 executor；必须报告不可用
 - 目标模型和全部 fallback 均不可用时，不启动任务，返回 `blocked` 或 `failed`
@@ -254,7 +254,7 @@ result: ...
 
 实现本协议的运行时适配器时，至少验证：
 
-1. 无配置时，主 agent 和子 agent 均解析为 `omp + gpt`
+1. 无配置时，主 agent 和子 agent 均解析为 `omp + DeepSeek-V4.1-Flash`
 2. `dev` 能解析为 `omp + deepseek`
 3. `architect` 能解析为 `omp + minimax-k3`
 4. `minimax-k3` 不可用时，`architect` 解析为 `omp + deepseek`
