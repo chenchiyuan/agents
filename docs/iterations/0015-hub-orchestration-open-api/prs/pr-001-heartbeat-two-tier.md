@@ -25,7 +25,7 @@
 - [ ] 空闲档下向该实例发一条对话消息后，`HEARTBEAT_SENT` 的 `interval_ms` **立即**回到 `50`（不等下一个心跳周期），随后窗口内 `interval_ms=50` 的行 ≥4（F03 验收 1、3）
 - [ ] 阈值联动有服务端直接证据：`LEASE_ADJUSTED` 行出现且 `threshold_ms = max(300, 2 × next_interval_ms)`（通告 300 ⇒ 600）；空闲期间 `LEASE_ALARM` 零命中（F03 验收 7）
 - [ ] 身份不变：`HEARTBEAT_TIER … tier=idle` 行的 `session=` 与 `AGENT_REGISTERED` 行同值；空闲期间无 `AGENT_REGISTERED` / `AGENT_OFFLINE` / `agent.replaced`（F03 验收 6）
-- [ ] 兼容零破坏：心跳无 `next_interval_ms`（既有 agent / 假节点 / web 常驻发送方的固定数字入参）⇒ 阈值回退基准 `config.heartbeatTimeoutMs`（默认 30000，逐字与迭代前一致），且不产生 `LEASE_ADJUSTED`（F08 验收 2、6）
+- [ ] 兼容零破坏：既有 agent（心跳无 `next_interval_ms`）⇒ 阈值回退基准 `config.heartbeatTimeoutMs`（默认 30000，逐字与迭代前一致），且不产生 `LEASE_ADJUSTED`；假节点 / web 常驻发送方的固定数字入参 → 按契约通告与自身间隔同值的数（会各打 1 条 `LEASE_ADJUSTED`，但阈值与行为逐字不变）（F08 验收 2、6）
 - [ ] 回归锁零修改全绿：`node --test test/router-registry.test.js test/delivery-contract.test.js test/reconnect.test.js` 通过，且 `oamp/test/router-registry.test.js`、`oamp/test/delivery-contract.test.js`、`oamp/test/reconnect.test.js` 与 `oamp/test/agent-heartbeat.test.js` 的**既有**用例逐字未改（`git diff` 可查）；`registry.snapshot()` 逐字未变 ⇒ `oamp status` 仍只输出 4 字段，可作 F01 验收 2 的对照基准（F08 验收 3、4、5）
 
 ## 参考资料
