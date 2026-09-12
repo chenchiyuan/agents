@@ -1,0 +1,29 @@
+# oamp —— 本机多智能体运行时（HTTP 接口索引）
+
+> oamp 是零依赖的 Node.js 本机多智能体运行时：单一 CLI 拉起 Router 与 agent 节点，HTTP/SSE 面提供对话持久化与实时推送。
+
+## 接入
+
+- 启动：`oamp router start`（终端 1）+ `oamp web start`（终端 2）
+- 服务地址：http://127.0.0.1:7788（默认端口；`--port` / `OAMP_WEB_PORT` 可改；仅本机监听，无鉴权）
+- 全量字段元数据（机器可读）：GET /api/docs
+
+## 接口（11 条）
+
+- GET /api/agents — 在线 agent 列表（Router 拓扑快照；?state=online 只返回在线实例）
+- GET /api/chats — 对话列表（搜索 / 过滤 / 分页；默认排除已归档）
+- GET /api/chats/:chat_id — 对话详情（含消息，按 created_at ASC, id ASC）
+- POST /api/chats/:chat_id/close — 关闭对话（置 closed、只读；幂等）+ 通知相关 agent 释放上下文
+- POST /api/chats/archive — 批量归档（服务端算范围、逐条提交；不发 SSE）
+- POST /api/chats/:chat_id/activate — 激活归档对话（清标记 + 状态还原 + 置顶）
+- POST /api/chats/:chat_id/rename — 重命名对话（只写 title，不动 updated_at）
+- GET /api/stream — 按对话订阅实时事件（SSE：message / task_update / chat_state / notice）
+- GET /api/events — 全局事件订阅（SSE：agent_online / agent_offline）
+- POST /api/messages — 发送消息（落库 + 派发任务；归档 / 已关闭 → 409）
+- GET /api/docs — 接口元数据（文档页 / 调试台 / 索引文件的数据源）
+
+## 深入
+
+- 字段级文档页：http://127.0.0.1:7788/docs
+- 完整文档（叙述 / 使用场景 / 可粘贴示例）：http://127.0.0.1:7788/API.md（仓库内：API.md）
+- 项目说明：http://127.0.0.1:7788/README.md（仓库内：README.md）
