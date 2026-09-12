@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.9.0（本迭代按规则 C/D 的**修正方向**运行：会话在仓库主工作区启动、以显式寻址操作本迭代工作区——见「偏离记录 D-1」）
 **迭代**: 0020-session-workspace-addressing
-**当前阶段**: PR 实现（阶段 5）
+**当前阶段**: 独立验证（阶段 6）
 **迭代分支**: iteration/0020-session-workspace-addressing（base = main @ `dbc99b5`，含 0017 与 0019 全部产出）
 **会话工作区**: `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0020-session-workspace-addressing`
 **状态**: 进行中
@@ -17,16 +17,16 @@
 | 2 | 功能规格 | ✅ | ⬜ | prd.md **v0.2.0** 已收敛；**21 张卡**（18 需求功能点 + 2 保证项 + 1 登记项）；W1~W23 / E1~E17 全覆盖、无新增功能点；MI-01~MI-08 经用户裁决全部按推荐；`[model_inferred]` 零残留；T-01~T-16 待填 |
 | 3 | 技术架构 | ✅ | ⬜ | architecture.md **v1.1.0**；L1 三条经用户确认（删启动门 + 规则 D 改写为「启动与寻址契约」/ 新增 `docs/worktrees/README.md` 协议产物 / supersede 5+2 项）；L1-4 裁定维持 L2；T-01~T-16 **16/16**、21 卡架构段完整；§12 20 项一致性自查；零新增技术栈 |
 | 4 | PR 规划 | ✅ | ⬜ | **4 个 PR**（pr-001 规范+SKILL / pr-002 协议产物 / pr-003 惯例留痕 / pr-004 D-7 更正）；8 文件两两零交集；依赖图 `pr-001→{pr-002,pr-003}`、`pr-004→pr-003` 无环；F01~F21 全覆盖；**Gate 五轮**（r1~r5）：失败面逐轮收敛，r5 = 5/6 标准 pass、14/16 子项 pass、**0 fail**，两项非 pass 为引用纪律与检索式格式（无事实冲突） |
-| 5 | PR 实现 | ⏸ | ⬜ | 首波 {pr-001, pr-004}；后波 {pr-002, pr-003} |
-| 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
+| 5 | PR 实现 | ✅ | ⬜ | 两波四个 PR 全部：planner → dev → PR 级验收 PASS（pr-001 49/49、pr-004 14/14、pr-002 29/29、pr-003 全 pass）→ 合并进迭代分支（`ede5190`/`6a99505`/`5835d80`/`52708e4`）；worktree 均建在会话工作区内（规则层级形态）+ 现场全部清理；无 PR 失败/阻塞 |
+| 6 | 独立验证 | ⏸ | ⬜ | 已派发最终独立验证（含并发调度真实执行证据三项 + 0020 自身的寻址契约构造样本/活体证据） |
 
 ## PR 实现子状态（阶段 5 展开）
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
 | pr-001-addressing-contract-and-host-skill.md | （无） | ✅ | (已清理) | ✅ ede5190 | 已释放  |
-| pr-002-worktrees-protocol-artifact.md | pr-001 | ⏸ | feat/0020-pr-002-protocol-artifact | ⬜ | 占用  |
-| pr-003-version-records-and-d7-trace.md | pr-001, pr-004 | ⏸ | feat/0020-pr-003-version-records | ⬜ | 占用  |
+| pr-002-worktrees-protocol-artifact.md | pr-001 | ✅ | (已清理) | ✅ 5835d80 | 已释放  |
+| pr-003-version-records-and-d7-trace.md | pr-001, pr-004 | ✅ | (已清理) | ✅ 52708e4 | 已释放  |
 | pr-004-d7-reference-correction.md | （无） | ✅ | (已清理) | ✅ 6a99505 | 已释放  |
 
 ## 并发配置（阶段 5）
@@ -77,7 +77,9 @@
 - 2026-09-12: 进入阶段 3（技术架构），派发 architect。
 - 2026-09-12: 阶段 3 两轮：architecture v1.0.0（三 L1 待确认、T-01~T-16 全填、零新增技术栈）→ 用户裁决 L1-1/L1-2/L1-3 全部按推荐 → 主 agent 裁定 L1-4 维持 L2 → **v1.1.0**（三条 L1 落盘 + 连带同步 + §12 一致性自查 20 项）⇒ **阶段 3 推进条件三项通过 ✅**。
 - 2026-09-12: 阶段 4 三轮 + Gate 五轮：pr-planner 产出 4 个 PR → Gate r1~r4 逐轮 FAIL（根因依次为独立性读法、段构成自相矛盾、残留双写法、PR 行号引用）→ architect v1.1.1~v1.1.4 + pr-planner 六轮同步（含**行号引用根因处置**：PR 文件改引文/检索式、零反引号行号）→ Gate r5 实质通过（附条件，见上）⇒ **阶段 4 通过 ✅**。
-- 2026-09-12: 阶段 5 首波：worktree 建在**会话工作区内**（规则的层级形态首次真实成立）；两个 PR 完成 planner → dev → PR 级验收（**pr-001 PASS 49/49**、**pr-004 PASS 14/14**）→ 双双合并进迭代分支（`ede5190` / `6a99505`）→ 现场清理 → 依赖图重扫：**pr-002 与 pr-003 解锁**，立即派发 wave 2。
+- 2026-09-12: 阶段 5 wave 2：pr-002（新建 `docs/worktrees/README.md`，29/29 PASS）与 pr-003（四文件惯例留痕，全 pass）两路并发完成 → 双双合并（`5835d80` / `52708e4`）→ 现场清理 ⇒ **阶段 5 全部 PR 合并完成，阶段 5 置 ✅**。
+- 2026-09-12: dev020P2 就一处判据互相咬合（A5 逐字骨架 vs A9 机械 grep）停下请示 → 主 agent 裁定「维持逐字 + A9 按权威读法判 PASS + 机械式记已知假阳性」（该条已写入 `history.md` 供阶段 6 复核）。
+- 2026-09-12: 进入阶段 6，派发最终独立验证。
 
 ## 本轮台账项
 
