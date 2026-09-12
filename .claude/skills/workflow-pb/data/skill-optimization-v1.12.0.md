@@ -10,7 +10,7 @@
 - `:4` description「启动并驱动 pb 产品研发工作流（v0.8.0）」→「（v0.9.0）」
 - `:30` `**版本**: 1.11.0（对应规范 workflow-pb v0.8.0）` → `1.12.0（对应规范 workflow-pb v0.9.0）`
 - `:31` `**完整规范**` 路径行 → `{角色定义根}/workflow-pb/workflow-pb.md`（章节名引用同步为「§ 角色文件来源与部署」）
-- `:42` CRITICAL 语义反转（槽位保留，措辞见规范 §8.4）
+- `:42` CRITICAL 语义反转（槽位保留，措辞见 architecture.md §8.4）
 - CRITICAL 块新增 1 条：「会话必须在自己的迭代工作区内启动与运行——启动校验不通过 → 发现即停并输出可用于创建该迭代工作区的命令」
 - `:50` 路径引用 → `{角色定义根}/workflow-pb/workflow-pb.md`
 - `:58` Purpose「按 workflow-pb v0.8.0 规范调度」→ v0.9.0
@@ -37,4 +37,4 @@
 **关联文件**：
 - `roles/workflow-pb/workflow-pb.md` v0.9.0「v0.9.0 变更说明」及「规则 C」~「规则 G」、「隔离边界声明」、「角色定义来源与部署」
 - `roles/workflow-pb/data/workflow-pb-changelog.md` v0.9.0 条目
-- `docs/iterations/0019-worktree-isolation-protocol/architecture.md` §5.1-W10 / §5.2-S1~S10 / §8.4
+- `docs/iterations/0019-worktree-isolation-protocol/architecture.md` §5.1-W10 / §5.2-S1~S10 / architecture.md §8.4
