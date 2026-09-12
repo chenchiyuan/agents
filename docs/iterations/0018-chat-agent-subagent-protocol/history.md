@@ -207,3 +207,25 @@
 - 阶段：阶段 5 首波；两个 planner 在**同一批**并发派发（非串行）
 - 工作区地址：各自 PR worktree 绝对地址
 - 任务：各拆本 PR 内部任务，产出 `prs/pr-001-tasks.md` / `prs/pr-002-tasks.md`
+
+### 2026-09-12 23:26:00 · 收到报告 · planner（pr-001）
+
+- 1. tasks.md 路径 + 任务总数：`prs/pr-001-tasks.md`，3 任务
+- 2. 依赖图：`T1 → {T2, T3}`（T2/T3 互不依赖），无环；关键路径 T1→T2
+- 3. `[model_inferred]` 2 条：① T2 `publishCall(callId, event)` 的 chatId 取自 `event.data.chat_id`（架构 §4.2 固定两参签名、未给 chatId 入参位置；§4.1 三类事件 data 均含 chat_id ⇒ 带内唯一可得来源）；② T3 `closeAll()` 覆盖 `call:` / `chat-calls:` 键上的订阅（§4.2 只说名称与行为逐字保持 + 既有语义「移除全部订阅并结束所有连接」）
+- 4. 循环依赖：无
+- 5. 疑问/越界：架构 §4.2 未写明 chatId 获取位置（低 severity、未阻断）；粒度决策（T2/T3 本可合并，拆分理由 = 键位不相交 + 推断被否时只重做 T2）；越界 = 无
+
+### 2026-09-12 23:26:30 · 收到报告 · planner（pr-002）
+
+- 1. tasks.md 路径 + 任务总数：`prs/pr-002-tasks.md`，2 任务
+- 2. 依赖图：`T1 → T2`，无环；关键路径 T1→T2
+- 3. `[model_inferred]`：无（空）
+- 4. 循环依赖：无
+- 5. 疑问/越界：① 上游口径提示（不阻塞）——architecture §1.1 对 router.js 的括注「7 方法分发（agent.* / message.* / router.status|task_get|task_list）」其枚举计数口径与方法面规范宿主（`oamp/README.md` 协议速览「方法面」行 7 项，由 `oamp/test/project-workspace.test.js` 既有断言逐字锁定）不一致；planner 以 README 7 项为判据宿主，未据括注改判据；② 粒度决策（两任务本可合并，拆点理由 = T2 判据对象非 T1 实现内容）；③ 本 PR 不新增测试文件（F09 端到端落点在 pr-003/pr-005，未越界承接）
+
+### 2026-09-12 23:27:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**裁定 2 条 `[model_inferred]` 生效**（主 agent 权限内，属架构 §4.2/§4.1 的直接推论，非新增技术决策）：① 采纳「chatId 取自 `event.data.chat_id`」——架构 §4.1 明示三类事件 data 均含 `chat_id`，且 §4.2 固定两参签名，带内是唯一可得来源；② 采纳「`closeAll()` 覆盖新键空间订阅」——§4.2 要求既有语义逐字保持，而「移除全部订阅并结束所有连接」的「全部」在字面上已覆盖新增键。两条若实现期证伪，只影响 pr-001 的 T2/T3 验收写法，不影响其他 PR
+- 触发依据：planner 两份报告的报告契约第 3 项；planner 角色「model_inferred 验收标准必须经主 agent 确认」
+- 另记：architecture §1.1 括注 vs README 方法面 7 项的计数口径不一致 → 不阻塞，登记为偏差（阶段 6 复核），planner 已按规范宿主（README + 既有断言）取判据
