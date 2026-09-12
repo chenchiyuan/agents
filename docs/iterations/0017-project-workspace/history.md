@@ -345,3 +345,22 @@
 - 任务：按任务简报产出让验证标准通过的最小实现
 - PR：prs/pr-004-project-workspace-acceptance.md（tasks：prs/pr-004-project-workspace-acceptance-tasks.md）
 - worktree 分支：feat/pr-004
+
+### 2026-09-12 17:21:46 · 收到报告 · dev
+
+- 1. 改了什么文件：**唯一新增** `oamp/test/project-workspace.test.js`（1317 行 / 21 个 test）；提交 60ba902（feat/pr-004）；`git diff --name-only 0d726f2...HEAD` 仅该文件，工作树干净；未 push/merge/--no-verify
+- 2. 测试结果：T-01~T-09 八组断言逐块跑绿；T-10 单文件 21/21；全量 `npm test` → **272/272**（既有 251 + 新增 21），三锁与零依赖锁同时通过；断言均有正反双向判据，无用例级 skip/todo
+- 3. 疑问/待办：**唯一偏离**——简报 M8 要求「从 `oamp/src/web.js` 导入 `PROJECT_AGREEMENT`」不可行（该常量模块私有、无 export），改为在测试内用源码正则抽取同一字面量（抽取失败即红），保持单一真源、不复制第二份文本；另三项等价落地已报备（四形态 fixture 用 4 个不同地址绕开 UNIQUE；archive 按服务端候选集批量归档故断言 archived===2；E4 外键断言须在直连句柄上 PRAGMA foreign_keys=ON）
+- 4. 违反边界的事：无（未改既有测试、生产代码、API.md/llms.txt/README.md/package.json；未写 docs/**；零外网、零真实 omp、零真实 tmux）
+
+### 2026-09-12 17:21:46 · 调度决策 · 阶段推进核查
+
+- 决策内容：pr-004 的 dev 阶段完成 → 裁定其唯一偏离 → 派发 PR 级 verifier（pr-004 占用 1 个槛位）
+- 裁定（主 agent）：**接受现形态**（源码正则抽取 `PROJECT_AGREEMENT` 字面量），理由：① 不复制第二份文本、仍为单一真源且抽取失败即红；② 具名导出属生产代码改动，超出本 PR「唯一文件」的文件范围；③ 若确需 import 形态，应由后续迭代在 pr-002 侧补导出（登记为下一迭代候选）
+- 触发依据：T-10 单文件 21/21 与全量 272/272 实测；diff 仅含新文件；三项等价落地均有报备
+
+### 2026-09-12 17:21:46 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现，PR 级验收）
+- 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
+- PR：prs/pr-004-project-workspace-acceptance.md（worktree feat/pr-004 @ 60ba902）
