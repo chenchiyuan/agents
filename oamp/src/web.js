@@ -2,7 +2,7 @@
 // 形态：Node 内置 http 服务（零新依赖）serve 静态单页 + JSON API；进程内以 'web' 身份
 //       经 NodeClient/RpcPeer 连 Router（UDS）——浏览器不直连 UDS；历史真源 = SQLite（src/persist.js）。
 // API：
-//   GET  /api/agents                 → Router 拓扑快照（活跃 agent 列表）
+//   GET  /api/agents                 → Router 拓扑快照（活跃 agent 列表；?state=online 只返回在线实例，与网页列表同一口径）
 //   GET  /api/chats                  → chat 列表（读库；q/agent/state/from/to/archived/limit/offset；archived 缺省 0 = 排除已归档，1 = 只看已归档）
 //   GET  /api/chats/<chat_id>        → chat 详情（读库；消息 created_at ASC, id ASC）
 //   POST /api/messages               → {chat_id?, agent_id, text, model?, one_shot?} 落库 + 派发任务（归档 / 已关闭 → 409）
@@ -10,7 +10,10 @@
 //   POST /api/chats/<chat_id>/close  → 关闭 chat（幂等）+ 通知 agent 释放该 chat 上下文
 //   POST /api/chats/<chat_id>/activate → 激活归档 chat（清标记 + closed→completed + 置顶）+ 推送 chat_state
 //   POST /api/chats/<chat_id>/rename → 改名（只写 title 一列，不动 updated_at；只读对话 → 409；非法标题 → 400）
-//   GET  /api/stream?chat_id=<id>    → SSE（message / task_update / chat_state / notice 四类事件）
+//   GET  /api/stream?chat_id=<id>    → SSE（message / task_update / chat_state / notice 四类事件；chat_id 仍强制）
+//   GET  /api/events                 → 全局 SSE（agent_online / agent_offline 两类事件；无参数，不依赖对话）
+// 错误契约（0015 / F06，architecture §5）：全部 4xx/5xx 响应体 = {error: <人类可读字符串>, code: <ERR_CODE 之一>}，
+//   code 与状态码一一映射；成功响应不含 code；既有 error 文案逐字不变（既有前端 api() 零改动）。
 // 语义（0011 迭代，architecture §4/§5/§9.1）：一次提问 = 恰一条 in + 一条 out（过程不入库）；
 //   执行路径判定顺序：`!` → shell（0010 原样）｜one_shot:true → omp 一次性（0010 原样）｜默认 → omp-daemon 常驻上下文。
 // 安全边界（demo）：监听 127.0.0.1；无鉴权（迭代 0010 N6 边界）；命令由输入文本决定。
@@ -39,6 +42,8 @@ const RECONCILE_DEFAULT_MS = 5000; // 快速对账首查与间隔同值（默认
 const RECONCILE_MAX_ATTEMPTS = 6; // 快速预算：快速频率下 6 次（默认约 30s）用尽后转低频续查
 const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，持续到终态或 shutdown）
 const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟，覆盖 agent 侧 300s 超时上限有余）
+// pr-002（F05 / architecture §4.2）：全局拓扑轮询间隔（仅存在全局订阅者时运行）；测试用 env 压缩时间轴。
+const TOPOLOGY_POLL_DEFAULT_MS = 2000;
 
 /** 读正数毫秒环境变量（`OAMP_WEB_RECONCILE_*` 供测试压缩时间轴）；缺省/非法回退 fallback。 */
 function readPositiveMs(name, fallback) {
@@ -69,6 +74,22 @@ function sendJson(res, status, body, headers = null) {
   const text = JSON.stringify(body);
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...(headers || {}) });
   res.end(text);
+}
+
+/** HTTP 错误机器码（0015 / F06，architecture §5.2）：封闭枚举，每个码只有一个状态码（一一映射）。
+ *  与 rpc.js 的 ERR（UDS 协议层机器码）**不同层**，不合并（§5.4）。 */
+const ERR_CODE = Object.freeze({
+  INVALID_PARAM: 'INVALID_PARAM', // 400 参数非法 / 缺失 / 请求体格式错误
+  NOT_FOUND: 'NOT_FOUND', // 404 未知对象 / 未知路径或方法不匹配
+  CONFLICT: 'CONFLICT', // 409 只读对象被写 / 对象当前状态不允许该操作
+  PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE', // 413 请求体超限
+  UPSTREAM_UNAVAILABLE: 'UPSTREAM_UNAVAILABLE', // 502 Router 不可达 / 内部故障兜底
+});
+
+/** 错误响应唯一构造点（architecture §5.3）：`error` 仍是人类可读字符串（既有文案逐字不变 ⇒ 既有调用方零改动），
+ *  `code` 为新增机器码。全部 4xx/5xx 出口必须过这里（"同类错误跨接口一致"由唯一构造点保证）。 */
+function sendError(res, status, code, message, headers = null) {
+  sendJson(res, status, { error: message, code }, headers);
 }
 
 /** 读请求体（≤limit）。失败错误带 `status`：畸形 JSON → 400、超限 → 413（调用方据此响应，不落 502）。 */
@@ -133,6 +154,77 @@ async function queryOnce(socketPath, method, params) {
   }
 }
 
+/** 全局事件差值（F05 / architecture §4.2「纯函数边界」）：prev = 上一 tick 的在线集合
+ *  （Map<instance_id, last_heartbeat>），nodes = `router.status` 的 4 字段节点数组。
+ *  返回 {online, offline, next}：online = 新增（带 last_heartbeat，订阅端无需回查即可插入列表项）；
+ *  offline = 消失（只需 instance_id）。非 online 状态（含 offline 墓碑）不进入 next。 */
+export function diffTopology(prev, nodes) {
+  const next = new Map();
+  for (const n of nodes || []) {
+    if (n && n.state === 'online') next.set(n.instance_id, n.last_heartbeat);
+  }
+  const online = [];
+  const offline = [];
+  for (const [instanceId, lastHeartbeat] of next) {
+    if (!prev.has(instanceId)) online.push({ instance_id: instanceId, last_heartbeat: lastHeartbeat });
+  }
+  for (const instanceId of prev.keys()) {
+    if (!next.has(instanceId)) offline.push({ instance_id: instanceId });
+  }
+  return { online, offline, next };
+}
+
+/** 拓扑轮询器（F05 / architecture §4.2）：判定源 = `router.status` 的 online 集合（注册表为唯一真源，
+ *  不是日志、不是新通道）。仅在存在全局订阅者时每 pollMs 拉一次并差分成 agent_online / agent_offline；
+ *  首个订阅者到达时**播种基线且不发事件**（杜绝"虚报上线"）；无订阅者 ⇒ tick 自停并丢弃基线（零常驻轮询）；
+ *  查询失败（Router 暂不可达）⇒ 该 tick 跳过、不更新基线（§16 R-4，不产生虚假上下线）。 */
+export function createTopologyWatch({ transport, queryNodes, pollMs }) {
+  let timer = null;
+  let prev = null; // Map<instance_id, last_heartbeat>；null = 尚未播种
+
+  function stop() {
+    clearInterval(timer); // 无表时 no-op
+    timer = null;
+    prev = null; // 丢弃基线：下次订阅重新播种，不补发订阅空窗期的变化（§4.4）
+  }
+
+  async function tick() {
+    if (transport.globalCount() === 0) {
+      stop();
+      return;
+    }
+    let nodes;
+    try {
+      nodes = await queryNodes();
+    } catch {
+      return; // Router 暂不可达：本轮不更新基线（不产生虚假上下线）
+    }
+    if (transport.globalCount() === 0) {
+      stop(); // 查询在途期间订阅者全部断开
+      return;
+    }
+    const seeded = prev !== null;
+    const { online, offline, next } = diffTopology(prev === null ? new Map() : prev, nodes);
+    prev = next;
+    if (!seeded) return; // 首个订阅者：播种基线，不发事件
+    for (const data of online) transport.publishGlobal({ type: 'agent_online', data });
+    for (const data of offline) transport.publishGlobal({ type: 'agent_offline', data });
+  }
+
+  /** 订阅建立后调用：已有全局订阅者但轮询未运行 ⇒ 起表并立即播种一次（重复调用不起第二个表）。 */
+  function ensureRunning() {
+    if (transport.globalCount() === 0 || timer !== null) return;
+    prev = null;
+    timer = setInterval(() => {
+      tick().catch(() => {});
+    }, pollMs);
+    timer.unref(); // 不阻滞进程退出
+    tick().catch(() => {});
+  }
+
+  return { ensureRunning, stop };
+}
+
 /** 解 agent 回传信封（task.update / task.result / notice）的 JSON body；坏帧 → null（忽略，不抛）。 */
 function parseMessageBody(payload) {
   if (!payload || payload.content_type !== 'application/json') return null;
@@ -195,6 +287,14 @@ export default async function startWeb(restArgs) {
 
   // §5.1 替换点：换另一种实时传输 = 换这一行构造（不引入 transport 配置项）
   const transport = createSseTransport();
+
+  // 全局事件源（F05 / §4.2）：仅在存在全局订阅者时运行；每 tick 拉一次 router.status 差值成上下线事件。
+  const topologyPollMs = readPositiveMs('OAMP_WEB_TOPOLOGY_POLL_MS', TOPOLOGY_POLL_DEFAULT_MS);
+  const topologyWatch = createTopologyWatch({
+    transport,
+    queryNodes: async () => (await queryOnce(config.socketPath, 'router.status', {})).nodes,
+    pollMs: topologyPollMs,
+  });
 
   // task_id → { chatId, agentId, lines, landed, attempts, slow, registeredAt, timer }：agent 侧的
   // task.update/task.result body 不带 chat_id，派发前登记；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
@@ -377,7 +477,18 @@ export default async function startWeb(restArgs) {
     try {
       if (req.method === 'GET' && p === '/api/agents') {
         const r = await queryOnce(config.socketPath, 'router.status', {});
-        sendJson(res, 200, { agents: r.nodes });
+        // ?state=online（F04 验收 2 / §6.2）：服务端过滤，响应形态与无参**同形状**；无参路径逐字透传
+        // router.status（含 offline 墓碑）。在线口径 = `state === 'online'`（§16 R-10）。
+        const agentState = qs.get('state');
+        if (agentState === null || agentState === '') {
+          sendJson(res, 200, { agents: r.nodes });
+          return;
+        }
+        if (agentState !== 'online') {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, `查询参数非法: state 需为 online（当前值 ${JSON.stringify(agentState)}）`);
+          return;
+        }
+        sendJson(res, 200, { agents: r.nodes.filter((n) => n.state === 'online') });
         return;
       }
       if (req.method === 'GET' && p === '/api/chats') {
@@ -394,7 +505,7 @@ export default async function startWeb(restArgs) {
             offset: num('offset'),
           });
         } catch (err) {
-          sendJson(res, 400, { error: err && err.message ? err.message : String(err) });
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, err && err.message ? err.message : String(err));
           return;
         }
         sendJson(res, 200, r);
@@ -404,7 +515,7 @@ export default async function startWeb(restArgs) {
         const chatId = decodeURIComponent(p.slice('/api/chats/'.length));
         const r = db.getChat(chatId);
         if (!r) {
-          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `chat 不存在: ${chatId}`);
           return;
         }
         sendJson(res, 200, r);
@@ -414,7 +525,7 @@ export default async function startWeb(restArgs) {
         const chatId = decodeURIComponent(p.slice('/api/chats/'.length, -'/close'.length));
         const found = db.getChat(chatId);
         if (!found) {
-          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `chat 不存在: ${chatId}`);
           return;
         }
         if (found.chat.state === 'closed') {
@@ -464,15 +575,15 @@ export default async function startWeb(restArgs) {
         const chatId = decodeURIComponent(p.slice('/api/chats/'.length, -'/activate'.length));
         const found = db.getChat(chatId);
         if (!found) {
-          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `chat 不存在: ${chatId}`);
           return;
         }
         if (found.chat.archived_at === null) {
-          sendJson(res, 409, { error: 'chat 未归档，无法激活' }); // N-5：非归档的 closed 在此被挡住
+          sendError(res, 409, ERR_CODE.CONFLICT, 'chat 未归档，无法激活'); // N-5：非归档的 closed 在此被挡住
           return;
         }
         if (!db.activateChat(chatId)) {
-          sendJson(res, 409, { error: 'chat 未归档，无法激活' }); // 防御性：② 之后已非归档（单进程下不可达）
+          sendError(res, 409, ERR_CODE.CONFLICT, 'chat 未归档，无法激活'); // 防御性：② 之后已非归档（单进程下不可达）
           return;
         }
         const after = db.getChat(chatId);
@@ -487,19 +598,22 @@ export default async function startWeb(restArgs) {
           body = await readBody(req);
         } catch (err) {
           const status = err.status || 400;
-          sendJson(res, status, { error: err.message }, status === 413 ? { connection: 'close' } : null);
+          sendError(res, status, status === 413 ? ERR_CODE.PAYLOAD_TOO_LARGE : ERR_CODE.INVALID_PARAM, err.message, status === 413 ? { connection: 'close' } : null);
           return;
         }
         // 处理顺序固定（§5.2）：读体（400/413）→ getChat 预检（404）→ isReadonly 预检（409）→ 写口（400/409）→ 200
         const found = db.getChat(chatId);
         if (!found) {
-          sendJson(res, 404, { error: `chat 不存在: ${chatId}` });
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `chat 不存在: ${chatId}`);
           return;
         }
         if (isReadonly(found.chat)) {
-          sendJson(res, 409, {
-            error: found.chat.archived_at !== null ? 'chat 已归档（只读），不可改名' : 'chat 已关闭（只读），不可改名',
-          });
+          sendError(
+            res,
+            409,
+            ERR_CODE.CONFLICT,
+            found.chat.archived_at !== null ? 'chat 已归档（只读），不可改名' : 'chat 已关闭（只读），不可改名',
+          );
           return;
         }
         let title;
@@ -507,12 +621,12 @@ export default async function startWeb(restArgs) {
           // `?? {}`：非对象请求体统一落到 readTitle 的"需为字符串" → 400（不抛 TypeError 被外层 catch 转 502）
           title = db.renameChat({ chatId, title: (body ?? {}).title });
         } catch (err) {
-          sendJson(res, 400, { error: err && err.message ? err.message : String(err) }); // 非法标题（唯一入参错误类）
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, err && err.message ? err.message : String(err)); // 非法标题（唯一入参错误类）
           return;
         }
         if (title === null) {
           // 防御性：预检通过后行被置为只读（单进程 + 同步语句下不可达）——不得静默返回成功
-          sendJson(res, 409, { error: 'chat 只读（已归档或已关闭），不可改名' });
+          sendError(res, 409, ERR_CODE.CONFLICT, 'chat 只读（已归档或已关闭），不可改名');
           return;
         }
         sendJson(res, 200, { chat_id: chatId, title });
@@ -521,10 +635,16 @@ export default async function startWeb(restArgs) {
       if (req.method === 'GET' && p === '/api/stream') {
         const chatId = qs.get('chat_id');
         if (!chatId) {
-          sendJson(res, 400, { error: '需要 chat_id（不做全局订阅）' });
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要 chat_id（不做全局订阅）'); // 文案逐字不变（F05 验收 3）
           return;
         }
         transport.handle(req, res, { chatId });
+        return;
+      }
+      if (req.method === 'GET' && p === '/api/events') {
+        // 全局订阅（F05 / §4.1）：无参数、键 = null；先注册订阅者再启动轮询（确保 globalCount ≥ 1）
+        transport.handle(req, res, { chatId: null });
+        topologyWatch.ensureRunning();
         return;
       }
       if (req.method === 'POST' && p === '/api/messages') {
@@ -534,7 +654,7 @@ export default async function startWeb(restArgs) {
         } catch (err) {
           // 客户端错误（畸形 JSON → 400 / 超限 → 413）：明确响应；超限时关闭连接，不留悬挂
           const status = err.status || 400;
-          sendJson(res, status, { error: err.message }, status === 413 ? { connection: 'close' } : null);
+          sendError(res, status, status === 413 ? ERR_CODE.PAYLOAD_TOO_LARGE : ERR_CODE.INVALID_PARAM, err.message, status === 413 ? { connection: 'close' } : null);
           return;
         }
         const text = typeof body.text === 'string' ? body.text.trim() : '';
@@ -545,26 +665,28 @@ export default async function startWeb(restArgs) {
           if (m) agentId = m[1];
         }
         if (!agentId) {
-          sendJson(res, 400, { error: '需要指定目标 agent（输入 @agent 或提供 agent_id）' });
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要指定目标 agent（输入 @agent 或提供 agent_id）');
           return;
         }
         if (!text) {
-          sendJson(res, 400, { error: '消息不能为空' });
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '消息不能为空');
           return;
         }
         const model = typeof body.model === 'string' && body.model !== '' ? body.model : null;
         if (model !== null && !MODEL_RE.test(model)) {
-          sendJson(res, 400, { error: `model 非法（需匹配 ${MODEL_RE}）` });
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, `model 非法（需匹配 ${MODEL_RE}）`);
           return;
         }
         const chatId = typeof body.chat_id === 'string' && body.chat_id ? body.chat_id : `chat-${randomUUID()}`;
         // §4.4：只读面（已归档 或 已关闭）——判定与 /rename 共用 isReadonly（C-3 不分叉）；归档分支优先出文案
         const existing = db.getChat(chatId);
         if (existing && isReadonly(existing.chat)) {
-          sendJson(res, 409, {
-            error:
-              existing.chat.archived_at !== null ? 'chat 已归档（只读），不接受新输入' : 'chat 已关闭，不接受新输入',
-          });
+          sendError(
+            res,
+            409,
+            ERR_CODE.CONFLICT,
+            existing.chat.archived_at !== null ? 'chat 已归档（只读），不接受新输入' : 'chat 已关闭，不接受新输入',
+          );
           return;
         }
         // 消息文本 = 去掉 @agent 前缀后的剩余内容（入库 text 仍为原文，§4.3）
@@ -616,9 +738,9 @@ export default async function startWeb(restArgs) {
         serveStatic(res, p.slice(1));
         return;
       }
-      sendJson(res, 404, { error: `not found: ${req.method} ${p}` });
+      sendError(res, 404, ERR_CODE.NOT_FOUND, `not found: ${req.method} ${p}`);
     } catch (err) {
-      sendJson(res, 502, { error: `router 不可达或请求失败: ${err && err.message ? err.message : err}` });
+      sendError(res, 502, ERR_CODE.UPSTREAM_UNAVAILABLE, `router 不可达或请求失败: ${err && err.message ? err.message : err}`);
     }
   });
 
@@ -635,6 +757,7 @@ export default async function startWeb(restArgs) {
       if (sigint >= 2) process.exit(130);
       for (const entry of tasks.values()) clearTimeout(entry.timer); // 退出不留悬挂对账定时器
       tasks.clear();
+      topologyWatch.stop(); // 退出不留拓扑轮询表
       server.close(() => {
         transport.closeAll();
         db.close();

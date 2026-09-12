@@ -77,8 +77,8 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | env | 作用对象 | 默认 | 说明 |
 |---|---|---|---|
 | `OAMP_SOCKET` | 全部 | `<oamp 包根>/.runtime/router.sock` | Router UDS socket 路径（测试/并行手测用临时路径覆盖） |
-| `OAMP_HEARTBEAT_INTERVAL_MS` | agent | `10000` | 心跳周期（毫秒）；正整数 |
-| `OAMP_HEARTBEAT_TIMEOUT_MS` | Router | `30000` | 租约超时（毫秒）；正整数；建议 ≥ 2×interval |
+| `OAMP_HEARTBEAT_INTERVAL_MS` | agent | `10000` | 心跳周期（毫秒）；正整数（活跃档）；**空闲档 = 6 × 该值**（默认 60s；派生值，非独立 env 键） |
+| `OAMP_HEARTBEAT_TIMEOUT_MS` | Router | `30000` | 租约超时（毫秒）；正整数；为**基准**阈值——该实例最近一次通告的下一跳间隔存在时按 `max(基准, 2 × 通告值)` 抬升（判活阈值恒 ≥ 2 × 实际心跳间隔）；建议 ≥ 2×interval |
 | `OAMP_HB_LOG_WINDOW_MS` | Router | `60000` | 心跳日志节流窗口（毫秒）；正整数 |
 | `OAMP_RECONNECT` | agent | `1` | 断线/连接失败后自动重连重注册（自愈，D22）；`0` = 旧行为（断线即退） |
 | `OAMP_RECONNECT_MAX_MS` | agent | `10000` | 重连退避上限（毫秒）；退避 500ms 起指数增长至该上限 |
@@ -87,6 +87,7 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_OMP_MODEL` | agent | `deepseek/deepseek-v4-flash` | 默认模型（请求未指定 `model` 时生效）；`openai/gpt-5.6-luna` 为可选值，其首 token 可能数分钟 |
 | `OAMP_CTX_MAX` | agent | `8` | 常驻上下文进程上限（超出按 LRU 淘汰）；正整数 |
 | `OAMP_WEB_PORT` | web | `7788` | Web 控制台端口（命令行 `--port` 优先） |
+| `OAMP_WEB_TOPOLOGY_POLL_MS` | web | `2000` | 全局事件流（`GET /api/events`）的拓扑轮询间隔（毫秒）；仅有全局订阅者时运行；缺省/非法回退默认（运维/测试可调） |
 | `OAMP_WEB_RECONCILE_INTERVAL_MS` | web | `5000` | 任务对账首查与间隔（毫秒，快速预算 6 次）；缺省/非法回退默认（运维/测试可调） |
 | `OAMP_WEB_RECONCILE_SLOW_MS` | web | `30000` | 快速预算用尽后的低频续查间隔（毫秒）；缺省/非法回退默认 |
 | `OAMP_WEB_RECONCILE_TTL_MS` | web | `1800000` | 对账登记软 TTL（毫秒，默认 30 分钟）：超时清理孤儿条目；缺省/非法回退默认 |
@@ -123,6 +124,7 @@ oamp web start [--port 7788]      # 默认 http://127.0.0.1:7788（env OAMP_WEB_
 ```
 
 浏览器打开后：
+- **顶栏**：「已连接 · N agents online」可点击展开在线 agent 列表（实例标识 / 在线状态 / 最后心跳时间），随实例上下线自动更新；再次点击 / 点击面板外 / 按 Esc 收起
 - **左栏**：对话列表（＋ New chat；All / Working / Completed / 归档 过滤，过滤栏最右侧「归档全部」按钮；条目标题 + 状态徽标 + @agent + 时间）；**标题即时同步**——改名后对应项立即显示新标题，且**不改变列表位置**（最近更新时间未被刷新）
 - **右栏**：对话详情——消息流（你的输入 / agent 回答，含耗时与错误提示）与「关闭对话」按钮；**点击详情头标题即可改名**（Enter / 失焦保存、Esc 取消；已归档与已关闭对话不可改）
 - **归档视图**：切到「归档」标签页只列出已归档对话（按归档时间倒序；首屏 200 条，底部「加载更多」按 offset 续页，到末尾不再显示）；每一项带归档时间、归档时的原状态徽标与独立「激活」按钮——点按钮回到 All 列表顶部并恢复可对话，不打开详情
@@ -151,7 +153,7 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
 
   | 方法与路径 | 说明 |
   |---|---|
-  | `GET /api/agents` | 在线 agent 列表（Router 拓扑快照） |
+  | `GET /api/agents` | agent 列表（Router 拓扑快照）；`?state=online` 只返回在线实例 |
   | `GET /api/chats` | 对话列表；`q`（标题或消息文本）/ `agent` / `state` / `from` / `to` / `archived`（缺省 `0` = 排除已归档，`1` = 只看已归档，按归档时间倒序）过滤，`limit`（默认 50、上限 200）+ `offset` 分页 |
   | `GET /api/chats/<chat_id>` | 对话详情（消息按时间升序；未知对话 → 404） |
   | `POST /api/messages` | `{chat_id?, agent_id, text, model?, one_shot?}`：落库 + 派发；已关闭对话 → 409 |
@@ -160,9 +162,15 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
   | `POST /api/chats/<chat_id>/activate` | 激活一条归档对话：移除归档标记、`closed` 还原为 `completed` 并清除关闭时间、置顶主列表；未归档 → 409、未知对话 → 404 |
   | `POST /api/chats/<chat_id>/rename` | `{title}`：只改标题一列（不动 `updated_at` / `agent_id` / `state` / `archived_at`）；trim 后存储、上限 100、拒空 → 400；只读对话（已归档 / 已关闭）→ 409、未知对话 → 404 |
   | `GET /api/stream?chat_id=<id>` | SSE 实时流 |
+  | `GET /api/events` | 全局 SSE：agent 上线 / 下线事件（`agent_online` / `agent_offline`）；无参数、不依赖对话 |
 
-- **SSE 四类事件**：`message`（已落盘的输入/输出）/ `task_update`（流式增量，仅运行时、不入库）/ `chat_state`（状态变化）/
-  `notice`（上下文释放·重置提示）。断线由浏览器自动重连，重连或刷新时以 `GET /api/chats/<id>` 全量补齐（断线期间增量不补发）。
+  错误契约：全部 4xx/5xx 响应体为 `{ error, code }`——`error` 为人类可读字符串、`code` 为封闭枚举且与状态码一一映射
+  （`INVALID_PARAM`=400 / `NOT_FOUND`=404 / `CONFLICT`=409 / `PAYLOAD_TOO_LARGE`=413 / `UPSTREAM_UNAVAILABLE`=502）。
+  完整接口清单、事件清单与可直接粘贴执行的示例见 **[API.md](API.md)**（10 条 API + 6 类事件）。
+
+- **SSE 事件（共六类）**：`message`（已落盘的输入/输出）/ `task_update`（流式增量，仅运行时、不入库）/ `chat_state`（状态变化）/
+  `notice`（上下文释放·重置提示）；另有两类**全局事件** `agent_online` / `agent_offline`（仅 `GET /api/events` 的订阅者可见）。
+  断线由浏览器自动重连，重连或刷新时以 `GET /api/chats/<id>` 全量补齐（断线期间增量不补发）；全局订阅同款不补发。
 - **对话状态**：`working` → `completed`（成功）/ `failed`（失败轮或派发失败）；关闭后为 `closed`。
   `closed` 不可重开——**唯一例外是「归档 → 激活」路径**：激活时 `closed` 还原为 `completed` 并清除关闭时间（N-5/D-6）。
   归档不改变对话 `state`，只是加一个独立归档标记；归档后该对话只读（拒绝新输入，409）。
@@ -295,4 +303,4 @@ OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permi
 - 逐键优先级 **env > 配置文件 > 内置默认**（对应 `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX`）；相对路径基准 = 包根（与 cwd 无关）。
 - 文件缺失 → 正常启动；JSON 非法或类型不符 → 启动即报错退出 1（快速失败）；未知键忽略；无热重载。
 - 运行时产物落点：socket → `oamp/.runtime/`，对话库 → `oamp/data/`（均已 `.gitignore`）。
-- **不进配置文件的环境变量**：web 的任务对账间隔（`OAMP_WEB_RECONCILE_*`，见上表）属运行期兜底参数，仅由 env 覆盖、非法值回退内置默认。
+- **不进配置文件的环境变量**：web 的任务对账间隔与全局事件拓扑轮询间隔（`OAMP_WEB_RECONCILE_*` / `OAMP_WEB_TOPOLOGY_POLL_MS`，见上表）属运行期兜底参数，仅由 env 覆盖、非法值回退内置默认。

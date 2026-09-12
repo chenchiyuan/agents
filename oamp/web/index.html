@@ -16,6 +16,8 @@
       </nav>
       <div class="topright">
         <span id="conn-status" class="conn conn-wait">连接中…</span>
+        <!-- 顶栏 agent 只读列表（0015 / F01 / AR-01）：静态兄弟节点——setConn 写 #conn-status.textContent，子节点会被清空 -->
+        <div id="agent-panel" class="agent-panel hidden"></div>
       </div>
     </header>
 
