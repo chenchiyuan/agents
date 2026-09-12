@@ -1,3 +1,5 @@
+> **时标口径声明（2026-09-12 按 progress-observer 核实后补记）**：本文件条目中的时间字段是**记录时的本地时钟读数**，可能存在超前偏差（实测部分条目超前 git committer 时间 15~25 分钟）。**权威时间以 git 一手记录为准**：凡条目涉及提交/合并的，以该条注明的 commit sha 的 committer time 为准确时间；时标本身不作为事实依据。
+
 # history.md — 0018-chat-agent-subagent-protocol
 ### 2026-09-12 17:27:04 · 调度决策 · 阶段推进核查
 
@@ -136,12 +138,12 @@
 - 决策内容：把 0018 的阶段 1~2 产物**落入 git**（在此之前全部为未跟踪文件，存在被外部会话误提交/误清理的风险——即用户点名的共用工作树风险）→ 在 `iteration/0018-chat-agent-subagent-protocol` 上提交 `docs/iterations/0018-chat-agent-subagent-protocol/**`（不含任何 0017 产物、不含任何代码）；随后把 0017 的两处未提交残留 `git stash`（具名保存）以便干净切出该分支，stash 名称与内容登记于 status.md §待确认项 C-2
 - 触发依据：rule A（代码变更不得提交在 main/迭代分支）——本次仅提交本迭代文档产物，不涉及代码；用户对共用工作树致丢写的裁决（先做 0019）
 
-### 2026-09-12 23:05:00 · 调度决策 · 阶段推进核查
+### 2026-09-12 22:46:23 · 调度决策 · 阶段推进核查
 
 - 决策内容：**按 workflow-pb v0.10.0 正式恢复本迭代**——① 把当时 main（含 0017 + 0019 + **0020**）整合进本迭代分支（`67c50e0`，0 冲突）；② §恢复设置 改写为 v0.10.0 形态：**会话可在任意位置启动 + 显式寻址**（旧「必须由用户 cd 到工作区启动」的操作前置段作废，该段正是迭代 0020 要消除的强制）；③ 生效规范字段从 v0.9.0 改为 **v0.10.0**；④ 下一步 = 阶段 3（技术架构）
 - 触发依据：用户裁决「把 0018 恢复起来」；迭代 0020 已完成并合并 main（`db246e4`/`f7bf41e`）并交付 v0.10.0 与协议产物 `docs/worktrees/README.md`；本迭代 `status.md` §恢复设置
 
-### 2026-09-12 23:05:00 · 派发 · architect
+### 2026-09-12 22:46:23 · 派发 · architect
 
 - 阶段：阶段 3（技术架构）
 - 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
@@ -166,7 +168,7 @@
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖（不经过全局任务图）
 - 附加要求（主 agent）：文件范围须覆盖 §11 全部必然变更点；**零行号引用**（改用引文 + 检索式；迭代 0020 的 Gate 教训）；验收标准可独立判断；每 PR 摘要须点明是否含既有测试断言改写
 
-### 2026-09-12 23:12:00 · 收到报告 · pr-planner（阶段 4）
+### 2026-09-12 23:07:07 · 收到报告 · pr-planner（阶段 4）
 
 - 1. `prs/` 目录：`docs/iterations/0018-chat-agent-subagent-protocol/prs/`
 - 2. 文件列表：pr-001-transport-call-key-namespace.md / pr-002-registry-task-list-model.md / pr-003-call-http-surface-and-contract-docs.md / pr-004-console-call-page.md / pr-005-call-protocol-acceptance-tests.md
@@ -174,26 +176,26 @@
 - 4. 依赖图：`{pr-001, pr-002} → pr-003 → {pr-004, pr-005}`，无环；首次并发 = {pr-001, pr-002}，末波 = {pr-004, pr-005}
 - 5. 疑问/越界：无（零行号引用 PASS；14 个路径唯一归属；摘要字数 185/198/170/186/194 均 ≤200）
 
-### 2026-09-12 23:13:00 · 派发 · verifier（阶段 4 Gate）
+### 2026-09-12 23:07:04 · 派发 · verifier（阶段 4 Gate）
 
 - 阶段：阶段 4 产物验证（Gate，规范「验证触发时机」：pr-planner 完成后主 agent 触发 verifier）
 - 验证标准（内联）：A 七字段格式 / B 功能点全覆盖 / C 文件范围零重叠 / D **依赖正确性（逐条代码级证据，verifier 自行重检索）** / E 无环 / F 验收标准可独立判断 / G 零行号引用 / H 与 architecture §11 覆盖核对 / I 无越界
 - 产出物路径：`docs/iterations/0018-chat-agent-subagent-protocol/prs/`
 - 备注：本迭代不存在 `deferred-demand-changes.md`（规范「搭置的需求变更/错误报告」透传项不适用）
 
-### 2026-09-12 23:20:00 · 收到报告 · verifier（阶段 4 Gate）
+### 2026-09-12 23:11:23 · 收到报告 · verifier（阶段 4 Gate）
 
 - 报告路径：`clarifications/verify-stage4-gate-20260912-231000.md`
 - 结论：**PASS（9/9，fail 0 / partial 0 / blocked 0）**；偏差 4 条（非阻塞）
 - 关键证据：D 项依赖正确性 4/4 条由 verifier 自行重检索核实（transport.js 返回对象键集合、router.task_list→registry.listTasks、STATIC_FILES 无 /calls、/api/calls 全仓零命中）；H 项 §11 的 11 行逐条回代码库复核命中
 - 偏差：P-1（pr-003 验收「diff 仅落在三个文件」未限定为本 PR diff）/ P-2（依赖型 PR 的验收判定来源口径）/ P-3（pr-004 六列表述只列 5 个标签）/ P-4（depends_on 未明示直接依赖 vs 传递闭包）
 
-### 2026-09-12 23:21:00 · 调度决策 · 阶段推进核查
+### 2026-09-12 23:11:23 · 调度决策 · 阶段推进核查
 
 - 决策内容：**阶段 4 → 阶段 5**。推进条件逐项核查：① 每个 PR 文件满足七字段规范 ✅（A 项）；② 每个功能点被某个 PR 引用 ✅（B 项，F01~F16 全覆盖）；③ PR 间文件范围无重叠 ✅（C 项，14 路径唯一归属）；④ 依赖图无环 ✅（E 项）。四项全满足
 - 附加：`## 并发配置（阶段 5）` 区块已初始化（起始 3 / 硬上限 5 / 有效 3 / 释放 0 / 已派发 0）；Gate 的 4 条偏差**不阻塞**，P-2/P-3 转为阶段 5 施工时义务（PR 验收报告需按权威读法判定并登记已知假阳性）
 
-### 2026-09-12 23:22:00 · 调度决策 · 槛位释放
+### 2026-09-12 23:11:59 · 调度决策 · 槛位释放
 
 - 决策内容：**建立首波 PR worktree 并并发派发 planner**（依赖图首波解锁 = {pr-001, pr-002}，两者 `depends_on` 均为空）
 - worktree（落点 = 会话工作区内子目录，规则 C）：
@@ -202,13 +204,13 @@
   - 两者 base = 迭代分支 tip `97ee9ac`（阶段 4 Gate 提交）；创建动作在同一批命令内完成
 - 并发配置更新：`已派发总数` 0 → 2
 
-### 2026-09-12 23:22:10 · 派发 · planner（pr-001 ∥ pr-002，同批并发）
+### 2026-09-12 23:13:30 · 派发 · planner（pr-001 ∥ pr-002，同批并发）
 
 - 阶段：阶段 5 首波；两个 planner 在**同一批**并发派发（非串行）
 - 工作区地址：各自 PR worktree 绝对地址
 - 任务：各拆本 PR 内部任务，产出 `prs/pr-001-tasks.md` / `prs/pr-002-tasks.md`
 
-### 2026-09-12 23:26:00 · 收到报告 · planner（pr-001）
+### 2026-09-12 23:14:20 · 收到报告 · planner（pr-001）
 
 - 1. tasks.md 路径 + 任务总数：`prs/pr-001-tasks.md`，3 任务
 - 2. 依赖图：`T1 → {T2, T3}`（T2/T3 互不依赖），无环；关键路径 T1→T2
@@ -216,7 +218,7 @@
 - 4. 循环依赖：无
 - 5. 疑问/越界：架构 §4.2 未写明 chatId 获取位置（低 severity、未阻断）；粒度决策（T2/T3 本可合并，拆分理由 = 键位不相交 + 推断被否时只重做 T2）；越界 = 无
 
-### 2026-09-12 23:26:30 · 收到报告 · planner（pr-002）
+### 2026-09-12 23:14:20 · 收到报告 · planner（pr-002）
 
 - 1. tasks.md 路径 + 任务总数：`prs/pr-002-tasks.md`，2 任务
 - 2. 依赖图：`T1 → T2`，无环；关键路径 T1→T2
@@ -224,62 +226,74 @@
 - 4. 循环依赖：无
 - 5. 疑问/越界：① 上游口径提示（不阻塞）——architecture §1.1 对 router.js 的括注「7 方法分发（agent.* / message.* / router.status|task_get|task_list）」其枚举计数口径与方法面规范宿主（`oamp/README.md` 协议速览「方法面」行 7 项，由 `oamp/test/project-workspace.test.js` 既有断言逐字锁定）不一致；planner 以 README 7 项为判据宿主，未据括注改判据；② 粒度决策（两任务本可合并，拆点理由 = T2 判据对象非 T1 实现内容）；③ 本 PR 不新增测试文件（F09 端到端落点在 pr-003/pr-005，未越界承接）
 
-### 2026-09-12 23:27:00 · 调度决策 · 阶段推进核查
+### 2026-09-12 23:14:50 · 调度决策 · 阶段推进核查
 
 - 决策内容：**裁定 2 条 `[model_inferred]` 生效**（主 agent 权限内，属架构 §4.2/§4.1 的直接推论，非新增技术决策）：① 采纳「chatId 取自 `event.data.chat_id`」——架构 §4.1 明示三类事件 data 均含 `chat_id`，且 §4.2 固定两参签名，带内是唯一可得来源；② 采纳「`closeAll()` 覆盖新键空间订阅」——§4.2 要求既有语义逐字保持，而「移除全部订阅并结束所有连接」的「全部」在字面上已覆盖新增键。两条若实现期证伪，只影响 pr-001 的 T2/T3 验收写法，不影响其他 PR
 - 触发依据：planner 两份报告的报告契约第 3 项；planner 角色「model_inferred 验收标准必须经主 agent 确认」
 - 另记：architecture §1.1 括注 vs README 方法面 7 项的计数口径不一致 → 不阻塞，登记为偏差（阶段 6 复核），planner 已按规范宿主（README + 既有断言）取判据
 
-### 2026-09-12 23:28:00 · 派发 · dev（pr-001 ∥ pr-002，同批并发）
+### 2026-09-12 23:15:00 · 派发 · dev（pr-001 ∥ pr-002，同批并发）
 
 - 阶段：阶段 5 首波实现；两个 dev 在**同一批**并发派发
 - 工作区地址：各自 PR worktree 绝对地址（pr-001: `.pb-agents/worktrees/0018-pr-001-transport-call-key-namespace`；pr-002: `.pb-agents/worktrees/0018-pr-002-registry-task-list-model`）
 - 任务：按各自 `prs/pr-{NNN}-tasks.md` 实现最小改动
 - 简报附带：① 工作目录纪律硬性段（含本仓库实测的 `edit` 相对路径按会话 cwd 解析的坑）；② 已裁定的 2 条 `[model_inferred]` 实现口径（仅 pr-001）；③ pr-002 的 §1.1 括注口径提示（以 README 7 项为判据宿主）
 
-### 2026-09-12 23:34:00 · 收到报告 · dev（pr-002）
+### 2026-09-12 23:15:23 · 收到报告 · dev（pr-002）
 
 - 1. 改了什么文件：`oamp/src/registry.js` 1 文件 / +1 行（`listTasks` 投影追加 `model: task.result?.model ?? null,`），提交 `a827f4e`
 - 2. 测试结果：PR 验收 5 条全 PASS（T1/T2 逐条 evidenced：键恒存在且进行中为 `null`；终态读 `result.model`；diff 单 hunk 归位于 `listTasks`；`node --test oamp/test/task.test.js` 6/6 绿且该文件 diff 0 行；`router.js` diff 0 行；方法面 7 项断言单跑 1/1 通过）
 - 3. 疑问/待办：① 上游口径（architecture §1.1 括注 vs README 7 项）已按 tasks.md 判据宿主执行，未据括注改动；② T1 验收 3 提到的 `agent.js` 终态实报点未逐行复核（超出本 PR 范围，零改动 agent.js）
 - 4. 违反边界的事：无（未新增依赖/配置键；未触碰 roles/.claude/docs/test/router.js；未 push/merge/切分支；未用 --no-verify）；三处 git status 中报告会话工作区出现游离未跟踪文件 `docs/iterations/0018-chat-agent-subprotocol-x`
 
-### 2026-09-12 23:34:30 · 调度决策 · 阶段推进核查
+### 2026-09-12 23:16:00 · 调度决策 · 阶段推进核查
 
 - 决策内容：**清理主 agent 自身造成的游离文件**——23:14 主 agent 在会话工作区误执行 `cat >> docs/iterations/0018-chat-agent-subprotocol-x`（笔误重定向）产生 0 字节未跟踪文件；已 `rm` 删除，会话工作区恢复干净（0 处改动）。**未提交、未进任何分支**，无下游影响。根因 = 命令拼接时残留的错误重定向片段
 
-### 2026-09-12 23:41:00 · 收到报告 · dev（pr-001）
+### 2026-09-12 23:17:31 · 收到报告 · dev（pr-001）
 
 - 1. 改了什么文件：`oamp/src/transport.js` 1 文件 / +68 -19（三个具名键构造函数 + `chatKeyOrGlobal` + `subscribe/publishTo/closeKey` 内核抽取 + 4 个新方法 + `closeAll` 遍历三键空间），提交 `cb1bdc8`
 - 2. 测试结果：PR 验收 6 条全 PASS + T3 附加 3 项 PASS；既有 `oamp/test/transport.test.js` **13/13 绿且该文件 diff 0 行**；真实 node:http SSE 客户端验证双键写入、串键窗口不成立（`chat_id='call:C1'` 收不到 `publishCall('C1')`）；`dependencies` 仍 `{}`、零新 import
 - 3. 疑问/待办（4 条判断项，均已说明，无阻塞）：① 新增架构 §4.2 未命名的内部函数 `chatKeyOrGlobal`（理由：`chatKey` 保持纯前缀模板以逐字对齐架构，null 分支收敛在一处；影响仅源码形态）；② `publishCall` 对缺失 `event.data.chat_id` 不做守卫（与既有 `publish` 同口径；入参校验属调用面职责）；③ return 对象改两行排版（键集合/顺序/语义不变）；④ 无阻塞疑问
 - 4. 违反边界的事：无
 
-### 2026-09-12 23:42:00 · 派发 · verifier（pr-001 ∥ pr-002，同批并发）
+### 2026-09-12 23:18:21 · 派发 · verifier（pr-001 ∥ pr-002，同批并发）
 
 - 阶段：阶段 5 首波 PR 级验收（合并前门禁）
 - 产出物：各自 PR worktree 分支的实现提交 + PR 文件 + tasks 文件
 - 验证标准：A 全部「验收标准」（自跑命令）/ B tasks 内任务验收 / C 改动面零越界 / D 既有测试零改写 / E 无回归（另跑一个受影响文件）/ F 实现自陈与代码一致性（含新增未命名符号的偏差登记）
 - 报告落点：会话工作区 `clarifications/verify-pr-{NNN}-{timestamp}.md`（不写 PR worktree）
 
-### 2026-09-12 23:48:00 · 收到报告 · verifier（pr-001 / pr-002 验收）
+### 2026-09-12 23:20:00 · 收到报告 · verifier（pr-001 / pr-002 验收）
 
 - pr-001：`clarifications/verify-pr-001-20260912-232019.md`，**PASS 32 项 / fail 0 / partial 0**；偏差 5 条（含 4 个未命名内部符号为函数体搬迁、`publishGlobal`/`closeAll` 内部换用新内核、`tasks` 内行号为阶段 3 快照）；回归：`web.test.js` 39/39、`delivery-contract.test.js` 12/12
 - pr-002：`clarifications/verify-pr-002-20260912-231911.md`，**PASS 19 项 / fail 0 / partial 0**；偏差 3 条（tasks T2.2 的 diff 字面读法、README 方法面 7 项 vs `router.js` 实际 8 个 case、`message.deliver` 无入站 case）；回归：`project-workspace.test.js` 21/21
 - 两报告均把字面读法差异按权威读法判 pass 并登记为偏差（主 agent 口径已预先写入简报）
 
-### 2026-09-12 23:49:00 · 调度决策 · 槛位释放
+### 2026-09-12 23:20:58 · 调度决策 · 槛位释放
 
 - 决策内容：**合并 pr-001 与 pr-002** 进迭代分支：`b92ad82`（pr-001，含 tasks 文件）/ `95051b0`（pr-002）；现场清理 = 两 PR worktree `remove` + 两 `feat/*` 分支 `-d`；槛位释放 2 ⇒ `累计槛位释放次数` 0→2、`当前有效上限` = min(3+2×3,5) = **5**（已触硬上限）
 - 触发依据：两 PR 的 PR 级验收均 PASS（规范：合并进迭代分支才算解锁）
 - 解锁结果：**pr-003 解锁**（`depends_on` = pr-001 + pr-002，两者均已合并）；pr-004/pr-005 仍阻塞（依赖 pr-003）
 
-### 2026-09-12 23:50:00 · 调度决策 · 阶段推进核查
+### 2026-09-12 23:21:11 · 调度决策 · 阶段推进核查
 
 - 决策内容：修正 `status.md` 两处过期占位块（「PR 实现子状态」占位表未替换为真表；残留一份「并发配置」占位块）——占位块零残留；PR 子状态表已填入五个 PR 的真实状态与合并 commit
 - 触发依据：主 agent 台账一致性自检（规范要求 status.md 与文件系统不一致时以文件系统为准修正）
 
-### 2026-09-12 23:51:00 · 派发 · planner（pr-003）+ progress-observer（同批并发）
+### 2026-09-12 23:21:35 · 派发 · planner（pr-003）+ progress-observer（同批并发）
 
 - planner：阶段 5 第二波（pr-003，6 文件 / 15 张卡 / 含既有测试断言改写）；工作区地址 = `.pb-agents/worktrees/0018-pr-003-call-http-surface-and-contract-docs`
 - progress-observer：规范「自动触发」——每次一个 PR 完成 merge 后刷新 `progress.md`（本次覆盖首波两个 merge）
+
+### 2026-09-12 23:24:00 · 收到报告 · progress-observer（首波合并后自动触发）
+
+- `progress.md` 路径：`docs/iterations/0018-chat-agent-subagent-protocol/progress.md`（153 行，整体覆盖写入）
+- 六部分摘要：① 阶段 1~4 产物 39 文件全部存在且被跟踪（`architecture.md` 686 行与声称逐字一致）；② 依赖核实 **5 条一致 / 0 条不一致**（pr-003 的两条依赖经 `merge-base --is-ancestor` 实证为 HEAD 祖先）；③ pr-001/pr-002 现场已清理且与 git 一致；④ **可并发但闲置 PR = 0**（pr-004/pr-005 属依赖未满足的正常阻塞；有效上限 5 vs 在飞 1，空置 4 槛位符合规范「无排队 PR 时不派发」）；⑤ 不一致 **6 条**；⑥ 无法核实项 6 条
+- 最需关注的发现：pr-003 状态快照滞后 git 现场（worktree/分支已存在但 status 记「尚未派发」、`已派发总数` = 2）；**history.md 时标系统性超前 git committer 时间 15~25 分钟**；status.md 残留 4 处过期文本
+- 越界：无；纯只读（未执行任何写入性 git 命令）
+
+### 2026-09-12 23:25:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**按 progress-observer 的 6 条不一致逐项处置**（以文件系统/git 一手记录为准修正台账）：① `status.md` 的 pr-003 状态改「planner 已派发」、`已派发总数` 2→3；② `history.md` 全篇加「时标口径声明」段，并把 20 条被点名的条目时标改为 git 实测时间（权威 = commit committer time）；③ 清 `status.md` 残留过期文本 4 处（状态行「阶段 4 进行中」、阶段 3 备注「待启动」、§恢复设置 三处 v0.9.0 / 旧 tip、生效协议版本行）；④ 第 6 条（pr-003 worktree 基线落后 3 个 docs 提交）**不处置**——两条依赖已在基线内，依赖满足性不受影响，属正常（worktree 由合并时刻的迭代分支拉出）
+- 触发依据：`progress.md` §5「发现的不一致」；规范「status.md 与文件系统不一致时以文件系统为准修正」
