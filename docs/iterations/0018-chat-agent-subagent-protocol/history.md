@@ -165,3 +165,18 @@
 - 工作区地址：`/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0018-chat-agent-subagent-protocol`
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖（不经过全局任务图）
 - 附加要求（主 agent）：文件范围须覆盖 §11 全部必然变更点；**零行号引用**（改用引文 + 检索式；迭代 0020 的 Gate 教训）；验收标准可独立判断；每 PR 摘要须点明是否含既有测试断言改写
+
+### 2026-09-12 23:12:00 · 收到报告 · pr-planner（阶段 4）
+
+- 1. `prs/` 目录：`docs/iterations/0018-chat-agent-subagent-protocol/prs/`
+- 2. 文件列表：pr-001-transport-call-key-namespace.md / pr-002-registry-task-list-model.md / pr-003-call-http-surface-and-contract-docs.md / pr-004-console-call-page.md / pr-005-call-protocol-acceptance-tests.md
+- 3. 摘要：pr-001（F07,F08｜`oamp/src/transport.js` 修改｜无依赖）· pr-002（F09｜`oamp/src/registry.js` 修改｜无依赖）· pr-003（F01~F12,F14~F16 共 15 张｜`oamp/src/web.js`+`API.md`+`llms.txt`+3 个既有测试文件｜依赖 pr-001/pr-002）· pr-004（F13,F14｜`oamp/web/calls.html`/`calls.js` 新建 + `index.html`/`README.md` 修改 + 新建测试｜依赖 pr-003）· pr-005（F03~F12,F15｜`oamp/test/call-protocol.test.js` 新建｜依赖 pr-003）
+- 4. 依赖图：`{pr-001, pr-002} → pr-003 → {pr-004, pr-005}`，无环；首次并发 = {pr-001, pr-002}，末波 = {pr-004, pr-005}
+- 5. 疑问/越界：无（零行号引用 PASS；14 个路径唯一归属；摘要字数 185/198/170/186/194 均 ≤200）
+
+### 2026-09-12 23:13:00 · 派发 · verifier（阶段 4 Gate）
+
+- 阶段：阶段 4 产物验证（Gate，规范「验证触发时机」：pr-planner 完成后主 agent 触发 verifier）
+- 验证标准（内联）：A 七字段格式 / B 功能点全覆盖 / C 文件范围零重叠 / D **依赖正确性（逐条代码级证据，verifier 自行重检索）** / E 无环 / F 验收标准可独立判断 / G 零行号引用 / H 与 architecture §11 覆盖核对 / I 无越界
+- 产出物路径：`docs/iterations/0018-chat-agent-subagent-protocol/prs/`
+- 备注：本迭代不存在 `deferred-demand-changes.md`（规范「搭置的需求变更/错误报告」透传项不适用）
