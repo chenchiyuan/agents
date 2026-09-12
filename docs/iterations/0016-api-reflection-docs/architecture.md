@@ -404,8 +404,9 @@ const server = http.createServer(async (req, res) => {
 
 - **`oamp/test/web.test.js` 一个字都不改（不追加、不改写）** —— **实现契约（2026-09-12 用户口径确认，主 agent 转达）**。理由：F02 验收 1「既有 HTTP 面测试文件一个字都不改」与 E3「对该文件做 diff 应为空」是**产品维度**的判定；阶段 2 该 AR 待填项写的"仅追加"提示属**架构维度**（且已被本节取代），与产品判定冲突时以产品判定为准（按 §13 R-4 报备）。**落地形态**：新增断言全部落 `test/api-routes.test.js`（三层锁 + L2 探针 + L3 匹配器单测）与 `test/api-pages.test.js`（页面静态契约 + 新页面 HTTP 可达性）；因 `web.test.js` 内的 `startWeb` 辅助是文件局部且不可导出，两个新文件各自自带同款约 25 行启动辅助，**不抽公共 helper、不触碰既有测试文件的任何字节**。
 - 因此**全部新增断言落在两个新文件**（新文件不触碰既有文件的任何字节）：
-  - `test/api-routes.test.js`：L2 + L3 + **F06 三条漂移锁**。
-  - `test/api-pages.test.js`：两个新页面与顶栏入口的**静态契约**（HTML/CSS/JS 的 `assert.match`，沿用既有 `web.test.js:1601-1635` 的体例）+ `GET /docs`、`GET /debug`、`GET /llms.txt` 的 HTTP 可达性与响应类型。
+  - `test/api-routes.test.js`：L2（C-5 七条 + 怪癖 Q-1~Q-8 探针）+ L3（匹配器单测与可达性）+ **F06 三条漂移锁** + **`GET /api/docs` 的响应形状 + `GET /llms.txt` 的全部断言（200 / `text/plain; charset=utf-8` / 与仓库快照逐字节相等）**。
+  - `test/api-pages.test.js`：两个新页面、控制台顶栏入口与 `api-pages.css` 的**静态契约**（HTML/CSS/JS 的 `assert.match`，沿用既有 `web.test.js:1601-1635` 的体例）+ `GET /docs`、`GET /debug`、`GET /api-pages.css` 的 HTTP 可达性与响应类型。
+- **断言归属裁决（2026-09-12 主 agent 裁决，禁止再漂移）**：`GET /llms.txt` 的**全部**断言（200 + `text/plain; charset=utf-8` + 与仓库快照逐字节相等）**只归 `test/api-routes.test.js`**（与生成函数、快照文件、漂移锁② 同批，语义最内聚）；`test/api-pages.test.js` **不断言 llms.txt**，只负责两个新页面资产、顶栏入口与 `/api-pages.css` 的可达性 / MIME / 静态契约。
 - **`startWeb` 辅助的重复**：`web.test.js` 内的 `startWeb` 是文件局部、不可导出（S-11），且该文件禁止改动 ⇒ 新文件**自带同款约 25 行**（`spawn` + 等 `WEB_READY` + 随机端口 + 临时 `OAMP_DB` + `LEASE_ENV`）。这是"零改写既有测试文件"这一硬约束的**唯一代价**，可接受；**禁止**为此改 `web.test.js` 或抽公共 helper。
 
 ---
@@ -533,7 +534,7 @@ export function renderLlmsTxt(routes) { /* projected routes → string（LF 换�
 | `/debug`（HTML+JS 渲染） | `debug.js` + 投影 | 人 | 页面加载 | F04 全部、F07 全部 |
 | `oamp/web/llms.txt`（文件 = HTTP） | `renderLlmsTxt`（经 `gen-llms-txt.mjs`） | AI 客户端、锁② | 人工生成 + 入库 | F05 全部、F06 验收 2 |
 
-**★ HTTP 面断言落点（本表四行产物的可测承载）**：`GET /api/docs` 的响应形状 → `test/api-routes.test.js`（PR-1）；`GET /llms.txt` 的响应类型与"与仓库文件逐字节相等" → 同文件（起一个 web 实例）；`GET /docs`、`GET /debug` 的可达性与两个页面的静态契约 → `test/api-pages.test.js`（PR-2）。
+**★ HTTP 面断言落点（本表四行产物的可测承载；归属已由主 agent 裁决，2026-09-12，禁止再漂移）**：`GET /api/docs` 的响应形状 → `test/api-routes.test.js`（PR-1）；**`GET /llms.txt` 的全部断言（200 + `text/plain; charset=utf-8` + 与仓库文件逐字节相等）→ 同一文件（PR-1）**，与生成函数 / 快照 / 漂移锁② 同批；`GET /docs`、`GET /debug`、`GET /api-pages.css` 的可达性 / MIME 与两个页面的静态契约 → `test/api-pages.test.js`（PR-2）。**`test/api-pages.test.js` 不断言 llms.txt**（同一事实不在两处断言，避免漂移）。
 
 ---
 

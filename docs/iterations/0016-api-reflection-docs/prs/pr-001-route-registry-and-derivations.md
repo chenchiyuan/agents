@@ -27,7 +27,7 @@ src/web.js 扁平 if 链改为 12 项有序路由表并由表驱动分发（hand
 - [ ] `node --test oamp/test/api-routes.test.js` 全绿：F06 三条漂移锁各一个独立顶层用例 + C-5 七条与 Q-1~Q-8 的 L2 探针 + 匹配器 L3 单测（含"每个表项不被更靠前表项吞掉"的可达性断言）。
 - [ ] `oamp/test/web.test.js` 零字节改动（对该文件 `git diff` 为空）且其全部顶层用例通过；其余 19 个既有测试文件未改动且通过。
 - [ ] 起真实 web 实例：`GET /api/docs` → 200 `application/json; charset=utf-8`，`routes` 为 11 条（含本接口自身），每项含 `danger`（由 `method !== 'GET'` 派生）与 `docLink`。
-- [ ] `GET /llms.txt` → 200 `text/plain; charset=utf-8`，响应内容与 `oamp/web/llms.txt` 逐字节相等；`node oamp/scripts/gen-llms-txt.mjs` 重新生成后工作区无差异（快照新鲜）。
+- [ ] `GET /llms.txt` → 200 `text/plain; charset=utf-8`，响应内容与 `oamp/web/llms.txt` 逐字节相等；`node oamp/scripts/gen-llms-txt.mjs` 重新生成后工作区无差异（快照新鲜）。`/llms.txt` 的全部断言（可达性 + 响应类型 + 逐字节相等）都落在本 PR 的 `oamp/test/api-routes.test.js`，pr-002 不重复断言。
 - [ ] 锁③双向差集为空：登记侧 11 条签名集合与从 `oamp/API.md` 抽取的路径签名集合互不缺失、不多出。
 - [ ] 错误兜底覆盖面不缩小：`GET /api/chats/%E0%A4%A` → 502 且文案为 `router 不可达或请求失败: URI malformed`；`PUT /api/agents` → 404 `not found: PUT /api/agents`（无 405）。
 - [ ] `oamp/package.json` 未改动（`dependencies` 仍为 `{}`），`oamp/test/hygiene.test.js` 通过。
