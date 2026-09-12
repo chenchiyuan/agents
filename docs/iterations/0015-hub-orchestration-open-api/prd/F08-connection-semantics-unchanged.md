@@ -34,10 +34,10 @@
 - 不含**心跳频率行为**本身（F03）——本卡只保证频率变化不破坏上述语义。
 - 不含**接口面**的暴露与契约（F04 / F05 / F06）。
 
-## 架构维度（`[架构待填]`）
+## 架构维度（阶段 3 已填，2026-09-12；详见 `architecture.md` §3.3 / §3.7 / §9.2 / §11 AR-08）
 
-> 以下均为阶段 3 待决策项，本卡不做任何技术选型。
+> 以下为阶段 3 定案；产品维度逐字未动。
 
-- **AR-08-a 回归范围**：既有连接相关测试（注册 / 校验 / 顶替 / 注销 / 拓扑查询）的回归范围与执行方式。
-- **AR-08-b 边界确认**：判活阈值与心跳间隔联动（AR-03-b）之后，与"注册 / 校验 / 顶替语义不变"的边界确认——需明确"沿用现状"涵盖机制与语义、不含租约阈值取值（见 `prd.md` 疑问 1）。
-- **AR-08-c 兼容验证**：既有 agent（集群命令拉起 / 人工终端启动）零改动接入的验证方式。
+- **AR-08-a 回归范围**：**必须保持通过且不得修改**的既有连接面用例 —— `router-registry.test.js`（注册成功 + 四字段快照 / 双节点互不影响 / latest-wins 顶替）、`agent-heartbeat.test.js`（`REGISTERED` 含 `lease_timeout_ms` / `last_heartbeat` 推进 / SIGINT→deregister→退出 0 / 强杀→阈值后 `AGENT_OFFLINE` / 心跳正常期不误判）、`delivery-contract.test.js`（假节点心跳 + 投递 / ack）、`reconnect.test.js`。**执行方式** = 既有全量套件 `node --test test/*.test.js`，本迭代**不改这些文件**；新增断言只落在 `agent-heartbeat.test.js` 的**新增**档位段与纯函数段。
+- **AR-08-b 边界确认（prd 疑问 1 的架构侧闭环）**：按用户裁决"**机制不变、取值按 W5③ 联动**"——"沿用现状"涵盖：① 连接方向（仍只有 agent 主动连入，hub 不创建进程）；② 注册 / 心跳 / 注销的触发条件与语义；③ `isValidInstanceId` 的校验规则；④ latest-wins 顶替与 `agent.replaced` 通知；⑤ `router.status` / `snapshot()` 的 **4 字段与排序**（`oamp status` 仍可作 F01 验收 2 的对照基准）。**"沿用现状"不含租约阈值取值**：本次唯一被改动的两处是阈值推导（`router.js:477` → `registry.findExpired` 的 `max(基准, 2 × 通告)`）与 agent 的跳间隔（`agent.js` 的 `heartbeatPlan`），二者都**不属于注册语义**；默认配置下活跃档阈值数值仍是 30000（逐字不变）。
+- **AR-08-c 兼容验证**：**既有 agent 零改动接入** = 心跳体无 `next_interval_ms` ⇒ Router 阈值回退基准（与迭代前逐字一致，含默认值 30000 不变）。验证方式 = 既有 harness 的进程级用例（真实 CLI 子进程 `node bin/oamp.js agent start`，即集群命令与人工终端共用的同一条启动路径）+ 新增"无通告 ⇒ 不出现 `LEASE_ADJUSTED` / 阈值不抬升"的断言。**反向偏斜**（新 agent × 未重启的旧 Router）由 `lease_follows_interval` 缺省 ⇒ 打一条 `HEARTBEAT_IDLE_DISABLED` 并禁用空闲档处理（降级而非损坏，见 `architecture.md` §3.7）。

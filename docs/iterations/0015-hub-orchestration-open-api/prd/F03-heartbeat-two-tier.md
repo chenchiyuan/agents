@@ -14,7 +14,7 @@
 
 1. **活跃档保持频繁**：agent 有任务或交互时，心跳保持现状的频繁档（10 秒级）（W5 / E4）。
    *判定*：向该 agent 发一条对话消息后 **60 秒内，其心跳记录 ≥4 次**。
-   *口径*：这里的"任务 / 交互"= 该实例**收到并需要执行的对话消息（含处理中）**；心跳本身不计为"交互" `[model_inferred MI-01]`。
+   *口径*：这里的"任务 / 交互"= 该实例**收到并需要执行的对话消息（含处理中）**；心跳本身不计为"交互" `[user_confirmed MI-01]`。
 2. **空闲档降频到一分钟**：连续 **60 秒**无任务、无交互后进入空闲档，心跳间隔降到 **1 分钟一次**（W5 / TC-04 / E4 / M-4）。
    *判定*：空闲后连续观察 **3 分钟，心跳记录 ≤3 次**。
 3. **收到任务立即恢复频繁档**：空闲档下收到一条对话消息 → **立即**恢复频繁档，不等下一个心跳周期（W5 / E4）。
@@ -32,19 +32,20 @@
 
 ## 边界（不包含）
 
-- **不含档位切换机制与判活联动机制的实现选型**（心跳带状态 / 响应协商 / 服务端策略）——`[架构待填]`；需求层只锁验收 5/6/7 三条硬约束（C-2 / M-5）。
+- **不含档位切换机制与判活联动机制的实现选型**（心跳带状态 / 响应协商 / 服务端策略）——属架构维度，阶段 3 已定案（见下「架构维度」段）；需求层只锁验收 5/6/7 三条硬约束（C-2 / M-5）。
 - **不做用户可配的心跳参数界面 / 多档退避（>2 档）/ 无限退避**（N9）。
 - **不改变连接与注册协议语义**——那是 F08；本卡只改心跳的**频率行为**，不改注册 / 校验 / 顶替规则。
 - 不含 **agent 列表的展示与自动更新**（F01 / F02）。
 - 不含**发送对话指令的接口**本身（属 F04）。
 - 不含 **agent 进程的启动 / 停止**（N1 / N2）——心跳是 agent 自身的常态开销，与生命周期归属无关。
 
-## 架构维度（`[架构待填]`）
+## 架构维度（阶段 3 已填，2026-09-12；详见 `architecture.md` §3 全节 / §11 AR-03；**硬契约 ①**）
 
-> 以下均为阶段 3 待决策项，本卡不做任何技术选型。**C-2 的解法是本迭代唯一硬技术约束**。
+> **C-2 的解法已定案**（用户裁决"机制不变、取值按 W5③ 联动"）：`agent.heartbeat` 通知新增**可选**参数 `next_interval_ms`（本跳通告：距下一跳的间隔，毫秒），Router 的判活阈值按实例推导为 `max(基准阈值, 2 × 通告值)`；未通告 ⇒ 基准（＝迭代前逐字一致）。不变式"判活阈值 ≥ 2 × 心跳间隔"由**一行公式结构性保证**，空闲 60s 跳不会被判离线；全程零重注册、零新 session。
 
-- **AR-03-a 空闲判定与切换落点**：空闲判定在 agent 侧还是服务端；"无任务 / 无交互"的判定实现；档位切换的触发与生效路径。
-- **AR-03-b 判活联动机制（C-2 解法）**：如何在"不判 offline / 不换会话 / 租约 ≥ 2 × 间隔"三条约束下让降频成立（心跳带状态、响应协商、服务端策略三者择一或组合）。
-- **AR-03-c 会话身份保持**：降频路径不得重新注册、不得更换会话身份的实现保证。
-- **AR-03-d 取值与配置面**：两档取值与判活阈值的取值来源，以及与既有环境变量 / 配置默认值的兼容方式（不作为用户可调旋钮，N9）。
-- **AR-03-e 观测**：心跳记录 / 告警的可观测面，使验收 1~3、7 的计数与告警判定可执行。
+- **AR-03-a 空闲判定与切换落点（agent 侧 + 每跳前求值）**：档位判定**在 agent 侧**（只有 agent 知道"有没有任务"），落点 = `agent.js` 具名导出的纯函数 `heartbeatPlan({idleForMs, activeMs, idleMs})` → `{tier, intervalMs}`（`idleForMs >= idleMs` ⇒ idle；`idleMs === null` ⇒ 恒 active）。**切换在"每跳之前"求值**：`client.startHeartbeat(planNext)`，`planNext()` 每跳被调用一次 ⇒ 档位在恰好该跳生效，**不额外发跳、不额外定时器**（跳数不被切换污染，E4 的计数不被 +1 干扰）。**空闲判定输入** `lastActivityAt` 由两个钩子刷新：① `createTaskDeliverHandler` 的**首行**（任意 `message.deliver` 计为交互；心跳不经过该钩子，符合 MI-01）；② `runTask(...)` 返回 promise 的 settle 时刻（**"含处理中"**——`runTask` 是 fire-and-forget，长任务必须挂 promise 而不能只看 deliver 钩子）。**收到任务立即恢复**：`markActivity()` 内若当前为空闲档 ⇒ `client.startHeartbeat(planNext)`（`startHeartbeat` 首动作即"立即一跳"，通告 `activeMs`，不等下一个 60s 周期）。
+- **AR-03-b 判活联动机制（C-2 解法）**：心跳通告 `next_interval_ms`（正整数毫秒）与 `setTimeout` 的调度值**同源**（同一个变量），不可能与真实节奏漂移；Router 的阈值推导唯一落点 = `registry.findExpired`：`entry.next_interval_ms === null ? baseTimeoutMs : max(baseTimeoutMs, 2 × entry.next_interval_ms)`。**默认配置数值**：活跃档 `max(30000, 20000) = 30000`（**与迭代前逐字一致**）、空闲档 `max(30000, 120000) = 120000`（= 2 × 间隔）。通告在前向方向上生效 ⇒ **长间隔发生之前阈值就已放大**。通告校验：正整数且 ≤ `MAX_ANNOUNCED_INTERVAL_MS(600000)`，非法/缺失 ⇒ 视为未通告（fail-closed；**不影响** `last_heartbeat` 的更新）。**否决方案**：① 档位枚举字段（通告的"档位"与真实定时器可互相漂移）；② Router 全局抬阈值到 120s（把全体节点的判活精度拖到最低档、改写既有 env 语义，保留为 L1-01 的回退项）；③ 新增 `agent.renew` 续期方法（新协议面 + 新失败模式，而每跳通告已等价于续期且零额外往返）。
+- **AR-03-c 会话身份保持**：降频路径**不触碰** `agent.register` / `agent.deregister` / `agent.replaced`，不新建 session、不断连、不触发 agent 的 `CONNECTION_LOST` / 重连分支 ⇒ 实例标识与会话绑定不变。证据面：`HEARTBEAT_TIER` 事件同时携带 `instance` 与 `session`（切换前后同值）；空闲期间 `AGENT_REGISTERED` / `AGENT_OFFLINE` 零命中；`router.status` 的 `session_id` 逐字不变。
+- **AR-03-d 取值与配置面**：`config.js` 新增派生字段 `heartbeatIdleMs = HEARTBEAT_IDLE_FACTOR(6) × heartbeatIntervalMs` ⇒ 默认 **60000ms**（W5 / TC-04 / M-4 的"1 分钟"），测试环境（harness `SHORT_ENV` interval=50）自动压缩为 **300ms**（端到端可测）。**不新增 env 键、不新增 config.json 键**（N9：不作为用户可调旋钮）。`OAMP_HEARTBEAT_INTERVAL_MS` 的文档含义不变（空闲档随之等比）；`OAMP_HEARTBEAT_TIMEOUT_MS` 语义变为"**基准**阈值"（已通告实例按其 `2×` 抬升，未通告实例逐字沿用）。
+- **AR-03-e 观测**：① **`HEARTBEAT_SENT`**（agent，**不节流**，每跳一条：`instance` / `tier` / `interval_ms`）——默认配置下 Router 侧 `HEARTBEAT` 被 `OAMP_HB_LOG_WINDOW_MS=60000` 滑窗压到 1 条/分钟，**不足以计数**（E4"心跳记录可直接计数"的判定缺口的最小修复）；② **`HEARTBEAT_TIER`**（agent，仅档位变化：`+session`）——进入空闲档的时刻锚点 + "session 未变"证据 + "只有两档"证据；③ **`LEASE_ADJUSTED`**（Router，仅通告值变化：`next_interval_ms` + `threshold_ms`）——验收 7 的**服务端直接证据**（阈值随间隔联动）；④ 既有 `LEASE_ALARM`（语义不变）与 `AGENT_OFFLINE`（验收 5 的反向证据）。**计数规程**（默认配置口径；压缩环境的自动化断言面见 `architecture.md` §3.6）：空闲计数窗口的左端 = `tier=idle` 那条 `HEARTBEAT_TIER` 记录**之后**（进入空闲档的那一跳是活跃档的最后一跳，记为 `tier=active`），窗口内 `tier=idle` 的 `HEARTBEAT_SENT` ≤3 条（60s 间隔、3 分钟恰 3 条）；边界算术见 `architecture.md` §16 R-1（**已裁决：保持 60s，不采用 65s 备选**）；§3.6 的计数窗口规程（进入空闲档的那一跳记为 `tier=active`、窗口左端取该跳之后）同为**实现契约**，阶段 6 按此断言 E4。
+- **兼容边界（与 F08 的交叉面）**：`agent.register` 回包新增 `lease_follows_interval: true`；旧 Router（缺该字段）⇒ agent 打一条 `HEARTBEAT_IDLE_DISABLED` 并**保持活跃档**（降级为迭代前行为、不换会话、不判离线）。既有 agent（心跳无通告字段）⇒ 阈值回退基准 ⇒ 行为与迭代前逐字一致（F08 验收 6）。
