@@ -88,3 +88,15 @@
 - 阶段：阶段 5（PR 实现，并发首批）
 - 任务：pr-001（心跳两档与租约联动）；pr-002（开放接口 + 全局事件流 + 统一错误 + 顶栏面板）
 - PR：prs/pr-001-heartbeat-two-tier.md、prs/pr-002-open-api-and-agent-panel.md
+
+### 2026-09-12 11:16:09 · 调度决策 · Gate确认
+
+- 决策内容：**L1-01（协议可选字段增补）经用户确认采纳**——`agent.heartbeat` 新增可选参数 `next_interval_ms`；`agent.register` 回包新增附加字段 `lease_follows_interval: true`。同批确认：R-1 保持 60s、TC-05 不纳入 tasks、TC-06 不鉴权仅同机、TC-07 文档 = `oamp/API.md`；主 agent 另裁决统一错误契约横切变更按 L2 处理。
+- 触发依据：主 agent 向用户呈报 L1-01（含采纳/回退机制 C/只采纳一半三选项）与 R-1 两问，用户回复「采纳（推荐）」与「保持 60s（推荐）」；补记原因 = 独立验证指出产物内缺 Gate 确认留痕（verify-20260912-111418-stage234.md 标准 4）
+
+### 2026-09-12 11:16:09 · 收到报告 · verifier（阶段 2/3/4）
+
+- 1. 报告路径：docs/iterations/0015-hub-orchestration-open-api/clarifications/verify-20260912-111418-stage234.md；结论 PASS（0 fail / 3 partial / 9 偏差）
+- 2. 逐项判定摘要：prd 覆盖性与无技术污染 pass；AR 全填零残留 pass；L1-01 标注成立（且独立复核「transport 全局键 + /api/events」不构成系统边界变更）；三条硬契约可执行性经代码对照 pass；prs 七字段/互斥/无环/覆盖 pass
+- 3. 最需关注发现：L1-01 的用户确认留痕不足（history 无 Gate 记录、status 待确认项无该条）→ **已由主 agent 补齐**（见上一条 Gate确认记录）
+- 4. 疑问/越界：borderline 项（统一错误契约横切变更）判 L2 —— 主 agent 已裁决接受
