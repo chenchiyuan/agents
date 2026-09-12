@@ -64,3 +64,27 @@
 
 - 阶段：阶段 4（PR 规划）
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖，产出 prs/ 目录下的 PR 文件
+
+### 2026-09-12 13:27:00 · 收到报告 · pr-planner
+
+- 1. prs/ 路径 + 文件列表：docs/iterations/0016-api-reflection-docs/prs/；pr-001-route-registry-and-derivations.md、pr-002-docs-and-debug-pages.md
+- 2. 每 PR 摘要：pr-001（web.js 路由表+分发+/api/docs+4 具名导出 + gen 脚本 + llms.txt + API.md + api-routes.test.js；F01/F02/F05/F06/F08；10 条验收）；pr-002（5 个 web 资产 + index.html/style.css/README + api-pages.test.js；F03/F04/F07/F08；10 条验收）
+- 3. depends_on 证据：pr-002 → pr-001 三条代码耦合边（fetch('/api/docs') 投影来源仅 pr-001；/docs /debug 可达性依赖 STATIC_FILES 新增；api-pages.test.js 断言的 MIME 依赖 STATIC_TYPES）
+- 4. 校验：七字段齐备、文件范围零重叠（5+9）、F01~F08 全覆盖、依赖图无环
+- 5. 疑问/越界：两点已裁决——① F08 验收 3 跨两 PR 的拆分接受 ② `/llms.txt` 断言归属裁决归 pr-001（architecture §4.4 由 architect 同步修正）；已知中间态（pr-001 单独合并后 /docs 等 URL 由 JSON 404 变纯文本 404）已写明
+
+### 2026-09-12 13:27:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 4（PR 规划）推进条件满足，进入阶段 5；初始化并发配置；pr-001 先行派发（pr-002 依赖其三条耦合边）
+- 触发依据：2 PR 七字段齐备；depends_on 有代码级证据；文件范围互斥；依赖图无环；F01~F08 全覆盖
+
+### 2026-09-12 13:27:00 · 派发 · verifier（阶段 2/3/4 合并验证）
+
+- 阶段：阶段 3（技术架构）
+- 任务：独立验证 prd 覆盖性、architecture 补全度与 L1 留痕、prs 依赖正确性与格式
+
+### 2026-09-12 13:27:00 · 派发 · dev（pr-001-route-registry-and-derivations）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-001（声明式路由表 + 分发重构 + /api/docs + llms.txt + 三条漂移锁）
+- PR：prs/pr-001-route-registry-and-derivations.md
