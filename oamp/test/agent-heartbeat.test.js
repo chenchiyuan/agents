@@ -393,6 +393,5 @@ test('F08-2/6：既有客户端（心跳无 next_interval_ms）⇒ 阈值回退�
   const nodeB = await statusOf(router.socketPath, 'legacy-b');
   assert.equal(nodeB.state, 'online', '未通告实例按基准判活，通告实例按 2 × 通告值放宽');
   assert.equal(countMatching(router.stdout.lines, /LEASE_ADJUSTED instance=legacy-a/), 0, '未通告 ⇒ 零阈值联动事件（逐字与迭代前一致）');
-  const adjB = await router.waitRouterLine(/LEASE_ADJUSTED instance=legacy-b next_interval_ms=60000 threshold_ms=120000/);
-  assert.match(adjB, /threshold_ms=120000/);
+  await router.waitRouterLine(/LEASE_ADJUSTED instance=legacy-b next_interval_ms=60000 threshold_ms=120000/);
 });

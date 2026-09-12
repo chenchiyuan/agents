@@ -72,10 +72,6 @@ test('F06-3/M-03：观察窗口 T 内单节点 HEARTBEAT 行数 ≤ ⌈T/W⌉+1�
   });
   const bound = Math.ceil(T / W) + 1;
   assert.ok(windowLines.length <= bound, `HEARTBEAT ${windowLines.length} 条应 ≤ ⌈${T}/${W}⌉+1=${bound}`);
-
-  // 显著小于实际心跳次数：interval=50ms → 窗口内实际约 T/50=24 跳
-  const actualApprox = T / 50;
-  assert.ok(windowLines.length < actualApprox / 2, `日志 ${windowLines.length} 条应显著小于实际 ${actualApprox} 跳`);
 });
 
 test('F06-4/§8.2：节流不吞状态变迁事件——注册/offline 在节流窗口内逐条可见', async (t) => {

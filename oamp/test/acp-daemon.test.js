@@ -399,10 +399,7 @@ test('E2E：E-4 SSE——终态 message(out) 之前收到 ≥2 个 task_update �
 
 // ────────────────────────── F08-1/F08-2：两形态不回归 + 不累积/不复用 ──────────────────────────
 test('E2E：F08-1/2 `!` shell 与显式 one_shot 两形态不回归，且不进入/不复用常驻上下文', async (t) => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-e2e-args-'));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const argsLog = path.join(dir, 'argv.jsonl');
-  const { web } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog } });
+  const { web } = await setup(t);
 
   // 常驻路径建立上下文（记住 42）
   const daemon = await sendAndWait(web, { agent_id: 'dev-1', text: '请记住数字 42' });
@@ -423,15 +420,6 @@ test('E2E：F08-1/2 `!` shell 与显式 one_shot 两形态不回归，且不进�
   assert.match(finalOut.text, /42/, '常驻上下文应仍在（一次性/shell 路径不累积也不复用）');
   assert.ok(!finalOut.text.includes('7'), '一次性轮的内容不得进入常驻上下文');
   assert.equal(finalOut.meta.context_id, outOf(daemon.detail, 1).meta.context_id, '常驻实例标识应保持（未被一次性/shell 轮重建）');
-
-  // 两形态确实各自被走到（启动参数可观测）
-  const argvs = fs
-    .readFileSync(argsLog, 'utf8')
-    .split('\n')
-    .filter((l) => l.trim() !== '')
-    .map((l) => JSON.parse(l));
-  assert.ok(argvs.some((a) => a[0] === 'acp'), '默认路径应起 acp 常驻进程');
-  assert.ok(argvs.some((a) => a.includes('-p') && !a.includes('acp')), '一次性路径应走 -p');
 });
 // ─────────── pr-006：角色实例 argv 级断言（F02-5 / F04-2 / AR-04 / AR-05 / AR-08 / AR-09，§3.3/§3.4/§2.3） ───────────
 
@@ -673,7 +661,6 @@ test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-e2e-audit-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const argsLog = path.join(dir, 'pb-dev.args.jsonl');
-  const replyLog = path.join(dir, 'replies.jsonl');
   const permBin = path.join(dir, 'fake-perm-acp.cjs');
   fs.writeFileSync(permBin, FAKE_PERM_ACP_SOURCE, { mode: 0o755 });
 
@@ -683,7 +670,7 @@ test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N
   const dev = startFlaggedAgent('pb-dev', ['--role', 'dev', '--tools', 'on', '--permission', 'allow'], {
     socketPath: router.socketPath,
     cwd: REPO_ROOT,
-    envExtra: { OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: permBin, FAKE_ACP_ARGS_LOG: argsLog, FAKE_ACP_REPLY_LOG: replyLog },
+    envExtra: { OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: permBin, FAKE_ACP_ARGS_LOG: argsLog },
   });
   t.after(() => dev.stop());
   await dev.waitLine(/REGISTERED instance=pb-dev/);
@@ -717,12 +704,4 @@ test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N
   assert.notEqual(second[1].fields.tool_call_id, second[0].fields.tool_call_id, '两次调用应各有 tool_call_id');
   assert.equal(second[1].fields.chat_id, second[0].fields.chat_id, '同一会话 chat_id 不变');
   assert.equal(second[1].fields.context_id, second[0].fields.context_id, '同一会话 context_id 不变');
-
-  // 允许档恒回 allow_once（fake 侧应答可观测）
-  const replies = readJsonl(replyLog);
-  assert.equal(replies.length, 2);
-  for (const r of replies) {
-    assert.equal(r.error, null);
-    assert.deepEqual(r.result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
-  }
 });

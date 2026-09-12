@@ -154,7 +154,7 @@ test('F05-4：只读无副作用——连续两次 status 仅 last_heartbeat 自
   assert.equal(r1[0], 'dev-1');
   assert.deepEqual([r1[0], r1[1], r1[2]], [r2[0], r2[1], r2[2]], '两轮查询的 id/session/state 应一致');
   assert.equal(r1[2], 'online');
-  assert.ok(Date.parse(r2[3]) >= Date.parse(r1[3]), 'last_heartbeat 第二轮应 ≥ 第一轮（仅自然推进）');
+  assert.ok(Date.parse(r2[3]) > Date.parse(r1[3]), 'last_heartbeat 第二轮应严格推进（仅自然推进）');
 
   // 注册表内容不变：两次查询后快照的条目集合/session/state 与查询前一致
   const after = await queryStatus(router.socketPath);

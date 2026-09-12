@@ -1,6 +1,6 @@
 // test/transport.test.js — PR-002 传输抽象单元测试（architecture §5.1~§5.4 / §17「单元」层）
-// 载体：node:http 起真实服务（随机端口，?chat_id 交给 transport.handle——pr-004 的接线形态，
-//       本 PR 不接线 web.js）+ node:http 裸客户端读流断言（可原样读 connection 等响应头）。
+// 载体：node:http 起真实服务（随机端口，?chat_id 交给 transport.handle）+ node:http 裸客户端读流断言
+//       （可原样读 connection 等响应头）；web.js 已接线 createSseTransport（§5.1 替换点）。
 // 不依赖浏览器、外网、真实 oamp/data/；每用例独立服务与连接。
 
 import { test } from 'node:test';

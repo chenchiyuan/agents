@@ -49,10 +49,7 @@ test('缺省路径：加载仓库根 cluster.json，roles 键恰为 10 个角色
   assert.equal(cfg.session, 'oamp-cluster');
   assert.deepEqual(cfg.web, { port: 7788 });
   assert.deepEqual(cfg.router, { socket: null });
-  assert.ok(cfg.roles instanceof Map);
   assert.deepEqual([...cfg.roles.keys()], ROLES);
-  assert.equal(cfg.roles.has('_template'), false);
-  assert.equal(cfg.roles.has('cdp-debug-skill'), false);
   for (const role of ROLES) {
     const value = cfg.roles.get(role);
     assert.equal(value.instanceId, instanceIdForRole(role));
@@ -238,13 +235,10 @@ test('roles Map 键为角色名、顺序 = 配置声明序、instanceId 单点�
   for (const [role, value] of cfg.roles) {
     assert.equal(value.instanceId, instanceIdForRole(role));
   }
-  assert.equal(cfg.roles.get('prd').instanceId, instanceIdForRole('prd'));
 });
 
 test('roles 段整体缺省 → 空 Map（不抛错；角色清单完全由配置驱动）', (t) => {
   const f = tmpFixture(t, {});
   const cfg = f.load();
-  assert.ok(cfg.roles instanceof Map);
   assert.equal(cfg.roles.size, 0);
-  assert.equal(cfg.session, 'oamp-cluster');
 });

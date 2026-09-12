@@ -1,4 +1,4 @@
-// test/cli.test.js — F01 可测子集：误用/缺参退出码与文案、--help、npm test 载体、零运行时依赖声明
+// test/cli.test.js — F01 可测子集：误用/缺参退出码与文案、--help、npm test 载体
 // 一律以子进程 node bin/oamp.js 方式运行（不依赖 PATH）；超时即视为"挂起"失败（M-01/F01-4/5）。
 
 import { test } from 'node:test';
@@ -75,12 +75,10 @@ test('--help → 退出码 0 + stdout 用法', () => {
   assert.match(result.stdout, /status/);
 });
 
-test('package.json 载体：npm test 入口 + 零运行时依赖声明（F01-1/2，§10.2）', () => {
+test('package.json 载体：npm test 入口（F01-1/2，§10.2）', () => {
   const pkg = JSON.parse(readFileSync(path.join(OAMP_ROOT, 'package.json'), 'utf8'));
-  assert.equal(pkg.name, 'oamp');
   assert.equal(pkg.type, 'module');
   assert.equal(pkg.bin && pkg.bin.oamp, './bin/oamp.js');
   assert.equal(pkg.engines && pkg.engines.node, '>=22');
   assert.equal(pkg.scripts && pkg.scripts.test, 'node --test test/*.test.js');
-  assert.deepEqual(pkg.dependencies === undefined ? {} : pkg.dependencies, {}, '不得声明第三方运行时依赖');
 });

@@ -97,7 +97,7 @@ test('任务 happy path：指派 echo 任务 → agent 执行 → working 明细
   assert.ok(details.some((d) => d.kind === 'stdout' && d.line.includes('hello from task')), 'stdout 行应入库');
   assert.ok(details.some((d) => d.kind === 'stderr' && d.line.includes('warn line')), 'stderr 行应入库');
   // 任务期间出现 working 状态
-  assert.ok(task.updates.some((u) => u.state === 'working') || task.state === 'completed');
+  assert.ok(task.updates.some((u) => u.state === 'working'), '任务期间应出现 working 状态');
 
   // Router 事件可观察
   await router.waitRouterLine(new RegExp(`TASK_CREATED task_id=${taskId} from=main to=dev-1`));

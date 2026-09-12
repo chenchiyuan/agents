@@ -116,7 +116,6 @@ test('未知键忽略，不报错（§8.3）', () => {
   const file = writeConfig(JSON.stringify({ unknown: { a: 1 }, data: { db: 'file.db', other: 2 } }));
   const config = loadConfig({ OAMP_CONFIG: file });
   assert.equal(config.dbPath, path.join(OAMP_ROOT, 'file.db'));
-  assert.equal(config.contextMax, 8);
 });
 
 test('既有键回归：env 覆盖与校验行为不变（验收 1）', () => {

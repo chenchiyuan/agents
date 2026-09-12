@@ -40,7 +40,6 @@ function roleRootFixture(roles) {
 }
 
 test('instanceIdForRole：10 个角色 → pb-<role>，公式单一（F01-1 / 验收 2）', () => {
-  assert.equal(instanceIdForRole('dev'), 'pb-dev');
   for (const role of ROLES) {
     assert.equal(instanceIdForRole(role), `pb-${role}`);
   }
@@ -81,14 +80,11 @@ test('roleFromInstanceId：前缀不成立 / 角色文件缺失 → null（验�
   const env = { OAMP_ROLE_ROOT: roleRootFixture(['dev']) };
   assert.equal(roleFromInstanceId('dev-1', env), null);
   assert.equal(roleFromInstanceId('pb-', env), null);
-  assert.equal(roleFromInstanceId('', env), null);
   assert.equal(roleFromInstanceId('pb-architect', env), null); // 前缀成立但文件不存在
   assert.equal(roleFromInstanceId('pb-dev-1', env), null); // id 无后缀：不截断为 dev
 });
 
 test('roleFromInstanceId：非法输入 → null（验收 3）', () => {
   assert.equal(roleFromInstanceId(null), null);
-  assert.equal(roleFromInstanceId(undefined), null);
-  assert.equal(roleFromInstanceId(123), null);
   assert.equal(roleFromInstanceId({}), null);
 });

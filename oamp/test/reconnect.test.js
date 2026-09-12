@@ -66,7 +66,7 @@ test('自愈：Router 崩溃（SIGKILL）→ agent 不退出并等待 → 同路
   await waitFor(async () => {
     const res = await fetchStatus(sock);
     const node = res.nodes.find((n) => n.instance_id === 'dev-1');
-    return node && node.last_heartbeat >= snap.last_heartbeat;
+    return node && node.last_heartbeat > snap.last_heartbeat;
   }, { what: '重连后心跳继续' });
 });
 

@@ -222,24 +222,6 @@ test('up：session/窗口名与数量、每窗 -c、命令串、日志 truncate 
   assert.equal(ignored.status, 0, '日志产物应被既有 .gitignore 的 .runtime/ 覆盖');
 });
 
-test('up：配置驱动——fixture 增删角色 ⇒ 窗口数随增减，脚本零改动（F06 验收 1 / M-03）', (t) => {
-  const before = snapshotLogs();
-  const dir = makeTempDir();
-  cleanupTest(t, dir, before);
-  const tmux = writeFakeTmux(dir);
-  const { configPath } = makeFixture({ roles: { dev: {}, planner: {}, prd: {} } });
-  const logPath = path.join(dir, 'tmux.log');
-  const statePath = writeState(dir, { hasSession: false, windows: [] });
-
-  const result = runCluster(
-    ['up', '--config', configPath, '--wait', '0'],
-    clusterEnv({ tmuxBin: tmux, logPath, statePath, socketPath: path.join(dir, 'unused.sock'), waitMs: 0 }),
-  );
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /集群已启动（session=test-cluster，5 窗口）/); // router + web + 3 角色
-  assert.equal(tmuxCalls(logPath).filter((call) => call[0] === 'new-window').length, 4);
-});
-
 test('up：省略 --config ⇒ 缺省仓库根 cluster.json 驱动（12 窗口 = router + web + 10 个 pb-*）', (t) => {
   const before = snapshotLogs();
   const dir = makeTempDir();

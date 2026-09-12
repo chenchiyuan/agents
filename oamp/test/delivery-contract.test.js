@@ -331,8 +331,6 @@ test('真实 agent 受理：send 投递 real-1 → 传输应答 + 自动 ack + M
   const recvLine = await agent.waitAgentLine(new RegExp(`MSG_RECEIVED message_id=${msgId} from=dev-a size=\\d+`));
   assert.ok(!recvLine.includes(secretBody), 'MSG_RECEIVED 行不得含消息正文');
   assert.ok(!agent.stdout.text().includes(secretBody), 'agent 日志整体不得含消息正文');
-  assert.match(recvLine, /size=\d+/);
-
   // 真实节点仍存活可再交互 → SIGINT 干净 deregister 退出 0（§6.3/F03-3）
   const r2 = await a.send('real-1', makeMsg({ message_id: 'msg-real-2' }));
   assert.deepEqual(r2, { accepted: true, message_id: 'msg-real-2', status: 'delivered' });
