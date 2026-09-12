@@ -433,6 +433,7 @@ function runShellTask(client, logger, message, task) {
  */
 function createTaskDeliverHandler(client, logger, ctx) {
   return function handleDeliver(message) {
+    ctx.markActivity(); // F03/§3.4 钩子①：任何投递 = 交互（含 task.request / notice）；心跳不经过本钩子
     if (message.type === 'notice') {
       handleNotice(logger, message, ctx.pool);
       return undefined; // 自动 ack accepted = 受理
@@ -444,7 +445,14 @@ function createTaskDeliverHandler(client, logger, ctx) {
       logger.event('TASK_REJECTED', { task_id: message.task_id || '', reason: parsed.reason, from: message.from.instance_id });
       return false; // 阻止 node-client 自动 ack accepted（已回 rejected）
     }
-    runTask(client, logger, message, parsed.task, ctx).catch(() => {});
+    // F03/§3.4 钩子②：处理中恒按活跃档求值；settle 时刻刷新活动时间戳（runTask 是 fire-and-forget，S-5）
+    ctx.beginTask();
+    const running = runTask(client, logger, message, parsed.task, ctx);
+    if (running && typeof running.then === 'function') {
+      running.then(() => ctx.endTask(), () => ctx.endTask());
+    } else {
+      ctx.endTask();
+    }
     return undefined; // 自动 ack accepted = 受理
   };
 }
@@ -512,6 +520,18 @@ function readEnvModel() {
   return typeof raw === 'string' && raw.trim() !== '' ? raw : null;
 }
 
+/**
+ * heartbeatPlan — 心跳档位纯函数（F03/§3.4 唯一判定点）。
+ *   idleForMs <  idleMs ⇒ 活跃档（intervalMs = activeMs）
+ *   idleForMs >= idleMs ⇒ 空闲档（intervalMs = idleMs）
+ *   idleMs === null     ⇒ 恒活跃档（旧 Router 降级：判活阈值固定，禁用空闲档）
+ * 返回值只有这两个形状 ⇒ "只有两档、无第三档/退避"由结构保证（F03 验收 8）。
+ */
+export function heartbeatPlan({ idleForMs, activeMs, idleMs }) {
+  if (idleMs === null || idleForMs < idleMs) return { tier: 'active', intervalMs: activeMs };
+  return { tier: 'idle', intervalMs: idleMs };
+}
+
 export default async function startAgent(restArgs) {
   const args = parseAgentArgs(restArgs);
   if (!args.ok) {
@@ -575,6 +595,14 @@ export default async function startAgent(restArgs) {
     tools: effectiveTools,
     permission,
   });
+  // —— 心跳活动面（F03/§3.4）：lastActivityAt 由「投递首行」与「runTask settle」两个钩子刷新；
+  //    任务在飞（inflight > 0）⇒ 恒按活跃档求值（"含处理中"）；心跳本身不经过这两个钩子（MI-01）。
+  const activity = { lastActivityAt: Date.now(), inflight: 0 };
+  let resumeHeartbeat = null; // 当前会话安装：仅当已进入空闲档时重启心跳（首动作即"立即一跳"）
+  const markActivity = () => {
+    activity.lastActivityAt = Date.now();
+    if (resumeHeartbeat) resumeHeartbeat();
+  };
   const taskCtx = {
     pool,
     instanceId,
@@ -584,6 +612,15 @@ export default async function startAgent(restArgs) {
     tools: effectiveTools,
     roleFile,
     permission,
+    markActivity,
+    idleForMs: () => (activity.inflight > 0 ? 0 : Date.now() - activity.lastActivityAt),
+    beginTask: () => {
+      activity.inflight += 1;
+    },
+    endTask: () => {
+      activity.inflight = Math.max(0, activity.inflight - 1);
+      activity.lastActivityAt = Date.now(); // 任务结束后再过 idleMs 才进入空闲档
+    },
   };
   let shuttingDown = false;
   let sigintCount = 0;
@@ -667,12 +704,46 @@ export default async function startAgent(restArgs) {
           note: 'lease_timeout_ms < 2 x heartbeat_interval_ms（建议 timeout >= 2 x interval）',
         });
       }
-      client.startHeartbeat(config.heartbeatIntervalMs);
+      // —— 心跳两档（F03/§3.4）：档位在每跳之前求值；通告值与 setTimeout 调度值同源（同一个返回值）——
+      const idleAllowed = registered.lease_follows_interval === true;
+      const activeMs = config.heartbeatIntervalMs;
+      const idleMs = idleAllowed ? config.heartbeatIdleMs : null;
+      if (!idleAllowed) {
+        // §3.7 版本偏斜（新 agent × 旧 Router）：判活阈值固定 ⇒ 降级为迭代前的活跃档（不换会话、不判离线）
+        logger.event('HEARTBEAT_IDLE_DISABLED', {
+          instance: instanceId,
+          note: 'router 未通告 lease_follows_interval（判活阈值固定）：空闲档已禁用，保持活跃档',
+        });
+      }
+      // tier = 本跳所属档位（本跳是在该档位的节奏上到来的）；planNext 的返回值决定下一跳的间隔与档位
+      let tier = 'active';
+      const planNext = () => {
+        const plan = heartbeatPlan({ idleForMs: taskCtx.idleForMs(), activeMs, idleMs });
+        if (plan.tier !== tier) {
+          // 进入空闲档的那一跳：HEARTBEAT_TIER 打出新档位，本跳的 HEARTBEAT_SENT 仍记为 tier=active（§3.6 计数规程）
+          logger.event('HEARTBEAT_TIER', {
+            instance: instanceId,
+            session: registered.session_id,
+            tier: plan.tier,
+            interval_ms: plan.intervalMs,
+          });
+        }
+        logger.event('HEARTBEAT_SENT', { instance: instanceId, tier, interval_ms: plan.intervalMs });
+        tier = plan.tier;
+        return plan.intervalMs;
+      };
+      activity.lastActivityAt = Date.now(); // 新会话：活动时钟从注册时刻起算
+      resumeHeartbeat = () => {
+        if (tier === 'idle') client.startHeartbeat(planNext); // 不等下一个空闲周期
+      };
+      client.startHeartbeat(planNext);
 
       const outcome = await new Promise((resolve) => {
         client.onClose = () => resolve(shuttingDown ? 'shutdown' : client.replaced ? 'replaced' : 'lost');
         shutdownPromise.then(() => resolve('shutdown'));
       });
+
+      resumeHeartbeat = null; // 会话结束：摘掉恢复钩子（重连轮次由新会话重新安装）
 
       if (outcome === 'shutdown') break;
 

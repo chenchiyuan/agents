@@ -151,6 +151,8 @@ export default async function startRouter(restArgs) {
             state: entry.state,
             lease_timeout_ms: config.heartbeatTimeoutMs,
             last_heartbeat: entry.last_heartbeat,
+            // F03/§3.3 协议面②：本 Router 会把该实例判活阈值抬到 max(lease_timeout_ms, 2 × 最近通告值)
+            lease_follows_interval: true,
           });
         }
         return;
@@ -158,12 +160,23 @@ export default async function startRouter(restArgs) {
 
       case 'agent.heartbeat': {
         // 通知语义（无响应）；会话不匹配 live → 静默忽略（§4.6），事件日志不记录被忽略的旧会话心跳
+        const announcedBefore = registry.getEntry(params.instance_id)?.next_interval_ms ?? null;
         const updated = registry.heartbeat({
           instanceId: params.instance_id,
           sessionId: params.session_id,
+          nextIntervalMs: params.next_interval_ms, // F03/§3.3：可选通告值（缺省/非法 ⇒ 视为未通告）
           now: Date.now(),
         });
         if (updated) {
+          // F03/§3.6：通告值变化 ⇒ 一条 LEASE_ADJUSTED（阈值随间隔联动的服务端直接证据；变化即打、无节流）
+          const announced = registry.getEntry(params.instance_id)?.next_interval_ms ?? null;
+          if (announced !== announcedBefore) {
+            logger.event('LEASE_ADJUSTED', {
+              instance: params.instance_id,
+              next_interval_ms: announced,
+              threshold_ms: announced == null ? config.heartbeatTimeoutMs : Math.max(config.heartbeatTimeoutMs, 2 * announced),
+            });
+          }
           // 心跳节流事件（§8.2：只节流 HEARTBEAT，每节点滑窗；registry 状态更新与日志节流解耦）
           logger.heartbeat({ instance: params.instance_id, session: params.session_id });
         }

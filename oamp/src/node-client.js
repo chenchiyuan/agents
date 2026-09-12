@@ -149,25 +149,46 @@ export class NodeClient {
     return result;
   }
 
-  /** 周期心跳（通知，无响应）。 */
+  /**
+   * 周期心跳（通知，无响应）。intervalMs 允许为**函数**：每跳前调用一次，返回值同时充当本跳通告
+   * （`next_interval_ms` = 距下一跳的间隔）与下一跳的调度值——二者同源，不可能漂移（F03/§3.4）。
+   * 自调度 setTimeout 链（非 setInterval）：档位在"恰好该跳"生效，跳数不因切换增加。
+   */
   startHeartbeat(intervalMs) {
     this._stopHeartbeat();
-    const tick = () => {
+    const nextOf = typeof intervalMs === 'function' ? intervalMs : () => intervalMs;
+    const beat = () => {
+      let next;
       try {
-        this._assertPeer();
-        this.peer.notify('agent.heartbeat', { instance_id: this.instanceId, session_id: this.sessionId });
+        next = nextOf();
       } catch {
         this._stopHeartbeat();
+        return;
       }
+      if (!Number.isInteger(next) || next < 1) {
+        this._stopHeartbeat(); // 非法间隔：停（快速失败，不做 1ms 忙循环；下一个 startHeartbeat 可恢复）
+        return;
+      }
+      try {
+        this._assertPeer();
+        this.peer.notify('agent.heartbeat', {
+          instance_id: this.instanceId,
+          session_id: this.sessionId,
+          next_interval_ms: next,
+        });
+      } catch {
+        this._stopHeartbeat();
+        return;
+      }
+      this._hbTimer = setTimeout(beat, next);
+      if (this._hbTimer.unref) this._hbTimer.unref();
     };
-    tick(); // 注册后立即一跳，推进 last_heartbeat
-    this._hbTimer = setInterval(tick, intervalMs);
-    if (this._hbTimer.unref) this._hbTimer.unref();
+    beat(); // 注册后立即一跳，推进 last_heartbeat
   }
 
   _stopHeartbeat() {
     if (this._hbTimer) {
-      clearInterval(this._hbTimer);
+      clearTimeout(this._hbTimer);
       this._hbTimer = null;
     }
   }
