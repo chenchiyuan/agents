@@ -314,15 +314,20 @@ sequenceDiagram
   W->>R: router.status（≤2s 后的 tick）
   W->>W: diffTopology(prev, nodes) → 新上线 dev-1
   W->>ES: agent_online（instance_id + last_heartbeat；时延 ≤2s，判定界 5s）
-  AG->>R: SIGINT → agent.deregister（或崩溃 → 阈值后 markOffline）
+  AG->>R: SIGINT → agent.deregister（条目即时消失）｜崩溃 / 强杀 → 先等租约判 offline
   W->>R: router.status
-  W->>ES: agent_offline（instance_id）
+  W->>ES: agent_offline（instance_id；产生到推送 ≤2s，离线判定时延不计在内）
 ```
 
 - **判定源** = `router.status` 的 `state === 'online'` 集合（唯一真源：既有注册表），**不是**日志行、不是新的推送通道。
 - **为什么用轮询而不是让 Router 推送**：让 Router 主动广播需要新增通知方法 + 订阅登记 + 背压语义（新协议面 + Router 新职责 = **L1 级代价**），而 web 与 Router 同机同 UDS，`queryOnce(router.status)`（能力 B）**已经是 `/api/agents` 的数据源**——差值法天然"不重不漏"（每次 tick 与权威快照对齐，而不是依赖事件流自身的可靠性）。**否决理由见 §13**。
 - **只在有全局订阅者时运行**：`globalCount() === 0` ⇒ tick 自停并丢弃 `prev`；首个订阅者到达 ⇒ 播种一次基线（**不发事件**，避免"虚报上线"），随后每 2s diff。无订阅者时**零开销**（不新增常驻轮询）。
-- **轮询间隔** = `OAMP_WEB_TOPOLOGY_POLL_MS`（默认 **2000**，经既有 `readPositiveMs` 解析，能力 E）⇒ 事件到达 ≤ 2s + 传输延迟，满足 MI-06 的 5s 判定界（2.5× 余量）。
+- **轮询间隔** = `OAMP_WEB_TOPOLOGY_POLL_MS`（默认 **2000**，经既有 `readPositiveMs` 解析，能力 E）。
+- **时延口径（准确表述）**：≤2s 是**轮询腿**（差值 → 推送）的时延，**前提是"该上下线已经发生"**：
+  - `agent_online`：由 `agent.register` 即时产生 ⇒ **事件产生到推送 ≤2s（+ 传输延迟）**；
+  - `agent_offline` 的**优雅注销**路径（SIGINT → `agent.deregister`，条目直接删除）同样**即时产生 ⇒ 事件产生到推送 ≤2s**；
+  - `agent_offline` 的**强杀 / 崩溃**路径：必须**先由租约扫描判离线**（`now - last_heartbeat > 阈值`），此时延取决于判活阈值——默认 `OAMP_HEARTBEAT_TIMEOUT_MS = 30000`，空闲档按联动公式抬升至 `max(基准, 2 × 通告值)` = 120s；**判离线之后**才产生事件 ⇒ 端到端 = **判活阈值 + ≤2s（+ 传输延迟）**。
+  - 因此 MI-06 的 **5s 判定界约束"事件产生 → 订阅端收到"这一段**（上下线两个方向都成立）；**不**约束"进程被强杀 → 事件到达"的整段（那段由判活阈值决定；F02 验收 2 已把下线口径锚定为"**以该实例被判离线为准**"）。
 - **纯函数边界**：`export function diffTopology(prev, nodes)` → `{ online: [...], offline: [...], next: Map }`，具名导出以便**直接单测**（不重不漏的真正落点）。
 
 ### 4.3 与既有按对话订阅的关系
@@ -466,7 +471,7 @@ function sendError(res, status, code, message, headers = null) {
 | 1. 概览 | 启动方式（`oamp web start`）、默认地址 `http://127.0.0.1:7788`、`OAMP_WEB_PORT`、`content-type: application/json`、时间戳口径（`last_heartbeat` = epoch ms；消息 `created_at` = epoch ms）、**安全边界**（仅本机 / 无鉴权 / 无跨机） |
 | 2. 统一约定 | 成功响应即资源对象本身；**统一错误契约**（`{error, code}` + 5 行状态码映射表 + "同类错误跨接口一致"一句）；chat_id 形态（`chat-<uuid>` 或调用方自带）；消息 `direction` 取值 |
 | 3. 接口清单（10 条） | 每条：方法 + 路径、参数表（含类型/必填/默认）、成功响应示例（真实 JSON）、**错误清单**（枚举该接口会出现的全部 `code` + 触发条件 + 文案形态） |
-| 4. 事件流 | `GET /api/stream?chat_id=<id>`：4 类事件（名 / 载荷字段 / 触发时机 / 不入库说明）；`GET /api/events`：2 类事件（名 / 载荷 / 判定源 / ≤2s 时延 / 重连后先取 `/api/agents` 基线）；`retry: 1000` 与 keepalive 说明 |
+| 4. 事件流 | `GET /api/stream?chat_id=<id>`：4 类事件（名 / 载荷字段 / 触发时机 / 不入库说明）；`GET /api/events`：2 类事件（名 / 载荷 / 判定源 / **事件产生到推送 ≤2s** / 离线判定时延另计 / 重连后先取 `/api/agents` 基线）；`retry: 1000` 与 keepalive 说明 |
 | 5. 端到端示例（**可粘贴**） | ① `curl -s http://127.0.0.1:7788/api/agents?state=online`；② 列对话 + 搜索；③ 读消息；④ 发消息（含 `model` / `one_shot` 两个变体）；⑤ `curl -N http://127.0.0.1:7788/api/stream?chat_id=<id>`；⑥ `curl -N http://127.0.0.1:7788/api/events` + 另一终端 `oamp agent start demo-1` ⇒ 订阅端出现 `agent_online`；⑦ 一个最小 Node（`fetch` + `ReadableStream`）订阅示例。**全部示例原样复制可执行，不做参数替换以外的修改**（唯一的占位符是 `<chat_id>` 与示例 instance 名） |
 | 6. 不做 | agent 启停、鉴权、跨机、tasks、SDK；以及"`GET /api/agents` 无参时会包含 offline 墓碑"的口径说明 |
 
@@ -501,7 +506,7 @@ function sendError(res, status, code, message, headers = null) {
 
 | 驱动 | 触发 | 作用对象 | 判据 |
 |---|---|---|---|
-| **全局 SSE 事件**（主） | `agent_online` / `agent_offline` 到达（≤2s + 传输延迟） | `state.agents`（增量 upsert / remove）→ `setConn(true)` 重算计数 → 面板展开时重渲染 | F02 验收 1/2/3：**面板关闭时计数也变**（不再依赖任何人工动作）；F02 验收 4：只动命中的那一项 |
+| **全局 SSE 事件**（主） | `agent_online` / `agent_offline` 到达（**事件产生到推送** ≤2s + 传输延迟；`agent_offline` 在强杀场景须先经租约判离线，见 §4.2 时延口径） | `state.agents`（增量 upsert / remove）→ `setConn(true)` 重算计数 → 面板展开时重渲染 | F02 验收 1/2/3：**面板关闭时计数也变**（不再依赖任何人工动作）；F02 验收 4：只动命中的那一项 |
 | **展开期 5s 刷新**（辅） | 面板展开期间 `setInterval(loadAgents, AGENT_PANEL_REFRESH_MS=5000)`；收起即清 | 全量刷新 `state.agents` → 面板 `last_heartbeat` 相对时间随之重算 | F01 验收 2 的"最后心跳时间与 `oamp status` 可比"（若无它，在线项的 `last_heartbeat` 会无界陈旧）；**同时兜住事件漏失**（自愈） |
 | 断线重连对齐（AR-02-c） | 全局 `EventSource` 的 `onopen` ⇒ `loadAgents()` | 全量重新对齐 | F02 验收 5（MI-05：不补发、只对齐） |
 | 既有钩子 | `window.focus` ⇒ `loadAgents()`（既有，:776） | 全量 | 保留不动 |
@@ -640,7 +645,7 @@ sequenceDiagram
 | AR | 落定内容（一句话） | 详见 |
 |---|---|---|
 | **AR-01** | **a 形态**：顶栏浮层（`.topright` 内、`#conn-status` 之后的静态兄弟节点 `#agent-panel`，点击计数开合，点外/Esc/再点关闭；`setConn(false)` 自动收起）。**b 字段**：实例标识（原文）/ 在线状态（恒为"在线"徽标，按裁决保留）/ 最后心跳（`fmtAgo` 相对时间，随每次渲染重算）；**不做 loading 态**，空态为一灰字行。**c 数据**：复用既有 `GET /api/agents`（**响应形态零变更**），面板在前端做 `state === 'online'` 过滤；`last_heartbeat` 已是 epoch ms。**d 状态**：空态 `暂无在线 agent` + 顶栏 `已连接 · 0 agents online` | §6.2 / §7.1 / §7.2 |
-| **AR-02** | **a 驱动**：全局 SSE 事件（主，≤2s+传输）+ 面板展开期 5s 刷新（辅，只刷新 `last_heartbeat` 与兜底）+ 既有 `window.focus`。**b 落点**：`state.agents` 增量变更 → `setConn(true)`（顶栏文本与计数）+ `renderAgentPanel()`（整体重绘，不做 DOM diff）。**c 断线对齐**：全局 `EventSource.onopen ⇒ loadAgents()` 全量对齐（MI-05：不补发） | §7.3 / §4.4 |
+| **AR-02** | **a 驱动**：全局 SSE 事件（主，**事件产生到推送** ≤2s+传输；离线判定时延另计，见 §4.2 时延口径）+ 面板展开期 5s 刷新（辅，只刷新 `last_heartbeat` 与兜底）+ 既有 `window.focus`。**b 落点**：`state.agents` 增量变更 → `setConn(true)`（顶栏文本与计数）+ `renderAgentPanel()`（整体重绘，不做 DOM diff）。**c 断线对齐**：全局 `EventSource.onopen ⇒ loadAgents()` 全量对齐（MI-05：不补发） | §7.3 / §4.4 |
 | **AR-03** | **a 落点**：档位判定在 **agent 侧**（`heartbeatPlan` 纯函数），活动信号 = 任意投递 + `runTask` settle（MI-01 口径）；切换在**每跳前**求值（不额外发跳）。**b 同 C-2 解法**：心跳通告 `next_interval_ms`，Router 阈值 `= max(基准, 2 × 通告)`（未通告 ⇒ 基准）；不变式由构造保证。**c 身份**：全程零重注册、零新 session（`HEARTBEAT_TIER` 事件带 session 佐证）。**d 取值/配置**：`heartbeatIdleMs = 6 × heartbeatIntervalMs`（默认 60s），**不新增任何用户可调旋钮**（N9）；`OAMP_HEARTBEAT_*` 语义向后兼容（默认配置下活跃档阈值不变）。**e 观测**：`HEARTBEAT_SENT`（每跳，不节流）/ `HEARTBEAT_TIER`（仅切换）/ `LEASE_ADJUSTED`（仅通告变化）/ 既有 `LEASE_ALARM` + `AGENT_OFFLINE` | §3 全节（**硬契约 ①**） |
 | **AR-04** | **a 清单**：既有 9 条不动 + 新增 `GET /api/events`（共 10 条 API）；网页功能 ↔ 接口对照表定稿（11 行，零缺口、零启停入口）。**b 列表接口**：`/api/agents` 响应形态**不调整**，只加可选 `?state=online`（非法值 400）。**c 回归范围**：既有前端（`loadAgents` 取数口径不变）、既有测试（仅 1 条视为无需改写）、外部使用者（`error` 字符串不变）。**d 暴露边界**：`listen(port,'127.0.0.1')` 逐字不变，零鉴权、零跨机面 | §6 全节 |
 | **AR-05** | **a 形态**：新路径 `GET /api/events`；事件 `agent_online` / `agent_offline`；载荷 `{instance_id,last_heartbeat}` / `{instance_id}`；传输复用 `createSseTransport`（`null` 键）。**b 判定源**：`router.status` 的 online 集合，web 侧 2s 差值（仅存在全局订阅者时运行），首个订阅者到达时播种基线不报事件；差值函数为具名导出的纯函数。**c 关系**：与按对话订阅同 transport 不同键位，结构性隔离（全局键永不承载消息事件）。**d 连接约定**：`retry: 1000` + 15s keepalive 既有；`onopen` 重取 `/api/agents` 对齐；不缓存不补发 | §4 全节（**硬契约 ②**） |
@@ -655,7 +660,7 @@ sequenceDiagram
 | 卡 | 架构落点 | 关键判定锚点 |
 |---|---|---|
 | F01（顶栏只读列表） | §7.1（浮层与静态节点）、§7.2（字段与空态）、§6.2（数据来源）、§7.4（符号） | 点击 `#conn-status` 后出现 `#agent-panel` 且条目数 = 计数（验收 1/3）；每行三项字段可见、抽项与 `oamp status` 对照（验收 2）；面板内零按钮（验收 4）；无在线实例时"暂无在线 agent"+`已连接 · 0 agents online`（验收 5） |
-| F02（自动更新） | §4.2（事件源与 ≤2s 时延）、§7.3（驱动与落点）、§4.4（断线对齐） | 起停 agent 后不操作页面 ⇒ 计数与列表在 5s 内变化（验收 1/2）；面板保持展开亦可见（验收 3，且面板关闭时计数也变）；其余条目实例标识不变（验收 4）；断连恢复后对齐（验收 5） |
+| F02（自动更新） | §4.2（事件源与时延口径）、§7.3（驱动与落点）、§4.4（断线对齐） | 起停 agent 后不操作页面 ⇒ 计数与列表在 5s 内变化（验收 1/2；**下线以判离线为准** ⇒ 优雅停止即时产生事件、强杀先等判活阈值，见 §4.2 时延口径）；面板保持展开亦可见（验收 3，且面板关闭时计数也变）；其余条目实例标识不变（验收 4）；断连恢复后对齐（验收 5） |
 | F03（心跳两档） | §3 全节（**硬契约 ①**）、§3.6（观测面与计数规程） | `HEARTBEAT_SENT` 计数（验收 1/2/3）；空闲期零 `AGENT_OFFLINE` + 不变式告警零命中（验收 5/7）；`HEARTBEAT_TIER` 的 session 前后同值（验收 6）；`heartbeatPlan` 仅两值（验收 8）；活跃/空闲同操作耗时对比（验收 4：长间隔由通告提前覆盖，任务投递路径与档位无关） |
 | F04（接口面） | §6.1（清单与对照表）、§6.2（`?state=online`）、§6.3（边界） | 对照表逐行实调（验收 1）；`?state=online` 与面板逐项一致（验收 2）；接口清单零启停路径（验收 3）；既有 9 条路径行为不变（验收 4）；本机无凭据可调（验收 5） |
 | F05（全局事件流） | §4 全节（**硬契约 ②**） | 无参数订阅成功且持续收事件（验收 1）；起停 agent ⇒ 5s 内收到对应事件且载荷可辨识（验收 2）；按对话订阅 4 类事件不变（验收 3）；全局事件不含消息文本（验收 4，键隔离结构性保证） |
@@ -684,7 +689,7 @@ sequenceDiagram
 | `#agent-panel` 静态节点 + 5 个前端函数 | 列表没有承载；展开期新鲜度没有承载 | **保留**（+1 行 HTML、5 条 CSS、5 个一句话函数） |
 | 面板展开期 5s 定时器 | `last_heartbeat` 陈旧 ⇒ F01 验收 2 的对照会失败 | **保留**（复用"状态内定时器"手法） |
 | `oamp/API.md` | W7/F07 的交付物本身 | **保留**（文档） |
-| ~~Router → web 的推送通道 / `router.subscribe`~~ | `router.status` 轮询已足够（同机 UDS，2s 粒度满足 5s 判界） | **删除**（D-09） |
+| ~~Router → web 的推送通道 / `router.subscribe`~~ | `router.status` 轮询已足够（同机 UDS；2s 轮询腿 + 既有判活阈值已满足 MI-06 的 5s 判界——该判界只约束"事件产生 → 订阅端收到"这一段） | **删除**（D-09） |
 | ~~周期快照事件~~ | 上下线事件已覆盖判定；快照只服务界面新鲜度，而那是 UI 局部问题 | **删除**（D-10 / §7.3） |
 | ~~新增 `agent.renew` 续期方法~~ | 每跳通告已等价于续期且零额外往返、零新增失败模式 | **删除**（§3.2 D） |
 | ~~档位枚举字段 `tier`~~ | 通告值已含全部信息且不可漂移 | **删除**（D-02） |
@@ -785,6 +790,7 @@ sequenceDiagram
 | **R-9** | 面板的新鲜度依赖 5s 定时器 | 若用户长时间盯着面板，相对时间刷新粒度为 5s（心跳本身 10s/60s） | 采纳：MI-03 明确"不要求每秒跳动"；5s 粒度足以与 `oamp status` 对照 |
 | **R-10** | `GET /api/agents?state=online` 与前端过滤是两处同谓词 | 服务端 `state === 'online'`（新）与前端 `a.state === 'online'`（既有，`setConn`/`showMention`） | 不提取具名函数（`=== 'online'` 是单 token 谓词，提取属过度抽象）；在 `API.md` 与代码注释中写明"在线口径 = `state === 'online'`（registry 的 state 枚举只有 online/offline）" |
 
+| **R-11** | **强杀一个空闲 agent 的判离线时延变长**（本迭代的新行为面） | 空闲档通告 60000ms ⇒ 阈值 = 120000ms ⇒ `kill -9` 一个**正在空闲**的 agent 要在 ~120s 后才从列表/`oamp status` 消失（迭代前恒为 30s）。**优雅停止（SIGINT → deregister）不受影响，即时消失**；活跃档阈值仍是 30000ms（不变）；且该实例在此期间**仍被正确报告为 online**（它确实还在按时心跳） | **已接受（设计代价，非缺陷）**：hub 无法在"空闲"与"死亡"之间分辨，通告正是买到"不误判离线"的对价；把阈值压回 30s 会让空闲实例必被判离线（违反 C-2①）。**阶段 6 注意**：F01 验收 3 / F04-2 类判据的"等待判活阈值过去"在**强杀 + 空闲档**组合下上界是 120s，应按该口径判定（优雅停止路径不受影响） |
 **未决项**：**无**。—— L1-01 已于 2026-09-11 由用户确认、2026-09-12 经主 agent 转达落盘（§14，取值即实现契约）；R-1 已裁决保持 60s 并把计数窗口规程定为实现契约（§16 R-1 / §3.6）。
 
 ---
