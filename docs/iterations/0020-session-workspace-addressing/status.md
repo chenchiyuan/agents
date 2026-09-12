@@ -3,9 +3,9 @@
 **工作流**: workflow-pb v0.9.0（本迭代按规则 C/D 的**修正方向**运行：会话在仓库主工作区启动、以显式寻址操作本迭代工作区——见「偏离记录 D-1」）
 **迭代**: 0020-session-workspace-addressing
 **当前阶段**: 独立验证（阶段 6）
-**迭代分支**: iteration/0020-session-workspace-addressing（base = main @ `dbc99b5`，含 0017 与 0019 全部产出）
+**迭代分支**: iteration/0020-session-workspace-addressing（**已合并进 main `db246e4`，分支已删除**；base = main @ `dbc99b5`）
 **会话工作区**: `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0020-session-workspace-addressing`
-**状态**: 已完成（阶段 6 通过；迭代分支待合并 main）
+**状态**: **已完成**（阶段 6 通过；迭代分支已合并 main，分支与工作区已删除）
 **history**: 开启
 **前置**: 用户对迭代 0019 交付的 v0.9.0「启动契约」提出设计异议（原话见 §用户确认记录）⇒ 本迭代修正协议本身。
 
@@ -89,3 +89,5 @@
 > **本迭代的运行形态（同时是需求的实证）**：主 agent 会话在仓库主工作区（分支 `main`）启动，全程以**绝对路径 + `git -C <WS>`** 操作 `<WS> = .pb-agents/worktrees/0020-session-workspace-addressing`；三份 demand 产物与两轮简报均无污染主工作区（demand 每轮自证：`git -C <WS> status --porcelain -uall` 仅含其 3 份文件；主工作区 `status -uall` 为空）。
 
 - 2026-09-12: 阶段 6 收口：pr-005（偏差修复）合并（`8830e04`）+ history 补齐阶段 6 与 pr-005 波次（`5cb308e`）⇒ 阶段 6 判定通过；阶段 1~5 的「已验证」列随之置 ✅。
+
+- 2026-09-12: **迭代分支合并进 main**（`db246e4`，无冲突）；删除迭代分支与会话工作区；冒烟：`tests/test-check-role-structure.sh` 6/6 PASS。**迭代 0020 完成**。
