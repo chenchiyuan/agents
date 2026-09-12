@@ -21,11 +21,29 @@
 
 ## PR 实现子状态（阶段 5 展开）
 
-待阶段 4 产出 `prs/` 后初始化。
+| PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
+|---|---|---|---|---|---|
+| pr-001-workflow-pb-workspace-isolation-protocol.md | （无） | ⏸ | feat/0019-pr-001-workflow-pb-protocol | ⬜ | 占用 |
+| pr-002-cross-iteration-d2-registration.md | （无） | ⏸ | feat/0019-pr-002-d2-registration | ⬜ | 占用 |
+
+> 两者 `depends_on` 均为空 ⇒ 首波即可并发（预期并发度 = 2，关键路径 = pr-001）。
+> 注：pr-002 只改 `docs/iterations/0019-…/status.md` 的 `## 待确认项` D-2 单段（ADR-4），与本文件的主线维护存在同文件并发写入——合并前须以当时迭代分支重基线。
 
 ## 并发配置（阶段 5）
 
-待阶段 4→5 入口初始化。
+**起始并发数**: 3
+**硬上限**: 5（公式 `2×起始-1`）
+**当前有效上限**: 3
+**累计槛位释放次数**: 0
+**已派发总数**: 2
+
+## PR 验证（Gate 阶段 4 → 5 入口）
+
+| 轮次 | 报告 | 结论 |
+|---|---|---|
+| r1 | clarifications/verify-gate-stage4-20260912-191730.md | FAIL（2 partial：与 architecture 一致性 / 交付前置） |
+| r2 | clarifications/verify-gate-stage4-r2-20260912-192704.md | FAIL（2 partial：同上，问题面收窄） |
+| **r3** | **clarifications/verify-gate-stage4-r3-20260912-193332.md** | **PASS（6/6 pass，fail 0 / partial 0；偏差记录 8 条不阻塞）** |
 
 ## 待确认项
 
