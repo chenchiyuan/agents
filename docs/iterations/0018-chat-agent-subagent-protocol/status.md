@@ -48,11 +48,13 @@
 
 ## PR 实现子状态（阶段 5 展开）
 
-待阶段 4 产出 `prs/` 后初始化。
-
-## 并发配置（阶段 5）
-
-待阶段 4→5 入口初始化。
+| PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
+|---|---|---|---|---|---|
+| pr-001-transport-call-key-namespace.md | （无） | ✅ 已合并 | `feat/0018-pr-001-transport-call-key-namespace`（已删除） | `b92ad82` | 已释放 |
+| pr-002-registry-task-list-model.md | （无） | ✅ 已合并 | `feat/0018-pr-002-registry-task-list-model`（已删除） | `95051b0` | 已释放 |
+| pr-003-call-http-surface-and-contract-docs.md | pr-001, pr-002 | ⏸ 进行中（尚未派发） | `feat/0018-pr-003-call-http-surface-and-contract-docs` | — | — |
+| pr-004-console-call-page.md | pr-003 | ⬜ 未解锁 | — | — | — |
+| pr-005-call-protocol-acceptance-tests.md | pr-003 | ⬜ 未解锁 | — | — | — |
 
 ## 待确认项
 
