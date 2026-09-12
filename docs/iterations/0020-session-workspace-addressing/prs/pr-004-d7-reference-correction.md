@@ -16,7 +16,7 @@
 
 ## 验收标准
 
-- [ ] **两处引用就地更正（F18 验收 1~2）**：`:13` 读作「措辞见 `architecture.md §8.4`」、`:40` 读作「`architecture.md §5.1-W10` / `§5.2-S1~S10` / `architecture.md §8.4`」（显式路径前缀）；检索该文件不再存在指向**不存在的规范章节**的「规范 §8.4」（裸判据：`grep -n '规范 §8\.4'` = 0 命中）
+- [ ] **两处引用就地更正（F18 验收 1~2）**：`skill-optimization-v1.12.0.md` 的**两处待更正引用**（位置见 `architecture.md` v1.1.4 §3.4-O-03，**本 PR 不复述行号**）改为显式指向 `architecture.md §8.4`（含路径前缀）；判据 = ① 两处读作显式 `architecture.md §8.4`；② 检索该文件不再存在指向**不存在的规范章节**的「规范 §8.4」（裸判据：`grep -n '规范 §8\.4'` = 0 命中）
 - [ ] **更正后的指向真实存在**：所指向的 `architecture.md §8.4`（= `docs/iterations/0019-worktree-isolation-protocol/architecture.md:568` 的 `### 8.4 角色定义来源与部署`）确实存在，且语义与该记录 `:13` 所要引的 S1 措辞（来源契约）一致——即"改完之后引用指向的内容真的在那里"（若阶段 5 施工时发现 0019 架构 §8.4 的语义与 `:13` 所指不符，**不自行改指向其它章节**，按本文件 `depends_on` 的说明上报主 agent）
 - [ ] **就地更正，不新增旁注（F18 验收 2）**：取该文件 diff → 改动**只落在这两处引用句内**；不新增更正说明段、不改叙述结构、不改标题与其余条目（`git diff --stat` 该文件行为 2 处修改、无新增段落）
 - [ ] **范围限于这两处（F18 验收 4）**：取本 PR 的改动文件清单 → **只有** `.claude/skills/workflow-pb/data/skill-optimization-v1.12.0.md`；不出现其他历史文件的引用改写、不批量统一引用体例；不含 `.sh`、`tools/**`、`.gitignore`、`oamp/**`、任何执行角色文件
@@ -25,9 +25,9 @@
 
 ## 参考资料
 
-- `docs/iterations/0020-session-workspace-addressing/architecture.md` **v1.1.3**（v1.1.3 未落盘时以 v1.1.2 / v1.1.1 为准）：§3.4（`O-03` 的 `:13` / `:40` 两处待更正引用，含"本迭代按两处均就地显式化处理"的实测说明）、§9.2（D-7 纳入面：**就地**更正、不新增旁注、不改叙述结构、不另起更正段；范围限于这两处；留痕落在 `O-04`）、§3.6（检索式判据）
+- `docs/iterations/0020-session-workspace-addressing/architecture.md` **v1.1.4**（v1.1.4 未落盘时以 v1.1.3 为准）：§3.4（`O-03` 的两处待更正引用，含"本迭代按两处均就地显式化处理"的实测说明）、§9.2（D-7 纳入面：**就地**更正、不新增旁注、不改叙述结构、不另起更正段；范围限于这两处；留痕落在 `O-04`）、§3.6（检索式判据）
 - `docs/iterations/0020-session-workspace-addressing/prd/F18-d7-reference-correction.md`（验收标准 1~4 与「架构落地」段）
-- `.claude/skills/workflow-pb/data/skill-optimization-v1.12.0.md:13`、`:40`（改动基线；实测 `grep -n '8\.4'` 命中恰为这两行）
+- `.claude/skills/workflow-pb/data/skill-optimization-v1.12.0.md`（改动基线；**两处待更正引用的位置见 `architecture.md` v1.1.4 §3.4-O-03**；实测 `grep -n '8\.4'` 命中恰为两行）
 - `docs/iterations/0019-worktree-isolation-protocol/architecture.md:568`（`### 8.4 角色定义来源与部署`——更正后引用的真实落点）
 - `docs/iterations/0019-worktree-isolation-protocol/clarifications/verify-stage6-20260912-200521.md`（偏差 D-7 原文要点：两处写作「措辞见**规范 §8.4**」，而 `§8.4` 实为 `architecture.md` 的章节号）
 - `docs/iterations/0020-session-workspace-addressing/prs/pr-003-version-records-and-d7-trace.md`（本更正的留痕落点：`.claude/skills/workflow-pb/data/skill-optimization-v1.13.0.md` 的「更正登记」段）
