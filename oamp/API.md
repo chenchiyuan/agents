@@ -154,7 +154,7 @@ data: <JSON>
 
 ---
 
-## 3. 接口清单（13 条）
+## 3. 接口清单（19 条）
 
 | # | 方法 + 路径 | 用途 |
 |---|---|---|
@@ -171,6 +171,12 @@ data: <JSON>
 | 11 | `GET /api/docs` | 接口元数据（文档页 / 调试台 / AI 索引文件的数据源） |
 | 12 | `GET /api/projects` | 项目列表（含对话数与最近活动时间） |
 | 13 | `POST /api/projects` | 创建项目（最小输入 = 仓库地址；重复地址 → 409） |
+| 14 | `POST /api/calls` | 发起一次或一批调用（阻塞取终态 / 后台执行） |
+| 15 | `GET /api/calls` | 调用 roster（每次调用一行；无过滤 / 无分页 / 无编排） |
+| 16 | `GET /api/calls/stream?chat_id=<id>` | 按对话订阅调用事件（SSE） |
+| 17 | `GET /api/calls/<call_id>/stream` | 按调用订阅调用事件（SSE） |
+| 18 | `GET /api/calls/<call_id>/transcript` | 按调用取转录（进程内，不持久） |
+| 19 | `GET /api/calls/<call_id>` | 按调用取终态（进行中给状态） |
 
 > 非 API 面的静态资源（`/`、`/app.js`、`/style.css`）不在错误契约范围内：静态面只按固定文件名提供（不做路径拼接），路径穿越类请求落 404 兜底（`{"error":"not found: …","code":"NOT_FOUND"}`）。
 
@@ -195,7 +201,8 @@ data: <JSON>
       "instance_id": "demo-1",
       "session_id": "503f52de-77a4-43b1-acc4-227c2d81e113",
       "state": "online",
-      "last_heartbeat": 1789184738463
+      "last_heartbeat": 1789184738463,
+      "role": null
     }
   ]
 }
@@ -204,6 +211,8 @@ data: <JSON>
 - 无参时**逐字透传** Router 快照，含两类记录：**在线**（`state: "online"`）与**判活超时被判离线的墓碑**（`state: "offline"`，保留最后一次的 `session_id`，直到该实例重新注册）。**优雅注销不保留记录**——agent 主动退出（`agent.deregister`）时该实例直接从列表消失。因此无参列表无法区分「从未注册」与「已注销」；只关心在线实例请用 `?state=online`。
 - 列表里可能还出现 **`instance_id` = `web` 的节点**——那是 web 进程自身的常驻发送方身份（它在本进程**首次派发消息 / 控制通知时**注册，随后按心跳保活）。客户端按实例做业务判断时应排除它。
 - `state` 取值只有 `online` / `offline`；`last_heartbeat` 为 epoch ms。
+- **`role` 字段（0018 新增）**：该节点**可被调用面按角色名寻址**时给出角色名，否则为 `null`。语义 = 由既有实例命名关系推导（实例名可反解为角色名**且**该角色的角色文件存在）；`null` 表示该实例**不被当作可寻址角色**（例如控制台自身的 `web` 节点、`dev-1` 一类非该形态的实例名）。示例里的 `demo-1` 因此是 `null`。
+  推导规则只有实现里的**一处**（`roleOfInstance` 复用的既有绑定模块），接口面**不**引入第二套发现优先级链；调用面用 `agent: "<角色名>"` 寻址命中的就是 `role` 非 `null` 的这类节点。
 - `?state=online` 与无参响应**同形状**（只是逐项过滤），不新增 / 不改动字段。
 
 **错误**
@@ -616,6 +625,276 @@ data: {"instance_id":"demo-2","last_heartbeat":1789184787786}
 
 ---
 
+### 3.14 `POST /api/calls`
+
+发起**一次或一批调用**（0018 新增的调用面入口）。与 §3.8 的分工：`POST /api/messages` 是对话入口，**永不阻塞、永不直接返回结果、派发失败仍 `200` + `warning`**（该契约逐字不变）；本接口是「一次调用」的交付面——按**角色名**寻址、可挂共享说明与期望结构、可**阻塞取终态**，失败表达成明确的 4xx/5xx。
+
+**请求体**
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `chat_id` | string | **是** | — | 调用**归属**：必须指向**已存在**的对话（调用面不新建对话）。未提供 / `null` / 空串 / 非字符串同判 → `400` |
+| `agent` | string | **是** | — | **角色名**（如 `dev`）——不是实例名。解析 = 由角色名推出的实例名可反解回该角色（角色文件存在）；「不可解析 / 离线 / 不存在」三种情形**不区分** → `404` + 同一文案 |
+| `task` | string | 条件必填 | — | 任务文本（`trim` 后不得为空）；与 `tasks` **互斥**。以 `!` 开头时按**普通文本**处理（本面不走 shell） |
+| `tasks` | array | 条件必填 | — | 批量形态：每项 `{task, output_schema?, schema_mode?, mode?, model?}`；**每项 = 一个独立调用**（各得一个 `call_id`）；空数组 / 非数组 → `400` |
+| `context` | string | 否 | 无 | **本次调用的共享说明**（`trim` 后非空才生效）：作为独立区块**前置**装配，不污染任务文本；批量提交时对各项共享生效 |
+| `output_schema` | object | 否 | 无 | **期望的返回结构**（受限子集，见下）；形态超出子集 → `400` |
+| `schema_mode` | string | 否 | `permissive` | `permissive` / `strict`；`strict` 且终态结构未通过校验 ⇒ `state` 为 `failed`、`error` 为 `structured_output_invalid` |
+| `mode` | string | 否 | `background` | `background`（立即受理）/ `block`（响应挂起至终态，不设人为上限） |
+| `model` | string | 否 | 无（既有默认模型链） | 须匹配 `^[A-Za-z0-9._/-]{1,128}$`；非法 → `400` |
+
+未声明的字段**忽略**（与 §3.8 同口径）。
+
+**`output_schema` 的受限子集**（受理时校验；超出即 `400`，**不静默忽略**）：
+
+```
+output_schema = { type?: "object", properties?: { "<名>": { "type": <7 种之一> } }, required?: ["<名>"…] }
+type ∈ { object, array, string, number, integer, boolean, null }
+```
+
+- 只认这三个键：出现 `$ref` / `oneOf` / `anyOf` / `allOf` / `items` / `format` / `pattern` / 嵌套 `properties` 等一律 `400`。
+- `required` 的每个名字必须出现在 `properties` 中；`properties` 每个属性的对象**只**允许 `type` 一个键。
+
+**共享说明与任务文本的装配**（`context` 与任务文本互不覆盖、不合并）：
+
+```
+【调用共享说明】          ← 仅当提供 context 时存在（独立区块，前置）
+<context 原文>
+
+<task 原文>               ← 逐字保留（无前缀污染；label 取本段前 60 字符）
+
+【返回格式要求】          ← 仅当提供 output_schema 时存在（后置）
+请仅输出一个 JSON 对象，满足以下结构（不要输出 JSON 以外的内容）：
+<output_schema 的规范 JSON 字符串>
+```
+
+**成功响应** `200` —— 一律 `{ calls: [...] }`，顺序 = 请求顺序（单项即 1 元素）；每个元素是一个**调用信封**（形状与字段表见 §3.19）：
+
+```json
+{
+  "calls": [
+    {
+      "call_id": "task-ff43186d-fe02-499e-9382-c509ca70cd79",
+      "agent": "dev",
+      "state": "submitted",
+      "duration_ms": null,
+      "model": null,
+      "truncated": false,
+      "text": null,
+      "structured_output": null,
+      "error": null,
+      "exit_code": null
+    }
+  ]
+}
+```
+
+- 后台项（`mode` 缺省）`state` 为 `submitted`；阻塞项（`mode: "block"`）= **终态信封**（`state` 为 `completed` / `failed`）。两者**同一信封形状**。
+- **批量**：一次提交两项 ⇒ 两个互不相同的 `call_id`，`GET /api/calls/<call_id>` 各自可查（每项 = 一个独立调用）。
+- 本接口的每次调用**同时是所属对话的一次问答**：对话侧照常落一条 `in` 与（终态时）一条 `out`，并推送既有 `message` / `chat_state` 事件；归属可用 `GET /api/chats/<chat_id>` 的 `messages[].meta.task_id` 与 `call_id` 关联核对。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | 请求体非合法 JSON；`chat_id` 缺失 / 空 / 非字符串；`chat_id` 指向不存在的对话；`agent` 缺失 / 空；`task` 与 `tasks` 同给或都缺；`tasks` 非数组 / 空数组 / 某项缺 `task`；`mode` 或 `schema_mode` 枚举外；`output_schema` 超出受限子集；`model` 形态非法；`context` 非字符串 | `请求体非法 JSON: …` / `需要 chat_id（调用必须归属一个已存在的对话）` / `chat 不存在: chat-x` / `需要 agent（角色名，如 dev）` / `需要 task（任务文本，trim 后不得为空）或 tasks（非空数组）` / `task 与 tasks 互斥（一次提交只用一种形态）` / `tasks 需为非空数组（每项 = 一个独立调用）` / `mode 非法（需为 background / block）` / `schema_mode 非法（需为 permissive / strict）` / `output_schema 非法（仅支持受限子集：type / properties / required，且 type 取 7 种之一）` / `model 非法（需匹配 /^[A-Za-z0-9._/-]{1,128}$/）` / `context 需为字符串（本次调用的共享说明）` |
+| `NOT_FOUND` | 404 | 角色不可按角色名寻址（角色文件不存在），或派发时该角色无在线实例（两种情形同一文案、同一状态码） | `agent 不可用: <角色名>（无对应在线实例）` |
+| `PAYLOAD_TOO_LARGE` | 413 | 请求体 > 64 KiB（响应带 `connection: close`） | `请求体过大（上限 65536 字节）` |
+| `UPSTREAM_UNAVAILABLE` | 502 | 派发失败（首项之外的其它原因）；内部故障兜底 | `调用派发失败: <原因>` / `router 不可达或请求失败: …` |
+
+- **判定先于写入**：归属 / 目标 / 入参形态三类校验全部完成前，不写库、不登记、不派发 ⇒ `INVALID_PARAM` 与「角色不可寻址」的失败请求**零副作用**（`GET /api/calls` 无新增行、对话消息数不变）。
+- 首项派发失败（角色离线 / 不存在）⇒ `404` 且**零调用被创建**；首项成功、后续项失败（竞态窗口）⇒ `502`，**已派出的项保留**（可从 `GET /api/calls` 查回其 id）。派发失败时对话侧仍按 §3.8 的既有行为补一条 `out`（`error: "dispatch_failed"`）——调用面只是**额外**把失败表达成明确的 4xx/5xx，不再吞成「200 + warning」。
+- 调用面对**已归档 / 已关闭**的对话不做只读判定（归属只要求「对话存在」）；只读语义仍只由 §3.8 / §3.7 承担。
+
+---
+
+### 3.15 `GET /api/calls`
+
+调用 **roster**：每次调用一行（**展示面**，不是编排面）。**无参数、无分页、无排序选项**。
+
+**参数**：无。
+
+**成功响应** `200`
+
+```json
+{
+  "calls": [
+    {
+      "call_id": "task-ff43186d-fe02-499e-9382-c509ca70cd79",
+      "agent": "dev",
+      "state": "completed",
+      "started_at": 1789184738463,
+      "ended_at": 1789184740999,
+      "model": "deepseek/deepseek-v4-flash"
+    }
+  ]
+}
+```
+
+- 六列固定：`call_id`（= 既有 `task_id`）、`agent`（角色名；不可解析 → `null`）、`state`（任务记录原值，封闭词表 `submitted` / `working` / `completed` / `failed`）、`started_at`（受理时刻）、`ended_at`（**终态时**为进入终态的时刻，**进行中为 `null`**；终态时必 `>= started_at`）、`model`（终态 = 执行侧实报的生效模型；**进行中为 `null`**，不显示推测值）。
+- 排序：`created_at` 倒序（新调用在前）。
+- **范围**：只列本 hub 派发的调用（调用面 + 既有对话入口）；CLI（`oamp task *`）派发的任务**不出现**——那类任务没有对话归属。
+- 列表**不含**执行开销类派生列（成因与核对方式见 §7.3 第 ⑭ 条）。
+
+**错误**：无（本接口不显式产生任何错误码；全局兜底 `502` 见 §2.2）。
+
+---
+
+### 3.16 `GET /api/calls/stream?chat_id=<id>`
+
+订阅**该对话**的调用事件流（SSE）。**先订阅、再发起**的载体：订阅之后才发起的调用，其事件照样到达（订阅之前发生的事件**不补发**）。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `chat_id` | string | **是** | — | 目标对话；**缺参 / 空值直接 400**（本路径不做全局调用订阅） |
+
+**成功响应** `200`（SSE 流；三类事件见 §4.4）
+
+```
+retry: 1000
+
+event: call_result
+data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","state":"completed","duration_ms":2999,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"…","structured_output":null,"error":null,"exit_code":null}
+
+```
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | 缺 `chat_id` 或为空 | `需要 chat_id（不做全局调用订阅）` |
+
+> 该接口不查询上游 Router，因此 Router 不可达时**依然**能建立订阅（`200`）——只是不会再收到新事件。
+
+---
+
+### 3.17 `GET /api/calls/<call_id>/stream`
+
+订阅**单次调用**的事件流（SSE）。两次并发调用只订阅其中一次 ⇒ 事件不混入。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `call_id` | string | **是** | — | 目标调用 id（= `task_id`）；**不存在 → 404**（且不建立订阅） |
+
+**成功响应** `200`（SSE 流；三类事件见 §4.4）
+
+```
+retry: 1000
+
+event: call_update
+data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk","text":"…"}
+
+```
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `NOT_FOUND` | 404 | `call_id` 不存在（含 Router / web 重启后，见 §3.18 的「不持久」说明） | `call 不存在: task-…` |
+
+---
+
+### 3.18 `GET /api/calls/<call_id>/transcript`
+
+按调用 id 取**转录**：从发起到终态的过程记录（**含终态那一次事件**）。**进程内可读、不持久**。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `call_id` | string | **是** | — | 目标调用 id（= `task_id`）；不存在（含重启后）→ `404` |
+
+**成功响应** `200`
+
+```json
+{
+  "call_id": "task-ff43186d-fe02-499e-9382-c509ca70cd79",
+  "agent": "dev",
+  "state": "completed",
+  "truncated": false,
+  "entries": [
+    { "at": 1789184738500, "from": "pb-dev", "state": "working", "detail": { "state": "working", "event": "started", "executor": "omp-daemon", "chat_id": "chat-demo-1", "model": "deepseek/deepseek-v4-flash" } },
+    { "at": 1789184739000, "from": "pb-dev", "state": "working", "detail": { "state": "working", "kind": "chunk", "text": "…" } },
+    { "at": 1789184740999, "from": "pb-dev", "state": "completed", "detail": { "event": "result", "state": "completed", "text": "…", "model": "deepseek/deepseek-v4-flash", "duration_ms": 2999 } }
+  ]
+}
+```
+
+- `entries` = 任务记录里既有的过程条目**原样**透出（`{at, from, state, detail}` 四键，`detail` 不裁剪）；终态时**末尾追加一条** `detail.event` 为 `result` 的终态条目。**进行中的调用同样可读**（返回已有条目，不追加终态条目，也不报「未完成」错误）。
+- `truncated`：本次调用的**过程记录**是否被既有上限截断（上限不变、不由本接口引入）；与 §3.19 信封的 `truncated` **同一口径、同一真源**。
+- **不持久**：转录是 Router 进程内的既有任务记录，不落库、不跨重启——Router 或 web 重启后旧 `call_id` 一律 `404`（明确的「不存在」，不是 5xx、也不是伪造内容）。既有「过程不入库」的声明不被推翻。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `NOT_FOUND` | 404 | `call_id` 不存在（含重启后） | `call 不存在: task-…` |
+
+---
+
+### 3.19 `GET /api/calls/<call_id>`
+
+按调用 id 取**终态**；调用**进行中**时返回同一形状的状态（不报错、不空响应）。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `call_id` | string | **是** | — | 目标调用 id（= `task_id`）；不存在（含重启后）→ `404` |
+
+**成功响应** `200` —— **调用信封**（受理 / 进行中 / 终态三态共用同一形状，也是 §3.14 响应里 `calls[]` 的元素）：
+
+```json
+{
+  "call_id": "task-ff43186d-fe02-499e-9382-c509ca70cd79",
+  "agent": "dev",
+  "state": "completed",
+  "duration_ms": 12345,
+  "model": "deepseek/deepseek-v4-flash",
+  "truncated": false,
+  "text": "…",
+  "structured_output": null,
+  "error": null,
+  "exit_code": null
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `call_id` | string | 调用 id = 既有 `task_id`（形态 `task-<uuid>`；**不**引入第二套标识，也没有父子 / 血缘命名） |
+| `agent` | string \| null | 角色名；不可解析时 `null` |
+| `state` | string | 封闭词表：`submitted` / `working` / `completed` / `failed` |
+| `duration_ms` | number \| null | 终态可得；非终态 `null` |
+| `model` | string \| null | 终态 = 执行侧**实报**的生效模型；非终态 `null`（不填请求参数、也不填推测值） |
+| `truncated` | boolean | 过程记录是否被既有上限截断（与 §3.18 同一口径） |
+| `text` | string \| null | 终态产出的原文；失败且无文本时 `null` |
+| `structured_output` | object \| null | 带 `output_schema` 且终态校验通过时的对象；否则 `null`（不带 `output_schema` 时恒 `null`，只交付 `text`） |
+| `error` | string \| null | `failed` 时的机器可读原因（如 `structured_output_invalid`）；否则 `null` |
+| `exit_code` | number \| null | 可得时给出；常驻执行路径为 `null` |
+
+- `state` 与 §3.15 的 `state` **同真源**（同一任务记录），两处不会漂移。
+- 信封**不含** `chat_id`（任务记录没有该字段）——归属核对请走 `GET /api/chats/<chat_id>` 的 `messages[].meta.task_id`（§3.14 已说明）。
+- 信封的键集合是**封闭的 11 键**（上表）——参照契约里那几类本仓库拿不到的字段在这里**不提供**：**无数据源，不造假、不估算**（见 §7.3 第 ⑧ 条）。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `NOT_FOUND` | 404 | `call_id` 不存在 | `call 不存在: task-…` |
+
+**`structured_output` 的校验口径**（`output_schema` / `schema_mode` 的落地）：
+
+- 终态时从 `text` 提取：整体 `JSON.parse`；失败则剥离**一层**三重反引号围栏（含 `json` 语言标注）后重试；仍失败 = `null`。
+- 提取成功后再按受限子集做三层校验（`type` / `required` / `properties.<名>.type`；**未声明键不判错**）：通过 ⇒ `structured_output` = 该对象（`text` 仍保留原文）；未通过 ⇒ `structured_output` = `null`。
+- `schema_mode: "permissive"`（默认）：未通过**不影响**终态，`text` 照样交付（「退回文本且不报错」）。
+- `schema_mode: "strict"`：未通过 ⇒ `state` 为 `failed`、`error` 为 `structured_output_invalid`（**不新增终态词**，词表仍是 `completed` / `failed` + `exit_code`）。
+
+---
+
 ## 4. 事件流
 
 ### 4.1 按对话订阅：`GET /api/stream?chat_id=<id>`（4 类事件）
@@ -651,6 +930,32 @@ data: {"instance_id":"demo-2","last_heartbeat":1789184787786}
   2. 之后用 `agent_online` / `agent_offline` 增量维护本地列表；
   3. **每次重连成功后重取一次基线**并整体对齐（宁可覆盖，不依赖补发）。
 - 对话维度同理：重连后以 `GET /api/chats/<id>` 全量补齐。
+
+---
+
+### 4.4 调用面订阅（两类作用域，三类事件）
+
+0018 新增的调用事件流（**独立于** §4.1~§4.3 的对话事件面：调用事件走另一组订阅键，与既有对话键、全局键**结构性不相交**——即使调用方自带的 `chat_id` 长得像调用键，也不会串键）。
+
+**两类作用域**
+
+| 作用域 | 订阅入口 | 覆盖范围 | 解决什么 |
+|---|---|---|---|
+| 按对话 | `GET /api/calls/stream?chat_id=<id>` | 该对话的调用事件——**含订阅之后才发起的调用** | 「先订阅、再发起」 |
+| 按调用 | `GET /api/calls/<call_id>/stream` | 单次调用的事件 | 并发两次调用时只订阅其中一次，事件不混入 |
+
+**事件表（三类，封闭）**
+
+| 事件名 | `data` 字段 | 触发时机 |
+|---|---|---|
+| `call_state` | `{chat_id, call_id, agent, state}` | ① 派发成功（受理）⇒ `submitted`；② 首个执行增量到达 ⇒ `working`（每次调用**只发一次**） |
+| `call_update` | `{chat_id, call_id, agent, kind, text}`（`kind` = `chunk`）或 `{chat_id, call_id, agent, kind, line}`（`kind` = `stdout` / `stderr`） | 执行过程增量（与既有 `task_update` 同源同形态）；控制条目 `started` / `truncated` **不下发** |
+| `call_result` | `{chat_id, call_id, agent, state, duration_ms, model, truncated, text, structured_output, error, exit_code}` | 终态到达（投递路径或对账路径任一）；**该帧即终态状态迁移**——不再另发同义的 `call_state` |
+
+- **序列闭合于终态**：`submitted → working → call_update* → call_result`，无悬空帧。
+- **不重放、不补发**：订阅建立之前发生的事件不会补投（与 §4.3 同口径）。需要历史过程请用 §3.18 的转录读取。
+- **终态帧 = §3.19 的同一信封**（同一构造点产出，字段一致）；帧内不含工具级详情，也不含参照契约里那几类拿不到的字段（见 §7.3 第 ⑧⑬⑭ 条）。
+- 调用归属的对话侧**照旧**收到既有 §4.1 的 `message` / `chat_state` / `task_update` 帧——调用事件是**追加**的一条流，不替换、不插队既有帧顺序。
 
 ---
 
@@ -970,6 +1275,114 @@ node events.mjs
 
 ---
 
+### 5.12 发起调用（后台：单项 + 批量）
+
+（示例依赖一个**已存在**的对话：按顺序阅读时先执行 §5.2 建项目、§5.5 发消息；把 `chat-demo-shell` 替换为自己机器上已有对话的 id。`agent` 用**角色名**，须有对应角色在线。）
+
+```sh
+# 单项：带共享说明与期望结构
+curl -s -X POST http://127.0.0.1:7788/api/calls \
+  -H 'content-type: application/json' \
+  -d '{"chat_id":"chat-demo-shell","agent":"dev","task":"用三句话说明这次改动做了什么","context":"共享说明：本机演示环境","output_schema":{"properties":{"summary":{"type":"string"}},"required":["summary"]}}'
+
+# 批量：一次提交两项 ⇒ 两个互不相同的 call_id（每项 = 一个独立调用）
+curl -s -X POST http://127.0.0.1:7788/api/calls \
+  -H 'content-type: application/json' \
+  -d '{"chat_id":"chat-demo-shell","agent":"dev","tasks":[{"task":"列出本次改动的文件"},{"task":"写一句提交信息"}]}'
+```
+
+期望输出（`call_id` 每次不同；后台项 `state` 为 `submitted`，其余可得字段此时为 `null` / `false`）：
+
+```json
+{"calls":[{"call_id":"task-7e2a4d73-2982-491f-a58f-2cf9555deb97","agent":"dev","state":"submitted","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null}]}
+```
+
+```json
+{"calls":[{"call_id":"task-679fcf43-a2e4-47e8-a9ae-8eb5aa20c950","agent":"dev","state":"submitted","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null},{"call_id":"task-a41c0f52-1d63-4bb2-9f0e-2c8e5f1a77b1","agent":"dev","state":"submitted","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null}]}
+```
+
+> 终态不在这里：用 §5.14 按 `call_id` 取，或用 §5.16 订阅。
+
+### 5.13 发起调用（阻塞取终态）
+
+`mode: "block"` ⇒ 响应挂起至终态（**不设人为上限**；客户端中途断连**不终止**调用，调用仍在后台完成）。
+
+```sh
+curl -s -X POST http://127.0.0.1:7788/api/calls \
+  -H 'content-type: application/json' \
+  -d '{"chat_id":"chat-demo-shell","agent":"dev","task":"用一句话回答：这个仓库做什么？","mode":"block"}'
+```
+
+期望输出（`state` 为 `completed` 或 `failed`；`model` 是执行侧**实报**的生效模型）：
+
+```json
+{"calls":[{"call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是一个本机多智能体运行时。","structured_output":null,"error":null,"exit_code":null}]}
+```
+
+### 5.14 按调用 id 取终态
+
+```sh
+curl -s http://127.0.0.1:7788/api/calls/<call_id>
+```
+
+期望输出（进行中时同形状，`state` 为 `submitted` / `working`，`duration_ms` / `model` / `text` / `exit_code` 为 `null`）：
+
+```json
+{"call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是一个本机多智能体运行时。","structured_output":null,"error":null,"exit_code":null}
+```
+
+### 5.15 按调用 id 取转录
+
+```sh
+curl -s http://127.0.0.1:7788/api/calls/<call_id>/transcript
+```
+
+期望输出（`entries` 按发生顺序；终态时末条 `detail.event` 为 `result`）：
+
+```json
+{"call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","truncated":false,"entries":[{"at":1789184738500,"from":"pb-dev","state":"working","detail":{"state":"working","event":"started","executor":"omp-daemon","chat_id":"chat-demo-shell","model":"deepseek/deepseek-v4-flash"}},{"at":1789184740999,"from":"pb-dev","state":"completed","detail":{"event":"result","state":"completed","text":"这是一个本机多智能体运行时。","model":"deepseek/deepseek-v4-flash","duration_ms":8421}}]}
+```
+
+### 5.16 订阅调用事件（`curl -N`）
+
+终端 A（**先订阅**该对话的调用流，保持不关）：
+
+```sh
+curl -N 'http://127.0.0.1:7788/api/calls/stream?chat_id=chat-demo-shell'
+```
+
+终端 B（再发起；`<call_id>` 从 §5.12 的响应里取）：
+
+```sh
+curl -s -X POST http://127.0.0.1:7788/api/calls \
+  -H 'content-type: application/json' \
+  -d '{"chat_id":"chat-demo-shell","agent":"dev","task":"用一句话说明这次改动"}'
+
+# 只想看某一次调用的事件（订阅要在发起之前不可能 ⇒ 用对话作用域先拿到 call_id）
+curl -N http://127.0.0.1:7788/api/calls/<call_id>/stream
+```
+
+终端 A 期望输出（首帧 `retry: 1000` 在订阅建立时即到达；后续帧按发生顺序，序列闭合于终态）：
+
+```
+retry: 1000
+
+event: call_state
+data: {"chat_id":"chat-demo-shell","call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"submitted"}
+
+event: call_state
+data: {"chat_id":"chat-demo-shell","call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"working"}
+
+event: call_update
+data: {"chat_id":"chat-demo-shell","call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","kind":"chunk","text":"这是"}
+
+event: call_result
+data: {"chat_id":"chat-demo-shell","call_id":"task-2c9f5e1b-8a44-4d31-9c7e-5b0f2a6d1e88","agent":"dev","state":"completed","duration_ms":8421,"model":"deepseek/deepseek-v4-flash","truncated":false,"text":"这是本机多智能体运行时。","structured_output":null,"error":null,"exit_code":null}
+
+```
+
+---
+
 ## 6. 不做（范围边界）
 
 本接口面**不提供**下列能力，文档也不描述它们的接入方式：
@@ -977,11 +1390,144 @@ node events.mjs
 - ❌ **agent 启停接口 / 按钮**：没有任何启动、停止、重启 agent 的路由或参数（agent 由本机 CLI 负责）。
 - ❌ **鉴权**：无 token / key / Cookie 校验，只有「仅回环地址」这一层边界。
 - ❌ **跨机接入**：不监听非回环地址，不提供 TLS / 反向代理 / 端口转发说明。
-- ❌ **tasks 接口**：Router 的任务面（`oamp task *`）不经 HTTP 暴露；这里只有「对话」这条线。
+- ❌ **tasks 接口**：Router 的任务面（`oamp task *`）不经 HTTP 暴露；调用面只解除**一处**约束——**按调用 id 读自己发起的调用**（终态 / 转录 / 事件订阅）。按状态过滤、跨调用检索、编排操作仍然不提供。
 - ❌ **客户端 SDK / 适配器**：本文只定义接口，接入实现由各客户端自理。
 - ❌ **UDS / JSON-RPC 协议**：那是进程间协议（Router ↔ agent ↔ web），外部客户端不直连、本文不覆盖。
+- ❌ **调用面：取消 / 终止 / 后续指令（steer）**（差异 ⑮⑯）：没有取消进行中调用、终止、后续指令的路由或参数；「同 chat 再发一条」是既有对话路径（§3.8），不是新面。
+- ❌ **调用面：隔离工作区与产物回传**（差异 ③⑤）：入参没有隔离工作区档位，也没有 worktree / branch / patch 产物字段——调用方与 agent **不共享文件系统**。
+- ❌ **调用面：工作量档位（effort）**（差异 ②）：入参没有该档位与钳制。
+- ❌ **调用面：只读计划模式**（差异 ⑥）：没有强制只读的计划模式通道。
+- ❌ **调用面：本仓库既有的 ACP 派发契约字段**（差异 ⑦）：入参不含那些字段名——不引入第三套词汇，也不与 sub agent 契约合并。
+- ❌ **调用面：工具级进度**（差异 ⑬）：事件帧与读取面都不给「当前工具 / 参数 / 意图 / 重试」。
+- ❌ **调用面：token 与成本**（差异 ⑧⑭）：终态信封与 roster 都不给 usage / tokens / 成本——**无数据源，不造假、不估算**（详见 §7.3 第 ⑧⑭ 条）。
+- ❌ **调用面：远端同会话渲染**（差异 ⑰）：不提供会话镜像；调用面只有 HTTP / SSE。
+- ❌ **调用面：客户端 SDK / 适配器**（差异 ⑱）：同下一条，接入由客户端照文档自行实现。
+
 
 两个容易混淆的口径，一并说明：
 
 - `GET /api/agents` **无参时包含 `offline` 墓碑**；只要在线实例请用 `?state=online`。
 - `POST /api/messages` 的「派发失败」是 **200 + `warning`**，不是 4xx/5xx。
+
+---
+
+## 7. sub agent 契约对照与差异清单
+
+### 7.1 参照契约与判定口径
+
+- **参照物** = harness 的 **`task` 工具契约**（`omp://tools/task.md`）：本仓库对「sub agent 协议」的对照一律以它为基准，按**调用面 / 响应面 / 展示面**三面取逐条不变量（调用面 I1~I11 / 响应面 R1~R7 / 展示面 D1~D7）。参照契约只作**对照物**——本迭代不实现、不改写 harness / omp 侧，也不把它与本仓库既有的 ACP 派发契约合并（不引入第三套词汇）。
+- **等价判定** = **语义等价 + 差异清单**：等价指语义等价（不要求字段名与形态逐字相同）；凡**非**「必须等价」的对照行，都在 §7.3 有对应编号（覆盖关系见 §7.4）。差异清单的编号与归类沿用需求文档既有条目（①~⑲）——本迭代**不增不改**、不重排。
+- **术语对照**：
+
+| 参照契约（`task` 工具） | 本 hub 的调用面 |
+|---|---|
+| `agent`：task-agent 名（有文档化的发现优先级） | `agent`：**角色名**（如 `dev`）——由既有实例命名关系推导，不照搬发现链 |
+| `task`：子任务文本 | `task`（单项）/ `tasks[]`（批量，每项 = 一个独立调用） |
+| `context`：共享上下文 | `context`：**本次调用的共享说明**（独立区块前置装配，不污染任务文本） |
+| `outputSchema` / `schemaMode` | `output_schema`（受限子集）/ `schema_mode`（`permissive` \| `strict`） |
+| job id | `call_id` = 既有 `task_id`（**不**新造第二套标识） |
+
+### 7.2 三面对照表（25 行）
+
+> 结论取值：**必须等价** / **必须等价（形态简化）** / **部分等价** / **本次不做**；「差异编号」列仅非「必须等价」的行有编号（⑲ 同时是既有对话入口的例外地位）。
+
+**调用面（I1~I11）**
+
+| 编号 | 参照契约的不变量 | hub 的实现方式 | 结论 | 差异编号 |
+|---|---|---|---|---|
+| I1 | 按 task-agent 名选择，且有文档化的发现优先级 | 按**角色名**寻址（`agent`）：可被寻址的是本 hub 的**常驻实例**身份，且只走既有实例命名关系——不照搬多级发现链、不新增优先级链 | 必须等价（形态简化） | ① |
+| I2 | `task` 文本 + 可选共享 `context`；批量 `tasks[]` | `task` / `tasks[]`（每项一个独立调用、各得一个 `call_id`）+ `context`（独立区块前置装配） | 必须等价 | — |
+| I3 | `outputSchema` + `schemaMode` | `output_schema`（受限子集：受理时校验、终态时提取并按三层校验）+ `schema_mode`（`permissive` / `strict`） | 必须等价 | — |
+| I4 | 工作量档位与钳制 | 入参无该字段（字段表为封闭清单） | 本次不做 | ② |
+| I5 | 隔离工作区与 patch / branch 产物 | 入参无该字段；也没有 worktree / branch / patch 产物字段 | 本次不做 | ③ |
+| I6 | 每项可选「阻塞」或「后台 job」 | `mode`：`background`（默认，受理即回）/ `block`（响应挂起至终态，不设人为上限） | 必须等价 | — |
+| I7 | 模型优先级：调用参数 > frontmatter > 会话兜底 | 调用参数 > 角色 / 实例默认（没有 frontmatter 层；未指定走既有默认链） | 必须等价 | — |
+| I8 | 调用命名与身份（去重、嵌套 `Parent.Child`） | 身份 = 既有 `task_id`（`call_id` 同值）；agent 身份 = `(chat, 角色名)`——同 chat 同名共享上下文是**默认路径**，既有 `one_shot: true` 是调用方显式选择的**例外**（§7.5）；**无**父子 / 血缘命名 | 部分等价 | ④ ① ⑲ |
+| I9 | 共享文件系统根 + 产物管理器 | 不存在共享根：无路径透传字段 | 本次不做 | ⑤ |
+| I10 | plan mode 强制只读有效 agent | 不存在只读计划模式通道 | 本次不做 | ⑥ |
+| I11 | 本仓库既有的 ACP 派发契约字段 | 入参零该类字段（不引入第三套词汇） | 本次不做 | ⑦ |
+
+**响应面（R1~R7）**
+
+| 编号 | 参照契约的不变量 | hub 的实现方式 | 结论 | 差异编号 |
+|---|---|---|---|---|
+| R1 | 结构化终态：退出标记 / 时长 / 生效模型 / 截断标记 / `aborted` 语义等一组字段 | 可得：`state` / `duration_ms` / `exit_code` / `model` / `truncated` / `text` / `structured_output`；**不可得**的那几类为终态字段缺口（见 §7.3 第 ⑧ 条） | 必须等价（形态简化） | ⑧ |
+| R2 | 产物 URI（含 JSON 抽取能力） | 能力等价：按调用 id 取最终产物 = `GET /api/calls/<call_id>` 的 `text` / `structured_output`；**不照搬** URI scheme | 必须等价（形态简化） | ⑨ |
+| R3 | `history://<id>` 转录（含中间步骤） | `GET /api/calls/<call_id>/transcript`：既有过程条目 + 终态条目；**进程内**可读，重启即丢 | 部分等价 | ⑩ |
+| R4 | job id + 终态异步投递回调用方 | `call_id` + 终态经 `call_result` 帧投递（也可按 id 查询） | 必须等价 | — |
+| R5 | `yield` 载荷 / structuredOutput | `structured_output`（限 `output_schema` 路径）；不引入 `yield` 工具 | 必须等价 | — |
+| R6 | 生命周期含挂起 / 恢复 / 中止 | 无启停、挂起、恢复、中止能力（也不启停任何进程） | 本次不做 | ⑪ |
+| R7 | `completed` / `failed` / `blocked` 或非零退出标记 | 调用面统一终态词 `completed` / `failed` + `exit_code` / `error`；既有 HTTP 错误契约 `{error, code}` 逐字不变 | 必须等价（形态简化） | ⑫ |
+
+**展示面（D1~D7）**
+
+| 编号 | 参照契约的不变量 | hub 的实现方式 | 结论 | 差异编号 |
+|---|---|---|---|---|
+| D1 | live 进度（当前工具 / 参数 / 意图 / 重试，约 150ms 合并） | 状态迁移 + 增量输出 + 终态；**不做**工具级详情 | 部分等价 | ⑬ |
+| D2 | 每次调用一行 roster（状态 / 模型 / 年龄 / 用量与开销） | `GET /api/calls` 六列：调用 id / agent / 状态 / 起止时间 / 模型；裁剪掉的列见 §7.3 第 ⑭ 条 | 必须等价（形态简化） | ⑭ |
+| D3 | 完成通知到调用方 | `call_result` 帧带调用 id（按调用、按对话两种订阅都可收） | 必须等价 | — |
+| D4 | 对 live agent 的后续指令 / 追问 | 无该区分；「同 chat 再发一条」是既有对话路径（§3.8），不是新面 | 本次不做 | ⑮ |
+| D5 | 取消进行中的调用 | 无取消入口 | 本次不做 | ⑯ |
+| D6 | 非 TUI 客户端的帧订阅 | HTTP / SSE 裸接口（按调用、按对话两种作用域）；仓库**不**提供客户端 SDK 或适配器 | 必须等价（形态简化） | ⑱ |
+| D7 | 远端客户端同会话渲染一致（协同镜像） | 无会话镜像模型 | 本次不做 | ⑰ |
+
+### 7.3 差异清单（①~⑲）
+
+> 「本迭代落点」列的两种写法：**能力提供侧**给出可核对的接口 / 字段；「不提供」的条目给出可机械核对的核对方式（检索面 + 零命中的对象）。
+
+| 编号 | 差异内容 | 依据 | 本迭代落点 / 不提供的核对方式 |
+|---|---|---|---|
+| ① | 被调用者生命周期：hub 的被调用者是**常驻 agent 实例**（一个实例承载多个 chat 作用域的身份）；参照契约是「每次派发一个临时 agent + 挂起 / 恢复」 | P-2 裁决（用户） | 能力提供侧：调用面的 `agent` 就是这类常驻实例的角色名（§3.1 的 `role`）；不提供侧：无启停 / 挂起 / 恢复路由（核对 = 路由表检索） |
+| ② | 不提供 `effort` 档位与钳制 | P-5 / I4 | 入参字段表为封闭清单（§3.14）；核对 = 调用面章节与 `oamp/src/web.js` 对该词零命中 |
+| ③ | 不提供隔离工作区与 patch / branch 产物 | P-5 / I5 | 入参无该字段、无产物回传面（核对同 ②） |
+| ④ | 不提供嵌套调用 / 父子血缘 / `Parent.Child` 命名 | P-5 / I8 | `call_id` = 既有 `task_id`（形态 `task-<uuid>`）；字段表与路由表都无血缘字段（§3.19） |
+| ⑤ | 不提供共享 `local://` 根（调用方与 agent 不共享文件系统） | P-5 / I9 | 入参无路径透传字段（核对同 ②） |
+| ⑥ | 不提供只读计划模式 | P-5 / I10 | 入参与事件面都没有该通道（核对同 ②） |
+| ⑦ | 不引入本仓库既有的 ACP 派发契约字段（不引入第三套词汇） | P-1 / P-5 / I11 | 入参零该类字段；本章**不**与那份契约合并 |
+| ⑧ | 终态字段缺口：usage / tokens / 成本 / `aborted` 语义**不可得** | P-6 / R1（既有执行侧终态体从未采集这些值） | **无数据源**：终态信封的键集合（§3.19）不含这些字段——**不提供、不造假、不估算、不占位**；核对 = 响应键集合断言 + 本文档检索 |
+| ⑨ | 产物形态：提供「按调用 id 取最终产物」，**不照搬** URI scheme | P-6 / R2 | 能力提供侧 = `GET /api/calls/<call_id>` 的 `text` / `structured_output`（§3.19）；不提供侧 = 该 URI scheme（核对 = 路由表零命中） |
+| ⑩ | 转录不持久：进程内可读，**重启即丢** | P-6 / R3 + N11 | 能力提供侧 = `GET /api/calls/<call_id>/transcript`（§3.18）；重启后同一 id ⇒ `404`；核对 = 数据库零新表零新列（不落库） |
+| ⑪ | 生命周期控制：无挂起 / 恢复 / 中止 | P-6 / R6 + 0015 边界 | 路由表与入参零命中（核对同 ②） |
+| ⑫ | 终态词表：调用面给出统一终态词；既有 HTTP 面错误契约保持 `{error, code}` 不变 | P-6 / R7 + N18 | 信封 `state` ∈ {`submitted`,`working`,`completed`,`failed`}（§3.19）；§2.2 的既有错误契约逐字不变 |
+| ⑬ | 工具级进度：不提供当前工具 / 参数 / 意图 / 重试 | P-7 / D1 | 事件帧字段（§4.4）与转录条目（§3.18）都不含工具级字段 |
+| ⑭ | roster 字段裁剪：**无成本与 token** | P-7 / D2 | 六列固定（§3.15）；**无数据源** ⇒ 不提供、不造假、不估算；核对 = 响应键集合断言 |
+| ⑮ | 不提供后续指令 / followUp 的区分 | P-7 / D4 | 入参与路由零命中（核对同 ②）；「同 chat 再发一条」= 既有 §3.8 路径 |
+| ⑯ | 不提供取消进行中的调用 | P-7 / D5 + P-8 | 无取消路由与参数（核对同 ②） |
+| ⑰ | 不提供远端同会话渲染（无会话镜像模型） | P-7 / D7 | 调用面只有 HTTP / SSE；无镜像 / 协同字段 |
+| ⑱ | 客户端适配：不提供客户端 SDK / 适配器，接入由客户端照文档自行实现 | P-3 + 0015 边界 | 仓库零 SDK / 插件 / 适配器代码；文档只给 curl 与裸 SSE 示例（§5.12~§5.16） |
+| ⑲ | `one_shot` 的例外地位 | Q-1 裁决 ①（用户） | 能力**保留**：既有 `POST /api/messages` 带 `one_shot: true` 逐字不变；调用面不提供该开关（§7.5） |
+
+### 7.4 覆盖关系核对表
+
+> 口径：**§7.2 中所有非「必须等价」的对照行** ↔ **上表 19 个编号**——两列集合互相覆盖，无孤儿行、无孤儿条目。
+
+| 差异编号 | 覆盖它的对照行（§7.2） |
+|---|---|
+| ① | I1（形态简化侧）、I8（身份侧） |
+| ② | I4 |
+| ③ | I5 |
+| ④ | I8 |
+| ⑤ | I9 |
+| ⑥ | I10 |
+| ⑦ | I11 |
+| ⑧ | R1 |
+| ⑨ | R2 |
+| ⑩ | R3 |
+| ⑪ | R6 |
+| ⑫ | R7 |
+| ⑬ | D1 |
+| ⑭ | D2 |
+| ⑮ | D4 |
+| ⑯ | D5 |
+| ⑰ | D7 |
+| ⑱ | D6 |
+| ⑲ | I8 |
+
+- 行侧闭合：§7.2 的 18 个非「必须等价」对照行（I1 / I4 / I5 / I8 / I9 / I10 / I11 / R1 / R2 / R3 / R6 / R7 / D1 / D2 / D4 / D5 / D6 / D7）全部在上表出现。
+- 条目侧闭合：上表的 19 个编号全部出现在 §7.2 的「差异编号」列（① 出现在 I1 与 I8 两行）。
+
+### 7.5 `one_shot` 的例外地位
+
+- **默认路径** = **同 chat 同名 agent 共享上下文**：agent 身份 = `(chat, 角色名)`——同 chat 下同名 agent 是同一个 agent、共享上下文；不同 chat 之间相互隔离。这是调用面（常驻上下文执行路径）的既有语义，不是本迭代新增的约定。
+- 既有对话入口的 `one_shot: true` 是**调用方主动放弃上下文延续**的**显式例外**：只有调用方显式选择它，才不走上面那条默认的共享路径。
+- 该例外的入口**仍是既有对话入口**（§3.8）：**调用面不提供该开关**（§3.14 的入参字段表是封闭清单，没有它），也不把它改写成调用面的默认行为。
