@@ -26,14 +26,15 @@
 
 ## 边界（不包含）
 
-- 不含工作区落点目录、命名、创建命令、识别方式（→ `[架构待填]` T-01 / T-05）。
+- 不含工作区落点目录、命名、创建命令、识别方式（→ T-01 / T-05，见 `architecture.md` §1.5 / §3.2）。
 - 不含启动契约与硬停（→ F03）；不含"每迭代一个工作区"的绑定（→ F02）。
 - **不为 clone 定义任何流程**（N6）；**不保证跨机器 / 多人协作**（N6 / P-13 ①）。
 - 不含阶段 5 的 PR worktree 机制改动（→ F07；规则 A 的实质语义不变，见 F14 验收 3）。
 - 不含共享 refs / 对象库 / config / hooks 的隔离（那些是**不覆盖项**，由 F12 的隔离边界声明承载）。
 - **不追溯已完成迭代**（N3）：本形态条款从下一个迭代起生效，0019 自身不迁移。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构落地（阶段 3 已填，见 `architecture.md` §1.5 / §3.2 / §8.1；产品维度未改一字）
 
-- **T-01**：会话 / 迭代工作区的落点目录（含与既有 `.pb-agents/worktrees/` 目录的关系）——`demand.md` §4 + N9 原文留白。
-- **T-05**：工作区创建 / 识别 / 命名 / 归属判定所用的具体 git 原生命令序列与呈现位置。
+- **T-01 落点目录**：会话 / 迭代工作区 = `<仓库主工作区>/.pb-agents/worktrees/{迭代ID}`——复用**既有**父目录与**既有**忽略项（`.gitignore:2` `.pb-agents/`、`:4` `.pb-agents/worktrees/`），**零 `.gitignore` 变更**。与既有 `.pb-agents/worktrees/` 的关系 = 同一父目录：会话层用目录名 `{迭代ID}`；0011/0012/0017 实测的 PR worktree 目录形态 `{迭代编号}-pr-{NNN}-{slug}` 继续沿用，但落点从"主工作区下平铺"改为会话工作区内的同名子目录（`architecture.md` §7 Q-4）。
+- **T-05 命令与呈现位置**：创建 = `git worktree add .pb-agents/worktrees/{迭代ID} -b iteration/{迭代ID} main`（在**仓库主工作区**执行）；识别 / 归属判定 = `git rev-parse --show-toplevel`、`git rev-parse --git-dir`、`git rev-parse --git-common-dir`、`git branch --show-current`、`git worktree list`（全部 git 原生、零工具）。呈现位置：命令只写在规范新增 `### 规则 C：会话工作区隔离`（条款 + 紧跟一行 `判断方式：`）一处，SKILL 不重复。
+- **形态与边界的落定**：`git worktree` 为默认且唯一被规范化的形态；`git clone` 仅在"无法共享同一 `.git`（跨机器 / 跨用户 / 无写权限）"时作为**声明**出现、不定义流程（N6）；`iteration/{迭代ID}` 全程保持；仓库主工作区不作为任何迭代的工作区。
