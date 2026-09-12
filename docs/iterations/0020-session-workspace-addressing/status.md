@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.9.0（本迭代按规则 C/D 的**修正方向**运行：会话在仓库主工作区启动、以显式寻址操作本迭代工作区——见「偏离记录 D-1」）
 **迭代**: 0020-session-workspace-addressing
-**当前阶段**: 需求收敛（阶段 1）
+**当前阶段**: 功能规格（阶段 2）
 **迭代分支**: iteration/0020-session-workspace-addressing（base = main @ `dbc99b5`，含 0017 与 0019 全部产出）
 **会话工作区**: `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0020-session-workspace-addressing`
 **状态**: 进行中
@@ -13,8 +13,8 @@
 
 | # | 阶段 | 完成 | 已验证 | 备注 |
 |---|---|---|---|---|
-| 1 | 需求收敛 | ⏸ | ⬜ | 已派发 demand；输入 = 用户原话 + 主 agent 复盘 + v0.9.0 现状与 0019 验证记录 |
-| 2 | 功能规格 | ⬜ | ⬜ | |
+| 1 | 需求收敛 | ✅ | ⬜ | demand.md **v1.0.0**；三轮共 **P-1~P-17** 全部经用户裁决（P-1 经用户升级为「声明式协议产物」；P-17 经用户自定选项落 `docs/worktrees/`）；`model_inferred` 归零；C-1~C-9 全部已决 |
+| 2 | 功能规格 | ⏸ | ⬜ | 已派发 prd；输入 = demand.md v1.0.0（W/N/E 全量 + 三处地址分层 + supersede 清单） |
 | 3 | 技术架构 | ⬜ | ⬜ | |
 | 4 | PR 规划 | ⬜ | ⬜ | |
 | 5 | PR 实现 | ⬜ | ⬜ | 逐 PR 状态见下 |
@@ -46,3 +46,7 @@
 
 - 2026-09-12: 迭代启动。Step 0 前提声明——本宿主具备真实阻塞式人机交互通道（`ask`）；按 v0.9.0 规则 C 的命令形态创建迭代分支与工作区（`git worktree add .pb-agents/worktrees/0020-… -b iteration/0020-… main`）；会话在仓库主工作区启动（见偏离记录 D-1）。
 - 2026-09-12: 创建 status.md + history.md → 派发 demand（第一轮），简报带「工作目录纪律」固定段与绝对路径。
+- 2026-09-12: 阶段 1 三轮收敛：v0.1.0（P-1~P-16 待裁决）→ 用户裁决（P-1 升级为「协议先行 + 声明式产物」、P-2/P-3 会话自建零前置、其余按推荐）→ v0.2.0（仅 P-17 待裁决）→ 用户自定选项「落 `docs/worktrees/`」→ **v1.0.0 归零** ⇒ **阶段 1 推进条件三项通过 ✅**。
+- 2026-09-12: 进入阶段 2（功能规格），派发 prd。
+
+> **本迭代的运行形态（同时是需求的实证）**：主 agent 会话在仓库主工作区（分支 `main`）启动，全程以**绝对路径 + `git -C <WS>`** 操作 `<WS> = .pb-agents/worktrees/0020-session-workspace-addressing`；三份 demand 产物与两轮简报均无污染主工作区（demand 每轮自证：`git -C <WS> status --porcelain -uall` 仅含其 3 份文件；主工作区 `status -uall` 为空）。
