@@ -1,7 +1,7 @@
 ---
 name: workflow-pb
 description: |
-  启动并驱动 pb 产品研发工作流（v0.8.0）。主 agent 调度协议：按 6 阶段序列推进、
+  启动并驱动 pb 产品研发工作流（v0.9.0）。主 agent 调度协议：按 6 阶段序列推进、
   逐阶段核查推进条件、阶段 5 依赖解锁式并发 PR 派发（含并发槛位算法）、维护 status.md 进度视图。
   派发执行角色时必须读出角色文件全文并显性注入 brief（不是路径引用）。
   阶段 1（需求收敛）是硬性前置，不可跳过；执行过程中发现的需求变更/错误由执行角色
@@ -27,8 +27,8 @@ role:
 
 # workflow-pb
 
-**版本**: 1.11.0（对应规范 workflow-pb v0.8.0）
-**完整规范**: `.pb-agents/roles/workflow-pb/workflow-pb.md`（安装方式见「§ 角色文件路径与安装」）
+**版本**: 1.12.0（对应规范 workflow-pb v0.9.0）
+**完整规范**: `{角色定义根}/workflow-pb/workflow-pb.md`（角色来源见「§ 角色文件来源与部署」）
 **变更历史**: 见 `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md`、`data/skill-optimization-v1.9.0.md`、`data/skill-optimization-v1.10.0.md`
 
 ---
@@ -39,7 +39,9 @@ role:
 
 **CRITICAL: 遇到用户决策点必须暂停呈现，不得代为决策后继续推进——违反会在用户不知情的情况下锁定不可逆技术判断，修改成本远高于暂停成本。**
 
-**CRITICAL: 角色文件根路径固定为 `.pb-agents/roles/`，agents 项目自身开发时也不例外——`.pb-agents/roles/` 不存在时，先执行 `tools/install-pb-agents.sh` 完成安装，不得退回读 `roles/` 源码目录。**
+**CRITICAL: 角色定义的读取来源是随检出即得的内容——本仓库为被 git 追踪的 `roles/<role>/<role>.md`，下游业务项目为分发到 `.pb-agents/roles/<role>/<role>.md` 的副本（解析规则见规范 §角色定义来源与部署）。不得在 agents 仓库内读取被忽略的 `.pb-agents/roles/` 副本（它在新工作区里必然缺席）；`tools/install-pb-agents.sh` 是面向下游的可选分发手段，不是本协议的运行前提。**
+
+**CRITICAL: 会话必须在自己的迭代工作区内启动与运行——启动校验不通过 → 发现即停并输出可用于创建该迭代工作区的命令，不进入任何阶段、不产生任何写入；判据见规范 §规则 D。**
 
 **CRITICAL: 阶段 1（需求收敛）不可跳过——无论迭代规模多小、需求看起来多清楚，都必须先派发 demand 角色产出 `demand.md` 并通过推进条件，才能进入阶段 2；需求错了后面全错，这是唯一无法事后补救的阶段。**
 
@@ -47,7 +49,7 @@ role:
 
 **CRITICAL: 每次派发必须让「角色文件路径 + 角色名」在 brief 中逐行显式呈现，不得压缩改写进自由叙述的任务描述——宿主工具层给执行实例起的显示名（如某通用 task agent 的实例名）不受约束、也不能替代这两个字段；判断"是否使用了 workflow-pb 角色"只看 brief 与调度说明，不看实例显示名。**
 
-**CRITICAL: 执行角色发现的需求变更/需求错误，主 agent 不代为处理——按 `.pb-agents/roles/workflow-pb/workflow-pb.md`「阶段回退」判断标准，执行角色直接写入 `deferred-demand-changes.md` 并继续，不回退、不暂停；主 agent 只在阶段 6 触发时把该文件路径显式塞进委托，交给 verifier 摘录透传。**
+**CRITICAL: 执行角色发现的需求变更/需求错误，主 agent 不代为处理——按 `{角色定义根}/workflow-pb/workflow-pb.md`「阶段回退」判断标准，执行角色直接写入 `deferred-demand-changes.md` 并继续，不回退、不暂停；主 agent 只在阶段 6 触发时把该文件路径显式塞进委托，交给 verifier 摘录透传。**
 
 **CRITICAL: 主 agent 不得对失败/阻塞的 PR 执行 `git worktree remove`、`git branch -d` 或等价清理操作——违反会让排查失败原因的现场证据消失，后续只能靠猜。**
 
@@ -55,7 +57,7 @@ role:
 
 ## Purpose
 
-接收迭代 ID，按 workflow-pb v0.8.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
+接收迭代 ID，按 workflow-pb v0.9.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
 
 ## Success criteria
 
@@ -93,13 +95,14 @@ role:
 ## Tools and capability boundaries
 
 **做什么**：
-- 启动时检测 `.pb-agents/roles/` 是否存在（见「§ 角色文件路径与安装」），不存在则提示执行安装脚本并停止
-- 读取规范文件（`.pb-agents/roles/workflow-pb/workflow-pb.md`，需要完整规范时）
+- 启动时执行**启动校验**（判据引用规范 §规则 D）与**角色来源解析**（见「§ 角色文件来源与部署」）
+- 读取规范文件（`{角色定义根}/workflow-pb/workflow-pb.md`，需要完整规范时）
 - 创建并维护 `docs/iterations/{迭代ID}/status.md`
 - 逐阶段核查推进条件（读文件内容判断，不靠感觉）
 - 派发执行角色（派发机制由宿主决定，如 Claude Code 的 Agent 工具；不变量见「§ 对外协议·角色派发契约」——传最小 brief + 解析后的角色文件具体路径，不传整个文档内容）
 - 阶段 5：读依赖图、管理 worktree 创建、并发派发、merge
 - 若 `history` 开启，逐条维护 `history.md`
+- 隔离边界（覆盖 / 不覆盖）与非 git 共享资源见规范 §隔离边界声明（只引用，不重复定义）
 
 **不做什么**：
 - 不执行需求 / 设计 / 架构 / 实现工作
@@ -130,15 +133,16 @@ role:
 
 ### Step 0: 启动
 
-1. **检查安装**（见「§ 角色文件路径与安装」）：检测 `.pb-agents/roles/` 是否存在。不存在 → 提示用户先执行 `tools/install-pb-agents.sh`，停止推进；存在 → 继续。agents 项目自身开发场景不例外，同样要求已安装。
-2. **前提声明**（见「§ 对外协议·人机交互契约」）：自评当前宿主是否具备真实阻塞式人机交互通道（能真正停下等待用户下一条输入，而不是只能一次性生成完整响应）。不具备时，必须显式声明这一限制（例如"当前宿主无法阻塞等待用户输入，遇到用户决策点将只停止推进并原样保留 `[model_inferred]` 标记，不会自问自答"），此后全程遵守该限制，不得后续静默降级为自问自答。
-3. 确认迭代 ID（不确定时问用户，不猜）。检查 `docs/iterations/{迭代ID}/status.md`：不存在 → 创建并初始化（所有阶段 ⬜）；存在 → 读取当前状态，从上次中断处继续。
+1. **启动校验**（规范 §规则 D）：`git rev-parse --show-toplevel` == cwd；`--git-dir` ≠ `--git-common-dir`；`git branch --show-current` == `iteration/{迭代ID}`。不通过 → 输出创建命令并**发现即停**（不进入任何阶段、不产生任何写入）。
+2. **角色来源解析**（规范 §角色定义来源与部署）：解析 `{角色定义根}` 一次，会话内复用；解析结果写入每次 brief。
+3. **前提声明**（见「§ 对外协议·人机交互契约」）：自评当前宿主是否具备真实阻塞式人机交互通道（能真正停下等待用户下一条输入，而不是只能一次性生成完整响应）。不具备时，必须显式声明这一限制（例如"当前宿主无法阻塞等待用户输入，遇到用户决策点将只停止推进并原样保留 `[model_inferred]` 标记，不会自问自答"），此后全程遵守该限制，不得后续静默降级为自问自答。
+4. 确认迭代 ID（不确定时问用户，不猜）。检查 `docs/iterations/{迭代ID}/status.md`：不存在 → 创建并初始化（所有阶段 ⬜）；存在 → 读取当前状态，从上次中断处继续。
 
 ### Step 1~4: 线性阶段推进
 
 **阶段 1 硬性前置**：不管迭代看起来多简单，必须先实际派发 demand 角色，产出 `demand.md` 并通过推进条件，才能进入阶段 2——不得因"需求很清楚"跳过。
 
-**每次推进前**：读取 `.pb-agents/roles/workflow-pb/workflow-pb.md` §阶段定义，逐项核查该阶段"推进条件"列，全部通过才更新 status.md 推进；未全部通过 → 回到执行角色补充，不跳过。
+**每次推进前**：读取 `{角色定义根}/workflow-pb/workflow-pb.md` §阶段定义，逐项核查该阶段"推进条件"列，全部通过才更新 status.md 推进；未全部通过 → 回到执行角色补充，不跳过。
 
 **派发时**：按下方「§ 阶段执行卡片」派发对应角色，brief 内容见下方「§ Brief 构建规则」。
 
@@ -167,13 +171,13 @@ role:
 目标：让无依赖（或依赖已合并）的 PR 始终保持并发推进，不空转等待。
 
 1. 读取所有 `prs/pr-{NNN}.md`，构建 `depends_on` 依赖图，校验无环
-2. 无依赖或依赖均已合并的已解锁 PR → 按当前有效上限取前 N 个立即并发派发（独立 worktree + 按顺序派发 planner → dev → verifier → merge）——技术手段是主 agent 在同一轮 assistant 响应中连续发起多个 `Agent()` 工具调用，不是逐个顺序调用；首批派发和补位派发共用同一条封顶规则，没有已解锁排队 PR 时槛位空置，不因此放宽解锁条件
+2. 无依赖或依赖均已合并的已解锁 PR → 按当前有效上限取前 N 个立即并发派发（独立 worktree + 按顺序派发 planner → dev → verifier → merge；PR worktree 落 `<会话工作区>/.pb-agents/worktrees/{迭代编号}-pr-{NNN}-{slug}`，分支 `feat/{迭代编号}-pr-{NNN}-{slug}`，base 为当前迭代的迭代分支）——技术手段是主 agent 在同一轮 assistant 响应中连续发起多个 `Agent()` 工具调用，不是逐个顺序调用；首批派发和补位派发共用同一条封顶规则，没有已解锁排队 PR 时槛位空置，不因此放宽解锁条件
 3. 每个 PR merge 完成后：重新扫描依赖图，新解锁的立即派发；触发 progress-observer
 4. `progress-observer` 报告"可并发但闲置"的 PR → 立即补派发，不等；失败/阻塞的 PR 不得执行 `git worktree remove`/`git branch -d` 或等价清理操作，现场原样保留
 
 **解锁条件是合并进当前迭代的迭代分支**，不是 dev 的完成声明——PR-B 的 worktree 必须从已含 PR-A 代码的迭代分支拉出（见 Important facts #3）。
 
-**并发槛位算法要点**：起始并发数从 `status.md` 的 `## 并发配置（阶段 5）` 区块读取（默认 3）；每次有 PR 返回成功合并或失败/阻塞判定，触发爬升，`当前有效上限` 按 `min(起始并发数 + 累计槛位释放次数 × 起始并发数, 硬上限)` 重新计算；硬上限固定为 `2 × 起始并发数 - 1`。爬升带来的新增槛位仍只分配给依赖已合并的排队 PR。完整公式见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §「阶段 5」。
+**并发槛位算法要点**：起始并发数从 `status.md` 的 `## 并发配置（阶段 5）` 区块读取（默认 3）；每次有 PR 返回成功合并或失败/阻塞判定，触发爬升，`当前有效上限` 按 `min(起始并发数 + 累计槛位释放次数 × 起始并发数, 硬上限)` 重新计算；硬上限固定为 `2 × 起始并发数 - 1`。爬升带来的新增槛位仍只分配给依赖已合并的排队 PR。完整公式见 `{角色定义根}/workflow-pb/workflow-pb.md` §「阶段 5」。
 
 ### Step 6: 独立验证（按需触发）
 
@@ -183,7 +187,7 @@ role:
 
 若 `docs/iterations/{迭代ID}/deferred-demand-changes.md` 存在，主 agent 必须把该文件路径显式加入委托，要求 verifier 将其内容原文摘录进验证报告——verifier 不会自己扫描目录找这个文件，只读委托里给的路径。
 
-若该迭代 `prs/` 目录产出 ≥2 个 PR 且依赖图有真实并发分支，本次阶段 6 委托必须额外要求 verifier 核查 worktree 时间窗口重叠/并发配置区块真实初始化更新/爬升公式真实触发三项真实执行证据，完整核查内容见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §「并发调度真实执行证据（下一个多 PR 迭代强制核查）」。
+若该迭代 `prs/` 目录产出 ≥2 个 PR 且依赖图有真实并发分支，本次阶段 6 委托必须额外要求 verifier 核查 worktree 时间窗口重叠/并发配置区块真实初始化更新/爬升公式真实触发三项真实执行证据，完整核查内容见 `{角色定义根}/workflow-pb/workflow-pb.md` §「并发调度真实执行证据（下一个多 PR 迭代强制核查）」。
 
 ---
 
@@ -209,23 +213,21 @@ role:
 
 ### 文档协议
 
-- 产物文档的路径、字段、标注规则由 `.pb-agents/roles/workflow-pb/workflow-pb.md` 规范文件统一定义，本 skill 不重复定义，只引用。
+- 产物文档的路径、字段、标注规则由 `{角色定义根}/workflow-pb/workflow-pb.md` 规范文件统一定义，本 skill 不重复定义，只引用。
 - `status.md` 与文件系统共同构成进度的真相来源，二者必须保持一致，不能只靠角色口头自称推导。
 - `[user_confirmed]` / `[model_inferred]` 标注在任何宿主上都必须原样保留在产物文本中，供后续阶段和人类审阅时追溯确认来源，不能在展示或转述时被隐藏、简化或合并成无标注文本。
 
 ---
 
-## § 角色文件路径与安装
+## § 角色文件来源与部署
 
-角色文件根路径固定为 `.pb-agents/roles/`——不再区分"agents 项目自身开发"与"业务项目部署"两种场景，两者走同一套安装流程，同一套路径。
+角色定义的**真源 = 被 git 追踪的内容**（判据 `git ls-files --error-unmatch <角色定义根>/<role>/<role>.md` 与完整解析规则见规范 §角色定义来源与部署；本节只写两个场景的差别与解析动作，不重复契约措辞）。
 
-**安装方法**：`tools/install-pb-agents.sh [目标项目路径]`（不传参数时安装到当前目录）。该脚本把 agents 源码 `roles/<role>/<role>.md` 真实 copy 到 `<目标项目>/.pb-agents/roles/<role>/<role>.md`，`principles/` copy 到 `.pb-agents/principles/`；每次运行先清空目标再重新 copy（幂等覆盖）。
+- **上游（本仓库，agents 源码仓）**：`{角色定义根}` = `roles/`——角色定义随每次检出即得，新工作区**零安装动作**即可读到完整角色定义。
+- **下游（业务项目）**：`{角色定义根}` = `.pb-agents/roles/`。`tools/install-pb-agents.sh [目标项目路径]`（不传参数时安装到当前目录）把 agents 源码 `roles/<role>/<role>.md` copy 到 `<目标项目>/.pb-agents/roles/<role>/<role>.md`，`principles/` copy 到 `.pb-agents/principles/`，每次运行先清空目标再重新 copy（幂等覆盖）；这是**面向下游业务项目的可选分发手段，不是本协议的运行前提**——未执行它不构成停止推进的理由。
+- **解析动作**：Step 0 解析一次 `{角色定义根}`（先判被跟踪的 `roles/` 可用则用它，否则回退下游副本），会话内复用；解析结果写入每次 brief 的「角色定义」字段。
 
-**检测时机**：Step 0 启动时检测 `.pb-agents/roles/` 是否存在。不存在 → 提示用户执行安装脚本，停止推进，不得退回读 `roles/` 源码目录。存在 → 继续，本次会话全程直接使用 `.pb-agents/roles/` 路径，无需每次派发前重新检测。
-
-**已知代价**：agents 项目自身开发时修改了 `roles/` 源码后，必须重新执行安装脚本才能让 `.pb-agents/roles/` 同步更新——本 skill 读取的始终是 `.pb-agents/roles/` 下的 copy，不会自动感知源码变更。
-
-**只读约束**：`.pb-agents/roles/` 是 agents 框架的只读 copy（见 `docs/memory-system.md` §六），本 skill 只读取，不修改；角色的 `data/`、`memory.md` 不随 copy 部署，本 skill 也不派发角色去写这两者。
+**只读约束**：角色定义在执行期只读（真源与分发副本皆然，见 `docs/memory-system.md` §六）；角色的 `data/`、`memory.md` 不随分发部署，本 skill 也不派发角色去写这两者。
 
 ---
 
@@ -235,39 +237,39 @@ role:
 
 **阶段 1 · 需求收敛**
 - 角色名：`demand`
-- 角色文件路径：`.pb-agents/roles/demand/demand.md`
+- 角色文件路径：`{角色定义根}/demand/demand.md`
 - 执行流程：派发 `demand` 角色，产出 `docs/iterations/{迭代ID}/demand.md`；核查推进条件通过后进入阶段 2
 
 **阶段 2 · 功能规格**
 - 角色名：`prd`
-- 角色文件路径：`.pb-agents/roles/prd/prd.md`
+- 角色文件路径：`{角色定义根}/prd/prd.md`
 - 执行流程：派发 `prd` 角色，读取 `demand.md`，产出功能规格文档；核查推进条件通过后进入阶段 3
 
 **阶段 3 · 技术架构**
 - 角色名：`architect`
-- 角色文件路径：`.pb-agents/roles/architect/architect.md`
+- 角色文件路径：`{角色定义根}/architect/architect.md`
 - 执行流程：派发 `architect` 角色，产出架构文档；出现 L1 决策 → 暂停等用户确认；核查推进条件通过后进入阶段 4
 
 **阶段 4 · PR 规划**
 - 角色名：`pr-planner`
-- 角色文件路径：`.pb-agents/roles/pr-planner/pr-planner.md`
+- 角色文件路径：`{角色定义根}/pr-planner/pr-planner.md`
 - 执行流程：派发 `pr-planner` 角色，产出 `docs/iterations/{迭代ID}/prs/pr-*.md` 及依赖图；核查推进条件通过后触发「Gate: 阶段 4 → 5 入口」
 
 **阶段 5 · PR 实现（内部三段式，每个 PR 独立 worktree）**
 - 角色名与路径：
-  - `planner` — `.pb-agents/roles/planner/planner.md`
-  - `dev` — `.pb-agents/roles/dev/dev.md`
-  - `verifier` — `.pb-agents/roles/verifier/verifier.md`
+  - `planner` — `{角色定义根}/planner/planner.md`
+  - `dev` — `{角色定义根}/dev/dev.md`
+  - `verifier` — `{角色定义根}/verifier/verifier.md`
 - 执行流程：每个已解锁的 PR，在独立 worktree 中按顺序派发 `planner`（产出该 PR 的 tasks 文件）→ `dev`（实现）→ `verifier`（验收该 PR）→ merge 进当前迭代的迭代分支后重新扫描依赖图
 
 **阶段 6 · 独立验证**
 - 角色名：`verifier`
-- 角色文件路径：`.pb-agents/roles/verifier/verifier.md`
+- 角色文件路径：`{角色定义根}/verifier/verifier.md`
 - 执行流程：派发 `verifier` 角色，传入产物路径 + 内联验证标准，产出 `docs/iterations/{迭代ID}/prs/` 下的验证报告；若存在 `deferred-demand-changes.md`，须显式加入委托要求原文摘录
 
 **进度观测（自动 + 按需）**
 - 角色名：`progress-observer`
-- 角色文件路径：`.pb-agents/roles/progress-observer/progress-observer.md`
+- 角色文件路径：`{角色定义根}/progress-observer/progress-observer.md`
 - 执行流程：阶段 5 每次 PR merge 后自动触发一次；报告"可并发但闲置"的 PR 时立即补派发对应角色，不等
 
 ---
@@ -282,9 +284,9 @@ brief **至少**包含以下字段，且必须逐行以 `字段名：值` 的形
 角色名：<role>（见「§ 阶段执行卡片」，如 demand/prd/architect，供对外呈现时可辨认角色对应关系）
 角色定义（全文注入）：
 ---
-{读出的 .pb-agents/roles/<role>/<role>.md 完整内容，原样注入，确保子 agent 收到完整 skill 定义，包括 CRITICAL 清单、报告契约字段等机械性规则}
+{读出的 {角色定义根}/<role>/<role>.md 完整内容，原样注入，确保子 agent 收到完整 skill 定义，包括 CRITICAL 清单、报告契约字段等机械性规则}
 ---
-工作流规范：.pb-agents/roles/workflow-pb/workflow-pb.md
+工作流规范：{角色定义根}/workflow-pb/workflow-pb.md
 当前迭代 ID：{迭代ID}
 当前阶段：阶段 {N}（{阶段名}）
 任务：{阶段职责，一句话，读自 workflow-pb.md §阶段定义"职责描述"列}
@@ -300,7 +302,7 @@ brief **至少**包含以下字段，且必须逐行以 `字段名：值` 的形
 阶段 5 额外必填：
 ```
 当前 PR：docs/iterations/{迭代ID}/prs/{pr文件名}
-worktree 分支：{分支名}
+PR worktree 分支：{分支名}
 注意：只处理该 PR 文件范围内的功能，不拿全部 prs/ 目录
 ```
 
@@ -336,7 +338,7 @@ worktree 分支：{分支名}
 
 ## § status.md 更新时机
 
-格式定义见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §状态追踪协议。
+格式定义见 `{角色定义根}/workflow-pb/workflow-pb.md` §状态追踪协议。
 
 - 启动时：创建，所有阶段 ⬜
 - 每次派发执行角色**前**：对应阶段标记 ⏸
@@ -350,7 +352,7 @@ worktree 分支：{分支名}
 
 ## § history.md 更新时机
 
-格式定义见 `.pb-agents/roles/workflow-pb/workflow-pb.md` §历史记录协议（history.md），本节只定义"何时写"：
+格式定义见 `{角色定义根}/workflow-pb/workflow-pb.md` §历史记录协议（history.md），本节只定义"何时写"：
 
 - 启动时：若 `history` 字段为开启，创建仅含标题行的空 `history.md`
 - 每次派发执行角色**前**：追加一条「派发」记录
@@ -362,8 +364,8 @@ worktree 分支：{分支名}
 
 ## Resources
 
-- `.pb-agents/roles/workflow-pb/workflow-pb.md`（安装方式见「§ 角色文件路径与安装」）— 完整规范，Step 1~4 每次推进前读取「阶段定义」表；派发 brief 时读取输入/输出/推进条件列；阶段 5/6 读取「PR 文件格式规范」「验证目标」「状态追踪协议」
-- `.pb-agents/roles/<role>/<role>.md`（见「§ 阶段执行卡片」）— 派发对应执行角色前，确认角色文件路径存在；角色自身的能力边界由角色文件定义，不在本 Skill 内重复
+- `{角色定义根}/workflow-pb/workflow-pb.md`（角色来源见「§ 角色文件来源与部署」）— 完整规范，Step 1~4 每次推进前读取「阶段定义」表；派发 brief 时读取输入/输出/推进条件列；阶段 5/6 读取「PR 文件格式规范」「验证目标」「状态追踪协议」
+- `{角色定义根}/<role>/<role>.md`（见「§ 阶段执行卡片」）— 派发对应执行角色前，确认角色文件路径存在；角色自身的能力边界由角色文件定义，不在本 Skill 内重复
 - 「§ 对外协议」— 宿主无关的协议不变量定义（角色派发契约、人机交互契约、文档协议），切换宿主或质疑"这是不是 Claude Code 专属行为"时优先查阅
 - `data/skill-optimization-v1.1.0.md`、`data/skill-optimization-v1.2.0.md`、`data/skill-optimization-v1.3.0.md`、`data/skill-optimization-v1.4.0.md`、`data/skill-optimization-v1.5.0.md`、`data/skill-optimization-v1.6.0.md`、`data/skill-optimization-v1.7.0.md`、`data/skill-optimization-v1.8.0.md` — 历次优化的变更记录与根因
 
@@ -380,5 +382,5 @@ worktree 分支：{分支名}
 - `status.md` 与文件系统不一致时，以文件系统为准修正
 - `history` 关闭后不得继续追加 history.md，也不删除已存在的 history.md
 - `batch` 字段仅供人工速览，不用于调度判断
-- 派发子 agent 前必须已确认 `.pb-agents/roles/` 存在（见「§ 角色文件路径与安装」），不存在时先停止推进提示安装，不得退回读 `roles/` 源码目录
-- `.pb-agents/roles/` 只读，不修改其内容，也不派发角色去写它的 `data/`/`memory.md`（这两者不随 copy 部署）
+- 派发子 agent 前必须已解析角色定义根路径（`{角色定义根}`，解析规则见规范 §角色定义来源与部署），判定失败时先停止推进并提示，不得改用被 git 忽略的下游副本
+- 角色定义在执行期只读（真源与分发副本皆然），不修改其内容，也不派发角色去写它的 `data/`/`memory.md`（这两者不随分发部署）
