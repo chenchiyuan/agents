@@ -220,3 +220,65 @@
 - 阶段：阶段 5（PR 实现，PR 级验收）
 - 任务：不接收执行过程上下文，独立评判任意阶段产物的质量
 - PR：prs/pr-003-project-layer-ui.md（worktree feat/pr-003 @ 40151ff）
+
+### 2026-09-12 16:37:10 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0017-project-workspace/clarifications/verify-pr-001-20260912-163434.md
+- 结论：**PASS**（pass 14 / fail 0 / partial 1 / blocked 8 / 偏差记录 6 条）；验证者身份 = 同级代码审查者（兼端到端行为观测者）
+- 逐项：PR 验收 7 条全 pass；文件范围 pass（恰为 agent.js + context-pool.js）；F06 pass 2 / blocked 4（派发装配端属 pr-002 范围）；F07 pass 2 / partial 1 / blocked 4；既有测试零改写 pass；实际执行证据 pass（E1 全量 251/251 @ 55.9s；E2 定向 27/27；E3 独立观测装置 4/4 @ /tmp）
+- 关键偏差：D-1 块与原文分隔符 PR 写「换行」而实现为「空行」；D-2 PROJECT_AGREEMENT 在 HEAD 零命中（F06-1~4 判定对象属 pr-002）；D-3 仓库内无「携带即注入」断言（仅临时装置覆盖，属 pr-004 落点）；D-4 context_busy 不消费名额的事实形态；D-5「方法面 7 个」= README 公开面（router.js 另有既有 task_get/task_list）；D-6 permission_denied 重复注入未构造
+
+### 2026-09-12 16:37:10 · 收到报告 · verifier
+
+- 报告路径：docs/iterations/0017-project-workspace/clarifications/verify-pr-003-20260912-162639.md
+- 结论：**PASS**（fail 0 / partial 3 / 偏差记录 4 条）
+- 逐项：PR 验收 AC1~AC7 全 pass；文件范围 pass（恰为 app.js / index.html / style.css）；F04 pass 5 / partial 1；F05 pass 4 / partial 2；既有行为零变化 pass（oamp/test/** 与迭代分支零 diff，既有前端静态断言逐字未改且通过）；实际执行证据 pass（定向 44/44、全量 251/251、被验证产物自身起服务 + 无头浏览器运行期观测）
+- 3 项 partial 的唯一根因 = pr-002 服务端面未交付（D-01），须在 pr-002 落地后补验；关键运行期证据含 `/` 不请求 /api/chats、`/?project=未知id` 回落、POST body 含 project_id、行渲染 null 占位为「—」、创建后停留 `/` 且零轮询
+
+### 2026-09-12 16:37:10 · 调度决策 · 槛位释放
+
+- 决策内容：pr-001 与 pr-003 双双验收 PASS → 按规则合并进迭代分支并释放槛位；清理两 worktree 与分支；重新扫描依赖图 → pr-002 解锁（依赖 pr-001 已合并）→ 创建 feat/pr-002 worktree 并派发 planner
+- 合并证据：merge commit `9e1f4d4`（pr-001）与 `a9fef01`（pr-003）在 iteration/0017-project-workspace 上；合并后迭代分支全量 **251/251**（59.5s）
+- 并发配置更新：累计槛位释放次数 0 → 2；当前有效上限按公式 min(3 + 2×3, 5) = **5**；已派发总数 3
+- 遗留待办（不阻塞）：pr-003 的 3 项 partial 须在 pr-002 落地后补验其服务端依赖面
+
+### 2026-09-12 16:37:10 · 派发 · progress-observer
+
+- 阶段：阶段 5（PR 实现，merge 后自动触发）
+- 任务：独立核实 git 状态与 status.md 声明是否一致（不采信任何自我声明）
+
+### 2026-09-12 16:37:10 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）
+- 任务：将技术架构方案分解为带验收标准的有向无环任务图
+- PR：prs/pr-002-project-data-and-http.md
+- worktree 分支：feat/pr-002
+
+### 2026-09-12 16:43:48 · 收到报告 · progress-observer
+
+- 1. progress.md 路径：docs/iterations/0017-project-workspace/progress.md（156 行，整体覆盖；观测基 HEAD=a9fef01）
+- 2. 六部分摘要：阶段 1/2/4/5 产物与声明一致、阶段 6 无产物与「未开展」一致；4 条 depends_on 逐条核实无幽灵依赖（pr-002 依赖已满足：`git merge-base --is-ancestor 2e9a950 iteration/…` 退出码 0；pr-004 合法阻塞 1/3）；PR 现场核实与声明基本一致；**可并发但闲置 = 0**（2 已合并 / 1 派发中 / 1 合法阻塞）；不一致 5 条 / 无法核实 9 条
+- 3. 最需关注的发现（不给建议）：① architecture.md 状态行仍写「待主 agent 确认 §10.3」；② status.md/history.md 仅存于工作区未提交；③ pr-002 现场已建但零提交；④ pr-002 缺 tasks 文件（观测时刻距派发 60 秒，planner 在途）；⑤「已派发总数 3」只能间接反推
+- 4. 疑问/越界：无越界；未采信任何角色报告作为结论
+
+### 2026-09-12 16:43:48 · 收到报告 · planner
+
+- 1. tasks 路径 + 任务总数：docs/iterations/0017-project-workspace/prs/pr-002-project-data-and-http-tasks.md（386 行）；10 个任务（T-01 persist 数据模型 / T-02 persist 项目读写口与归属过滤 / T-03 web 登记两条新表项 + PROJECT_AGREEMENT / T-04 web 既有两面参数化 / T-05 文档三件 / T-06~T-09 四份既有测试机械变更 / T-10 PR 级回归与零改写核对）
+- 2. 依赖图摘要：无环，拓扑序 T-01 → T-02 → T-03 → {T-04, T-05} → {T-06, T-07, T-08, T-09} → T-10；最长链 5 跳；并发约束 = T-01/T-02 同改 persist.js 须串行、T-03/T-04 同改 web.js 须串行
+- 3. `[model_inferred]` 列表：6 条（M1 旧库重建 stdout 形态；M2 trim 与 name 派生落 persist.createProject；M3 web 侧非字符串 name 归一；M4 既有对话分支 project 取自 projectByChat 且解析不到则不带键；M5 API.md §3.2/§3.8 亦补 project_id 行；M6 三份 HTTP 测试文件的项目 fixture 落各自 setup）
+- 4. 循环依赖：无
+- 5. 疑问/越界：N 条实测纠错（§8.2 标题 3 文件实为 4；§8.2②(d) 观测断言清单收缩为 web.test.js:443/546/943/549/557 + acp-daemon.test.js:411；§8.2①(c) 补全为 43 处 listChats——其中 7 处无参——45 insertInput、29 upsertChat；§8.2②(c)「3 处既有空值语义断言」实测落在 api-routes.test.js:402-404）；未越界
+
+### 2026-09-12 16:43:48 · 调度决策 · 阶段推进核查
+
+- 决策内容：pr-002 的 planner 阶段完成 → 裁定其 6 条 `[model_inferred]` → 派发 dev（pr-002 单 PR 占用 1 个槛位）
+- 裁定（主 agent）：**M1~M6 全部采纳推荐**——M1 重建时在 openDb 重建分支写单行 stdout `DB_REBUILT path=<dbPath>`；M2 `repo_url` trim 校验与 `name` 派生落 `persist.createProject`（web 只透传）；M3 web 侧非字符串 `name` 归一为 undefined 后交 persist（体例同 label）；M4 既有对话分支的 `project` 三要素取自 `projectByChat(chatId)`，解析不到时不带该键（保持可选字段语义、不拒收）；M5 `API.md` §3.2/§3.8 同步补 `project_id` 行；M6 三份 HTTP 测试文件的项目 fixture 落各自 setup 并经返回值透传。D-01 口径维持既有裁定（三类额外必然变更属「项目维度必然变更面」）
+- 触发依据：10 个任务均含五要素且验收标准带 arch/prd 追溯；依赖无环已画图；并发约束（同文件串行）已显式标注；实测纠错与 Gate 验证结论一致
+- 另：progress-observer 列出的 5 条不一致中，②由主 agent 提交迭代文档解决；③④为观测时刻过早（planner 在途）；①（architecture.md 状态行）保持作者时点表述不改写，记入本迭代偏差留痕
+
+### 2026-09-12 16:43:48 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）
+- 任务：按任务简报产出让验证标准通过的最小实现
+- PR：prs/pr-002-project-data-and-http.md（tasks：prs/pr-002-project-data-and-http-tasks.md）
+- worktree 分支：feat/pr-002
