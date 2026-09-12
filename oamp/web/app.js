@@ -5,6 +5,8 @@
 // 断线/刷新兜底：EventSource 自动重连（服务端 retry: 1000），onopen 与打开会话时全量拉取详情。
 // 归档（0013）：GET /api/chats?archived=1（归档视图：limit=200 + offset 续页）+ POST /api/chats/archive（批量）
 //   + POST /api/chats/<chat_id>/activate；激活后的「上下文不延续」说明条由 chats.context_released 驱动（F05-6）。
+// 顶栏 agent 列表（0015 / F01 / F02）：点击 #conn-status 开合 #agent-panel（静态浮层）；数据 = 既有
+//   GET /api/agents（全量，前端按 state==='online' 过滤）；变化由全局 SSE GET /api/events 驱动，展开期 5s 刷新兜底。
 'use strict';
 
 const RETRY_HINT = '连接已断开，正在重连…';
@@ -14,6 +16,7 @@ const ARCHIVE_CONFIRM_TEXT = '将归档全部非进行中的对话，是否继�
 
 const state = {
   agents: [],
+  agentPanel: { open: false }, // 顶栏 agent 列表开合态（0015 / AR-01；与 state.mention 同款对象形态）
   chats: [],
   archive: { chats: [], total: 0, loading: false }, // 归档视图的独立状态（与 state.chats 互不污染；AR-12）
   chat: null, // 当前会话详情（读库：{chat, messages[]} 的 chat + messages）
@@ -47,10 +50,12 @@ function setConn(ok, detail) {
   const el = $('conn-status');
   el.className = `conn ${ok ? 'conn-ok' : 'conn-bad'}`;
   el.textContent = ok ? `已连接 · ${state.agents.filter((a) => a.state === 'online').length} agents online` : detail || 'Router 不可达';
+  if (!ok) closeAgentPanel(); // 断连自动收起，避免展示失真列表（R-6）
 }
 
 function badge(stateName) {
   const map = {
+    online: 'badge-online', // 0015：顶栏列表的在线徽标（复用既有渲染器，不新写行渲染函数）
     idle: 'badge-idle',
     submitted: 'badge-submitted',
     working: 'badge-working',
@@ -59,6 +64,93 @@ function badge(stateName) {
     closed: 'badge-closed',
   };
   return `<span class="badge ${map[stateName] || 'badge-idle'}">${stateName || 'idle'}</span>`;
+}
+
+// ── 顶栏 agent 只读列表（0015 / F01 / F02 / AR-01 / AR-02）──
+const AGENT_PANEL_REFRESH_MS = 5000; // 展开期刷新间隔：只承担 last_heartbeat 的新鲜度（变化即时可见由全局事件承担）
+let agentPanelTimer = null; // 面板展开期间才有，收起即清（与 waitTimer 同款"状态内定时器"）
+
+/** 相对时间（MI-03）：<60s → "Ns 前"、<60min → "Nm 前"、否则 "Nh 前"；每次渲染重算，不要求每秒跳动。 */
+function fmtAgo(ms) {
+  const at = Number(ms);
+  if (!Number.isFinite(at)) return '—';
+  const sec = Math.max(0, Math.floor((Date.now() - at) / 1000));
+  if (sec < 60) return `${sec}s 前`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m 前`;
+  return `${Math.floor(sec / 3600)}h 前`;
+}
+
+/** 面板重绘（AR-02-b）：整体重绘、不做 DOM diff；只列在线实例、沿用服务端 instance_id 排序（零客户端排序）。 */
+function renderAgentPanel() {
+  if (!state.agentPanel.open) return;
+  const rows = state.agents.filter((a) => a.state === 'online');
+  $('agent-panel').innerHTML =
+    rows.length === 0
+      ? '<div class="agent-row muted">暂无在线 agent</div>'
+      : rows
+          .map(
+            (a) =>
+              `<div class="agent-row"><span class="agent-id">${escapeHtml(a.instance_id)}</span>${badge('online')}<span class="agent-hb">${fmtAgo(a.last_heartbeat)}</span></div>`,
+          )
+          .join('');
+}
+
+function closeAgentPanel() {
+  state.agentPanel.open = false;
+  $('agent-panel').classList.add('hidden');
+  clearInterval(agentPanelTimer); // 无表时 no-op
+  agentPanelTimer = null;
+}
+
+/** 开合（AR-01-a）：仅已连接时可展开；展开即以全量取数对齐（§8.1：零新请求路径）并挂 5s 刷新表。 */
+async function toggleAgentPanel() {
+  if (state.agentPanel.open) {
+    closeAgentPanel();
+    return;
+  }
+  if (!state.routerOk) return; // Router 不可达时不展开（避免展示旧列表）
+  state.agentPanel.open = true;
+  $('agent-panel').classList.remove('hidden');
+  renderAgentPanel();
+  await loadAgents();
+  renderAgentPanel();
+  if (state.agentPanel.open && agentPanelTimer === null) {
+    agentPanelTimer = setInterval(async () => {
+      await loadAgents();
+      renderAgentPanel();
+    }, AGENT_PANEL_REFRESH_MS);
+  }
+}
+
+/** 全局事件订阅（F05 的界面消费方 / AR-02-a）：上下线增量改 state.agents ⇒ 顶栏计数与面板即时可见；
+ *  onopen（含断线重连）⇒ 全量重新对齐（MI-05：不补发断线期间的每一条变化）。 */
+function connectAgentEvents() {
+  const es = new EventSource('/api/events');
+  const read = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      return data && typeof data.instance_id === 'string' ? data : null;
+    } catch {
+      return null;
+    }
+  };
+  es.addEventListener('agent_online', (ev) => {
+    const data = read(ev);
+    if (!data) return;
+    const i = state.agents.findIndex((a) => a.instance_id === data.instance_id);
+    if (i >= 0) state.agents[i] = { ...state.agents[i], state: 'online', last_heartbeat: data.last_heartbeat };
+    else state.agents = [...state.agents, { instance_id: data.instance_id, session_id: null, state: 'online', last_heartbeat: data.last_heartbeat }];
+    setConn(true);
+    renderAgentPanel();
+  });
+  es.addEventListener('agent_offline', (ev) => {
+    const data = read(ev);
+    if (!data) return;
+    state.agents = state.agents.filter((a) => a.instance_id !== data.instance_id);
+    setConn(true);
+    renderAgentPanel();
+  });
+  es.onopen = () => loadAgents();
 }
 
 /** 只读面单一真源（前端侧，与 src/web.js 的 isReadonly 同形同值）：已归档 或 已关闭。
@@ -774,6 +866,16 @@ function bind() {
   }
   // 实时通道已不再轮询：agent 列表在窗口重新聚焦时刷新一次（@ 补全与连接指示不长期失真）
   window.addEventListener('focus', loadAgents);
+  // 顶栏 agent 只读列表（0015 / F01 / AR-01）：点击计数开合；点外 / Esc 收起（与标题编辑的 Esc 各自监听，互不干扰）
+  $('conn-status').onclick = toggleAgentPanel;
+  document.addEventListener('click', (e) => {
+    if (!state.agentPanel.open) return;
+    if (e.target.closest('#agent-panel, #conn-status')) return;
+    closeAgentPanel();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.agentPanel.open) closeAgentPanel();
+  });
 }
 
 bind();
@@ -781,4 +883,5 @@ bind();
   await loadAgents();
   await loadChats();
   renderChat();
+  connectAgentEvents(); // 全局事件流（F05 的界面消费方 / F02）：页面打开即建立，全程 1 条
 })();

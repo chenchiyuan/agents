@@ -307,3 +307,123 @@ test('心跳默认周期 15000ms（未注入 heartbeatMs）', async (t) => {
     t.mock.timers.reset();
   }
 });
+
+// ────────────────────────── 0015 pr-002：全局订阅键（chatId=null） ──────────────────────────
+// 载体：同一 transport 的两个键位——/api/events ⇒ handle(chatId=null)，/api/stream?chat_id ⇒ handle(chatId)。
+
+/** 双键服务：全局路径无参数、chat 路径解析 chat_id（模拟 web.js 的两条接线）。 */
+async function startBothServer(transport) {
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    if (url.pathname === '/api/events') {
+      transport.handle(req, res, { chatId: null });
+      return;
+    }
+    transport.handle(req, res, { chatId: url.searchParams.get('chat_id') });
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  return {
+    port: server.address().port,
+    stop: () => new Promise((resolve) => {
+      server.close(resolve);
+      server.closeAllConnections();
+    }),
+  };
+}
+
+/** 全局订阅客户端（无参数路径 /api/events）：与 openSse 同款裸 http 读流。 */
+function openGlobal(port) {
+  const client = { status: null, headers: null, text: '', ended: false, req: null };
+  client.ready = new Promise((resolve, reject) => {
+    client.req = http.get({ host: '127.0.0.1', port, path: '/api/events' }, (res) => {
+      client.status = res.statusCode;
+      client.headers = res.headers;
+      res.setEncoding('utf8');
+      res.on('data', (chunk) => {
+        client.text += chunk;
+      });
+      res.on('end', () => {
+        client.ended = true;
+      });
+      resolve(client);
+    });
+    client.req.once('error', reject);
+  });
+  client.abort = () => client.req.destroy();
+  return client;
+}
+
+test('全局键：publishGlobal 只到 /api/events 订阅者，chat 订阅者收不到（键隔离）', async () => {
+  const transport = createSseTransport();
+  const server = await startBothServer(transport);
+  const chat = openSse(server.port, CHAT);
+  const glob = openGlobal(server.port);
+  const online = { type: 'agent_online', data: { instance_id: 'dev-2', last_heartbeat: 1730000000000 } };
+  try {
+    await Promise.all([chat.ready, glob.ready]);
+    await Promise.all([
+      waitFor(() => chat.text.includes('retry: 1000'), { what: 'chat 订阅' }),
+      waitFor(() => glob.text.includes('retry: 1000'), { what: '全局订阅' }),
+    ]);
+    transport.publishGlobal(online);
+    await waitFor(() => glob.text.includes('agent_online'), { what: '全局订阅收到事件' });
+    assert.deepEqual(eventFrames(glob.text), [`event: agent_online\ndata: ${JSON.stringify(online.data)}`]);
+    transport.publish(CHAT, { type: 'task_update', data: { chat_id: CHAT, text: '按对话事件' } });
+    await waitFor(() => chat.text.includes('按对话事件'), { what: 'chat 订阅收到事件' });
+    assert.ok(!chat.text.includes('agent_online'), 'chat 订阅者不得收到全局事件');
+    assert.ok(!glob.text.includes('按对话事件'), '全局订阅者不得收到 chat 事件');
+  } finally {
+    chat.abort();
+    glob.abort();
+    transport.closeAll();
+    await server.stop();
+  }
+});
+
+test('全局键：globalCount 随全局订阅建立/断开变化，chat 订阅不计入', async () => {
+  const transport = createSseTransport();
+  const server = await startBothServer(transport);
+  const chat = openSse(server.port, CHAT);
+  const first = openGlobal(server.port);
+  const second = openGlobal(server.port);
+  try {
+    await Promise.all([chat.ready, first.ready, second.ready]);
+    await Promise.all([
+      waitFor(() => first.text.includes('retry: 1000'), { what: '全局订阅 A' }),
+      waitFor(() => second.text.includes('retry: 1000'), { what: '全局订阅 B' }),
+    ]);
+    assert.equal(transport.globalCount(), 2, '两个全局订阅者（chat 订阅不计入）');
+    first.abort();
+    await waitFor(() => transport.globalCount() === 1, { what: 'globalCount 回落到 1' });
+    second.abort();
+    await waitFor(() => transport.globalCount() === 0, { what: 'globalCount 归零' });
+    assert.ok(!chat.ended, '全局订阅断开不得影响 chat 连接');
+  } finally {
+    chat.abort();
+    transport.closeAll();
+    await server.stop();
+  }
+});
+
+test('全局键：closeAll 覆盖全局订阅（连接结束、之后 publishGlobal 无写入）', async () => {
+  const transport = createSseTransport();
+  const server = await startBothServer(transport);
+  const glob = openGlobal(server.port);
+  try {
+    await glob.ready;
+    await waitFor(() => glob.text.includes('retry: 1000'), { what: '全局订阅' });
+    assert.equal(transport.globalCount(), 1);
+    transport.closeAll();
+    await waitFor(() => glob.ended, { what: 'closeAll 结束全局连接' });
+    assert.equal(transport.globalCount(), 0);
+    assert.doesNotThrow(() => transport.publishGlobal({ type: 'agent_offline', data: { instance_id: 'dev-2' } }));
+    await delay(50);
+    assert.ok(!glob.text.includes('agent_offline'), 'closeAll 之后不得再写入全局连接');
+  } finally {
+    glob.abort();
+    await server.stop();
+  }
+});
