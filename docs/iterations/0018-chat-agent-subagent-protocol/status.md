@@ -3,9 +3,22 @@
 **工作流**: workflow-pb v0.8.0
 **迭代**: 0018-chat-agent-subagent-protocol
 **当前阶段**: 阶段 2 已完成（**已暂停**；恢复后从阶段 3（技术架构）继续）
-**迭代分支**: iteration/0018-chat-agent-subagent-protocol（tip 含 `028ca8a`（外部会话的 0017 收尾提交）+ 本迭代阶段 1~2 文档提交）
-**基线**: `428e672`（原 iteration/0017-project-workspace 的 tip，现已并入 main `03a2f00`）
-**状态**: **已暂停**（用户裁决：先做 0019（agents 框架并行会话工作区隔离协议）——「这个需要迭代优化 workflow-pb 流程，优先级最高」）
+**迭代分支**: iteration/0018-chat-agent-subagent-protocol（tip `deeb1b7` = 合并 main 后的整合态）
+**基线**: 已并入当前 main（含迭代 0017 全部产出 + 迭代 0019 的 workflow-pb v0.9.0 / SKILL v1.12.0）
+**状态**: **已恢复**（迭代 0019 已完成并合并 main；用户裁决 = 按新规范为 0018 建自己的会话工作区后继续阶段 3）
+## 恢复设置（2026-09-12，迭代 0019 完成后）
+
+| 项 | 值 | 依据 |
+|---|---|---|
+| 会话工作区 | `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0018-chat-agent-subagent-protocol` | workflow-pb v0.9.0 规则 C（落点 = `<仓库主工作区>/.pb-agents/worktrees/{迭代ID}`） |
+| 检出分支 | `iteration/0018-chat-agent-subagent-protocol`（tip `deeb1b7`） | 规则 C（阶段 1~6 期间保持在该分支） |
+| 基线整合 | 已把当前 main（含 0017 全部产出 + 0019 的 v0.9.0 / v1.12.0）合并进本迭代分支；0017 文档冲突以 **main 版为准**（0017 的权威态），本迭代自身产物零丢失 | 规则 A/B + 结构正确性 |
+| 启动判据三项 | ① `--show-toplevel` == cwd **PASS**；② `--git-dir` ≠ `--git-common-dir` **PASS**；③ `--show-current` == `iteration/0018-chat-agent-subagent-protocol` **PASS** | 规则 C / 规则 D（在会话工作区内实测） |
+| 角色定义来源 | `roles/workflow-pb/workflow-pb.md` 等**随检出即得**（被 git 追踪）；`.pb-agents/roles/` 在新工作区**不存在**（已由 v0.9.0 降级为面向下游的可选分发手段） | 规则 §角色定义来源与部署（W8） |
+| 生效协议版本 | **workflow-pb v0.9.0**（本迭代恢复后的阶段 3~6 按新规范执行：会话工作区 + PR worktree 为其子层 + 启动契约 + 跨工作区写入禁止） | 迭代 0019 交付物；用户裁决 ① |
+| 下一步 | 阶段 3（技术架构）——输入 = 本迭代 `prd.md` v0.2.0 + `prd/F01~F16` | workflow-pb 阶段定义 |
+
+> **操作前置（宿主限制，必须由用户执行）**：新规范要求**会话运行在其会话工作区内**（启动判据第 1 项 = `git rev-parse --show-toplevel` 等于会话启动目录）。本迭代的恢复会话需以 **cwd = 上述会话工作区** 启动；在此之前不得在该工作区外推进阶段 3（否则违反规则 C/D）。子 agent 继承会话 cwd，故 cwd 正确后无需额外参数化路径。
 **history**: 开启
 
 ## 阶段状态
