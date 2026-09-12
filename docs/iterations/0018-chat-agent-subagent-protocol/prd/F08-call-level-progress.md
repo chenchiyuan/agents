@@ -32,7 +32,9 @@
 - **不承诺跨重启重放**（N11，差异 ⑩）：进程重启后无历史进度可重放。
 - 不含取消 / steer 的交互入口（N3，差异 ⑯⑮）。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **T-05** 调用级事件流的路径与事件 schema（与 F07 共用）。
-- **T-12** 进度可见性的验证组织形态与新增断言的落点。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **T-05 进度事件的 schema 与顺序**（与 F07 同一对路由）：`call_state{chat_id, call_id, agent, state}` 覆盖「受理 ⇒ `submitted`」与「首个 `state:'working'` 增量到达 ⇒ `working`（每调用一次）」；`call_update{chat_id, call_id, agent, kind, text|line}` 覆盖增量（`kind ∈ {chunk, stdout, stderr}`，与既有 `task_update` **同源同形态**，控制条目 `started`/`truncated` 不下发）；`call_result`（含 `state`）即终态迁移，不另发同义 `call_state`。序列闭合 `submitted → working → call_update* → call_result`；**不重放、不排队**（与既有 `/api/stream` 同口径）；帧内**不出现**工具级详情与 token / 成本（差异 ⑬⑭）。验收 4「增量与转录一致」由同源保证（两者都源自同一任务表条目的 `updates[]`）。
+- **T-12 验证组织形态**：落 `oamp/test/call-protocol.test.js` 组 F（顺序 / ≥2 次增量 / 序列闭合 / 增量与转录一致 / 无工具级字段）。

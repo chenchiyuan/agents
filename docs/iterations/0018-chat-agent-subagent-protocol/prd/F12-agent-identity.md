@@ -32,6 +32,9 @@
 - **不消除差异 ①**（被调用者生命周期：常驻实例 vs 每次派发临时 agent）——该差异仍登记在差异清单。
 - 不判定「记住了什么内容」：本卡只判「共享 / 隔离」这一行为，上下文里放什么是 agent 自身能力。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **无**——本卡为既有实现的确认，**改动点为零**（N16）；E8 的核对方式与断言落点归 **T-12**（测试组织）。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **无待填项**（本卡为既有实现的确认，**改动点为零**，N16 逐字保留）。架构侧仅两点说明：① **调用面恒走默认的 `omp-daemon` 路径**（`payload.body = {executor:'omp-daemon', chat_id, prompt, label, model?, project?}`），上下文延续因此走既有上下文池键 `(chat_id, agent_id)`（`context-pool.js:1-8`）——即 W8 身份规则的**既有载体**，本迭代不改键、不改串行/并发语义、不改上限与淘汰（`src/context-pool.js` 全文零改动）；② **`one_shot` 例外路径不在调用面**（差异 ⑲ / Q-1 裁决 ①）：例外入口仍是既有 `POST /api/messages {one_shot:true}`，调用面不提供该开关 ⇒ 验收 4 的「走例外路径两轮」由既有入口完成。
+- **T-12（测试组织）**：E8 的核对落 `oamp/test/call-protocol.test.js` 组 J（同 chat 同角色两轮共享、跨 chat 隔离；复用既有 fake ACP 的 `收到：<prompt>` 观测面），既有 `test/context-pool.test.js` **零改动**（键与并发语义不变的独立证据）。

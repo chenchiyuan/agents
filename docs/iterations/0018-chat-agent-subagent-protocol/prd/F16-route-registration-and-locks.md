@@ -33,7 +33,9 @@
 - **不含 0017 遗留的路由登记元数据缺项（D-2）的修复**（主 agent 裁定 C-3：不纳入本迭代）：本卡只覆盖本次**新增**调用面的登记义务，既有路由的元数据不因本迭代被补齐或改动。
 - 不含鉴权 / 多用户（N19）。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **T-17** 新增路由 / 事件在声明式路由表中的登记元数据形态，与索引快照的重生成方式。
-- **T-12** 工程锁与登记义务的验证组织形态与新增断言的落点。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **T-17 登记元数据形态与索引重生成**：新路由一律进既有 `createApiRoutes` 表（末位追加，**顺序 = 匹配优先级**，见 §2.1 的顺序约束），元数据 = 既有 **8 字段**（`method` / `path` / `summary` / `params` / `response` / `errors` / `kind` / `docLink`）+ `params` 的 **5 字段**（`name` / `in` / `type` / `required` / `desc`，可选 `enum`）；`errors[]` 取值 ⊆ 既有 `ERR_CODE` 值集合（**零新错误码**）；`kind ∈ {json, sse}`；**事件登记形态 = SSE 路由的 `response` 字段逐名列出三类事件**（既有体例）+ `API.md` §4.4 事件表；`docLink` 指向新章节锚点（`API.md#314-post-apicalls` … `#319-get-apicallscall_id`）。索引快照重生成 = **`node oamp/scripts/gen-llms-txt.mjs`**（纯函数 `renderLlmsTxt(projectRoutes(createApiRoutes({})))` 的输出写回 `oamp/llms.txt`，漂移锁②逐字节）。文档侧：`API.md` 中每个 `` `METHOD /api/…` `` 反引号签名必须在登记表内（漂移锁③路径级双向覆盖）。
+- **T-12 工程锁与登记义务的验证组织形态**：落 `oamp/test/call-protocol.test.js` 组 N（新表项元数据必填 + 三条漂移锁 + 零依赖锁全绿）；同时**必然变更**既有断言 9 处（`architecture.md` §11 第 1~9 条）与 `llms.txt` 快照重生成（第 11 条）。

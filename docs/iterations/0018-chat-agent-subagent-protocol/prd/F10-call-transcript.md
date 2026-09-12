@@ -32,7 +32,9 @@
 - 不含编排面的历史查询（N17）。
 - 不含跨调用 / 跨 chat 的聚合检索。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **T-08** 转录暴露的入口形态与截断语义（含与终态截断标记的关系 → T-02 / MI-06）。
-- **T-12** 转录可读性与重启行为的验证组织形态与新增断言的落点。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **T-08 转录的入口形态与截断语义**：入口 = `GET /api/calls/:call_id/transcript`；响应 `{call_id, agent, state, truncated, entries[]}`，`entries` = 既有任务表 `updates[]`（`{at, state, detail}`）**原样透出** + **末尾追加一条终态条目**（`detail.event = "result"`，内容 = 终态体）⇒ MI-08「从发起到终态、含终态那次事件」。**截断与终态标记同口径**：同一个纯函数 `callTruncated(task)`（`updatesTruncated || updates[].detail.event === 'truncated'`，MI-06）；超上限 ⇒ `truncated:true`（不报错、不静默少给）。读取不要求调用方做任何准备（转录 = 既有任务表的既有内容，无「登记转录」开关）。**零落库**（差异 ⑩）：重启后 `call_id` 不存在 ⇒ **404 NOT_FOUND**（明确「不存在」，非 5xx、非伪造内容）；既有「增量不入库」（`API.md:627`）不被推翻。
+- **T-12 转录可读性与重启行为的验证组织形态**：落 `oamp/test/call-protocol.test.js` 组 H（按 id 取且含终态条目 / 进程内可读 / 重启 → 404 / 超上限 `truncated:true` / `messages` 表零转录内容）。

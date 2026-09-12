@@ -36,6 +36,8 @@
 - 不含前端视觉风格改造。
 - 不含 0017 的收尾与验收（N21 / G-2）：0017 未验收产出按既有基线对待。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **T-12** 回归验证的组织形态与新增断言的落点（含「必然变更点」清单的呈现位置）。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **T-12 回归验证的组织形态与必然变更点清单**：**清单真源 = `architecture.md` §11「必然变更点清单」**（阶段 4 的 PR 描述逐条引用它），共 **10 条既有断言改写** + **1 处快照重生成**，逐条附理由与卡号：① `test/api-routes.test.js:36-49` 签名表 13→19；② 同文件 `:473` `danger` 计数 6→7；③ 同文件 `:483` llms 表头 13→19；④ 同文件 `:495-502` `API.md` 同步用例（表头 13→19 + 新增 §3.14~§3.19 断言）；⑤ `test/project-workspace.test.js:1206-1221` 签名表 13→19；⑥ 同文件 `:1230` `routes.length` 13→19；⑦ 同文件 `:1231` 末位两条断言（改为「末位 6 条 = 调用面」）；⑧ 同文件 `:1265` llms 表头；⑨ 同文件 `:1301` `danger` 计数；⑩ `test/web.test.js:1517-1518` `/api/agents` 元素键集合追加 `role`（F03 验收 3/4）；⑪ `oamp/llms.txt` 重生成（`node oamp/scripts/gen-llms-txt.mjs`）。**已逐条核对、确认零改写的既有文件**：`test/task.test.js:228-231`（`router.task_list` 只用属性断言）、`test/transport.test.js`（只用 transport 对外 API）、`test/api-pages.test.js:57-63`（既有 3 个占位项逐字断言）、`test/hygiene.test.js:61-64`（零依赖锁）、`test/context-pool.test.js` / `acp-daemon.test.js` / `delivery-contract.test.js`（上下文与执行侧零改动）。**核对做法**：除清单所列行外 `oamp/test/**` diff 为空 + `npm test`（`node --test test/*.test.js`）全绿，落 `oamp/test/call-protocol.test.js` 组 L。

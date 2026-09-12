@@ -33,7 +33,9 @@
 - **不承诺跨重启保留**（N11，差异 ⑩）：roster 取自本进程内的调用记录。
 - 不含鉴权与多用户视图（N19）。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **T-06** roster 的数据来源。
-- **T-12** roster 字段与作用域的验证组织形态与新增断言的落点。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **T-06 roster 的数据来源**：`GET /api/calls` 读 **既有 `router.task_list`（一次查询、不用其 state 过滤参数）**，范围 = **本 hub 派发的调用**（任务表 `from === 'web'`；CLI 任务无 chat 归属，不进本面）；**不新增存储**、web 侧不自建索引（避免与任务表的状态分叉，验收 3 由单真源保证）。为在单查询里拿到「模型」列，`registry.listTasks` 投影**追加 `model` 字段**（`task.result?.model ?? null`；方法集数量与名称不变 ⇒ N15/F14 验收 4；既有 CLI 与测试为属性断言、不受影响）。**行 = 6 列**：`call_id` / `agent`（`roleFromInstanceId(to)`，无角色 `null`）/ `state` / `started_at`（= `created_at`，受理时刻）/ `ended_at`（终态 = `updated_at`，进行中 `null`，不早于开始）/ `model`（终态 = 执行侧实报生效模型，进行中 `null`）。无过滤 / 无分页 / 无排序参数、无编排语义（N17 / MI-03）；生命周期 = Router 内存（重启即丢，差异 ⑩）。
+- **T-12 roster 字段与作用域的验证组织形态**：落 `oamp/test/call-protocol.test.js` 组 G（两行六列齐备 / 批量两行 / `started_at`·`ended_at` 口径 / 状态与按 id 查询一致 / 无成本 token / 无过滤编排入口）。

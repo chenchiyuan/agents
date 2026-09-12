@@ -33,7 +33,9 @@
 - 不含视觉风格改造与既有面重排。
 - 页面划分与呈现形态留架构（T-07）。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **T-07** 控制台调用面的页面划分。
-- **T-12** 控制台呈现的验证组织形态（浏览器核对 vs 断言）与新增断言的落点。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **T-07 控制台调用面的页面划分**：**新增独立静态页 `/calls`**（`web/calls.html` + `web/calls.js`；复用既有 `style.css` 与 `api-pages.css` 的表格/卡片规则 ⇒ 零新 CSS 文件、零构建、零依赖），**不并入既有单页工作台**（避免改 `app.js` 的视图与状态机）。入口 = `web/index.html` 顶栏**新增第 3 个真实入口** `<a class="nav-item" href="/calls">调用</a>`，**既有 3 个占位项（Workspace / Agents / Tasks）逐字未变**；`STATIC_FILES` 白名单 +2 项（`/calls`、`/calls.js`）。页内三块：① **roster 表**（6 列 = F09 的行字段；进入取一次 `GET /api/calls`，随后 **5 s 轮询**，沿用既有顶栏 panel 体例，不引入新推送机制）；② **选中行的进度区**（点击一行 ⇒ 订阅 `GET /api/calls/:call_id/stream`，渲染 `call_state` / `call_update` / `call_result`；切换选中即换订阅）；③ 空态与提示条（沿用既有 `#hint` 式纯文本体例）。**不呈现** token / 成本 / 工具级详情 / 取消·steer 入口（差异 ⑬⑭⑯⑮）。页面可直接引用 `/api/calls*` 路径（与 `app.js` 同体例；0016 的「零硬编码路径」约束只作用于 `/docs`、`/debug` 两个反射页）。
+- **T-12 控制台呈现的验证组织形态**：**自动化** = 静态契约（`web/calls.html` 存在、顶栏入口、既有 3 个占位项逐字未变、页面零 token/成本列）+ HTTP 可达性（`/calls`、`/calls.js` 的 200 与 content-type），落 `oamp/test/call-protocol.test.js` 组 K；**人工/浏览器核对** = 面内 roster 行与进行中增量（无自动化断言）。既有 `test/api-pages.test.js` 零改写。

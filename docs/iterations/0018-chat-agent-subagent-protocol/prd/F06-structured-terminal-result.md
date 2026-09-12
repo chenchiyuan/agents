@@ -33,9 +33,11 @@
 - 不含页面 / 控制台呈现（→ F13）。
 - 不改既有消息路径与既有错误契约（N18）→ F14：终态是新调用面的交付形态，不重写既有响应与错误语义。
 
-## 架构待填（`[架构待填]`，交阶段 3）
+## 架构（阶段 3 已填；真源 = `architecture.md`）
 
-- **T-02** 终态信封的字段名，以及与既有「警告 / 输出」路径的关系。
-- **T-13** 入参与返回的字段命名与形态（与 F04 共用）。
-- **T-08** 截断标记与转录截断语义的关系（两处截断是否同一口径）。
-- **T-12** 终态字段的验证组织形态与新增断言的落点。
+> 本段只填架构维度；产品维度逐字未动。
+
+- **T-02 终态信封的字段名与既有路径的关系**：信封 = `{call_id, agent, state, duration_ms, model, truncated, text, structured_output, error, exit_code}`（`state` 封闭词表 `submitted | working | completed | failed`；**不含** usage / tokens / 成本 / `aborted`，差异 ⑧）；**单一构造点** `composeCallEnvelope(task)`（输入 = 既有任务表条目），三处共用（阻塞响应 / `GET /api/calls/:call_id` / SSE `call_result` 帧）。与既有路径的关系：既有 `warning`（派发失败仍 200）与对话 `out` 行**逐字不变**；信封是**新读取面**的产物，不改既有响应形态；调用面派发失败**额外**映射为 4xx/502（不再吞成 200），对话侧仍按既有行为补 `out{error:'dispatch_failed'}`。
+- **T-13 返回字段命名与形态**：与 F04 共用同一张表（入参 §2.2 / 返回 §3.1）；`model` = 执行侧实报的**生效值**（读不到即 `null`，不用请求参数冒充）；`exit_code` 可得时给出（shell / 一次性路径；daemon 路径 `null`）。
+- **T-08 截断标记与转录截断的关系**：**同一口径、同一纯函数** `callTruncated(task) = task.updatesTruncated || task.updates.some(u => u.detail?.event === 'truncated')`（MI-06「任一既有上限触顶即为真」）——终态信封的 `truncated` 与转录响应的 `truncated` 由它同时产出；两处数据源都在同一任务表条目上，不新增上限、不改既有上限。
+- **T-12 验证组织形态**：落 `oamp/test/call-protocol.test.js` 组 D（字段逐项 / 词表区分 / 结构化输出 / **响应键集合断言（零 usage·token·成本）** / 截断：fake ACP 造 >1000 条更新 ⇒ `truncated:true`）。
