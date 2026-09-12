@@ -108,3 +108,43 @@
 
 - 阶段：阶段 2（功能规格）
 - 任务：将需求合同原子化为可独立验证的功能卡，只做产品维度，不做架构决策
+### 2026-09-12 18:23:00 · 收到报告 · prd
+
+- 1. prd.md 路径 + 功能点总数：docs/iterations/0019-worktree-isolation-protocol/prd.md（v0.1.0）；**15 张卡** = 12 个需求功能点（F01~F11 + F13）+ 1 个声明项（F12）+ 2 个保证项（F14 / F15）
+- 2. prd/ 目录文件列表：F01-session-workspace-form / F02-one-workspace-per-iteration / F03-startup-contract / F04-path-reference-rebase / F05-merge-in-main-workspace / F06-branch-naming-iteration-id / F07-workspace-layering / F08-role-source-tracked / F09-cross-workspace-write-ban / F10-paused-iteration-scene / F11-shared-resources-declaration / F12-isolation-boundary-declaration / F13-specline-form-constraints / F14-existing-clauses-unchanged / F15-d2-registration-trace
+- 3. model_inferred 标注列表：MI-01 硬停时点 / MI-02 阶段 5 父子层「本会话工作区」判定口径 / MI-03 每迭代一个工作区与跨迭代复用 / MI-04 分支名含迭代 ID 的判据口径 / MI-05 E1~E4 的判定样本来源与时点 / MI-06「零动作」对下游场景的承诺边界 / MI-07 E13 执行记录载体 / MI-08「真实服务」范围与是否改默认端口 / MI-09 隔离边界声明落点范围
+- 4. 架构待填列表：T-01~T-16（工作区落点目录 / 启动检测判据与硬停输出形态 / PR 分支命名细则 / .pb-agents 降级后文本组织 / git 命令序列 / 「根目录」改写清单 / 合并三步具体命令 / 既有「假定可切 main」表述定位 / 隔离边界声明落点 / 非 git 资源声明落点 / SKILL 改写形态 / 现场保留条款关系 / 跨工作区写入条款落点 / 回归验证组织 / D-2 三处留痕写法 / 「条款自带判断方式」体例）
+- 5. 疑问/越界：越界无（唯一写入 = prd.md + prd/F01~F15 + clarifications/prd-round-1.md；未改 demand/status/history/clarifications 已有文件；未触碰代码与 roles/**、.pb-agents/**、.claude/**、tools/**；未跑测试；未执行 git）。提请主 agent 裁定 3 项体例：① E10 无 W 条目 → 承载为 F12〔声明项〕；② E5/N4 无 W 条目 → 与 W11 合并为 F13；③ E12/N2 为一次性登记行动项 → 承载为 F15〔保证项·登记义务〕
+- 6. 覆盖核查：W1~W12 全覆盖无漏项（W1→F01、W2→F02、W3→F07、W4→F03、W5→F04、W6→F05、W7→F06、W8→F08、W9→F10、W10→F11、W11→F13、W12→F09）；E1~E13 全映射、无未承载；卡内零技术选型（已扫描确认）
+
+### 2026-09-12 18:24:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 2 三项推进条件经主 agent 核查**已满足**（15 张卡均有独立文件；W1~W12 全覆盖、E1~E13 全映射、无 demand.md 外新增功能；15 张卡均含 `[架构待填]` 段）——但产物含 **9 项 `[model_inferred]`**（MI-01~MI-09）→ 按用户决策点规则**暂停推进**，真实阻塞式转呈（按 prd 建议分 3 组：隔离单位判定口径 / 条款与声明边界 / 判定载体）；同时主 agent 裁定 prd 提请的 3 项体例：① E10 无 W 条目 → 保留 F12〔声明项〕；② E5/N4 → 与 W11 合并为 F13；③ E12/N2 → 保留 F15〔保证项·登记义务〕（三项均沿用 0017 F09/F10、0016 F02/F06、0015 F08 的体例先例，且 prd 已给出回退口）
+- 触发依据：prd.md §MI 判定口径（9 项「待确认」）+ clarifications/prd-round-1.md §一 转呈清单；prd.md 「疑问与越界」1~3（体例提请）
+### 2026-09-12 18:26:00 · 调度决策 · Gate确认
+
+- 决策内容：用户对 9 项 MI 的裁决 —— **组 A（MI-01/02/03/05）= 全部按推荐**；**组 B（MI-04/06/08/09）= 全部按推荐**；**组 C（MI-07）= 载体不限（推荐）**。即：硬停 = 发现即停；阶段 5 判定以子 agent 实际被派发的工作区为准；每迭代必须换工作区；E1~E4 本迭代用构造样本验证；分支名含迭代编号即可；「零动作」只承诺本仓库场景；「真实服务」= 会话实际启动的长驻服务且不改默认端口值；隔离边界声明规范一处为真源、SKILL 只引用；E13 执行记录载体不限
+- 触发依据：主 agent 真实阻塞式转呈（`ask` 三组提问，附各 MI 的推荐值与备选读法）并取得用户逐组回答
+
+### 2026-09-12 18:26:00 · 派发 · prd
+
+- 阶段：阶段 2（功能规格，第二轮修订）
+- 任务：将需求合同原子化为可独立验证的功能卡，只做产品维度，不做架构决策
+
+### 2026-09-12 18:35:00 · 收到报告 · prd
+
+- 1. prd.md 路径 + 功能点总数：docs/iterations/0019-worktree-isolation-protocol/prd.md（**v0.2.0 已收敛**）；15 张卡不变（12 需求功能点 + 1 声明项 + 2 保证项）
+- 2. prd/ 目录文件列表：15 个 `.md` 均在；本轮修订 9 张受影响卡（F01 / F02 / F03 / F06 / F07 / F08 / F09 / F11 / F12）
+- 3. model_inferred 标注列表：**零残留**（9 项 MI 的卡内标记全部转为 `[user_confirmed MI-xx]`；主 agent 的 3 项体例裁定已落入索引与卡内）
+- 4. 架构待填列表：T-01~T-16 不变（未做任何架构决策）
+- 5. 疑问/越界：越界无；`[model_inferred]` 残留数 = 0（`grep -rl '\[model_inferred' prd.md prd/` 零命中，仅文档状态/来源说明中的术语性提及）
+
+### 2026-09-12 18:35:30 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 2（功能规格）推进条件三项**全部通过** → 标记 ✅；进入阶段 3（技术架构），派发 architect。核查证据：① 所有功能点有独立卡片——`prd/` 下 15 个 `.md`；② 无 `demand.md` 外新增功能——W1~W12 全覆盖（映射见收到报告记录）、E1~E13 全映射、F12/F15 为声明项与保证项（不引入新能力）；③ 架构待定项已标注——T-01~T-16，卡内零技术选型/实现细节。附带核查：卡内 `[model_inferred]` 零残留
+- 触发依据：prd.md v0.2.0 §状态与 §阶段 2 推进条件自检（三项全 ✅、`model_inferred` 残留为零）；clarifications/prd-round-2.md 逐条落定位置
+
+### 2026-09-12 18:35:30 · 派发 · architect
+
+- 阶段：阶段 3（技术架构）
+- 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
