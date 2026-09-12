@@ -363,3 +363,19 @@
   - **FIX-4**（偏差 7）：§3.14「零副作用」措辞显式限定到两类
 - 不处置项（登记为偏差/下一迭代候选）：#4（§7.2 中文等价表述，verifier 已核 25/25 仍可核对）、#5（§11 区间内过时字样，裁定结果）、#6（tasks 措辞）、#8（`out` 行无 `task_id`，属既有 persist 行为）、#9（README 计数）
 - 约束保持：6 文件闭包、§11 逐字零改写（新增断言只允许落在已点名区间内或改用仓库外脚本自证）、零新依赖/配置键/错误码/表列/协议方法
+
+### 2026-09-13 00:18:00 · 收到报告 · dev（pr-003 修复轮）
+
+- 1. 改了什么文件：`oamp/src/web.js`（FIX-1，40 行）+ `oamp/API.md`（FIX-2/3/4 + FIX-1 文档后果，20 行），提交 `f771ae5`
+- 2. 测试结果：
+  - **FIX-1 主证 PASS**：新增纯函数 `callState(task, call) = call?.terminal?.state ?? task.state` 作为**唯一状态读法**，`publishCallResult`（终态单一发布点）把 `envelope.state` 记入调用登记 `call.terminal` ⇒ 信封/roster/转录**三视图一致**（strict 未通过时四处均 `failed`）；反向对照：permissive 未通过 ⇒ 四视图均 `completed`、strict 通过 ⇒ `completed`、无 schema ⇒ `completed`；既有 `POST /api/messages` 路径零变化
+  - **FIX-2 PASS**：daemon 成功 ⇒ `exit_code=0`；shell 失败 ⇒ `3`（真实码）；一次性 ⇒ `0`；daemon 执行失败 ⇒ `null` + `error=context_crashed`
+  - **FIX-3/FIX-4 PASS**：§3.19 改 10 键（`call_result` 帧 11 键另注）；§3.14「零副作用」限定到 INVALID_PARAM + 角色不可寻址两类，离线路径 Δmsg=2 已如实写明
+  - **全量回归 272/272 PASS**；`node --check` OK；llms 重生成无 diff；本提交 `oamp/test/**` 零 hunk；`dependencies` 仍 `{}`
+- 3. 疑问/待办：5 条（a §3.19 `error` 行不覆盖 shell 失败；b §3.18 未说明末条终态条目语义；c 超出点名位置的同事实类文档改动（§3.15/§3.16/§5.16 等，已实现并列明）；d 未触碰项；e 复跑入口 `/tmp/oamp-pr003-fix/verify.mjs`）
+- 4. 违反边界的事：无（未用 `--no-verify`、未 push/merge/切分支）
+
+### 2026-09-13 00:19:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**(a)(b) 折为文档收尾轮（FIX-5/FIX-6）立即处置**，理由：二者与 fail D2 同类（文档与实现不自洽），留给复验只会再 FAIL；(c) **接受**（同一事实类必须同步改，否则文档自相矛盾——如同一 completed daemon 调用在 §5.13 写 0、§5.16 写 null）；(d) 维持登记为下一迭代候选
+- 触发依据：dev 修复轮报告契约第 3 项；《阶段回退》判断标准 = 不改变 `demand.md` 结论 ⇒ 不回退
