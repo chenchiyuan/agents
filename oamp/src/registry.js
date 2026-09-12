@@ -266,6 +266,7 @@ export function createRegistry() {
         updated_at: task.updated_at,
         updates: task.updates.length,
         updatesTruncated: task.updatesTruncated,
+        model: task.result?.model ?? null,
       });
     }
     out.sort((a, b) => b.created_at - a.created_at);
