@@ -14,7 +14,7 @@
 
 ## 文件范围
 
-- `docs/worktrees/README.md`（**新建**；被 git 跟踪，落点 `<项目根>/docs/worktrees/`，`docs/worktrees/` 目录随之新建）：头部 4 行（`# 工作区间与生效规范（worktrees）` + `**状态**: 生效` + `**版本**: 1.0.0` + `**日期**: 2026-09-12` + `**演进自**: docs/iterations/0020-session-workspace-addressing/architecture.md`，形态照抄 `docs/ds/README.md` 先例）+ 5 节（① 工作区间（本项目）；② 生效规范与版本；③ 寻址纪律（引用规范，不重述）；④ 落点语义澄清；⑤ 本产物的边界）——逐字采用 architecture §4.1 / §4.2 的形态（**表格仅 §1 一处**，列 = 层 / 落点 / 命名 / 生命周期 / 跟踪）
+- `docs/worktrees/README.md`（**新建**；被 git 跟踪，落点 `<项目根>/docs/worktrees/`，`docs/worktrees/` 目录随之新建）：**头部形态与 5 节骨架一律逐字采用 `architecture.md` v1.1.3 §4.1（头部）与 §4.2（5 节骨架，含 §1 表格的五列）——字段名、节序与列名见该两节，本 PR 不复述**
 
 **不涉及（零改动面；越界即 F13 验收 3 / 验收 5 不通过）**：仓库根 `.gitignore`（**不改**，F03 验收 3）；`roles/workflow-pb/workflow-pb.md` 与 `.claude/skills/workflow-pb/SKILL.md`（属 `pr-001`）；两侧惯例记录（属 `pr-003`）；`skill-optimization-v1.12.0.md`（属 `pr-004`）；`tools/**`、`oamp/**`、`principles/**`、任何执行角色文件；`docs/iterations/**`（本 PR 不写入任何迭代产物）。
 
@@ -22,9 +22,9 @@
 
 - [ ] **产物存在且落点正确（F03 验收 1、F04 验收 1）**：`docs/worktrees/README.md` 存在，且 `docs/worktrees/` 目录下**只有该 README**（无任何工作区目录、无运行态文件）
 - [ ] **随检出即得（F03 验收 2；裸判据）**：`git ls-files --error-unmatch docs/worktrees/README.md` 成功；仓库根 `.gitignore` **零改动**（F03 验收 3）；跨工作区写入禁止的闭集例外**仍为 2 项**（不因新增产物而扩展，F03 验收 4）
-- [ ] **5 类信息逐类可判（F04 验收 1~5）**：① 工作区间定义含三项——会话 / 迭代工作区落点 `<仓库主工作区>/.pb-agents/worktrees/{迭代ID}`、PR worktree 落点与**子层**关系 `<会话工作区>/.pb-agents/worktrees/{迭代编号}-pr-{NNN}-{slug}`、**工作区的范围**（哪些路径属某工作区、哪些是跨工作区共享的 refs / 对象库 / config·hooks·remotes 与非 git 资源，引用规范 §隔离边界声明不重述）；② 生效规范与版本 = 规范路径 + 版本号、配套宿主 skill 路径 + 版本号（**路径与版本两者齐备**）；③ 寻址纪律**引用**（显式寻址绝对路径 + `git -C`、地址声明三层落点、越界判定是事后核查——以指向规范条款的引用形态出现）；④ 落点语义澄清的**一行**区分句；⑤ 明写"本产物不含任何脚本、钩子或守卫"，且全文**不出现**脚本 / 钩子定义 / 守卫逻辑 / 可复制命令块（F04 验收 5、F21 验收 5）
-- [ ] **非第二真源（F04 验收 6；MI-08 引用形态判据）**：产物中每一条规范性陈述均可回指规范条款（§1 ↔ 规范 `### 规则 C` 落点与命名；§2 ↔ 版本一致性；§3 ↔ 规则 H / 规则 D / 规则 F / `### 隔离边界声明` / `### 协议产物`；§4 ↔ `### 协议产物` 的区分句真源；§5 自述边界）；**不出现规范中没有的新约束**
-- [ ] **落点语义区分（F05 验收 1~4）**：§4 可读到三条语义区分（`docs/worktrees/` = 协议产物的文档位置，被跟踪，不承载任何运行态工作区；`.pb-agents/worktrees/` = 会话 / PR 工作区池，运行态，被忽略；`docs/iterations/{迭代ID}/` = 迭代产物，每迭代一份，不承载跨迭代协议声明）+ 一句禁令（任何会话 / PR worktree 不得建在 `docs/worktrees/` 下）+ 一个真源指针（真源：规范 §协议产物）；**篇幅为一行三从句，不重复三条完整定义**（真源唯一）；裸判据：`ls docs/worktrees` 无工作区目录、`git worktree list` 无 `docs/worktrees/` 前缀项
+- [ ] **5 类信息逐类可判（F04 验收 1~5）**：必须覆盖的五类与模板顺序**见 `architecture.md` v1.1.3 §8.1-A 与 §4.2 的 5 节骨架（本 PR 不复述）**；判据 = ① 逐类可在产物中读到对应陈述，缺任一类即不通过；② 全文**不出现**脚本 / 钩子定义 / 守卫逻辑 / 可复制命令块（F04 验收 5、F21 验收 5）
+- [ ] **非第二真源（F04 验收 6；MI-08 引用形态判据）**：逐节回指关系与判据**见 `architecture.md` v1.1.3 §8.1-A 的「非第二真源」段与 §4.2（本 PR 不复述逐节回指表）**；判据 = 产物中每条规范性陈述均以指向规范条款的引用形态出现，出现规范中没有的新约束即不通过
+- [ ] **落点语义区分（F05 验收 1~4）**：区分句形态与真源**见 `architecture.md` v1.1.3 §4.5（规范侧真源）与 §8.1-A（产物侧承接行）——本 PR 不复述三处语义**；判据 = ① 产物中以**一行**承接且不构成第二处完整定义；② `ls docs/worktrees` 无工作区目录、`git worktree list` 无 `docs/worktrees/` 前缀项；③ 两个不同检出中 `docs/worktrees/` 下文件清单与内容一致
 - [ ] **不含动态地址（F07 验收 3；MI-05 口径）**：产物中 `<仓库主工作区>` / `<会话工作区>` / `{迭代ID}` 一律为**占位符**，不出现任何一次运行的具体绝对路径；判据 = 两个不同会话的检出中该文件**逐字节相同**（`git diff` 无差异）
 - [ ] **静态声明正确（F03 验收 5 / F04 验收 2 / F07 验收 1）**：§2 声明"规范 = `roles/workflow-pb/workflow-pb.md`（**v0.10.0**）"、"配套宿主 skill = `.claude/skills/workflow-pb/SKILL.md`（**v1.13.0**）"——与 `pr-001` 落地后的两文件版本行一致；§3 的引用指向 `pr-001` 落地的 `§规则 H` / `§规则 D`（更名后标题）/ `### 协议产物`（本 PR 落地时上述章节均已存在）（本条为**依赖序内可判**条目——独立判定时点见本节末「独立性读法」注记）
 - [ ] **形态与体例（F21 验收 1/5）**：本 PR 只新增一份 Markdown 文档，改动文件清单不含任何 `.sh` 或可执行脚本；不引入 hook / 守卫 / 检测器 / 启动前准入门；不新增 `.gitignore` 条目、不改任何目录约定
@@ -33,7 +33,7 @@
 
 ## 参考资料
 
-- `docs/iterations/0020-session-workspace-addressing/architecture.md` **v1.1.1**：§3.3（`P-01`）、§4.1（文件与头部 4 行）、§4.2（5 节骨架全文，**本 PR 逐字采用的形态**）、§4.3（真源 / 实例化投影：`SPEC --定义契约与模板--> ART`、`ART --引用--> SPEC`）、§4.4（三层分层：源 = 本产物；投影 1 / 2 不落本产物）、§4.5（T-15 区分句真源与产物侧承接行）、§12 冲突自查（7）（非第二真源 vs 契约真源一处）、（8）（产物被跟踪 vs 不改 `.gitignore`）、（9）（PR worktree 落点 vs `docs/worktrees/` 同名异义）
+- `docs/iterations/0020-session-workspace-addressing/architecture.md` **v1.1.3**（**本 PR 的直接验收基准**；v1.1.3 未落盘时以 v1.1.2 / v1.1.1 为准）：§3.3（`P-01`）、§3.5 零改动清单、§4.1（头部）、§4.2（5 节骨架）、§4.3~§4.5、§8.1-A（协议产物节条款全文与 `判断方式：` 行）、§12 冲突自查。**头部字段名 / 节序 / 表格列名等结构一律以 architecture v1.1.3 为准，本 PR 不复述**
 - `docs/iterations/0020-session-workspace-addressing/prd/F03-protocol-artifact-existence.md`、`prd/F04-artifact-content-skeleton.md`、`prd/F05-location-semantics-disambiguation.md`、`prd/F07-address-declaration-layering.md`、`prd/F21-specline-form-constraints.md`（本 PR 涉及的 5 张卡的「验收标准」与「架构落地」段）
 - `docs/ds/README.md`（**头部与体例先例**：`docs/<主题>/` 协议规格包 + 目录自述 README，4 行头形态照抄；`git ls-files docs` 实测其已被跟踪）
 - `roles/workflow-pb/workflow-pb.md:149-164`（`### 规则 C` 的落点与命名：`:157-159`，**保留段**，产物 §1 的落点事实来源）、`:208-228`（`### 隔离边界声明`：工作区范围与跨工作区共享资源的来源）

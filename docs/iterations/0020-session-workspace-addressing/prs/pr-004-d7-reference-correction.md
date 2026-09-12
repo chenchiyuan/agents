@@ -25,7 +25,7 @@
 
 ## 参考资料
 
-- `docs/iterations/0020-session-workspace-addressing/architecture.md` **v1.1.1**：§3.4（`O-03` 的 `:13` / `:40` 两处待更正引用，含"本迭代按两处均就地显式化处理"的实测说明）、§9.2（D-7 纳入面：**就地**更正、不新增旁注、不改叙述结构、不另起更正段；范围限于这两处；留痕落在 `O-04`）、§3.6（检索式判据）
+- `docs/iterations/0020-session-workspace-addressing/architecture.md` **v1.1.3**（v1.1.3 未落盘时以 v1.1.2 / v1.1.1 为准）：§3.4（`O-03` 的 `:13` / `:40` 两处待更正引用，含"本迭代按两处均就地显式化处理"的实测说明）、§9.2（D-7 纳入面：**就地**更正、不新增旁注、不改叙述结构、不另起更正段；范围限于这两处；留痕落在 `O-04`）、§3.6（检索式判据）
 - `docs/iterations/0020-session-workspace-addressing/prd/F18-d7-reference-correction.md`（验收标准 1~4 与「架构落地」段）
 - `.claude/skills/workflow-pb/data/skill-optimization-v1.12.0.md:13`、`:40`（改动基线；实测 `grep -n '8\.4'` 命中恰为这两行）
 - `docs/iterations/0019-worktree-isolation-protocol/architecture.md:568`（`### 8.4 角色定义来源与部署`——更正后引用的真实落点）
