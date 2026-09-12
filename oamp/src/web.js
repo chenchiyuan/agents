@@ -13,6 +13,12 @@
 //   GET  /api/stream?chat_id=<id>    → SSE（message / task_update / chat_state / notice 四类事件；chat_id 仍强制）
 //   GET  /api/events                 → 全局 SSE（agent_online / agent_offline 两类事件；无参数，不依赖对话）
 //   GET  /api/docs                   → 接口元数据投影（文档页 / 调试台 / 索引文件的数据源；请求时从路由表生成）
+//   POST /api/calls                  → 发起一次或一批调用（阻塞取终态 / 后台执行）
+//   GET  /api/calls                  → 调用 roster（每次调用一行；无过滤 / 无分页 / 无编排）
+//   GET  /api/calls/stream?chat_id=<id> → 对话作用域的调用事件流（SSE：call_state / call_update / call_result）
+//   GET  /api/calls/<call_id>/stream → 按调用订阅事件流（SSE）
+//   GET  /api/calls/<call_id>/transcript → 按调用取转录（进程内，不持久；重启即丢）
+//   GET  /api/calls/<call_id>        → 按调用取终态（进行中给状态）
 // 错误契约（0015 / F06，architecture §5）：全部 4xx/5xx 响应体 = {error: <人类可读字符串>, code: <ERR_CODE 之一>}，
 //   code 与状态码一一映射；成功响应不含 code；既有 error 文案逐字不变（既有前端 api() 零改动）。
 // 语义（0011 迭代，architecture §4/§5/§9.1）：一次提问 = 恰一条 in + 一条 out（过程不入库）；
@@ -30,6 +36,7 @@ import { RpcPeer } from './rpc.js';
 import { NodeClient } from './node-client.js';
 import { openDb } from './persist.js';
 import { createSseTransport } from './transport.js';
+import { instanceIdForRole, roleFromInstanceId } from './role-binding.js';
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); // 包根（静态面白名单的基准：URL → 包根相对文件）
 const SENDER_ID = 'web'; // web 服务作为常驻发送方身份（R2：客户端节点）
@@ -42,6 +49,17 @@ const LABEL_MAX = 60; // task label 截断（沿用 0010 web 既有值）
 // 派发装配点在此处取原文注入 payload.body.project.agreement（agent 侧只渲染，不产出文本）。
 const PROJECT_AGREEMENT =
   '本项目的工作约定（相对约定，不涉及任何本机路径）：① 若本地尚无该仓库，请先 clone 到自选落点；② 在该仓库根目录下工作；③ 迭代产物（docs 文档、PR、commit、分支）均写入该仓库。';
+// 0018 调用面（architecture §2.2 / §2.5 / §4.1）：入参枚举 / 期望结构的受限子集白名单 / 三类调用事件名。
+// 受限子集只认 SCHEMA_KEYS 三个键——$ref / oneOf / anyOf / allOf / items / format / pattern / 嵌套 properties
+// 一律 400（明确拒绝，不静默忽略）；7 种 type 与 §2.5 逐字一致。
+const CALL_MODES = ['background', 'block'];
+const SCHEMA_MODES = ['permissive', 'strict'];
+const SCHEMA_TYPES = ['object', 'array', 'string', 'number', 'integer', 'boolean', 'null'];
+const SCHEMA_KEYS = ['type', 'properties', 'required'];
+const CALL_EVENTS = { state: 'call_state', update: 'call_update', result: 'call_result' };
+const CALL_CONTEXT_TITLE = '【调用共享说明】';
+const CALL_SCHEMA_TITLE = '【返回格式要求】';
+const CALL_SCHEMA_LINE = '请仅输出一个 JSON 对象，满足以下结构（不要输出 JSON 以外的内容）：';
 // pr-007 对账补拉：task.result 的投递可能丢失（发起者离线窗口/投递竞态）——此时 agent 已执行完、
 // Router 任务表已终态，而 web 未落 out（对话缺回复）；Router 任务表是权威运行态，故 web 侧轮询兜底补落。
 const RECONCILE_DEFAULT_MS = 5000; // 快速对账首查与间隔同值（默认 5s）
@@ -245,6 +263,132 @@ function parseMessageBody(payload) {
   }
 }
 
+// ────────────────────────── 0018 调用面纯函数（architecture §2.2 / §2.5 / §3.1 / §3.3 / §5） ──────────────────────────
+
+/** 实例名 → 角色名（§5）：薄封装——推导规则（前缀拼接 + 角色文件存在性）只在 src/role-binding.js 一处，此处不复制。 */
+function roleOfInstance(instanceId) {
+  return roleFromInstanceId(instanceId);
+}
+
+/** 截断标记（MI-06，单一真源、OR 口径）：过程记录 1000 条封顶 或 增量行控制条目（`event:'truncated'`）已下发。 */
+function callTruncated(task) {
+  return task.updatesTruncated === true || task.updates.some((u) => u.detail?.event === 'truncated');
+}
+
+/** 期望返回结构的受限子集校验（§2.5）：合法 ⇒ 规范化结构（type 缺省 object）；非法 ⇒ null（调用方 400，不静默忽略）。 */
+function validateOutputSchema(schema) {
+  if (schema === null || typeof schema !== 'object' || Array.isArray(schema)) return null;
+  // 只认 SCHEMA_KEYS 三个键：$ref / oneOf / anyOf / allOf / items / format / pattern 等一律判非法
+  if (Object.keys(schema).some((key) => !SCHEMA_KEYS.includes(key))) return null;
+  const type = schema.type === undefined ? 'object' : schema.type;
+  if (!SCHEMA_TYPES.includes(type)) return null;
+  const properties = schema.properties;
+  if (properties !== undefined) {
+    if (properties === null || typeof properties !== 'object' || Array.isArray(properties)) return null;
+    for (const prop of Object.values(properties)) {
+      // 每个属性只允许 {type: <7 种之一>}：出现第二个键（含嵌套 properties）即非法
+      if (prop === null || typeof prop !== 'object' || Array.isArray(prop)) return null;
+      const keys = Object.keys(prop);
+      if (keys.length !== 1 || keys[0] !== 'type' || !SCHEMA_TYPES.includes(prop.type)) return null;
+    }
+  }
+  const required = schema.required;
+  if (required !== undefined) {
+    if (!Array.isArray(required)) return null;
+    // required 的每个名字必须出现在 properties 中
+    for (const name of required) {
+      if (typeof name !== 'string' || properties === undefined || !Object.hasOwn(properties, name)) return null;
+    }
+  }
+  return {
+    type,
+    ...(properties === undefined ? {} : { properties }),
+    ...(required === undefined ? {} : { required }),
+  };
+}
+
+/** 从终态文本提取结构化输出（§2.5）：① 裸 JSON；② 失败则剥离一层 ``` 围栏（含 ```json 标注）后重试；③ 仍失败 null。 */
+function extractStructuredOutput(text) {
+  if (typeof text !== 'string') return null;
+  const raw = text.trim();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    // 继续剥围栏
+  }
+  const fenced = /^```[^\n]*\n([\s\S]*?)\n?```$/.exec(raw);
+  if (fenced === null) return null;
+  try {
+    return JSON.parse(fenced[1].trim());
+  } catch {
+    return null;
+  }
+}
+
+/** 受限子集三层校验（§2.5）：`type` / `required` / `properties.<名>.type`；未声明键**不**判错。 */
+function validateAgainstSchema(value, schema) {
+  /** 7 种类型词表 ↔ JS 运行时形态。 */
+  const isType = (v, t) => {
+    if (t === 'null') return v === null;
+    if (t === 'array') return Array.isArray(v);
+    if (t === 'object') return v !== null && typeof v === 'object' && !Array.isArray(v);
+    if (t === 'integer') return Number.isInteger(v);
+    if (t === 'number') return typeof v === 'number' && Number.isFinite(v);
+    return typeof v === t; // string / boolean
+  };
+  const type = schema.type === undefined ? 'object' : schema.type;
+  if (!isType(value, type)) return false;
+  if (type !== 'object') return true; // 非对象形态没有 required / properties 两层
+  const properties = schema.properties === undefined ? {} : schema.properties;
+  for (const name of schema.required === undefined ? [] : schema.required) {
+    if (value[name] === undefined) return false; // 缺 required 键
+  }
+  for (const [name, prop] of Object.entries(properties)) {
+    if (value[name] === undefined) continue; // 可选键缺席不判错
+    if (!isType(value[name], prop.type)) return false;
+  }
+  return true;
+}
+
+/** 调用 prompt 装配（§2.2，web 侧唯一装配点）：共享说明（前置）→ task 原文（逐字，零前缀污染）→ 返回格式要求（后置），以空行连接。 */
+function composeCallPrompt({ context, task, outputSchema }) {
+  const blocks = [];
+  if (typeof context === 'string' && context.trim() !== '') blocks.push(`${CALL_CONTEXT_TITLE}\n${context}`);
+  blocks.push(task);
+  if (outputSchema !== null) blocks.push(`${CALL_SCHEMA_TITLE}\n${CALL_SCHEMA_LINE}\n${JSON.stringify(outputSchema)}`);
+  return blocks.join('\n\n');
+}
+
+/** 调用信封（§3.1，唯一形状）：受理 / 进行中 / 终态三态共用同一 11 键与键序。
+ *  `call` = 调用面登记（提供 output_schema / schema_mode；无登记 ⇒ structured_output 恒 null）。 */
+function composeCallEnvelope(task, call = null) {
+  const result = task.result ?? null;
+  const schema = call === null ? null : call.outputSchema;
+  const extracted = schema === null ? null : extractStructuredOutput(result?.text ?? null);
+  const structured = extracted !== null && validateAgainstSchema(extracted, schema) ? extracted : null;
+  // strict 且终态成功但结构未通过 ⇒ 终态词仍是闭集内的 failed + 机器可读原因（§2.5，不新增终态词）
+  const invalid = schema !== null && call.schemaMode === 'strict' && task.state === 'completed' && structured === null;
+  return {
+    call_id: task.task_id,
+    agent: roleOfInstance(task.to),
+    state: invalid ? 'failed' : task.state,
+    duration_ms: result?.duration_ms ?? null,
+    model: result?.model ?? null,
+    truncated: callTruncated(task),
+    text: result?.text ?? null,
+    structured_output: structured,
+    error: invalid ? 'structured_output_invalid' : (result?.error ?? null),
+    exit_code: result?.exit_code ?? null,
+  };
+}
+
+/** 调用状态单一读法（★ pr-003 修复轮 FIX-1，§2.5 的 strict 覆写落到终态写入处）：终态在 `publishCallResult`
+ *  一次记入调用登记（`call.terminal`）⇒ 信封 / roster / 转录三面读**同一记录**——F09 验收 3 的「状态与事实
+ *  一致」由单一写点保证，不靠约定；无登记 / 未终态 ⇒ 任务记录原值（既有无 schema 面零变化）。 */
+function callState(task, call) {
+  return call?.terminal?.state ?? task.state;
+}
+
 function serveStatic(res, file) {
   const full = path.join(PKG_ROOT, file);
   if (!full.startsWith(PKG_ROOT)) {
@@ -276,6 +420,9 @@ const STATIC_FILES = {
   '/llms.txt': 'llms.txt',
   '/API.md': 'API.md',
   '/README.md': 'README.md',
+  // ★ 0018（F13 / architecture §6）：控制台调用面独立静态页（页面本体属 pr-004；本 PR 内 serveStatic 走 ENOENT → 404）
+  '/calls': 'web/calls.html',
+  '/calls.js': 'web/calls.js',
 };
 
 /** 路由表字段清单（0016 / F06）：登记、投影与三条漂移锁共用同一份，锁与实现不各抄一份。 */
@@ -315,7 +462,7 @@ function compileRouteMatcher(pathPattern) {
  *  新接口必须登记在 `GET /api/chats/:chat_id` 之前（可达性断言会点名被吞掉的那一项）。
  *  handler 体逐字沿用改造前的分支实现，只把闭包引用改为入参解构（`query: qs` / `num` / `params`）。
  *  纯构造：不调用依赖、不读磁盘、不起定时器 ⇒ 漂移锁可直接 `createApiRoutes({})` 取真实表项。 */
-export function createApiRoutes({ db, transport, config, topologyWatch, tasks, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile }) {
+export function createApiRoutes({ db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile }) {
   const routes = [
     {
       method: 'GET',
@@ -324,7 +471,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, p
       params: [
         { name: 'state', in: 'query', type: 'string', required: false, enum: ['online'], desc: '只接受 online：只返回在线实例；省略或传空 = 返回全部（含 offline 墓碑）' },
       ],
-      response: '对象 { agents: [{ instance_id, session_id, state, last_heartbeat }] }',
+      response: '对象 { agents: [{ instance_id, session_id, state, last_heartbeat, role }] }',
       errors: ['INVALID_PARAM'],
       kind: 'json',
       docLink: 'API.md#31-get-apiagents',
@@ -333,15 +480,18 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, p
         // ?state=online（F04 验收 2 / §6.2）：服务端过滤，响应形态与无参**同形状**；无参路径逐字透传
         // router.status（含 offline 墓碑）。在线口径 = `state === 'online'`（§16 R-10）。
         const agentState = qs.get('state');
+        // ★ 0018（F03 / architecture §5）：每个节点**追加** role = 角色名（实例名可反解且角色文件存在时）或 null；
+        // 其余 4 字段名 / 值 / 顺序逐字不变（role 追加在末位）。推导只走 roleOfInstance，不复制公式。
+        const withRole = (nodes) => nodes.map((n) => ({ ...n, role: roleOfInstance(n.instance_id) }));
         if (agentState === null || agentState === '') {
-          sendJson(res, 200, { agents: r.nodes });
+          sendJson(res, 200, { agents: withRole(r.nodes) });
           return;
         }
         if (agentState !== 'online') {
           sendError(res, 400, ERR_CODE.INVALID_PARAM, `查询参数非法: state 需为 online（当前值 ${JSON.stringify(agentState)}）`);
           return;
         }
-        sendJson(res, 200, { agents: r.nodes.filter((n) => n.state === 'online') });
+        sendJson(res, 200, { agents: withRole(r.nodes.filter((n) => n.state === 'online')) });
         return;
       },
     },
@@ -786,6 +936,311 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, p
         sendJson(res, 200, { project });
       },
     },
+    {
+      // ★ 0018（architecture §2.1 行 14）：调用面入口（独立路由；不扩既有 POST /api/messages ⇒ 既有响应契约零改写）。
+      method: 'POST',
+      path: '/api/calls',
+      summary: '发起一次或一批调用（阻塞取终态 / 后台执行）',
+      params: [
+        { name: 'chat_id', in: 'body', type: 'string', required: true, desc: '调用归属：目标对话 id（必须**已存在**，调用面不新建对话）；未提供 / 空 / 非字符串 → 400' },
+        { name: 'agent', in: 'body', type: 'string', required: true, desc: '角色名（如 dev）——不是实例名；解析 = 角色规则推导出的实例名且可反解回该角色，不可解析 / 离线 → 404' },
+        { name: 'task', in: 'body', type: 'string', required: true, desc: '任务文本（trim 后不得为空）；与 tasks 互斥；`!` 前缀在本面**不**被解释为 shell；label 取前 60 字符' },
+        { name: 'tasks', in: 'body', type: 'json', required: true, desc: '批量形态：数组，每项 {task, output_schema?, schema_mode?, mode?, model?}；**每项 = 一个独立调用**；与 task 互斥；空数组 → 400' },
+        { name: 'context', in: 'body', type: 'string', required: false, desc: '本次调用的共享说明（trim 后非空才生效）：作为独立区块前置装配，**不污染**任务文本；批量时对各项共享生效' },
+        { name: 'output_schema', in: 'body', type: 'json', required: false, desc: '期望的返回结构（受限子集 {type?, properties?: {<名>: {type}}, required?}）；超出子集（$ref / oneOf / items / 嵌套 properties …）→ 400' },
+        { name: 'schema_mode', in: 'body', type: 'string', required: false, enum: ['permissive', 'strict'], desc: '结构校验模式（默认 permissive）；strict 且终态结构未通过 ⇒ state=failed / error=structured_output_invalid' },
+        { name: 'mode', in: 'body', type: 'string', required: false, enum: ['background', 'block'], desc: '执行模式（默认 background）；block = 响应挂起至终态（不设人为上限）' },
+        { name: 'model', in: 'body', type: 'string', required: false, desc: '模型标识，须匹配 ^[A-Za-z0-9._/-]{1,128}$；缺省用既有默认模型链（终态 model 只报执行侧实报值）' },
+      ],
+      response: '对象 { calls: [ { call_id, agent, state, duration_ms, model, truncated, text, structured_output, error, exit_code } ] }（顺序 = 请求顺序；后台项 state=submitted，阻塞项 = 终态信封）',
+      errors: ['INVALID_PARAM', 'NOT_FOUND', 'PAYLOAD_TOO_LARGE', 'UPSTREAM_UNAVAILABLE'],
+      kind: 'json',
+      docLink: 'API.md#314-post-apicalls',
+      handler: async ({ req, res }) => {
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          const status = err.status || 400;
+          sendError(res, status, status === 413 ? ERR_CODE.PAYLOAD_TOO_LARGE : ERR_CODE.INVALID_PARAM, err.message, status === 413 ? { connection: 'close' } : null);
+          return;
+        }
+        // ── 判定顺序（§2.3 的 1~4 步；任一步失败即返回 ⇒ 零副作用：无 messages 行、无 tasks 登记、无派发）──
+        // ② 归属：未提供 / null / '' / 非字符串同判（MI-04），且必须是已存在的对话（调用面不建对话）
+        const chatId = typeof body.chat_id === 'string' && body.chat_id !== '' ? body.chat_id : null;
+        if (chatId === null) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要 chat_id（调用必须归属一个已存在的对话）');
+          return;
+        }
+        if (!db.getChat(chatId)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, `chat 不存在: ${chatId}`);
+          return;
+        }
+        // ③ 目标：角色名 → 实例名；「不存在 / 不可按角色名寻址」与⑤的「离线」同码同文案（MI-01 三情形不区分）
+        const role = typeof body.agent === 'string' ? body.agent.trim() : '';
+        if (role === '') {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要 agent（角色名，如 dev）');
+          return;
+        }
+        const agentId = instanceIdForRole(role);
+        if (roleOfInstance(agentId) !== role) {
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `agent 不可用: ${role}（无对应在线实例）`);
+          return;
+        }
+        // ④ 入参形态：上下文类型 / 单批互斥 / 逐项枚举与子集校验（全部先于任何写库与登记）
+        if (body.context !== undefined && body.context !== null && typeof body.context !== 'string') {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'context 需为字符串（本次调用的共享说明）');
+          return;
+        }
+        const shared = typeof body.context === 'string' ? body.context : '';
+        const batchMode = body.tasks !== undefined && body.tasks !== null;
+        if (batchMode && body.task !== undefined) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'task 与 tasks 互斥（一次提交只用一种形态）');
+          return;
+        }
+        if (!batchMode && (typeof body.task !== 'string' || body.task.trim() === '')) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要 task（任务文本，trim 后不得为空）或 tasks（非空数组）');
+          return;
+        }
+        if (batchMode && (!Array.isArray(body.tasks) || body.tasks.length === 0)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'tasks 需为非空数组（每项 = 一个独立调用）');
+          return;
+        }
+        const items = [];
+        for (const raw of batchMode ? body.tasks : [body]) {
+          if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+            sendError(res, 400, ERR_CODE.INVALID_PARAM, 'tasks 每项需为对象（{task, output_schema?, schema_mode?, mode?, model?}）');
+            return;
+          }
+          if (typeof raw.task !== 'string' || raw.task.trim() === '') {
+            sendError(res, 400, ERR_CODE.INVALID_PARAM, batchMode ? 'tasks 每项需要 task（任务文本，trim 后不得为空）' : '需要 task（任务文本，trim 后不得为空）');
+            return;
+          }
+          const item = { task: raw.task, outputSchema: null, schemaMode: SCHEMA_MODES[0], mode: CALL_MODES[0], model: null };
+          if (raw.mode !== undefined && raw.mode !== null && raw.mode !== '') {
+            if (!CALL_MODES.includes(raw.mode)) {
+              sendError(res, 400, ERR_CODE.INVALID_PARAM, `mode 非法（需为 ${CALL_MODES.join(' / ')}）`);
+              return;
+            }
+            item.mode = raw.mode;
+          }
+          if (raw.schema_mode !== undefined && raw.schema_mode !== null && raw.schema_mode !== '') {
+            if (!SCHEMA_MODES.includes(raw.schema_mode)) {
+              sendError(res, 400, ERR_CODE.INVALID_PARAM, `schema_mode 非法（需为 ${SCHEMA_MODES.join(' / ')}）`);
+              return;
+            }
+            item.schemaMode = raw.schema_mode;
+          }
+          if (raw.output_schema !== undefined && raw.output_schema !== null) {
+            const schema = validateOutputSchema(raw.output_schema);
+            if (schema === null) {
+              sendError(res, 400, ERR_CODE.INVALID_PARAM, 'output_schema 非法（仅支持受限子集：type / properties / required，且 type 取 7 种之一）');
+              return;
+            }
+            item.outputSchema = schema;
+          }
+          if (raw.model !== undefined && raw.model !== null && raw.model !== '') {
+            if (typeof raw.model !== 'string' || !MODEL_RE.test(raw.model)) {
+              sendError(res, 400, ERR_CODE.INVALID_PARAM, `model 非法（需匹配 ${MODEL_RE}）`);
+              return;
+            }
+            item.model = raw.model;
+          }
+          items.push(item);
+        }
+        // ── ⑤ 逐项派发（判定已全部完成；每项 = 一个独立调用，互不相同的 call_id）──
+        const projectRow = db.projectByChat(chatId);
+        const project = projectRow === null ? null : { name: projectRow.name, repo_url: projectRow.repo_url, agreement: PROJECT_AGREEMENT };
+        const waits = [];
+        for (let i = 0; i < items.length; i += 1) {
+          const item = items[i];
+          const callId = `task-${randomUUID()}`; // M-5 / L2-2：调用 id = 既有 task_id 体系，不新造第二套标识
+          const messageId = `msg-${randomUUID()}`;
+          const payloadBody = {
+            executor: 'omp-daemon',
+            chat_id: chatId,
+            // prompt 由 web 侧装配（§2.2）：`!` 前缀在本面不解释为 shell；不提供 one_shot；不新增 payload 字段
+            prompt: composeCallPrompt({ context: shared, task: item.task, outputSchema: item.outputSchema }),
+            label: item.task.slice(0, LABEL_MAX),
+            ...(item.model === null ? {} : { model: item.model }),
+            ...(project === null ? {} : { project }),
+          };
+          const inAt = Date.now();
+          const input = db.insertInput({ chatId, projectId: projectRow === null ? null : projectRow.project_id, text: item.task, agentId, meta: { task_id: callId }, nowMs: inAt });
+          publishMessage(chatId, { id: input.message_id, direction: 'in', agent_id: agentId, text: item.task, model: null, duration_ms: null, error: null, created_at: inAt });
+          publishState(chatId, 'working');
+          let resolve = null;
+          const done = item.mode === CALL_MODES[1] ? new Promise((r) => { resolve = r; }) : null; // 阻塞等待句柄（释放点 = 终态单一发布点）
+          const call = { callId, role, chatId, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
+          const entry = { chatId, agentId, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null, call };
+          tasks.set(callId, entry); // 登记先于 await（首个增量可能与 send 响应同 chunk 到达）
+          if (item.outputSchema !== null) callSchemas.set(callId, call); // 终态后仍可按同一 schema 复算 structured_output
+          try {
+            await sendTask(agentId, messageId, callId, payloadBody);
+          } catch (err) {
+            tasks.delete(callId);
+            callSchemas.delete(callId);
+            const reason = (err && err.dataCode) || (err && err.message) || String(err);
+            if (i > 0) {
+              // 首项成功、后续项失败（同目标，仅竞态窗口）：已派出的项保留，响应仍是既有 {error, code} 契约
+              sendError(res, 502, ERR_CODE.UPSTREAM_UNAVAILABLE, `调用派发失败: ${reason}`);
+              return;
+            }
+            // 首项失败：对话侧行为与既有 /api/messages 逐字一致（补一条 out + 推 chat_state 读库值）
+            const outAt = Date.now();
+            const outText = `派发失败：${reason}`;
+            const out = db.insertOutput({ chatId, text: outText, agentId, error: 'dispatch_failed', nowMs: outAt });
+            publishMessage(chatId, { id: out.message_id, direction: 'out', agent_id: agentId, text: outText, model: null, duration_ms: null, error: 'dispatch_failed', created_at: outAt });
+            const chat = db.getChat(chatId);
+            if (chat) publishState(chatId, chat.chat.state);
+            const unavailable = err && (err.dataCode === 'AGENT_OFFLINE' || err.dataCode === 'AGENT_NOT_FOUND');
+            if (unavailable) {
+              sendError(res, 404, ERR_CODE.NOT_FOUND, `agent 不可用: ${role}（无对应在线实例）`);
+              return;
+            }
+            sendError(res, 502, ERR_CODE.UPSTREAM_UNAVAILABLE, `调用派发失败: ${reason}`);
+            return;
+          }
+          scheduleReconcile(callId, entry); // 派发成功即挂对账（收到投递则随之清除）
+          transport.publishCall(callId, { type: CALL_EVENTS.state, data: { chat_id: chatId, call_id: callId, agent: role, state: 'submitted' } });
+          // 后台项 = 受理态信封（与终态项同一形状）；阻塞项 = 等待终态单一发布点释放（后台/终态混合时逐项各自处理）
+          waits.push(done === null
+            ? composeCallEnvelope({ task_id: callId, to: agentId, state: 'submitted', updates: [], updatesTruncated: false, result: null }, call)
+            : done);
+        }
+        const calls = await Promise.all(waits);
+        if (!res.writableEnded && !res.destroyed) sendJson(res, 200, { calls }); // 客户端断连 ⇒ 写入是 no-op，调用仍在后台完成（MI-05）
+        return;
+      },
+    },
+    {
+      // ★ 0018（architecture §2.1 行 15 / §3.4）：调用 roster —— 单次 task_list、范围收口 from==='web'、6 列、无过滤无编排。
+      method: 'GET',
+      path: '/api/calls',
+      summary: '调用 roster（每次调用一行；无过滤 / 无分页 / 无编排）',
+      params: [],
+      response: '对象 { calls: [{ call_id, agent, state, started_at, ended_at, model }] }（按 created_at 倒序；进行中 ended_at=null）',
+      errors: [],
+      kind: 'json',
+      docLink: 'API.md#315-get-apicalls',
+      handler: async ({ res }) => {
+        const r = await queryOnce(config.socketPath, 'router.task_list', {});
+        // 范围 = 本 hub 派发的调用（SENDER_ID='web'）；CLI（from='main'）派发的任务无 chat 归属，不进调用面（§3.4）
+        const rows = (r.tasks || []).filter((t) => t.from === SENDER_ID);
+        sendJson(res, 200, {
+          calls: rows.map((t) => {
+            // ★ FIX-1：state 与 §3.19 同读法（终态真源 = 调用登记）——strict 覆写下 roster 与按 id 不再漂移
+            const state = callState(t, callSchemas.get(t.task_id) ?? null);
+            return {
+              call_id: t.task_id,
+              agent: roleOfInstance(t.to),
+              state,
+              started_at: t.created_at,
+              ended_at: state === 'completed' || state === 'failed' ? t.updated_at : null,
+              model: t.model ?? null, // listTasks 投影的 model = task.result?.model ?? null（进行中恒 null，不显示推测值）
+            };
+          }),
+        });
+      },
+    },
+    {
+      // ★ 0018（architecture §2.1 行 16 / §4.1）：对话作用域的调用事件流（先订阅、再发起的载体）。
+      method: 'GET',
+      path: '/api/calls/stream',
+      summary: '按对话订阅调用事件（SSE：call_state / call_update / call_result）',
+      params: [
+        { name: 'chat_id', in: 'query', type: 'string', required: true, desc: '目标对话（含尚未发起的调用）；缺参或传空 → 400 INVALID_PARAM' },
+      ],
+      response: 'SSE 事件流（text/event-stream）：call_state / call_update / call_result',
+      errors: ['INVALID_PARAM'],
+      kind: 'sse',
+      docLink: 'API.md#316-get-apicallsstream',
+      handler: async ({ req, res, query: qs }) => {
+        const chatId = qs.get('chat_id');
+        if (!chatId) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要 chat_id（不做全局调用订阅）');
+          return;
+        }
+        transport.handleChatCallStream(req, res, { chatId });
+        return;
+      },
+    },
+    {
+      // ★ 0018（architecture §2.1 行 17 / §4.1）：按调用订阅（两次并发只订阅其一）；不存在 ⇒ 404 且不建立订阅。
+      method: 'GET',
+      path: '/api/calls/:call_id/stream',
+      summary: '按调用订阅事件（SSE：call_state / call_update / call_result）',
+      params: [
+        { name: 'call_id', in: 'path', type: 'string', required: true, desc: '目标调用 id（= task_id）；不存在 → 404 NOT_FOUND（不建立订阅）' },
+      ],
+      response: 'SSE 事件流（text/event-stream）：call_state / call_update / call_result',
+      errors: ['NOT_FOUND'],
+      kind: 'sse',
+      docLink: 'API.md#317-get-apicallscall_idstream',
+      handler: async ({ req, res, params }) => {
+        const callId = params.call_id;
+        const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+        if (!r || !r.task) {
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
+          return;
+        }
+        transport.handleCallStream(req, res, { callId });
+        return;
+      },
+    },
+    {
+      // ★ 0018（architecture §2.1 行 18 / §3.5）：转录 = 任务表 updates[] 原样 + 终态追加一条 event='result'；进程内、不持久。
+      method: 'GET',
+      path: '/api/calls/:call_id/transcript',
+      summary: '按调用取转录（进程内、不持久；含终态条目）',
+      params: [
+        { name: 'call_id', in: 'path', type: 'string', required: true, desc: '目标调用 id（= task_id）；不存在（含重启后）→ 404 NOT_FOUND' },
+      ],
+      response: '对象 { call_id, agent, state, truncated, entries: [{ at, from, state, detail }] }（终态时末尾追加 detail.event="result" 一条）',
+      errors: ['NOT_FOUND'],
+      kind: 'json',
+      docLink: 'API.md#318-get-apicallscall_idtranscript',
+      handler: async ({ res, params }) => {
+        const callId = params.call_id;
+        const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+        const task = r && r.task ? r.task : null;
+        if (!task) {
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
+          return;
+        }
+        const state = callState(task, callSchemas.get(callId) ?? null); // ★ FIX-1：与信封 / roster 同读法（终态真源 = 调用登记）
+        const entries = [...task.updates]; // 原样透出（不裁剪 detail）
+        if (state === 'completed' || state === 'failed') {
+          entries.push({ at: task.updated_at, from: task.to, state, detail: { event: 'result', ...(task.result || {}) } });
+        }
+        sendJson(res, 200, { call_id: task.task_id, agent: roleOfInstance(task.to), state, truncated: callTruncated(task), entries });
+        return;
+      },
+    },
+    {
+      // ★ 0018（architecture §2.1 行 19，**全表末位**）：按调用 id 取终态 / 进行中状态（必须排在全部 :call_id/… 形态之后）。
+      method: 'GET',
+      path: '/api/calls/:call_id',
+      summary: '按调用取终态（进行中给状态）',
+      params: [
+        { name: 'call_id', in: 'path', type: 'string', required: true, desc: '目标调用 id（= task_id）；不存在（含重启后）→ 404 NOT_FOUND' },
+      ],
+      response: '调用信封对象 { call_id, agent, state, duration_ms, model, truncated, text, structured_output, error, exit_code }',
+      errors: ['NOT_FOUND'],
+      kind: 'json',
+      docLink: 'API.md#319-get-apicallscall_id',
+      handler: async ({ res, params }) => {
+        const callId = params.call_id;
+        const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+        const task = r && r.task ? r.task : null;
+        if (!task) {
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
+          return;
+        }
+        sendJson(res, 200, composeCallEnvelope(task, callSchemas.get(callId) ?? null));
+        return;
+      },
+    },
   ];
   for (const route of routes) Object.assign(route, compileRouteMatcher(route.path));
   return routes;
@@ -902,6 +1357,13 @@ export default async function startWeb(restArgs) {
   // 用尽转低频续查）；registeredAt / timer = 登记时刻与对账定时器（软 TTL 判据）。pr-007。
   // 登记只在落库（landed）或软 TTL 到期后删除：转低频续查时保留登记，晚到的投递仍能认领。
   const tasks = new Map();
+  // ★ 0018（architecture §4.3）：调用面登记（call_id → entry.call）——带 output_schema 的调用在终态后仍需按同一
+  // schema 复算 structured_output（GET /api/calls/:call_id 的 structured_output），而任务表条目不存该 schema
+  // （既有 UDS 面零改动）。与任务表同为进程内内存态（差异 ⑩ 同一生命周期口径）；只登记带 output_schema 的
+  // 调用 ⇒ 常驻开销可忽略。
+  // ★ FIX-1：该登记同时是调用**终态的单一写点/读点**（`publishCallResult` 写 `terminal`，信封 / roster / 转录读它）——
+  // 覆写只可能发生在带 output_schema 的调用上，故与登记范围天然一致，既有面不受影响。
+  const callSchemas = new Map();
   const reconcileIntervalMs = readPositiveMs('OAMP_WEB_RECONCILE_INTERVAL_MS', RECONCILE_DEFAULT_MS);
   const reconcileSlowMs = readPositiveMs('OAMP_WEB_RECONCILE_SLOW_MS', RECONCILE_SLOW_DEFAULT_MS);
   const reconcileTtlMs = readPositiveMs('OAMP_WEB_RECONCILE_TTL_MS', RECONCILE_TTL_DEFAULT_MS);
@@ -910,6 +1372,23 @@ export default async function startWeb(restArgs) {
     transport.publish(chatId, { type: 'message', data: { chat_id: chatId, message } });
   const publishState = (chatId, state) =>
     transport.publish(chatId, { type: 'chat_state', data: { chat_id: chatId, state } });
+
+  /** 调用面终态单一发布点（★ 0018，architecture §4.3）：投递路径与对账路径**共用**——① 解阻塞（释放等待句柄，
+   *  阻塞中的 POST /api/calls 写 200 终态信封）② 按 call:<callId> 与 chat-calls:<chatId> 两键发布 call_result。
+   *  `call.published` 幂等：对账分支另有一次调用（已自带条目），不重复发布、不重复解阻塞。
+   *  task = null（Router 已重启，条目不可得）⇒ 不发布、按「不存在」解阻塞（调用方得明确的 404，不伪造内容）。 */
+  const publishCallResult = (task, entry) => {
+    const call = entry.call;
+    if (!call || call.published) return;
+    call.published = true;
+    const envelope = task === null ? null : composeCallEnvelope(task, call);
+    if (envelope !== null) {
+      // ★ FIX-1：终态在此**写入**调用登记——strict 覆写随信封一并落到真源，roster / 转录读同一记录，零漂移
+      call.terminal = { state: envelope.state, error: envelope.error };
+      transport.publishCall(call.callId, { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } });
+    }
+    if (call.resolve !== null) call.resolve(envelope);
+  };
 
   /** 终态落盘：恰一条 out 记录 + `message`(out) + `chat_state`（状态取库值，closed 哨兵不被迟到结果覆盖）。 */
   const finishTask = (entry, body) => {
@@ -934,6 +1413,14 @@ export default async function startWeb(restArgs) {
     publishMessage(entry.chatId, { id: message_id, direction: 'out', agent_id: entry.agentId, text, model, duration_ms: durationMs, error, created_at: nowMs });
     const chat = db.getChat(entry.chatId);
     if (chat) publishState(entry.chatId, chat.chat.state);
+    // ★ 0018（architecture §4.3）：调用面终态分发是**追加**发布（既有三行顺序零改动）；仅调用面登记条目参与
+    // ⇒ 既有 /api/messages 派发的任务零额外 UDS 查询（E9）。Router 任务表是权威运行态且投递发生在记表之后，
+    // 故经既有 task_get 取回条目交给单一发布点。
+    if (entry.call) {
+      queryOnce(config.socketPath, 'router.task_get', { task_id: entry.call.callId })
+        .then((r) => publishCallResult(r && r.task ? r.task : null, entry))
+        .catch(() => {});
+    }
   };
 
   /**
@@ -965,6 +1452,7 @@ export default async function startWeb(restArgs) {
       tasks.delete(taskId);
       // 状态以任务表为准（result.state 仅执行 agent 自报），文本/模型/耗时等沿用终态 body
       finishTask(current, { ...(task.result || {}), state: task.state });
+      publishCallResult(task, current); // ★ 0018：对账路径同样经单一发布点（条目已在手，不必再查）
       return;
     }
     current.attempts += 1;
@@ -1007,6 +1495,19 @@ export default async function startWeb(restArgs) {
         type: 'task_update',
         data: { chat_id: entry.chatId, task_id: message.task_id, kind: body.kind, text: body.text, line: body.line },
       });
+      // ★ 0018（architecture §4.1）：调用面条目**追加**发布调用面增量（既有帧逐字不变）。首个增量到达即状态
+      // 迁移 ⇒ call_state: working 每调用只发一次；控制条目 started/truncated 上面已被 kind 过滤挡住，不下发。
+      if (entry.call) {
+        const call = entry.call;
+        if (!call.working && body.state === 'working') {
+          call.working = true;
+          transport.publishCall(call.callId, { type: CALL_EVENTS.state, data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, state: 'working' } });
+        }
+        transport.publishCall(call.callId, {
+          type: CALL_EVENTS.update,
+          data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, kind: body.kind, text: body.text, line: body.line },
+        });
+      }
       return;
     }
     if (message.type === 'task.result') {
@@ -1068,7 +1569,7 @@ export default async function startWeb(restArgs) {
 
   // 路由表（F01）：表顺序 = 匹配优先级 = 改造前 if 链顺序；在依赖构造完成之后、createServer 之前构造，
   // handler 直接闭包引用本作用域局部名（handler 体零改写）。
-  const routes = createApiRoutes({ db, transport, config, topologyWatch, tasks, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile });
+  const routes = createApiRoutes({ db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile });
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -1109,6 +1610,7 @@ export default async function startWeb(restArgs) {
       if (sigint >= 2) process.exit(130);
       for (const entry of tasks.values()) clearTimeout(entry.timer); // 退出不留悬挂对账定时器
       tasks.clear();
+      callSchemas.clear(); // 退出不留调用面登记（与任务表同生命周期）
       topologyWatch.stop(); // 退出不留拓扑轮询表
       server.close(() => {
         transport.closeAll();
