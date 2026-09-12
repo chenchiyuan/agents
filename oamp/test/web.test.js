@@ -1515,7 +1515,7 @@ test('Web：GET /api/agents?state=online——同形状 / 逐项 online / 无参
   assert.equal(only.status, 200);
   assert.deepEqual(Object.keys(only.body), Object.keys(all.body), '与无参响应同形状');
   for (const a of all.body.agents) {
-    assert.deepEqual(Object.keys(a).sort(), ['instance_id', 'last_heartbeat', 'session_id', 'state'], '无参仍逐字透传 4 字段');
+    assert.deepEqual(Object.keys(a).sort(), ['instance_id', 'last_heartbeat', 'role', 'session_id', 'state'], '无参仍逐字透传 4 字段 + role');
   }
   assert.ok(only.body.agents.every((a) => a.state === 'online'), '过滤结果逐项 online');
   assert.deepEqual(

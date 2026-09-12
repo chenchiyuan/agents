@@ -47,6 +47,12 @@ const EXPECTED_SIGNATURES = [
   'GET /api/docs',
   'GET /api/projects',
   'POST /api/projects',
+  'POST /api/calls',
+  'GET /api/calls',
+  'GET /api/calls/stream',
+  'GET /api/calls/:call_id/stream',
+  'GET /api/calls/:call_id/transcript',
+  'GET /api/calls/:call_id',
 ];
 
 function pickPort() {
@@ -470,7 +476,7 @@ test('派生面 HTTP：/api/docs 的 13 条投影（danger 派生 / docLink）�
     assert.ok(typeof route.docLink === 'string' && route.docLink.startsWith('API.md#'), `docLink 应指向 API.md 章节：${route.path}`);
     assert.equal('handler' in route, false, `投影不含 handler：${route.path}`);
   }
-  assert.equal(docs.body.routes.filter((r) => r.danger).length, 6, '写接口（POST）= 6 条');
+  assert.equal(docs.body.routes.filter((r) => r.danger).length, 7, '写接口（POST）= 7 条');
 
   const llms = await jreq(web.base, 'GET', '/llms.txt');
   assert.equal(llms.status, 200);
@@ -480,7 +486,7 @@ test('派生面 HTTP：/api/docs 的 13 条投影（danger 派生 / docLink）�
     'HTTP 响应应与仓库快照 llms.txt（包根）逐字节相等（单产物结构）',
   );
   assert.match(llms.text, /^# oamp /m);
-  assert.match(llms.text, /^## 接口（13 条）$/m);
+  assert.match(llms.text, /^## 接口（19 条）$/m);
   for (const sig of EXPECTED_SIGNATURES) {
     assert.ok(llms.text.includes(`- ${sig} — `), `索引应含一行摘要：${sig}`);
   }
@@ -496,7 +502,19 @@ test('API.md 同步：顶部引用块指向 /docs + §3 标题 13 条 + 3.11~3.1
   const text = fs.readFileSync(API_MD, 'utf8');
   const head = text.split('\n').slice(0, 16).join('\n');
   assert.match(head, /^> 在线接口文档页：<http:\/\/127\.0\.0\.1:7788\/docs>/m, '顶部引用块应指向 /docs（F08 验收 3）');
-  assert.match(text, /^## 3\. 接口清单（13 条）$/m);
+  assert.match(text, /^## 3\. 接口清单（19 条）$/m);
+  assert.match(text, /^### 3\.14 `POST \/api\/calls`$/m);
+  assert.match(text, /^\| 14 \| `POST \/api\/calls` \|/m);
+  assert.match(text, /^### 3\.15 `GET \/api\/calls`$/m);
+  assert.match(text, /^\| 15 \| `GET \/api\/calls` \|/m);
+  assert.match(text, /^### 3\.16 `GET \/api\/calls\/stream\?chat_id=<id>`$/m);
+  assert.match(text, /^\| 16 \| `GET \/api\/calls\/stream\?chat_id=<id>` \|/m);
+  assert.match(text, /^### 3\.17 `GET \/api\/calls\/<call_id>\/stream`$/m);
+  assert.match(text, /^\| 17 \| `GET \/api\/calls\/<call_id>\/stream` \|/m);
+  assert.match(text, /^### 3\.18 `GET \/api\/calls\/<call_id>\/transcript`$/m);
+  assert.match(text, /^\| 18 \| `GET \/api\/calls\/<call_id>\/transcript` \|/m);
+  assert.match(text, /^### 3\.19 `GET \/api\/calls\/<call_id>`$/m);
+  assert.match(text, /^\| 19 \| `GET \/api\/calls\/<call_id>` \|/m);
   assert.match(text, /^### 3\.11 `GET \/api\/docs`$/m);
   assert.match(text, /^\| 11 \| `GET \/api\/docs` \|/m);
   assert.match(text, /^### 3\.12 `GET \/api\/projects`$/m);
