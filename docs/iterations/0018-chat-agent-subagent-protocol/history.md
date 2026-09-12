@@ -229,3 +229,10 @@
 - 决策内容：**裁定 2 条 `[model_inferred]` 生效**（主 agent 权限内，属架构 §4.2/§4.1 的直接推论，非新增技术决策）：① 采纳「chatId 取自 `event.data.chat_id`」——架构 §4.1 明示三类事件 data 均含 `chat_id`，且 §4.2 固定两参签名，带内是唯一可得来源；② 采纳「`closeAll()` 覆盖新键空间订阅」——§4.2 要求既有语义逐字保持，而「移除全部订阅并结束所有连接」的「全部」在字面上已覆盖新增键。两条若实现期证伪，只影响 pr-001 的 T2/T3 验收写法，不影响其他 PR
 - 触发依据：planner 两份报告的报告契约第 3 项；planner 角色「model_inferred 验收标准必须经主 agent 确认」
 - 另记：architecture §1.1 括注 vs README 方法面 7 项的计数口径不一致 → 不阻塞，登记为偏差（阶段 6 复核），planner 已按规范宿主（README + 既有断言）取判据
+
+### 2026-09-12 23:28:00 · 派发 · dev（pr-001 ∥ pr-002，同批并发）
+
+- 阶段：阶段 5 首波实现；两个 dev 在**同一批**并发派发
+- 工作区地址：各自 PR worktree 绝对地址（pr-001: `.pb-agents/worktrees/0018-pr-001-transport-call-key-namespace`；pr-002: `.pb-agents/worktrees/0018-pr-002-registry-task-list-model`）
+- 任务：按各自 `prs/pr-{NNN}-tasks.md` 实现最小改动
+- 简报附带：① 工作目录纪律硬性段（含本仓库实测的 `edit` 相对路径按会话 cwd 解析的坑）；② 已裁定的 2 条 `[model_inferred]` 实现口径（仅 pr-001）；③ pr-002 的 §1.1 括注口径提示（以 README 7 项为判据宿主）
