@@ -125,3 +125,22 @@
 - 阶段：阶段 5（PR 实现）
 - 任务：实现 PR-002（在线文档页 /docs + 可交互调试台 /debug + 顶栏入口 + README 同步）
 - PR：prs/pr-002-docs-and-debug-pages.md
+
+### 2026-09-12 14:10:20 · 收到报告 · dev + verifier（pr-002）
+
+- 1. pr-002 产出：oamp/web/api-pages.css（84 行）、docs.html/docs.js、debug.html/debug.js（215 行）、index.html（+2 顶栏入口）、style.css（+3 行 a.nav-item）、README.md（三处同步 + 计数 10→11）、test/api-pages.test.js（190 行 5 用例）；commit 93687dd
+- 2. 可达性 MIME 证据：/docs /debug /docs.js /debug.js /api-pages.css 全 200 且类型正确
+- 3. 浏览器实测四步：文档页 11 条与投影逐字段一致且零示例；调试台真实发送（200·7ms / 404·8ms）；POST 确认（dismiss 零请求、accept 真发且服务端落账）；SSE 两条订阅可停（停止后零追加、刷新零留存）
+- 4. 测试：api-pages 5/5、全仓串行 251/251、web.test.js 零字节改动
+- 5. 越界：README 计数改动已获主 agent 批准（修正性同步）；隔离环境已清理
+- 6. 验收结论：PASS（0 fail / 0 partial / 4 偏差）——文档页投影对拍 issues=0；5 条 POST 逐条实测确认按钮恰 1 次、fetch 0 次、服务端零变化
+
+### 2026-09-12 14:10:20 · 调度决策 · 槛位释放
+
+- 决策内容：pr-002 合并 → 槛位释放（累计 2）；阶段 5 完成（2/2 PR）；派发阶段 6 最终验证
+- 触发依据：verify-20260912-140856-pr002.md 结论 PASS；迭代分支全量 251/251
+
+### 2026-09-12 14:10:20 · 派发 · verifier（阶段 6 最终验证）
+
+- 阶段：阶段 6（独立验证）
+- 任务：迭代最终产物整体验收（含三条硬契约抽查、零启停结构性校验、搭置文件声明）
