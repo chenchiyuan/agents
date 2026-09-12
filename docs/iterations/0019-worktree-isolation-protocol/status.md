@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.8.0
 **迭代**: 0019-worktree-isolation-protocol
-**当前阶段**: PR 规划（阶段 4）
+**当前阶段**: PR 实现（阶段 5）
 **迭代分支**: iteration/0019-worktree-isolation-protocol（base = main @ `9ede9ea`，含 0017 全部产出）
 **状态**: 进行中
 **history**: 开启
@@ -14,9 +14,9 @@
 |---|---|---|---|---|
 | 1 | 需求收敛 | ✅ | ⬜ | demand.md **v1.3.0**；P-1~P-16 + D-2 共 17 项全部经用户裁决；`model_inferred` 归零；C-1~C-8 全部已决；输入含 0017 复盘 Phase 1（`clarifications/retro-0017-phase1.md`） |
 | 2 | 功能规格 | ✅ | ⬜ | prd.md v0.2.0 已收敛；15 张卡（12 需求功能点 F01~F13 + 1 声明项 F12 + 2 保证项 F14/F15）；MI-01~MI-09 经用户裁决全部按推荐；`[model_inferred]` 零残留；T-01~T-16 架构待填 |
-| 3 | 技术架构 | ✅ | ⬜ | architecture.md v1.1.0；L1 三条经用户确认（L1-1 改写 CRITICAL / L1-3 部署定位降级 / Q-1=A 阶段 1 前建工作区+分支）；L1-2/L1-4 主 agent 裁定维持 L2；T-01~T-16 全填；零新增技术组件 |
-| 4 | PR 规划 | ⏸ | ⬜ | 已派发 pr-planner；输入 = architecture.md v1.1.0 + prd/F01~F15 + 代码库现状 |
-| 5 | PR 实现 | ⬜ | ⬜ | 逐 PR 状态见下 |
+| 3 | 技术架构 | ✅ | ⬜ | architecture.md **v1.2.2**；L1 三条经用户确认（L1-1 改写 CRITICAL / L1-3 部署定位降级 / Q-1=A 阶段 1 前建工作区+分支）；L1-2/L1-4 主 agent 裁定维持 L2；T-01~T-16 全填；零新增技术组件 |
+| 4 | PR 规划 | ✅ | ✅ | 2 个 PR（pr-001 协议本体 / pr-002 跨迭代 D-2 登记）；文件真交集为空、依赖图无环；Gate 三验 r1/r2 FAIL → r3 **PASS（6/6）**；输入 = architecture.md v1.2.2 |
+| 5 | PR 实现 | ⏸ | ⬜ | 首波并发 pr-001 ∥ pr-002；**pr-002 已合并**（`1ca983d`）；pr-001 待复验（首轮 FAIL-1partial，判据口径修正中） |
 | 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
 
 ## PR 实现子状态（阶段 5 展开）
@@ -24,7 +24,7 @@
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
 | pr-001-workflow-pb-workspace-isolation-protocol.md | （无） | ⏸ | feat/0019-pr-001-workflow-pb-protocol | ⬜ | 占用 |
-| pr-002-cross-iteration-d2-registration.md | （无） | ⏸ | feat/0019-pr-002-d2-registration | ⬜ | 占用 |
+| pr-002-cross-iteration-d2-registration.md | （无） | ✅ | (已清理) | ✅ 1ca983d | 已释放  |
 
 > 两者 `depends_on` 均为空 ⇒ 首波即可并发（预期并发度 = 2，关键路径 = pr-001）。
 > 注：pr-002 只改 `docs/iterations/0019-…/status.md` 的 `## 待确认项` D-2 单段（ADR-4），与本文件的主线维护存在同文件并发写入——合并前须以当时迭代分支重基线。
@@ -33,9 +33,10 @@
 
 **起始并发数**: 3
 **硬上限**: 5（公式 `2×起始-1`）
-**当前有效上限**: 3
-**累计槛位释放次数**: 0
+**当前有效上限**: 5（按公式 `min(3 + 1×3, 5)` 重算，已达硬上限）
+**累计槛位释放次数**: 1
 **已派发总数**: 2
+> 槛位爬升：`当前有效上限 = min(3 + 1×3, 5) = 5`（已达硬上限）。pr-002 已合并（`1ca983d`，PR 级验收 PASS），pr-001 待复验（首轮 FAIL-1partial，判据口径修正中）。
 
 ## PR 验证（Gate 阶段 4 → 5 入口）
 
@@ -86,3 +87,7 @@
 - 2026-09-12: 进入阶段 3（技术架构），派发 architect。
 - 2026-09-12: 阶段 3 两轮：architect 产出 architecture.md（零新增技术组件、T-01~T-16 全填、3 条 L1 + 4 条 L2 高影响判断）→ 用户裁决 L1-1/L1-3/L1-5(Q-1=A) 全部按推荐 → 主 agent 裁定 L1-2/L1-4 维持 L2 → architecture.md v1.1.0（L1 三条已确认、Q-1=A 落定三处、R-1 解除）→ **阶段 3 推进条件三项通过 ✅**。
 - 2026-09-12: 进入阶段 4（PR 规划），派发 pr-planner。
+- 2026-09-12: 阶段 4 三轮 + Gate 三验：pr-planner 产出 2 个 PR（文件真交集为空、依赖图无环）→ Gate r1/r2 FAIL（台账引用不一致）→ architect v1.2.1/v1.2.2 + pr-planner 三轮同步 → **Gate r3 PASS（6/6）**。
+- 2026-09-12: 阶段 5 首波并发：pr-001 ∥ pr-002 两个 worktree + planner → dev（提交 `c034dab` / `d038e3c`）→ PR 级验收（**pr-002 PASS**；pr-001 FAIL-1partial，判据口径过严）。dev001 发生一次相对路径跨工作区写入事故（已自行修复、主 agent 核验主工作区零损失），登记为本迭代 W12/F09 的活体实例。
+- 2026-09-12: **pr-002 合并进迭代分支**（`1ca983d`，ADR-4 处置生效：`0019/status.md` 自动合并、主线段落完整保留）；pr-002 worktree 与分支已清理；槛位释放 1、当前有效上限爬升至 5。
+- 2026-09-12: progress-observer 二次观测（观测基线 `1ca983d`）发现 7 条台账不一致（抬头/阶段表落后于 git 事实、architecture 版本引用滞后、pr-002 验收条的「重基线」与实际 merge 方式差异等）→ 主 agent 逐条修正：阶段 4 置 ✅ 且已验证 ✅（Gate r3 PASS）、阶段 5 置 ⏸、抬头改为阶段 5、architecture 版本引用改 v1.2.2。
