@@ -8,7 +8,7 @@
 - 服务地址：http://127.0.0.1:7788（默认端口；`--port` / `OAMP_WEB_PORT` 可改；仅本机监听，无鉴权）
 - 全量字段元数据（机器可读）：GET /api/docs
 
-## 接口（11 条）
+## 接口（13 条）
 
 - GET /api/agents — 在线 agent 列表（Router 拓扑快照；?state=online 只返回在线实例）
 - GET /api/chats — 对话列表（搜索 / 过滤 / 分页；默认排除已归档）
@@ -21,6 +21,8 @@
 - GET /api/events — 全局事件订阅（SSE：agent_online / agent_offline）
 - POST /api/messages — 发送消息（落库 + 派发任务；归档 / 已关闭 → 409）
 - GET /api/docs — 接口元数据（文档页 / 调试台 / 索引文件的数据源）
+- GET /api/projects — 项目列表（含对话数与最近活动时间）
+- POST /api/projects — 创建项目（最小输入 = 仓库地址；重复地址 → 409）
 
 ## 深入
 

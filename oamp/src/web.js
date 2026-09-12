@@ -37,6 +37,11 @@ const DEFAULT_PORT = 7788;
 const QUERY_TIMEOUT_MS = 3000;
 const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/; // §7.2 模型标识形态（web 侧校验，非法 → 400）
 const LABEL_MAX = 60; // task label 截断（沿用 0010 web 既有值）
+// 0017 pr-002（architecture §4.3）：项目工作约定文本 —— **唯一真源**（不复制进 agent.js）。
+// 相对约定：零绝对路径 / 零盘符 / 零主机名、零"自动 clone / 已对齐目录"一类超能力表述；
+// 派发装配点在此处取原文注入 payload.body.project.agreement（agent 侧只渲染，不产出文本）。
+const PROJECT_AGREEMENT =
+  '本项目的工作约定（相对约定，不涉及任何本机路径）：① 若本地尚无该仓库，请先 clone 到自选落点；② 在该仓库根目录下工作；③ 迭代产物（docs 文档、PR、commit、分支）均写入该仓库。';
 // pr-007 对账补拉：task.result 的投递可能丢失（发起者离线窗口/投递竞态）——此时 agent 已执行完、
 // Router 任务表已终态，而 web 未落 out（对话缺回复）；Router 任务表是权威运行态，故 web 侧轮询兜底补落。
 const RECONCILE_DEFAULT_MS = 5000; // 快速对账首查与间隔同值（默认 5s）
@@ -362,6 +367,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, p
         let r;
         try {
           r = db.listChats({
+            project: qs.get('project_id') ?? undefined, // 必填（§3.2）；缺参与空值都由 persist 抛错 → 既有 catch 转 400
             q: qs.get('q') ?? undefined,
             agent: qs.get('agent') ?? undefined,
             state: qs.get('state') ?? undefined,
@@ -653,22 +659,42 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, p
           );
           return;
         }
+        // ★ 0017 pr-002（architecture §3.3 硬契约④）：项目归属判定插在**既有全部校验之后、写库之前**
+        //   （C-7 顺序契约）⇒ 既有 400/413/409 的触发条件与顺序逐字不变，新 400 只出现在"既有路径不可能
+        //   报错的场景"（那是全新对话）。本次会创建对话 ⇒ project_id 必填且必须指向存在项目；
+        //   既有对话 ⇒ 归属不可变（ensureChat 的 DO NOTHING 结构性保证），读库取值、不校验一致性（L2-8）。
+        let projectRow = existing ? db.projectByChat(chatId) : null;
+        if (!existing) {
+          const requested = typeof body.project_id === 'string' && body.project_id !== '' ? body.project_id : null;
+          if (requested === null) {
+            sendError(res, 400, ERR_CODE.INVALID_PARAM, '新对话需要 project_id（对话必须归属一个项目）');
+            return;
+          }
+          projectRow = db.getProject(requested);
+          if (projectRow === null) {
+            sendError(res, 400, ERR_CODE.INVALID_PARAM, `项目不存在: ${requested}`);
+            return;
+          }
+        }
         // 消息文本 = 去掉 @agent 前缀后的剩余内容（入库 text 仍为原文，§4.3）
         const messageText = text.replace(/^@[^\s@]+\s+/, '') || text;
         const taskId = `task-${randomUUID()}`;
         const messageId = `msg-${randomUUID()}`;
         // 1) 先落输入（§4.3：校验通过后、派发之前）+ 推 message(in)/chat_state(working)
         const inAt = Date.now();
-        const input = db.insertInput({ chatId, text, agentId, meta: { task_id: taskId }, nowMs: inAt });
+        const input = db.insertInput({ chatId, projectId: projectRow === null ? null : projectRow.project_id, text, agentId, meta: { task_id: taskId }, nowMs: inAt });
         publishMessage(chatId, { id: input.message_id, direction: 'in', agent_id: agentId, text, model: null, duration_ms: null, error: null, created_at: inAt });
         publishState(chatId, 'working');
         // 2) 派发（§9.1 判定顺序：`!` → shell；one_shot → omp 一次性；否则 omp-daemon 常驻上下文）
         const label = messageText.slice(0, LABEL_MAX);
+        // 载荷 project 三要素（§4.1 / F06）：name + repo_url + agreement；**不带** project_id、不带本地路径。
+        // 只加在两条 LLM 分支上——shell 分支载荷逐字不变（N13）；解析不到项目行 ⇒ 不带该键（可选字段语义）。
+        const project = projectRow === null ? null : { name: projectRow.name, repo_url: projectRow.repo_url, agreement: PROJECT_AGREEMENT };
         const payloadBody = messageText.startsWith('!')
           ? { command: '/bin/sh', args: ['-c', messageText.slice(1).trim()], label }
           : body.one_shot === true
-            ? { executor: 'omp', prompt: messageText, label, ...(model === null ? {} : { model }) }
-            : { executor: 'omp-daemon', chat_id: chatId, prompt: messageText, label, ...(model === null ? {} : { model }) };
+            ? { executor: 'omp', prompt: messageText, label, ...(model === null ? {} : { model }), ...(project === null ? {} : { project }) }
+            : { executor: 'omp-daemon', chat_id: chatId, prompt: messageText, label, ...(model === null ? {} : { model }), ...(project === null ? {} : { project }) };
         let dispatched = null;
         let warning = null;
         // 登记先于派发（task_id 由 web 预生成并随信封透传，§4.3）：agent 的首个 task.update 可能与
@@ -706,6 +732,58 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, p
       docLink: 'API.md#311-get-apidocs',
       handler: async ({ res }) => {
         sendJson(res, 200, { routes: projectRoutes(routes) }); // 请求时投影：不缓存、不预快照（F01 验收 2）
+      },
+    },
+    {
+      // ★ 0017 pr-002（architecture §3.1 / §6.1）：项目列表——无参数、无分页；派生列由 §7.3 单条聚合 SQL 产出
+      method: 'GET',
+      path: '/api/projects',
+      summary: '项目列表（含对话数与最近活动时间）',
+      params: [],
+      response: '对象 { projects: [{ project_id, name, repo_url, created_at, chat_count, last_activity_at }] }',
+      errors: [],
+      kind: 'json',
+      docLink: 'API.md#312-get-apiprojects',
+      handler: async ({ res }) => {
+        sendJson(res, 200, { projects: db.listProjects() });
+      },
+    },
+    {
+      // ★ 0017 pr-002：创建项目——name 缺省 / 空 / 非字符串都交 persist 派生（web 不复制派生逻辑，M2）
+      method: 'POST',
+      path: '/api/projects',
+      summary: '创建项目（最小输入 = 仓库地址；重复地址 → 409）',
+      params: [
+        { name: 'repo_url', in: 'body', type: 'string', required: true, desc: '仓库地址；trim 后非空即合法（不校验形态 / 域名 / 可达性）；唯一键 = trim 后原样字符串（不归一化 .git / 尾斜杠 / 大小写）' },
+        { name: 'name', in: 'body', type: 'string', required: false, desc: '展示名；缺省 / 空 / 非字符串 ⇒ 派生 = 地址去尾部斜杠取尾段、再去尾部 .git（派生为空 ⇒ 用地址原文）' },
+      ],
+      response: '对象 { project: { project_id, name, repo_url, created_at } }',
+      errors: ['INVALID_PARAM', 'CONFLICT'],
+      kind: 'json',
+      docLink: 'API.md#313-post-apiprojects',
+      handler: async ({ req, res }) => {
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          const status = err.status || 400;
+          sendError(res, status, status === 413 ? ERR_CODE.PAYLOAD_TOO_LARGE : ERR_CODE.INVALID_PARAM, err.message, status === 413 ? { connection: 'close' } : null);
+          return;
+        }
+        const repoUrl = typeof body.repo_url === 'string' ? body.repo_url : '';
+        let project;
+        try {
+          // 校验（trim 后非空）与落库都在 persist（M2）；非法入参经既有 sendError 出口转 400（不新增错误分支体系）
+          project = db.createProject({ repoUrl, name: typeof body.name === 'string' ? body.name : undefined });
+        } catch (err) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, err && err.message ? err.message : String(err));
+          return;
+        }
+        if (project === null) {
+          sendError(res, 409, ERR_CODE.CONFLICT, `项目已存在: ${repoUrl.trim()}`); // 重复地址由 UNIQUE(repo_url) + changes===0 判定
+          return;
+        }
+        sendJson(res, 200, { project });
       },
     },
   ];

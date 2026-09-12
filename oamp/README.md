@@ -147,7 +147,7 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
 
 ## 对话持久化、历史查询与实时推送（0011）
 
-- **历史真源 = SQLite**：`chats` / `messages` 两张表（`node:sqlite`，零第三方依赖），路径由配置面 `data.db` 决定
+- **历史真源 = SQLite**：`projects` / `chats` / `messages` 三张表（`node:sqlite`，零第三方依赖），路径由配置面 `data.db` 决定
   （默认 `<包根>/data/sql.db`，`OAMP_DB` 可覆盖）。一次问答**恰两条**记录（`in` + `out`），
   流式增量 / 心跳 / 日志等过程**永不入库**；输入先落盘再派发，派发失败或进程中断按失败轮次如实补 `out` 记录。
 - **HTTP API**：
@@ -155,20 +155,22 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
   | 方法与路径 | 说明 |
   |---|---|
   | `GET /api/agents` | agent 列表（Router 拓扑快照）；`?state=online` 只返回在线实例 |
-  | `GET /api/chats` | 对话列表；`q`（标题或消息文本）/ `agent` / `state` / `from` / `to` / `archived`（缺省 `0` = 排除已归档，`1` = 只看已归档，按归档时间倒序）过滤，`limit`（默认 50、上限 200）+ `offset` 分页 |
+  | `GET /api/chats` | 对话列表（**`project_id` 必填**：对话列表以项目为范围，缺参与空值 → 400，未知项目 → 空列表）；`q`（标题或消息文本）/ `agent` / `state` / `from` / `to` / `archived`（缺省 `0` = 排除已归档，`1` = 只看已归档，按归档时间倒序）过滤，`limit`（默认 50、上限 200）+ `offset` 分页 |
   | `GET /api/chats/<chat_id>` | 对话详情（消息按时间升序；未知对话 → 404） |
-  | `POST /api/messages` | `{chat_id?, agent_id, text, model?, one_shot?}`：落库 + 派发；已关闭对话 → 409 |
+  | `POST /api/messages` | `{chat_id?, project_id?, agent_id, text, model?, one_shot?}`：落库 + 派发；**新建对话必须带 `project_id`**（缺 / 空或项目不存在 → 400，已有对话不参与判定）；已关闭对话 → 409 |
   | `POST /api/chats/<chat_id>/close` | 关闭对话（幂等）：只读、拒绝新输入、**不删数据**，并通知 agent 释放上下文 |
   | `POST /api/chats/archive` | 批量归档「未归档且非进行中」的全部对话（逐条生效，失败项留在主列表可重试），并逐个通知相关 agent 释放上下文；→ `{archived, failed, failed_ids}` |
   | `POST /api/chats/<chat_id>/activate` | 激活一条归档对话：移除归档标记、`closed` 还原为 `completed` 并清除关闭时间、置顶主列表；未归档 → 409、未知对话 → 404 |
   | `POST /api/chats/<chat_id>/rename` | `{title}`：只改标题一列（不动 `updated_at` / `agent_id` / `state` / `archived_at`）；trim 后存储、上限 100、拒空 → 400；只读对话（已归档 / 已关闭）→ 409、未知对话 → 404 |
   | `GET /api/stream?chat_id=<id>` | SSE 实时流 |
   | `GET /api/events` | 全局 SSE：agent 上线 / 下线事件（`agent_online` / `agent_offline`）；无参数、不依赖对话 |
-  | `GET /api/docs` | 接口元数据（文档页 / 调试台 / AI 索引文件的数据源；请求时从路由登记投影，11 条） |
+  | `GET /api/projects` | 项目列表（含 `chat_count` = 该项目的对话数、`last_activity_at` = 最近一次对话更新时间，无对话为 `null`）；无参数、无分页 |
+  | `POST /api/projects` | `{repo_url, name?}`：创建项目（最小输入 = 仓库地址，`trim` 后非空即合法、不校验形态 / 可达性）；`name` 缺省按地址派生；重复地址 → 409 `CONFLICT` |
+  | `GET /api/docs` | 接口元数据（文档页 / 调试台 / AI 索引文件的数据源；请求时从路由登记投影，13 条） |
 
   错误契约：全部 4xx/5xx 响应体为 `{ error, code }`——`error` 为人类可读字符串、`code` 为封闭枚举且与状态码一一映射
   （`INVALID_PARAM`=400 / `NOT_FOUND`=404 / `CONFLICT`=409 / `PAYLOAD_TOO_LARGE`=413 / `UPSTREAM_UNAVAILABLE`=502）。
-  完整接口清单、事件清单与可直接粘贴执行的示例见 **[API.md](API.md)**（11 条 API + 6 类事件）。
+  完整接口清单、事件清单与可直接粘贴执行的示例见 **[API.md](API.md)**（13 条 API + 6 类事件）。
 
 - **SSE 事件（共六类）**：`message`（已落盘的输入/输出）/ `task_update`（流式增量，仅运行时、不入库）/ `chat_state`（状态变化）/
   `notice`（上下文释放·重置提示）；另有两类**全局事件** `agent_online` / `agent_offline`（仅 `GET /api/events` 的订阅者可见）。

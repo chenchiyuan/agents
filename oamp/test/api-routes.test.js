@@ -45,6 +45,8 @@ const EXPECTED_SIGNATURES = [
   'GET /api/events',
   'POST /api/messages',
   'GET /api/docs',
+  'GET /api/projects',
+  'POST /api/projects',
 ];
 
 function pickPort() {
@@ -97,7 +99,9 @@ async function setupWeb(t) {
     OAMP_WEB_TOPOLOGY_POLL_MS: '200',
   });
   t.after(() => web.stop());
-  return web;
+  // 0017 pr-002：对话必归属项目 ⇒ 每个用例经 HTTP 真实建一个项目（fixture 落本 helper，经返回值透传）
+  const project = await jreq(web.base, 'POST', '/api/projects', json({ repo_url: 'https://example.com/oamp-api-routes.git' }));
+  return { ...web, projectId: project.body.project.project_id };
 }
 
 /** 裸请求：返回 status / content-type / connection / 原文 / 可解析 JSON 体。 */
@@ -399,13 +403,14 @@ test('L2 探针：既有 API 行为等价（怪癖 Q-1~Q-5b / 无 405 / 单 try-
   assert.deepEqual({ status: renameOverlapMalformed.status, code: renameOverlapMalformed.body.code }, { status: 400, code: 'INVALID_PARAM' });
 
   // ⑥ 既有参数空值语义原样保留（Q-6）：空值一律等价于"不传"（200），无任何"空值 → 400"路径
-  for (const p of ['/api/agents?state=', '/api/chats?state=', '/api/chats?archived=', '/api/chats?limit=']) {
+  //    （`/api/chats` 的空值断言在补上必填 project_id 后仍指向该参数自身，不被"缺 project_id"掩盖）
+  for (const p of [`/api/agents?state=`, `/api/chats?state=&project_id=${web.projectId}`, `/api/chats?archived=&project_id=${web.projectId}`, `/api/chats?limit=&project_id=${web.projectId}`]) {
     const r = await jreq(web.base, 'GET', p);
     assert.equal(r.status, 200, `${p} 应 200（空值 = 无参），实得 ${r.status} ${r.text}`);
   }
 
   // Q-7 真正产生 400 的输入 / Q-8 缺参订阅
-  for (const p of ['/api/chats?limit=0', '/api/chats?archived=2', '/api/chats?state=bogus']) {
+  for (const p of [`/api/chats?limit=0&project_id=${web.projectId}`, `/api/chats?archived=2&project_id=${web.projectId}`, `/api/chats?state=bogus&project_id=${web.projectId}`]) {
     const r = await jreq(web.base, 'GET', p);
     assert.deepEqual({ status: r.status, code: r.body && r.body.code }, { status: 400, code: 'INVALID_PARAM' }, p);
   }
@@ -436,7 +441,7 @@ test('L2 探针：既有 API 行为等价（怪癖 Q-1~Q-5b / 无 405 / 单 try-
   // ④（续）真实事件不被包装：离线 agent 的派发失败路径仍会先发 message(in) + chat_state(working) 帧
   const sse = await openSse(web.base, 'chat-api-routes-probe');
   try {
-    const sent = await jreq(web.base, 'POST', '/api/messages', json({ chat_id: 'chat-api-routes-probe', agent_id: 'ghost-1', text: 'hi' }));
+    const sent = await jreq(web.base, 'POST', '/api/messages', json({ chat_id: 'chat-api-routes-probe', project_id: web.projectId, agent_id: 'ghost-1', text: 'hi' }));
     assert.equal(sent.status, 200, `离线 agent 派发失败仍是 200 + warning：${sent.text}`);
     assert.equal(typeof sent.body.warning, 'string');
     await waitFor(() => sse.events.some((e) => e.type === 'chat_state'), { timeoutMs: 5000, what: 'SSE chat_state 帧' });
@@ -452,7 +457,7 @@ test('L2 探针：既有 API 行为等价（怪癖 Q-1~Q-5b / 无 405 / 单 try-
 
 // ────────────────────────── 派生面 HTTP：GET /api/docs + GET /llms.txt ──────────────────────────
 
-test('派生面 HTTP：/api/docs 的 11 条投影（danger 派生 / docLink）与 /llms.txt（200 + text/plain + 与快照逐字节相等）', async (t) => {
+test('派生面 HTTP：/api/docs 的 13 条投影（danger 派生 / docLink）与 /llms.txt（200 + text/plain + 与快照逐字节相等）', async (t) => {
   const web = await setupWeb(t);
 
   const docs = await jreq(web.base, 'GET', '/api/docs');
@@ -465,7 +470,7 @@ test('派生面 HTTP：/api/docs 的 11 条投影（danger 派生 / docLink）�
     assert.ok(typeof route.docLink === 'string' && route.docLink.startsWith('API.md#'), `docLink 应指向 API.md 章节：${route.path}`);
     assert.equal('handler' in route, false, `投影不含 handler：${route.path}`);
   }
-  assert.equal(docs.body.routes.filter((r) => r.danger).length, 5, '写接口（POST）= 5 条');
+  assert.equal(docs.body.routes.filter((r) => r.danger).length, 6, '写接口（POST）= 6 条');
 
   const llms = await jreq(web.base, 'GET', '/llms.txt');
   assert.equal(llms.status, 200);
@@ -475,7 +480,7 @@ test('派生面 HTTP：/api/docs 的 11 条投影（danger 派生 / docLink）�
     'HTTP 响应应与仓库快照 llms.txt（包根）逐字节相等（单产物结构）',
   );
   assert.match(llms.text, /^# oamp /m);
-  assert.match(llms.text, /^## 接口（11 条）$/m);
+  assert.match(llms.text, /^## 接口（13 条）$/m);
   for (const sig of EXPECTED_SIGNATURES) {
     assert.ok(llms.text.includes(`- ${sig} — `), `索引应含一行摘要：${sig}`);
   }
@@ -487,11 +492,15 @@ test('派生面 HTTP：/api/docs 的 11 条投影（danger 派生 / docLink）�
 
 // ────────────────────────── API.md 同步（PR-1 交付的三处） ──────────────────────────
 
-test('API.md 同步：顶部引用块指向 /docs + §3 标题 11 条 + 3.11 小节与登记行', () => {
+test('API.md 同步：顶部引用块指向 /docs + §3 标题 13 条 + 3.11~3.13 小节与登记行', () => {
   const text = fs.readFileSync(API_MD, 'utf8');
   const head = text.split('\n').slice(0, 16).join('\n');
   assert.match(head, /^> 在线接口文档页：<http:\/\/127\.0\.0\.1:7788\/docs>/m, '顶部引用块应指向 /docs（F08 验收 3）');
-  assert.match(text, /^## 3\. 接口清单（11 条）$/m);
+  assert.match(text, /^## 3\. 接口清单（13 条）$/m);
   assert.match(text, /^### 3\.11 `GET \/api\/docs`$/m);
   assert.match(text, /^\| 11 \| `GET \/api\/docs` \|/m);
+  assert.match(text, /^### 3\.12 `GET \/api\/projects`$/m);
+  assert.match(text, /^### 3\.13 `POST \/api\/projects`$/m);
+  assert.match(text, /^\| 12 \| `GET \/api\/projects` \|/m);
+  assert.match(text, /^\| 13 \| `POST \/api\/projects` \|/m);
 });

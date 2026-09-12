@@ -249,7 +249,9 @@ async function setup(t, { env = {} } = {}) {
   const dbPath = tempDbDir(t);
   const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: dbPath });
   t.after(() => web.stop());
-  return { router, agent, web, dbPath };
+  // 0017 pr-002：对话必归属项目 ⇒ 每个用例经 HTTP 真实建一个项目（fixture 落本 helper，经返回值透传）
+  const project = await jpost(web.base, '/api/projects', { repo_url: 'https://example.com/oamp-e2e.git' });
+  return { router, agent, web, dbPath, projectId: project.body.project.project_id };
 }
 
 const detailOf = async (web, chatId) => (await jget(web.base, `/api/chats/${encodeURIComponent(chatId)}`)).body;
@@ -276,9 +278,9 @@ const outOf = (detail, round) => detail.messages.filter((m) => m.direction === '
 
 // ────────────────────────── E-1 / E-5：同 chat 记忆 + 实例标识 + 落盘两类 ──────────────────────────
 test('E2E：E-1 同 chat 两轮上下文累积（第二轮记得 42 且 context_id/pid 相同）+ E-5 落盘恰两类', async (t) => {
-  const { web, dbPath } = await setup(t);
+  const { web, dbPath, projectId } = await setup(t);
 
-  const turn1 = await sendAndWait(web, { agent_id: 'dev-1', text: '请记住数字 42' });
+  const turn1 = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '请记住数字 42' });
   assert.match(outOf(turn1.detail, 1).text, /记住/, '首轮应收到 agent 回答');
 
   // E-5：该轮（回答被切成 ≥2 段增量）在库中恰 2 行且 direction ∈ {in,out}——过程零行
@@ -301,13 +303,13 @@ test('E2E：E-1 同 chat 两轮上下文累积（第二轮记得 42 且 context_
 
 // ────────────────────────── E-2：新 chat 隔离 ──────────────────────────
 test('E2E：E-2 同 agent 的新 chat 与旧 chat 上下文隔离（答不出 42，自己仍可累积）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const old = await sendAndWait(web, { agent_id: 'dev-1', text: '请记住数字 42' });
+  const old = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '请记住数字 42' });
   assert.match(outOf(old.detail, 1).text, /记住/);
 
   // 新 chat（不传 chat_id → web 预生成新 chat）：不得看见旧 chat 的设定值
-  const fresh = await sendAndWait(web, { agent_id: 'dev-1', text: '数字是多少' });
+  const fresh = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '数字是多少' });
   assert.notEqual(fresh.chatId, old.chatId);
   assert.ok(!outOf(fresh.detail, 1).text.includes('42'), 'E-2：新 chat 不应含 42');
   assert.match(outOf(fresh.detail, 1).text, /我不知道/, '新 chat 无上下文应如实作答');
@@ -320,12 +322,12 @@ test('E2E：E-2 同 agent 的新 chat 与旧 chat 上下文隔离（答不出 42
 
 // ────────────────────────── E-3：重启 web 后历史可查（库为真源） ──────────────────────────
 test('E2E：E-3 重启 web 后历史 chat 与消息可查（REST 读回一致 + 直连库一致）', async (t) => {
-  const { router, web, dbPath } = await setup(t);
+  const { router, web, dbPath, projectId } = await setup(t);
 
-  const first = await sendAndWait(web, { agent_id: 'dev-1', text: '重启前建立的会话' });
+  const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '重启前建立的会话' });
   await sendAndWait(web, { chat_id: first.chatId, agent_id: 'dev-1', text: '重启前的第二轮' }, { rounds: 2 });
 
-  const beforeList = await jget(web.base, '/api/chats');
+  const beforeList = await jget(web.base, `/api/chats?project_id=${projectId}`);
   const beforeDetail = await jget(web.base, `/api/chats/${encodeURIComponent(first.chatId)}`);
   assert.equal(beforeDetail.body.messages.length, 4);
 
@@ -334,7 +336,7 @@ test('E2E：E-3 重启 web 后历史 chat 与消息可查（REST 读回一致 + 
   const restarted = await startWeb(router.socketPath, pickPort(), { OAMP_DB: dbPath });
   t.after(() => restarted.stop());
 
-  const afterList = await jget(restarted.base, '/api/chats');
+  const afterList = await jget(restarted.base, `/api/chats?project_id=${projectId}`);
   const afterDetail = await jget(restarted.base, `/api/chats/${encodeURIComponent(first.chatId)}`);
   assert.equal(afterList.status, 200);
   assert.equal(afterDetail.status, 200);
@@ -357,9 +359,9 @@ test('E2E：E-3 重启 web 后历史 chat 与消息可查（REST 读回一致 + 
 
 // ────────────────────────── E-4：终态前的过程增量 ──────────────────────────
 test('E2E：E-4 SSE——终态 message(out) 之前收到 ≥2 个 task_update 且文本递增', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const first = await sendAndWait(web, { agent_id: 'dev-1', text: '请记住数字 42' });
+  const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '请记住数字 42' });
   const chatId = first.chatId;
 
   const sse = await openSse(web.base, chatId);
@@ -399,16 +401,16 @@ test('E2E：E-4 SSE——终态 message(out) 之前收到 ≥2 个 task_update �
 
 // ────────────────────────── F08-1/F08-2：两形态不回归 + 不累积/不复用 ──────────────────────────
 test('E2E：F08-1/2 `!` shell 与显式 one_shot 两形态不回归，且不进入/不复用常驻上下文', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
   // 常驻路径建立上下文（记住 42）
-  const daemon = await sendAndWait(web, { agent_id: 'dev-1', text: '请记住数字 42' });
+  const daemon = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '请记住数字 42' });
   const chatId = daemon.chatId;
   assert.match(outOf(daemon.detail, 1).text, /记住/);
 
   // 显式一次性（one_shot:true）→ `omp -p` 路径，输出为一次性回答
   const oneShot = await sendAndWait(web, { chat_id: chatId, agent_id: 'dev-1', text: '请记住数字 7', one_shot: true }, { rounds: 2 });
-  assert.match(outOf(oneShot.detail, 2).text, /one-shot answer: 请记住数字 7/, 'one_shot 应走 omp -p 一次性路径');
+  assert.match(outOf(oneShot.detail, 2).text, /one-shot answer: 【项目上下文】[\s\S]*请记住数字 7/, 'one_shot 应走 omp -p 一次性路径（每次派发都注入项目上下文）');
 
   // `!` 前缀 → shell 路径（0010 原样）
   const shell = await sendAndWait(web, { chat_id: chatId, agent_id: 'dev-1', text: '!echo shell-path-ok' }, { rounds: 3 });
@@ -508,13 +510,16 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
 
   const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: tempDbDir(t) });
   t.after(() => web.stop());
+  // 0017 pr-002：对话必归属项目 ⇒ 用例自建 web 时同样需要项目 fixture（无 setup 可透传）
+  const project = await jpost(web.base, '/api/projects', { repo_url: 'https://example.com/oamp-e2e-role.git' });
+  const projectId = project.body.project.project_id;
 
   // 常驻路径：各投一轮 → 各懒创建一个 `omp acp` 进程（argv 落各自的 FAKE_ACP_ARGS_LOG）
-  const devTurn = await sendAndWait(web, { agent_id: 'pb-dev', text: '请记住数字 42' });
+  const devTurn = await sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev', text: '请记住数字 42' });
   await waitFor(() => readJsonl(devArgs).some((a) => a[0] === 'acp'), { what: 'pb-dev acp argv' });
-  await sendAndWait(web, { agent_id: 'pb-planner', text: '请记住数字 42' });
+  await sendAndWait(web, { project_id: projectId, agent_id: 'pb-planner', text: '请记住数字 42' });
   await waitFor(() => readJsonl(plannerArgs).some((a) => a[0] === 'acp'), { what: 'pb-planner acp argv' });
-  const anonTurn = await sendAndWait(web, { agent_id: 'dev-1', text: '请记住数字 42' });
+  const anonTurn = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '请记住数字 42' });
   await waitFor(() => readJsonl(anonArgs).some((a) => a[0] === 'acp'), { what: 'dev-1 acp argv' });
 
   // ① 角色实例 + --tools on：注入角色 md 绝对路径，且不得传 --no-tools
@@ -557,7 +562,7 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   assert.ok(!anonOneShot.includes('--append-system-prompt'), '§2.3 回归：匿名实例一次性 argv 无注入');
 
   // ⑥ 一次性路径 deny 档（§4.4/pr-007②）：--permission deny ⇒ --approval-mode always-ask
-  await sendAndWait(web, { agent_id: 'pb-dev-deny', text: '请记住数字 8', one_shot: true });
+  await sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev-deny', text: '请记住数字 8', one_shot: true });
   await waitFor(() => readJsonl(denyArgs).some((a) => a.includes('-p')), { what: 'pb-dev-deny -p argv' });
   const denyOneShot = readJsonl(denyArgs).find((a) => a.includes('-p'));
   assert.equal(denyOneShot[denyOneShot.indexOf('--approval-mode') + 1], 'always-ask', '§4.4：deny 档一次性 argv 应含 --approval-mode always-ask');
@@ -677,9 +682,12 @@ test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N
 
   const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: tempDbDir(t) });
   t.after(() => web.stop());
+  // 0017 pr-002：对话必归属项目 ⇒ 用例自建 web 时同样需要项目 fixture（无 setup 可透传）
+  const project = await jpost(web.base, '/api/projects', { repo_url: 'https://example.com/oamp-e2e-role.git' });
+  const projectId = project.body.project.project_id;
 
   // 第 1 轮：一次受门禁调用（变更类指令 → edit，§11.2）
-  const turn1 = await sendAndWait(web, { agent_id: 'pb-dev', text: '请创建 /tmp/role-smoke.txt' });
+  const turn1 = await sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev', text: '请创建 /tmp/role-smoke.txt' });
   await dev.waitLine(/TOOL_APPROVED/, 1);
   assert.equal(turn1.detail.chat.state, 'completed', '允许档该轮应 completed');
   assert.match(outOf(turn1.detail, 1).text, /已创建/, '该轮终态文本应为 fake ACP 应答');
