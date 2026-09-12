@@ -261,7 +261,9 @@ async function setup(t, { env = {}, agentId = 'dev-1', withAgent = true, webEnv 
   const dbPath = path.join(dbDir, 'sql.db');
   const web = await startWeb(router.socketPath, pickPort(), { OAMP_DB: dbPath, ...webEnv });
   t.after(() => web.stop());
-  return { router, web, dbPath };
+  // 0017 pr-002：对话必归属项目 ⇒ 每个用例经 HTTP 真实建一个项目（fixture 落本 helper，经返回值透传）
+  const project = await jpost(web.base, '/api/projects', { repo_url: 'https://example.com/oamp-web-fixture.git' });
+  return { router, web, dbPath, projectId: project.body.project.project_id };
 }
 
 /** 发一条消息并等该 chat 落终态（第 rounds 轮的 in/out 记录齐备），返回 { chatId, taskId, sent, detail }。 */
@@ -303,14 +305,14 @@ test('Web：静态页可访问 + /api/agents 返回在线 agent（F08-d 等价�
 
 // ────────────────────────── F01/F03：列表、过滤、分页、400 面 ──────────────────────────
 test('Web：GET /api/chats 列表（字段齐 / 默认排序 / 含已关闭）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const first = await sendAndWait(web, { agent_id: 'dev-1', text: '苹果 主题的对话' });
-  const second = await sendAndWait(web, { agent_id: 'dev-1', text: '香蕉 主题的对话' });
+  const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '苹果 主题的对话' });
+  const second = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '香蕉 主题的对话' });
   const closed = await jpost(web.base, `/api/chats/${encodeURIComponent(second.chatId)}/close`, {});
   assert.equal(closed.status, 200);
 
-  const { status, body } = await jget(web.base, '/api/chats');
+  const { status, body } = await jget(web.base, `/api/chats?project_id=${projectId}`);
   assert.equal(status, 200);
   assert.equal(body.limit, 50);
   assert.equal(body.offset, 0);
@@ -331,68 +333,68 @@ test('Web：GET /api/chats 列表（字段齐 / 默认排序 / 含已关闭）',
 });
 
 test('Web：GET /api/chats 过滤 / 时间范围 / 分页 / 非法参数 400', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const a = await sendAndWait(web, { agent_id: 'dev-1', text: '苹果 主题的对话' });
-  const b = await sendAndWait(web, { agent_id: 'dev-1', text: '香蕉 主题的对话' });
+  const a = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '苹果 主题的对话' });
+  const b = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '香蕉 主题的对话' });
   // 关键词命中"消息文本"（标题取首条输入，第二条消息里的词不在标题里）
   await sendAndWait(web, { chat_id: b.chatId, agent_id: 'dev-1', text: '追加一句 橙子 相关' });
   const closed = await jpost(web.base, `/api/chats/${encodeURIComponent(b.chatId)}/close`, {});
   assert.equal(closed.status, 200);
 
-  const byTitle = await jget(web.base, '/api/chats?q=%E8%8B%B9%E6%9E%9C'); // 苹果
+  const byTitle = await jget(web.base, `/api/chats?q=%E8%8B%B9%E6%9E%9C&project_id=${projectId}`); // 苹果
   assert.equal(byTitle.body.total, 1);
   assert.equal(byTitle.body.chats[0].chat_id, a.chatId);
 
-  const byMessage = await jget(web.base, '/api/chats?q=%E6%A9%99%E5%AD%90'); // 橙子（仅出现在消息文本）
+  const byMessage = await jget(web.base, `/api/chats?q=%E6%A9%99%E5%AD%90&project_id=${projectId}`); // 橙子（仅出现在消息文本）
   assert.equal(byMessage.body.total, 1);
   assert.equal(byMessage.body.chats[0].chat_id, b.chatId);
 
-  const escaped = await jget(web.base, '/api/chats?q=%25'); // 单个 % 不应命中全部（转义生效）
+  const escaped = await jget(web.base, `/api/chats?q=%25&project_id=${projectId}`); // 单个 % 不应命中全部（转义生效）
   assert.equal(escaped.body.total, 0);
 
-  const byAgent = await jget(web.base, '/api/chats?agent=dev-1');
+  const byAgent = await jget(web.base, `/api/chats?agent=dev-1&project_id=${projectId}`);
   assert.equal(byAgent.body.total, 2);
-  const byGhost = await jget(web.base, '/api/chats?agent=ghost');
+  const byGhost = await jget(web.base, `/api/chats?agent=ghost&project_id=${projectId}`);
   assert.equal(byGhost.body.total, 0);
 
-  const byState = await jget(web.base, '/api/chats?state=closed');
+  const byState = await jget(web.base, `/api/chats?state=closed&project_id=${projectId}`);
   assert.equal(byState.body.total, 1);
   assert.equal(byState.body.chats[0].chat_id, b.chatId);
-  const byWorking = await jget(web.base, '/api/chats?state=working');
+  const byWorking = await jget(web.base, `/api/chats?state=working&project_id=${projectId}`);
   assert.equal(byWorking.body.total, 0);
   // 组合（state + q）需同时满足
-  const combined = await jget(web.base, '/api/chats?state=closed&q=%E6%A9%99%E5%AD%90');
+  const combined = await jget(web.base, `/api/chats?state=closed&q=%E6%A9%99%E5%AD%90&project_id=${projectId}`);
   assert.equal(combined.body.total, 1);
-  const combinedMiss = await jget(web.base, '/api/chats?state=closed&q=%E8%8B%B9%E6%9E%9C');
+  const combinedMiss = await jget(web.base, `/api/chats?state=closed&q=%E8%8B%B9%E6%9E%9C&project_id=${projectId}`);
   assert.equal(combinedMiss.body.total, 0);
 
-  const all = await jget(web.base, '/api/chats');
+  const all = await jget(web.base, `/api/chats?project_id=${projectId}`);
   const maxUpdated = Math.max(...all.body.chats.map((c) => c.updated_at));
-  const range = await jget(web.base, `/api/chats?from=0&to=${maxUpdated}`);
+  const range = await jget(web.base, `/api/chats?from=0&to=${maxUpdated}&project_id=${projectId}`);
   assert.equal(range.body.total, 2);
   assert.ok(range.body.chats.every((c) => c.updated_at <= maxUpdated), '闭区间过滤结果应全部落在范围内');
-  const empty = await jget(web.base, `/api/chats?from=${maxUpdated + 1}`);
+  const empty = await jget(web.base, `/api/chats?from=${maxUpdated + 1}&project_id=${projectId}`);
   assert.equal(empty.body.total, 0);
 
-  const page1 = await jget(web.base, '/api/chats?limit=1');
+  const page1 = await jget(web.base, `/api/chats?limit=1&project_id=${projectId}`);
   assert.equal(page1.body.chats.length, 1);
   assert.equal(page1.body.total, 2);
   assert.equal(page1.body.limit, 1);
-  const page2 = await jget(web.base, '/api/chats?limit=1&offset=1');
+  const page2 = await jget(web.base, `/api/chats?limit=1&offset=1&project_id=${projectId}`);
   assert.equal(page2.body.chats.length, 1);
   assert.notEqual(page2.body.chats[0].chat_id, page1.body.chats[0].chat_id);
 
   for (const q of ['limit=0', 'limit=abc', 'limit=201', 'offset=-1', 'state=bogus', 'from=10&to=5']) {
-    const { status } = await jget(web.base, `/api/chats?${q}`);
+    const { status } = await jget(web.base, `/api/chats?${q}&project_id=${projectId}`);
     assert.equal(status, 400, `${q} 应 400`);
   }
 });
 
 test('Web：GET /api/chats/:id 详情（升序 + 字段 + 未知 chat 明确 404）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '详情检查 第一条' });
+  const { chatId } = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '详情检查 第一条' });
   await sendAndWait(web, { chat_id: chatId, agent_id: 'dev-1', text: '详情检查 第二条' }, { rounds: 2 });
 
   const { status, body } = await jget(web.base, `/api/chats/${encodeURIComponent(chatId)}`);
@@ -417,9 +419,9 @@ test('Web：GET /api/chats/:id 详情（升序 + 字段 + 未知 chat 明确 404
 
 // ────────────────────────── F01/F02/F08-a~c：发送 → 落盘 → 终态 → 回流 ──────────────────────────
 test('Web：发送消息 → 落 in/out 两行 → 终态回流（F08-a 等价）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const sent = await jpost(web.base, '/api/messages', { text: '@dev-1 web-contract-check' });
+  const sent = await jpost(web.base, '/api/messages', { project_id: projectId, text: '@dev-1 web-contract-check' });
   assert.equal(sent.status, 200);
   assert.match(sent.body.chat_id, /^chat-[0-9a-f-]{36}$/, 'chat_id 应为预生成 chat-<uuid>');
   assert.match(sent.body.task_id, /^task-[0-9a-f-]{36}$/, 'task_id 应为预生成 task-<uuid>');
@@ -440,9 +442,9 @@ test('Web：发送消息 → 落 in/out 两行 → 终态回流（F08-a 等价�
   assert.equal(detail.messages.length, 2, '一次问答恰 2 行（E-5）');
   assert.deepEqual([...new Set(detail.messages.map((m) => m.direction))], ['in', 'out']);
   assert.equal(detail.messages[0].meta.task_id, sent.body.task_id, 'in 的 meta.task_id = 响应 task_id');
-  assert.match(detail.messages[1].text, /收到：web-contract-check/, 'out 文本应为 agent 回答');
+  assert.match(detail.messages[1].text, /收到：【项目上下文】[\s\S]*web-contract-check/, 'out 文本应为 agent 回答（注入后 = 项目块前缀 + 原文）');
 
-  const list = await jget(web.base, '/api/chats');
+  const list = await jget(web.base, `/api/chats?project_id=${projectId}`);
   const item = list.body.chats.find((c) => c.chat_id === chatId);
   assert.ok(item, '列表应包含该会话');
   assert.equal(item.state, 'completed');
@@ -450,10 +452,10 @@ test('Web：发送消息 → 落 in/out 两行 → 终态回流（F08-a 等价�
 });
 
 test('Web：标题取首条输入 40 字符且后续输入不改标题（F01-2）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
   const longText = `@dev-1 ${'长'.repeat(60)}`;
-  const sent = await jpost(web.base, '/api/messages', { text: longText });
+  const sent = await jpost(web.base, '/api/messages', { project_id: projectId, text: longText });
   const chatId = sent.body.chat_id;
   const first = await waitFor(async () => {
     const d = await detailOf(web, chatId);
@@ -469,9 +471,9 @@ test('Web：标题取首条输入 40 字符且后续输入不改标题（F01-2�
 });
 
 test('Web：追加消息到既有 chat（F08-b 等价）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const first = await jpost(web.base, '/api/messages', { text: '@dev-1 echo first' });
+  const first = await jpost(web.base, '/api/messages', { project_id: projectId, text: '@dev-1 echo first' });
   assert.ok(first.body.chat_id);
   const chatId = first.body.chat_id;
   await waitFor(async () => {
@@ -493,7 +495,7 @@ test('Web：追加消息到既有 chat（F08-b 等价）', async (t) => {
 });
 
 test('Web：错误面——缺 agent / 空消息 / 非法 model（F08-c 等价）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
   const noAgent = await jpost(web.base, '/api/messages', { text: 'echo no-agent' });
   assert.equal(noAgent.status, 400);
@@ -516,14 +518,14 @@ test('Web：错误面——缺 agent / 空消息 / 非法 model（F08-c 等价�
   assert.equal(badJson.status, 400);
   assert.ok((await badJson.json()).error);
 
-  const after = await jget(web.base, '/api/chats');
+  const after = await jget(web.base, `/api/chats?project_id=${projectId}`);
   assert.equal(after.status, 200, '错误请求后服务仍可正常响应');
 });
 
 test('Web：派发失败 → 落 out(error=dispatch_failed) + failed 状态', async (t) => {
-  const { web } = await setup(t, { withAgent: false }); // 无 agent 注册 → 派发必然失败
+  const { web, projectId } = await setup(t, { withAgent: false }); // 无 agent 注册 → 派发必然失败
 
-  const sent = await jpost(web.base, '/api/messages', { agent_id: 'ghost-1', text: '派发失败用例' });
+  const sent = await jpost(web.base, '/api/messages', { project_id: projectId, agent_id: 'ghost-1', text: '派发失败用例' });
   assert.equal(sent.status, 200);
   assert.equal(sent.body.task_id, null);
   assert.ok(sent.body.warning, '应返回派发失败提示');
@@ -540,21 +542,21 @@ test('Web：执行路径判定——默认 daemon / one_shot / ! shell', async (
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-web-args-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const argsLog = path.join(dir, 'argv.jsonl');
-  const { web } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog } });
+  const { web, projectId } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog } });
 
-  const daemon = await sendAndWait(web, { agent_id: 'dev-1', text: '默认路径问题' });
-  assert.match(daemon.detail.messages[1].text, /收到：默认路径问题/);
+  const daemon = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '默认路径问题' });
+  assert.match(daemon.detail.messages[1].text, /收到：【项目上下文】[\s\S]*默认路径问题/, '常驻首轮注入项目上下文');
 
-  const oneShot = await sendAndWait(web, { agent_id: 'dev-1', text: '一次性问题', one_shot: true });
-  assert.match(oneShot.detail.messages[1].text, /one-shot answer: 一次性问题/, 'one_shot 应走 omp -p 一次性路径');
+  const oneShot = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '一次性问题', one_shot: true });
+  assert.match(oneShot.detail.messages[1].text, /one-shot answer: 【项目上下文】[\s\S]*一次性问题/, 'one_shot 应走 omp -p 一次性路径（每次派发都注入项目上下文）');
 
-  const shell = await sendAndWait(web, { agent_id: 'dev-1', text: '!echo shell-path-ok' });
+  const shell = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '!echo shell-path-ok' });
   assert.match(shell.detail.messages[1].text, /shell-path-ok/, '! 前缀应走 shell 执行器');
 
   const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   assert.ok(argvs.some((a) => a[0] === 'acp'), '默认路径应起 acp 常驻进程');
   assert.ok(argvs.some((a) => a.includes('-p') && !a.includes('acp')), '一次性路径应走 -p');
-  assert.ok(argvs.some((a) => a[a.length - 1] === '一次性问题'), '一次性路径应带 prompt');
+  assert.ok(argvs.some((a) => a[a.length - 1].startsWith('【项目上下文】') && a[a.length - 1].endsWith('\n\n一次性问题')), '一次性路径末位 argv = 项目块 + \\n\\n + 原文');
 });
 
 // ────────────────────────── F06：模型透传与每轮审计 ──────────────────────────
@@ -562,10 +564,10 @@ test('Web：model 透传与审计（payload 含该值 / out.model = ACP 实报�
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-web-model-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const argsLog = path.join(dir, 'argv.jsonl');
-  const { web } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog, OAMP_OMP_MODEL: 'beta/model-b' } });
+  const { web, projectId } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog, OAMP_OMP_MODEL: 'beta/model-b' } });
 
   // ① 请求带 model → 派发 payload 含该值（经 agent 侧首轮启动参数可观察），out.model = ACP 实报值
-  const first = await sendAndWait(web, { agent_id: 'dev-1', text: '第一轮', model: 'alpha/model-a' });
+  const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '第一轮', model: 'alpha/model-a' });
   assert.equal(first.detail.messages[1].model, 'alpha/model-a');
   const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const acpArgv = argvs.find((a) => a[0] === 'acp');
@@ -579,7 +581,7 @@ test('Web：model 透传与审计（payload 含该值 / out.model = ACP 实报�
   // ③ 审计不得用请求回显冒充：ACP 接受但未生效（sticky）时，out.model 必须是 ACP 实报值
   // sticky：set_config_option 回 ok 但不改 currentValue（模拟"接受但未生效"）
   const sticky = await setup(t, { env: { FAKE_ACP_STICKY_MODEL: '1' } });
-  const stickyFirst = await sendAndWait(sticky.web, { agent_id: 'dev-1', text: 'sticky 审计第一轮', model: 'alpha/model-a' });
+  const stickyFirst = await sendAndWait(sticky.web, { project_id: sticky.projectId, agent_id: 'dev-1', text: 'sticky 审计第一轮', model: 'alpha/model-a' });
   assert.equal(stickyFirst.detail.messages[1].model, 'alpha/model-a', '首轮生效模型 = 启动参数（ACP 回读）');
   const stickySecond = await sendAndWait(
     sticky.web,
@@ -592,10 +594,10 @@ test('Web：model 透传与审计（payload 含该值 / out.model = ACP 实报�
 
 // ────────────────────────── F04：SSE 事件序列与 E-4 ──────────────────────────
 test('Web：SSE 事件序列 + E-4（终态前 ≥2 个 task_update 且文本递增）+ 过程不入库', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
   // 先建 chat（新 chat 的 chat_id 只在 POST 响应中可得，故 E-4 取既有 chat 的第二轮）
-  const first = await sendAndWait(web, { agent_id: 'dev-1', text: '第一轮建 chat' });
+  const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '第一轮建 chat' });
   const chatId = first.chatId;
 
   const sse = await openSse(web.base, chatId);
@@ -645,7 +647,7 @@ test('Web：派发响应与首个 task.update 同批到达时首片不丢（登�
   // 后处理受理应答（其续段是 microtask，send 响应因此晚于 deliver 写出）→ web 侧同一 socket read 内
   // deliver 先于 send 响应到达。修复前：handleDeliver 查不到登记 → 首片被丢弃（SSE 无该 task_update）；
   // 修复后：登记已在派发前完成 → 首片照常上推。后续增量/终态走常规时点，终态落盘两种情况下都成立。
-  const { router, web } = await setup(t, { withAgent: false });
+  const { router, web, projectId } = await setup(t, { withAgent: false });
   const envelope = (taskId, type, body) => ({
     protocol: 'oamp/1',
     message_id: `tup-${randomUUID()}`,
@@ -676,7 +678,7 @@ test('Web：派发响应与首个 task.update 同批到达时首片不丢（登�
   t.after(() => node.stop());
 
   // 先建 chat（新 chat 的 chat_id 只在 POST 响应中可得），再订阅 SSE 打第二轮
-  const first = await sendAndWait(web, { agent_id: 'race-dev', text: '第一轮建 chat' });
+  const first = await sendAndWait(web, { project_id: projectId, agent_id: 'race-dev', text: '第一轮建 chat' });
   const chatId = first.chatId;
 
   const sse = await openSse(web.base, chatId);
@@ -720,7 +722,7 @@ test('Web：task.result 投递丢失（Router 已终态而 web 未收）→ 对�
   // 复现 pr-007 的间歇缺陷：agent 执行完 + Router 任务表已 completed（recorded），但 result 投递未达 web
   // → 对话缺回复。此处用假节点把终态发给**未注册**的 ghost（Router「recorded」语义：只记任务表、不投递
   // web），从而确定性地构造「web 收不到投递」；修复后由 web 侧对账定时器 queryOnce(router.task_get) 补落。
-  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '200' } });
+  const { router, web, projectId } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '200' } });
   const chatId = 'chat-reconcile-lost';
   const sse = await openSse(web.base, chatId);
   t.after(() => sse.close());
@@ -750,7 +752,7 @@ test('Web：task.result 投递丢失（Router 已终态而 web 未收）→ 对�
   });
   t.after(() => node.stop());
 
-  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'lossy-dev', text: '投递丢失轮' });
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, project_id: projectId, agent_id: 'lossy-dev', text: '投递丢失轮' });
   assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
 
   await waitFor(
@@ -789,7 +791,7 @@ test('Web：task.result 投递丢失（Router 已终态而 web 未收）→ 对�
 test('Web：对账顺延 + 重复投递都不重复落行（幂等）', async (t) => {
   // 对账首个 tick 落在任务非终态（working）时只顺延重查（不落行）；随后正常投递 + 同一终态被重复投递
   // → 全程仍恰一条 out。
-  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '200' } });
+  const { router, web, projectId } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '200' } });
   const chatId = 'chat-reconcile-race';
   const node = await startFakeNode({
     socketPath: router.socketPath,
@@ -812,7 +814,7 @@ test('Web：对账顺延 + 重复投递都不重复落行（幂等）', async (t
   });
   t.after(() => node.stop());
 
-  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'echo-dev', text: '竞态轮' });
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, project_id: projectId, agent_id: 'echo-dev', text: '竞态轮' });
   assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
 
   const detail = await waitFor(
@@ -834,7 +836,7 @@ test('Web：任务时长超过快速预算后，晚到的 task.result 仍能落 
   // 回归：对账快速预算用尽只能降频续查、不能删登记——登记同时是投递入口的认领凭据（handleDeliver 靠它认出
   // task.result），删掉会让长任务（时长 > 上限）的合法终态被静默丢弃、chat 永久 working。
   // 时间轴压缩：间隔 100ms → 6 次上限 ≈ 600ms；任务在 ~1.5s 才回终态（远晚于上限）。
-  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '4000' } });
+  const { router, web, projectId } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '4000' } });
   const chatId = 'chat-reconcile-overrun';
   const node = await startFakeNode({
     socketPath: router.socketPath,
@@ -851,7 +853,7 @@ test('Web：任务时长超过快速预算后，晚到的 task.result 仍能落 
   });
   t.after(() => node.stop());
 
-  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'slow-dev', text: '超上限轮' });
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, project_id: projectId, agent_id: 'slow-dev', text: '超上限轮' });
   assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
 
   const detail = await waitFor(
@@ -872,7 +874,7 @@ test('Web：跨快速预算 + 投递丢失双故障 → 低频续查补落 out�
   // D-1 回归：快速预算用尽后必须转低频续查而非放弃——任务时长跨预算（> 6×interval）且投递丢失时，
   // 唯一能救回这条 out 的就是低频续查（登记保留 + 继续 query）。修复前（达上限即停）：本用例必红。
   // 时间轴压缩：interval 100ms（预算 ≈600ms）+ slow 300ms；任务 ~1.2s 才在 Router 终态，且终态只发给 ghost。
-  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '300' } });
+  const { router, web, projectId } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '300' } });
   const chatId = 'chat-reconcile-slow';
   const node = await startFakeNode({
     socketPath: router.socketPath,
@@ -889,7 +891,7 @@ test('Web：跨快速预算 + 投递丢失双故障 → 低频续查补落 out�
   });
   t.after(() => node.stop());
 
-  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'slow-lossy-dev', text: '双故障轮' });
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, project_id: projectId, agent_id: 'slow-lossy-dev', text: '双故障轮' });
   assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
 
   const detail = await waitFor(
@@ -909,7 +911,7 @@ test('Web：跨快速预算 + 投递丢失双故障 → 低频续查补落 out�
 
 test('Web：登记软 TTL 到期清理 + 恰一条 warn（防孤儿条目常驻）', async (t) => {
   // D-2：任务永不终态 + 投递丢失（最坏孤儿场景）时，登记须在软 TTL 后清理且只 warn 一条（不刷屏）。
-  const { router, web } = await setup(t, {
+  const { router, web, projectId } = await setup(t, {
     withAgent: false,
     webEnv: { OAMP_WEB_RECONCILE_INTERVAL_MS: '100', OAMP_WEB_RECONCILE_SLOW_MS: '200', OAMP_WEB_RECONCILE_TTL_MS: '700' },
   });
@@ -922,7 +924,7 @@ test('Web：登记软 TTL 到期清理 + 恰一条 warn（防孤儿条目常驻�
   });
   t.after(() => node.stop());
 
-  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'dead-dev', text: '孤儿登记轮' });
+  const sent = await jpost(web.base, '/api/messages', { chat_id: chatId, project_id: projectId, agent_id: 'dead-dev', text: '孤儿登记轮' });
   assert.equal(sent.status, 200, `发送应成功: ${JSON.stringify(sent.body)}`);
 
   await waitFor(() => /对账登记超时清理/.test(web.stderr()), { timeoutMs: 5000, what: 'TTL 清理 warn' });
@@ -934,20 +936,20 @@ test('Web：登记软 TTL 到期清理 + 恰一条 warn（防孤儿条目常驻�
 });
 
 test('Web：/api/stream 缺 chat_id → 400；无订阅者时发送不受影响', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
   const missing = await fetch(`${web.base}/api/stream`);
   assert.equal(missing.status, 400);
 
-  const sent = await sendAndWait(web, { agent_id: 'dev-1', text: '无订阅者' });
-  assert.match(sent.detail.messages[1].text, /收到：无订阅者/);
+  const sent = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '无订阅者' });
+  assert.match(sent.detail.messages[1].text, /收到：【项目上下文】[\s\S]*无订阅者/);
 });
 
 // ────────────────────────── F01-5/F05：关闭幂等 + 释放提示转发 ──────────────────────────
 test('Web：关闭 chat——幂等 / 不删数据 / 转发 context_released / 后续提交 409', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '关闭用例' });
+  const { chatId } = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '关闭用例' });
   const sse = await openSse(web.base, chatId);
   t.after(() => sse.close());
 
@@ -967,7 +969,7 @@ test('Web：关闭 chat——幂等 / 不删数据 / 转发 context_released / �
   assert.equal(detail.chat.state, 'closed');
   assert.equal(detail.messages.length, 2, '关闭不删数据');
 
-  const list = await jget(web.base, '/api/chats?state=closed');
+  const list = await jget(web.base, `/api/chats?state=closed&project_id=${projectId}`);
   assert.equal(list.body.total, 1);
 
   // 幂等：再次关闭仍 200 closed，且不重复发控制消息（无第二条提示）
@@ -1000,8 +1002,11 @@ test('Web：启动扫尾——遗留 working 重启后置 failed 且不补记录
   const port = pickPort();
   const web = await startWeb(router.socketPath, port, { OAMP_DB: dbPath });
   t.after(() => web.stop());
+  // 0017 pr-002：对话必归属项目 ⇒ 先在该库建一个项目（重启沿用同一 dbPath，项目仍在）
+  const project = await jpost(web.base, '/api/projects', { repo_url: 'https://example.com/oamp-web-sweep.git' });
+  const projectId = project.body.project.project_id;
 
-  const sent = await jpost(web.base, '/api/messages', { agent_id: 'dev-1', text: '挂起用例' });
+  const sent = await jpost(web.base, '/api/messages', { project_id: projectId, agent_id: 'dev-1', text: '挂起用例' });
   assert.equal(sent.status, 200);
   const chatId = sent.body.chat_id;
   await waitFor(async () => {
@@ -1075,10 +1080,10 @@ test('Web：前端契约——working 等待计时 + 慢模型提示（pr-008）
 
 // ────────────────────────── 0013：批量归档 / 归档视图 / 激活（F01~F05） ──────────────────────────
 test('Web：批量归档——三键响应 / 范围与幂等 / 归档视图查询与 400 / 只读双路径（F01-2/4/6/8、F02-1/2/3/4、F03-2/3）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const done = await sendAndWait(web, { agent_id: 'dev-1', text: '归档用例 已完成' });
-  const closed = await sendAndWait(web, { agent_id: 'dev-1', text: '归档用例 已关闭' });
+  const done = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '归档用例 已完成' });
+  const closed = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '归档用例 已关闭' });
   const closeResp = await jpost(web.base, `/api/chats/${encodeURIComponent(closed.chatId)}/close`, {});
   assert.equal(closeResp.status, 200);
 
@@ -1102,10 +1107,10 @@ test('Web：批量归档——三键响应 / 范围与幂等 / 归档视图查�
   assert.equal(closedDetail.chat.context_released, 1);
 
   // 视图互斥：主列表不含已归档，归档视图只含已归档（F03-2）
-  const main = await jget(web.base, '/api/chats');
+  const main = await jget(web.base, `/api/chats?project_id=${projectId}`);
   assert.equal(main.body.total, 0);
   assert.deepEqual(main.body.chats, []);
-  const view = await jget(web.base, '/api/chats?archived=1&limit=200&offset=0');
+  const view = await jget(web.base, `/api/chats?archived=1&limit=200&offset=0&project_id=${projectId}`);
   assert.equal(view.body.total, 2);
   assert.deepEqual(view.body.chats.map((c) => c.chat_id).sort(), [closed.chatId, done.chatId].sort());
   const times = view.body.chats.map((c) => c.archived_at);
@@ -1113,7 +1118,7 @@ test('Web：批量归档——三键响应 / 范围与幂等 / 归档视图查�
   assert.ok(view.body.chats.every((c) => Number.isInteger(c.archived_at)), '列表项含可读的归档时间（F03-4/7）');
 
   // 续页：同一 total、无重复（F04-1/4）
-  const page = await jget(web.base, '/api/chats?archived=1&limit=1&offset=1');
+  const page = await jget(web.base, `/api/chats?archived=1&limit=1&offset=1&project_id=${projectId}`);
   assert.equal(page.body.total, 2);
   assert.equal(page.body.chats.length, 1);
   assert.notEqual(page.body.chats[0].chat_id, view.body.chats[0].chat_id);
@@ -1125,7 +1130,7 @@ test('Web：批量归档——三键响应 / 范围与幂等 / 归档视图查�
   assert.equal((await detailOf(web, closed.chatId)).chat.archived_at, closedDetail.chat.archived_at);
 
   // 非法 archived → 400（§5.2）
-  const bad = await jget(web.base, '/api/chats?archived=2');
+  const bad = await jget(web.base, `/api/chats?archived=2&project_id=${projectId}`);
   assert.equal(bad.status, 400);
   assert.match(bad.body.error, /archived/);
 
@@ -1140,9 +1145,9 @@ test('Web：批量归档——三键响应 / 范围与幂等 / 归档视图查�
 });
 
 test('Web：批量归档——进行中对话不动 / 零可归档项仍有反馈（F01-2/8、M-01、E-5）', async (t) => {
-  const { web } = await setup(t, { env: { FAKE_ACP_HANG: '1' } }); // 挂起 agent：该轮停在 working
+  const { web, projectId } = await setup(t, { env: { FAKE_ACP_HANG: '1' } }); // 挂起 agent：该轮停在 working
 
-  const sent = await jpost(web.base, '/api/messages', { agent_id: 'dev-1', text: '进行中的对话' });
+  const sent = await jpost(web.base, '/api/messages', { project_id: projectId, agent_id: 'dev-1', text: '进行中的对话' });
   assert.equal(sent.status, 200);
   const chatId = sent.body.chat_id;
   await waitFor(
@@ -1160,13 +1165,13 @@ test('Web：批量归档——进行中对话不动 / 零可归档项仍有反�
   const detail = await detailOf(web, chatId);
   assert.equal(detail.chat.state, 'working', '进行中对话状态不变');
   assert.equal(detail.chat.archived_at, null);
-  const main = await jget(web.base, '/api/chats');
+  const main = await jget(web.base, `/api/chats?project_id=${projectId}`);
   assert.equal(main.body.total, 1, '进行中对话仍留在主列表');
 });
 
 test('Web：批量归档——逐条向该 chat 涉及 agent 发 context_release（F02-7 / AR-07）', async (t) => {
   // 判定面 = 假节点侧观察到 notice{kind:'context_release', chat_id}（不依赖 agent 的 SSE 回发）
-  const { router, web } = await setup(t, { withAgent: false });
+  const { router, web, projectId } = await setup(t, { withAgent: false });
   const node = await startFakeNode({
     socketPath: router.socketPath,
     instanceId: 'dev-1',
@@ -1179,7 +1184,7 @@ test('Web：批量归档——逐条向该 chat 涉及 agent 发 context_release
   });
   t.after(() => node.stop());
 
-  const sent = await jpost(web.base, '/api/messages', { agent_id: 'dev-1', text: '释放观察轮' });
+  const sent = await jpost(web.base, '/api/messages', { project_id: projectId, agent_id: 'dev-1', text: '释放观察轮' });
   assert.equal(sent.status, 200);
   const chatId = sent.body.chat_id;
   await waitFor(
@@ -1201,10 +1206,10 @@ test('Web：批量归档——逐条向该 chat 涉及 agent 发 context_release
 });
 
 test('Web：激活——200 / 置顶 / 归档视图移除 / closed 还原 / 409 / 404（F05-1/3/4/5/7/8）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const a = await sendAndWait(web, { agent_id: 'dev-1', text: '激活用例 A 已完成' });
-  const b = await sendAndWait(web, { agent_id: 'dev-1', text: '激活用例 B 已关闭' });
+  const a = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '激活用例 A 已完成' });
+  const b = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '激活用例 B 已关闭' });
   await jpost(web.base, `/api/chats/${encodeURIComponent(b.chatId)}/close`, {});
 
   // 非归档的 closed 不可重开（N-5 / F05-8）
@@ -1226,9 +1231,9 @@ test('Web：激活——200 / 置顶 / 归档视图移除 / closed 还原 / 409 
   assert.equal(detail.chat.closed_at, null, '关闭时间被清除');
   assert.equal(detail.chat.context_released, 1, '激活不改该列（提示判据仍成立；F05-5/N-4）');
 
-  const main = await jget(web.base, '/api/chats');
+  const main = await jget(web.base, `/api/chats?project_id=${projectId}`);
   assert.equal(main.body.chats[0].chat_id, b.chatId, '激活后立即置顶（F05-3 / D-9）');
-  const view = await jget(web.base, '/api/chats?archived=1');
+  const view = await jget(web.base, `/api/chats?archived=1&project_id=${projectId}`);
   assert.equal(view.body.total, 1, '归档视图不再含它（F05-1）');
   assert.deepEqual(view.body.chats.map((c) => c.chat_id), [a.chatId]);
   assert.equal((await detailOf(web, a.chatId)).chat.archived_at, archA, '单条激活不波及其他归档项（F05-7）');
@@ -1271,11 +1276,11 @@ test('Web：前端静态契约——归档标签 / 归档全部 / 归档视图�
 
 // ────────────────────────── 0014：改名 API（pr-002 / F01~F05、AR-02/06/08） ──────────────────────────
 test('Web：改名——200 权威标题 / 详情与列表同步 / 不置顶（updated_at 与列表顺序不变）（F01、F04-4/5）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const first = await sendAndWait(web, { agent_id: 'dev-1', text: '改名用例 甲' });
-  const second = await sendAndWait(web, { agent_id: 'dev-1', text: '改名用例 乙' });
-  const before = (await jget(web.base, '/api/chats')).body;
+  const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '改名用例 甲' });
+  const second = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '改名用例 乙' });
+  const before = (await jget(web.base, `/api/chats?project_id=${projectId}`)).body;
   const beforeOrder = before.chats.map((c) => c.chat_id);
   const beforeRow = before.chats.find((c) => c.chat_id === first.chatId);
   assert.ok(beforeRow, '改名前该条应在主列表');
@@ -1291,16 +1296,16 @@ test('Web：改名——200 权威标题 / 详情与列表同步 / 不置顶（u
   assert.equal(detail.chat.state, beforeRow.state, '状态不变');
   assert.equal(detail.chat.archived_at, null, '归档标记不变');
 
-  const after = (await jget(web.base, '/api/chats')).body;
+  const after = (await jget(web.base, `/api/chats?project_id=${projectId}`)).body;
   assert.deepEqual(after.chats.map((c) => c.chat_id), beforeOrder, '改名不改变列表 chat_id 顺序（F04-4）');
   assert.equal(after.chats.find((c) => c.chat_id === first.chatId).title, '季度复盘');
   assert.equal(after.chats.find((c) => c.chat_id === second.chatId).title, '改名用例 乙', '其他条目不受影响');
 });
 
 test('Web：改名——校验 400 全表（非字符串 / 空体 / 空 / 全空白 / 101 单位）且读回标题不变（F02-6）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '校验用例 原标题' });
+  const { chatId } = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '校验用例 原标题' });
   const url = `/api/chats/${encodeURIComponent(chatId)}/rename`;
 
   const cases = [
@@ -1320,10 +1325,10 @@ test('Web：改名——校验 400 全表（非字符串 / 空体 / 空 / 全空
 });
 
 test('Web：改名——404 / 409 双路径（关闭优先于归档时点 / 归档后）且库值不变（F03-1/2）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const closed = await sendAndWait(web, { agent_id: 'dev-1', text: '改名只读 关闭' });
-  const arch = await sendAndWait(web, { agent_id: 'dev-1', text: '改名只读 归档' });
+  const closed = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '改名只读 关闭' });
+  const arch = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '改名只读 归档' });
   assert.equal((await jpost(web.base, `/api/chats/${encodeURIComponent(closed.chatId)}/close`, {})).status, 200);
 
   // 未归档的 closed → 409「已关闭」（D-7：closed 不可改）
@@ -1345,9 +1350,9 @@ test('Web：改名——404 / 409 双路径（关闭优先于归档时点 / 归�
 });
 
 test('Web：改名——只读不分叉（改名 409 与发消息 409 同真）+ 畸形 JSON 400 / 超限 413（F03-3）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '不分叉 用例' });
+  const { chatId } = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '不分叉 用例' });
   await jpost(web.base, '/api/chats/archive', {});
 
   const renameRej = await jpost(web.base, `/api/chats/${encodeURIComponent(chatId)}/rename`, { title: 'X' });
@@ -1375,9 +1380,9 @@ test('Web：改名——只读不分叉（改名 409 与发消息 409 同真）+
 });
 
 test('Web：改名——改名后再发消息标题保持手动值（F05-4 / E-10）', async (t) => {
-  const { web } = await setup(t);
+  const { web, projectId } = await setup(t);
 
-  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '手动标题 原始首条输入' });
+  const { chatId } = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '手动标题 原始首条输入' });
   const renamed = await jpost(web.base, `/api/chats/${encodeURIComponent(chatId)}/rename`, { title: '手动标题 固定值' });
   assert.equal(renamed.status, 200);
 
@@ -1531,14 +1536,14 @@ test('Web：GET /api/agents?state=online——同形状 / 逐项 online / 无参
 
 // ────────────────────────── 0015 pr-002：统一错误契约（F06 / 硬契约 ③） ──────────────────────────
 test('Web：统一错误契约——5 码一一映射 / 键集合恰为 {error,code} / 文案逐字不变 / 成功无 code（F06-1/2/3/4）', async (t) => {
-  const { router, web } = await setup(t);
-  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '错误契约用例' });
+  const { router, web, projectId } = await setup(t);
+  const { chatId } = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '错误契约用例' });
 
   const keysOf = (body) => Object.keys(body).sort();
   const errKeys = ['code', 'error'];
 
   // INVALID_PARAM 400：两个不同接口
-  const badParam = await jget(web.base, '/api/chats?limit=0');
+  const badParam = await jget(web.base, `/api/chats?limit=0&project_id=${projectId}`);
   const noAgent = await jpost(web.base, '/api/messages', { text: 'echo 缺 agent' });
   for (const r of [badParam, noAgent]) {
     assert.equal(r.status, 400);
@@ -1592,7 +1597,7 @@ test('Web：统一错误契约——5 码一一映射 / 键集合恰为 {error,c
   assert.match(down.body.error, /router 不可达或请求失败/, '既有兜底文案逐字不变');
 
   // 成功响应不含 code
-  const ok = await jget(web.base, '/api/chats');
+  const ok = await jget(web.base, `/api/chats?project_id=${projectId}`);
   assert.equal(ok.status, 200);
   assert.ok(!('code' in ok.body), '成功响应不加 code');
 });
