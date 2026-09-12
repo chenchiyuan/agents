@@ -40,11 +40,32 @@ html, body {
 .topnav { display: flex; gap: 18px; }
 .nav-item { color: var(--muted); font-size: 13px; cursor: default; }
 .nav-item.active { color: var(--text); font-weight: 500; }
-.topright { margin-left: auto; }
+.topright { margin-left: auto; position: relative; }
 .conn { font-size: 12px; padding: 3px 10px; border-radius: 999px; }
+#conn-status.conn-ok { cursor: pointer; } /* 可点击展开 agent 列表（0015 / F01） */
 .conn-ok { background: var(--green-soft); color: var(--green); }
 .conn-wait { background: #fef3c7; color: var(--amber); }
 .conn-bad { background: #fee2e2; color: var(--red); }
+
+/* 顶栏 agent 只读列表浮层（0015 / F01 / AR-01）：静态节点 + .hidden 切换（与 .mention 同款手法，独立规则） */
+.agent-panel {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  min-width: 240px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  z-index: 10;
+}
+.agent-panel.hidden { display: none; }
+.agent-row { padding: 7px 12px; display: flex; align-items: center; gap: 10px; }
+.agent-id { color: var(--text); }
+.agent-hb { margin-left: auto; font-size: 11px; color: var(--muted); }
+.badge-online { background: var(--green-soft); color: var(--green); }
 
 /* ── 布局 ── */
 .layout { display: flex; height: calc(100% - 48px); min-height: 0; }

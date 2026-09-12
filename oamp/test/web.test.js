@@ -14,6 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { startRouter, startAgent, waitFor, stopAll, buildEnv } from './helpers/harness.js';
 import { startFakeNode } from './helpers/fake-node.js';
+import { diffTopology, createTopologyWatch } from '../src/web.js'; // 0015 pr-002：全局事件判定源与轮询器（直接单测，不起进程）
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'oamp.js');
@@ -198,6 +199,46 @@ async function openSse(base, chatId) {
     }
   })();
   return { events, close: () => ac.abort(), pump };
+}
+
+/** 全局事件订阅客户端（0015 pr-002）：/api/events 无参数，与 openSse 同款 fetch + reader 手工解析。 */
+async function openEvents(base) {
+  const ac = new AbortController();
+  const res = await fetch(`${base}/api/events`, { signal: ac.signal });
+  const events = [];
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  const pump = (async () => {
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx;
+        while ((idx = buf.indexOf('\n\n')) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          let type = null;
+          let data = null;
+          for (const line of frame.split('\n')) {
+            if (line.startsWith('event: ')) type = line.slice(7);
+            else if (line.startsWith('data: ')) data = line.slice(6);
+          }
+          if (type && data) {
+            try {
+              events.push({ type, data: JSON.parse(data) });
+            } catch {
+              /* 忽略坏帧 */
+            }
+          }
+        }
+      }
+    } catch {
+      /* abort */
+    }
+  })();
+  return { res, events, close: () => ac.abort(), pump };
 }
 
 async function setup(t, { env = {}, agentId = 'dev-1', withAgent = true, webEnv = {} } = {}) {
@@ -1363,4 +1404,256 @@ test('Web：改名——改名后再发消息标题保持手动值（F05-4 / E-1
 
   const round2 = await sendAndWait(web, { chat_id: chatId, agent_id: 'dev-1', text: '第二条完全不同的输入' }, { rounds: 2 });
   assert.equal(round2.detail.chat.title, '手动标题 固定值', '后续输入不改手动标题（ensureChat DO NOTHING，C-4）');
+});
+
+// ────────────────────────── 0015 pr-002：全局事件流（F05 / 硬契约 ②） ──────────────────────────
+test('Web：diffTopology——新增带 last_heartbeat / 消失只带 instance_id / 墓碑不进基线（F05-2）', () => {
+  const prev = new Map([['dev-1', 1000]]);
+  const nodes = [
+    { instance_id: 'dev-1', session_id: 's1', state: 'online', last_heartbeat: 2000 },
+    { instance_id: 'dev-2', session_id: 's2', state: 'online', last_heartbeat: 3000 },
+    { instance_id: 'dev-3', session_id: 's3', state: 'offline', last_heartbeat: 500 }, // offline 墓碑
+  ];
+  const { online, offline, next } = diffTopology(prev, nodes);
+  assert.deepEqual(online, [{ instance_id: 'dev-2', last_heartbeat: 3000 }]);
+  assert.deepEqual(offline, []);
+  assert.deepEqual([...next.entries()], [['dev-1', 2000], ['dev-2', 3000]], '基线只含 online 实例（墓碑不进入）');
+
+  // 心跳刷新（同一实例仍在基线）不产生任何事件
+  const steady = diffTopology(next, [
+    { instance_id: 'dev-1', session_id: 's1', state: 'online', last_heartbeat: 2000 },
+    { instance_id: 'dev-2', session_id: 's2', state: 'online', last_heartbeat: 9999 },
+  ]);
+  assert.deepEqual(steady.online, []);
+  assert.deepEqual(steady.offline, []);
+
+  const gone = diffTopology(steady.next, [{ instance_id: 'dev-2', session_id: 's2', state: 'online', last_heartbeat: 9999 }]);
+  assert.deepEqual(gone.offline, [{ instance_id: 'dev-1' }], '消失项只带 instance_id');
+  assert.deepEqual(gone.online, []);
+});
+
+test('Web：createTopologyWatch——无订阅者零轮询 / 播种不发事件 / 订阅者归零后 tick 自停（F05-1/2）', async () => {
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  const published = [];
+  let globalCount = 0;
+  let nodes = [];
+  let queries = 0;
+  const transport = { globalCount: () => globalCount, publishGlobal: (e) => published.push(e) };
+  const watch = createTopologyWatch({
+    transport,
+    queryNodes: async () => {
+      queries += 1;
+      return nodes;
+    },
+    pollMs: 20,
+  });
+  try {
+    // 无订阅者：不起表、零查询（"无订阅者时零开销"）
+    watch.ensureRunning();
+    await delay(120);
+    assert.equal(queries, 0, '无全局订阅者时零轮询');
+
+    // 首个订阅者：播种基线（只记 prev，不发事件）
+    globalCount = 1;
+    nodes = [{ instance_id: 'dev-1', session_id: 's1', state: 'online', last_heartbeat: 1 }];
+    watch.ensureRunning();
+    await waitFor(() => queries >= 1, { timeoutMs: 2000, what: '播种查询' });
+    await delay(100);
+    assert.deepEqual(published, [], '首个订阅者播种基线不得发事件');
+
+    // 真实变化 ⇒ 上下线事件
+    nodes = [
+      { instance_id: 'dev-1', session_id: 's1', state: 'online', last_heartbeat: 1 },
+      { instance_id: 'dev-2', session_id: 's2', state: 'online', last_heartbeat: 2 },
+    ];
+    await waitFor(() => published.some((e) => e.type === 'agent_online' && e.data.instance_id === 'dev-2'), {
+      timeoutMs: 2000,
+      what: 'agent_online',
+    });
+    nodes = [{ instance_id: 'dev-2', session_id: 's2', state: 'online', last_heartbeat: 2 }];
+    await waitFor(() => published.some((e) => e.type === 'agent_offline' && e.data.instance_id === 'dev-1'), {
+      timeoutMs: 2000,
+      what: 'agent_offline',
+    });
+
+    // 订阅者归零：下一个 tick 自停（此后查询数不再增长）
+    globalCount = 0;
+    await waitFor(() => queries > 0, { timeoutMs: 1000, what: '至少一次查询' });
+    await delay(120); // 保证 tick 已观察到 globalCount === 0 并停表
+    const settled = queries;
+    await delay(200);
+    assert.equal(queries, settled, '订阅者归零后 tick 自停（不再拉 router.status）');
+  } finally {
+    watch.stop();
+  }
+});
+
+test('Web：全局事件流 /api/events——播种不发事件 / 起 agent 收 agent_online / 停 agent 收 agent_offline（F05-1/2/4）', async (t) => {
+  // 无 agent 起送：首个订阅者播种基线 ⇒ 基线为空；随后起停 dev-2 观察两个方向的事件
+  const { router, web } = await setup(t, { withAgent: false, webEnv: { OAMP_WEB_TOPOLOGY_POLL_MS: '50' } });
+  const stream = await openEvents(web.base);
+  t.after(() => stream.close());
+
+  assert.equal(stream.res.status, 200, '无参数订阅应成功（不因缺少对话标识被拒）');
+  assert.match(stream.res.headers.get('content-type'), /text\/event-stream/, '应为 SSE');
+  await new Promise((r) => setTimeout(r, 200)); // 数个 tick（50ms/次）：播种基线不得产生"虚报上线"
+  assert.equal(stream.events.length, 0, '首个订阅者播种基线不得发事件');
+
+  const agent = await startAgent('dev-2', { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN } });
+  t.after(() => agent.stop());
+  await agent.waitAgentLine(/REGISTERED instance=dev-2/);
+  const online = await waitFor(() => stream.events.find((e) => e.type === 'agent_online' && e.data.instance_id === 'dev-2'), {
+    timeoutMs: 5000,
+    what: 'agent_online（5s 判定界内，轮询 50ms）',
+  });
+  assert.equal(typeof online.data.last_heartbeat, 'number', '载荷含 last_heartbeat');
+
+  await agent.stop();
+  const offline = await waitFor(() => stream.events.find((e) => e.type === 'agent_offline' && e.data.instance_id === 'dev-2'), {
+    timeoutMs: 5000,
+    what: 'agent_offline',
+  });
+  assert.deepEqual(Object.keys(offline.data), ['instance_id'], '下线载荷只需 instance_id');
+  assert.ok(
+    !stream.events.some((e) => ['message', 'task_update', 'chat_state', 'notice'].includes(e.type)),
+    '全局订阅不得收到对话类事件（键隔离）',
+  );
+  assert.ok(agent.getExitInfo() !== null, 'agent 已退出（下线方向确实由真实注销触发）');
+});
+
+// ────────────────────────── 0015 pr-002：GET /api/agents?state=online（F04-1/2/4） ──────────────────────────
+test('Web：GET /api/agents?state=online——同形状 / 逐项 online / 无参逐字透传 / 非法值 400（F04-1/2/4）', async (t) => {
+  const { web } = await setup(t);
+
+  const all = await jget(web.base, '/api/agents');
+  const only = await jget(web.base, '/api/agents?state=online');
+  assert.equal(all.status, 200);
+  assert.equal(only.status, 200);
+  assert.deepEqual(Object.keys(only.body), Object.keys(all.body), '与无参响应同形状');
+  for (const a of all.body.agents) {
+    assert.deepEqual(Object.keys(a).sort(), ['instance_id', 'last_heartbeat', 'session_id', 'state'], '无参仍逐字透传 4 字段');
+  }
+  assert.ok(only.body.agents.every((a) => a.state === 'online'), '过滤结果逐项 online');
+  assert.deepEqual(
+    only.body.agents.map((a) => a.instance_id),
+    all.body.agents.filter((a) => a.state === 'online').map((a) => a.instance_id),
+    '与前端同一口径（同源同谓词）',
+  );
+
+  const bad = await jget(web.base, '/api/agents?state=offline');
+  assert.equal(bad.status, 400);
+  assert.deepEqual(Object.keys(bad.body).sort(), ['code', 'error']);
+  assert.equal(bad.body.code, 'INVALID_PARAM');
+  assert.equal(typeof bad.body.error, 'string');
+
+  const emptyValue = await jget(web.base, '/api/agents?state=');
+  assert.equal(emptyValue.status, 200, '空值视为无参（不 400）');
+});
+
+// ────────────────────────── 0015 pr-002：统一错误契约（F06 / 硬契约 ③） ──────────────────────────
+test('Web：统一错误契约——5 码一一映射 / 键集合恰为 {error,code} / 文案逐字不变 / 成功无 code（F06-1/2/3/4）', async (t) => {
+  const { router, web } = await setup(t);
+  const { chatId } = await sendAndWait(web, { agent_id: 'dev-1', text: '错误契约用例' });
+
+  const keysOf = (body) => Object.keys(body).sort();
+  const errKeys = ['code', 'error'];
+
+  // INVALID_PARAM 400：两个不同接口
+  const badParam = await jget(web.base, '/api/chats?limit=0');
+  const noAgent = await jpost(web.base, '/api/messages', { text: 'echo 缺 agent' });
+  for (const r of [badParam, noAgent]) {
+    assert.equal(r.status, 400);
+    assert.deepEqual(keysOf(r.body), errKeys, '错误体键集合恰为 {error, code}');
+    assert.equal(r.body.code, 'INVALID_PARAM');
+    assert.equal(typeof r.body.error, 'string');
+    assert.ok(r.body.error.length > 0, 'error 可读非空');
+  }
+
+  // NOT_FOUND 404：两个不同接口（详情 / 改名），文案逐字
+  const missingChat = await jget(web.base, '/api/chats/chat-nope');
+  const missingRename = await jpost(web.base, '/api/chats/chat-nope/rename', { title: 'x' });
+  for (const r of [missingChat, missingRename]) {
+    assert.equal(r.status, 404);
+    assert.deepEqual(keysOf(r.body), errKeys);
+    assert.equal(r.body.code, 'NOT_FOUND');
+  }
+  assert.equal(missingChat.body.error, 'chat 不存在: chat-nope', '既有文案逐字不变');
+
+  // CONFLICT 409：同一只读真源的两个接口（改名 / 发消息），文案各自逐字
+  await jpost(web.base, '/api/chats/archive', {});
+  const renameRej = await jpost(web.base, `/api/chats/${encodeURIComponent(chatId)}/rename`, { title: 'x' });
+  const sendRej = await jpost(web.base, '/api/messages', { chat_id: chatId, agent_id: 'dev-1', text: 'x' });
+  for (const r of [renameRej, sendRej]) {
+    assert.equal(r.status, 409);
+    assert.deepEqual(keysOf(r.body), errKeys);
+    assert.equal(r.body.code, 'CONFLICT');
+  }
+  assert.equal(renameRej.body.error, 'chat 已归档（只读），不可改名', '既有文案逐字不变');
+  assert.equal(sendRej.body.error, 'chat 已归档（只读），不接受新输入', '既有文案逐字不变');
+
+  // PAYLOAD_TOO_LARGE 413：仍带 connection: close
+  const tooLarge = await fetch(`${web.base}/api/messages`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ agent_id: 'dev-1', text: 'x'.repeat(70 * 1024) }),
+  });
+  assert.equal(tooLarge.status, 413);
+  assert.equal(tooLarge.headers.get('connection'), 'close', '超限应答应关闭连接（逐字同形）');
+  const tooLargeBody = await tooLarge.json();
+  assert.deepEqual(keysOf(tooLargeBody), errKeys);
+  assert.equal(tooLargeBody.code, 'PAYLOAD_TOO_LARGE');
+  assert.match(tooLargeBody.error, /请求体过大/);
+
+  // UPSTREAM_UNAVAILABLE 502：Router 不可达
+  await router.stop();
+  const down = await jget(web.base, '/api/agents');
+  assert.equal(down.status, 502);
+  assert.deepEqual(keysOf(down.body), errKeys);
+  assert.equal(down.body.code, 'UPSTREAM_UNAVAILABLE');
+  assert.match(down.body.error, /router 不可达或请求失败/, '既有兜底文案逐字不变');
+
+  // 成功响应不含 code
+  const ok = await jget(web.base, '/api/chats');
+  assert.equal(ok.status, 200);
+  assert.ok(!('code' in ok.body), '成功响应不加 code');
+});
+
+// ────────────────────────── 0015 pr-002：前端静态契约（F01 / F02 / AR-01 / AR-02） ──────────────────────────
+test('Web：前端静态契约——顶栏 agent 列表（#agent-panel / 全局事件订阅 / 展开期刷新 / 零启停入口）（F01-1~5、F02-1~5）', async (t) => {
+  const appJs = fs.readFileSync(path.join(ROOT, 'web', 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(ROOT, 'web', 'index.html'), 'utf8');
+  const css = fs.readFileSync(path.join(ROOT, 'web', 'style.css'), 'utf8');
+
+  assert.match(html, /id="conn-status"[\s\S]*id="agent-panel"/, '#agent-panel 应是 #conn-status 之后的静态兄弟节点');
+  assert.match(html, /<div id="agent-panel" class="agent-panel hidden"><\/div>/, '面板应为静态空节点（不动态创建）');
+
+  assert.match(appJs, /state\.agentPanel/, '面板开合态');
+  assert.match(appJs, /function renderAgentPanel\(\)/, '面板渲染函数');
+  assert.match(appJs, /function toggleAgentPanel\(\)/, '开合函数');
+  assert.match(appJs, /function closeAgentPanel\(\)/, '收起函数');
+  assert.match(appJs, /function fmtAgo\(ms\)/, '相对时间函数');
+  assert.match(appJs, /\$\('conn-status'\)\.onclick = toggleAgentPanel/, '顶栏计数绑定开合');
+  assert.match(appJs, /e\.key === 'Escape' && state\.agentPanel\.open/, 'Esc 收起');
+  assert.match(appJs, /e\.target\.closest\('#agent-panel, #conn-status'\)/, '点外收起（带触发器守卫）');
+  assert.match(appJs, /if \(!ok\) closeAgentPanel\(\);/, '断连自动收起');
+  assert.match(appJs, /暂无在线 agent/, '空态文案');
+  assert.match(appJs, /const AGENT_PANEL_REFRESH_MS = 5000;/, '展开期刷新间隔 = 5000ms');
+  assert.match(appJs, /agentPanelTimer = setInterval\(/, '展开期挂刷新表');
+  assert.match(appJs, /clearInterval\(agentPanelTimer\)/, '收起即清表（不留常驻定时器）');
+  assert.match(appJs, /state\.agents\.filter\(\(a\) => a\.state === 'online'\)/, '只列在线实例');
+  assert.match(appJs, /new EventSource\('\/api\/events'\)/, '页面打开即订阅全局事件流');
+  assert.match(appJs, /addEventListener\('agent_online'/, '消费上线事件（增量 upsert）');
+  assert.match(appJs, /addEventListener\('agent_offline'/, '消费下线事件（增量移除）');
+  assert.match(appJs, /es\.onopen = \(\) => loadAgents\(\)/, 'onopen 全量重新对齐（MI-05）');
+  assert.match(appJs, /const \{ agents \} = await api\('\/api\/agents'\)/, 'loadAgents 仍取全量（@ 补全离线可见性不变）');
+  assert.doesNotMatch(appJs, /POLL_MS/, '不得引入 POLL_MS 标识符（既有契约）');
+
+  assert.match(css, /\.topright\s*\{[^}]*position:\s*relative/, '.topright 应作定位锚点');
+  assert.match(css, /\.agent-panel\s*\{/, '面板样式');
+  assert.match(css, /\.agent-panel\.hidden\s*\{[^}]*display:\s*none/, '.hidden 应真正隐藏（本仓 .hidden 只对 .mention 生效）');
+  assert.match(css, /\.agent-row/, '行样式');
+  assert.match(css, /\.agent-id/, '实例标识样式');
+  assert.match(css, /\.agent-hb/, '最后心跳样式');
+  assert.match(css, /\.badge-online/, '在线徽标样式');
+  assert.match(css, /#conn-status\.conn-ok\s*\{[^}]*cursor:\s*pointer/, '可点击信号');
 });
