@@ -43,7 +43,10 @@
 
 ## 下一迭代候选（阶段 6 独立验证提出，按优先级）
 
-1. **D-2（中·**用户可见缺陷**·第一优先）**：`GET /api/chats` 与 `POST /api/messages` 的路由登记元数据 `params` 未包含必填参数 `project_id` ⇒ `/docs` 参数面不完整、`/debug` 调试台无法调用这两条既有接口（实测返回 400）。根因 = architecture §6.1「既有 11 条内文逐字不动」这一硬契约；修复属架构级变更（需同步 `llms.txt` 重生成与 `api-routes.test.js` 的计数/投影断言）。
+1. **0017/D-2（跨迭代承接项）**：`GET /api/chats` 与 `POST /api/messages` 的路由登记元数据 `params` 未包含必填参数 `project_id`。
+   承接方：**单独的小迭代**（`0019-worktree-isolation-protocol` 完成之后启动，本迭代不承接）。
+   引用链：`0017/status.md`（本项）→ `0018/status.md`（C-3 显式不纳入）→ `0019/status.md`（N2 显式排除并登记承接条件）。
+   - **编号口径**：跨迭代引用一律写成 `<迭代号>/D-<n>`（如 `0017/D-2`）；`D-*` 在本迭代自身台账内不与 `0017/D-2` 复用同一编号（0019 自身的台账项自 `D-3` 起编号）。
 2. **D-1（中）**：`POST /api/projects` 登记 `errors` 缺 `PAYLOAD_TOO_LARGE`（handler 实际可达 413，`API.md §3.13` 已列，`/docs` 投影未列）。建议与 1 合并为一个「登记元数据完备性」迭代，并把「errors 覆盖 handler 实际可达错误码」升级为锁①的可机检口径。
 3. **pr-004 提出的 N1~N6**：F04/F05 最小 E2E；旧库 fixture 改用真实 9 列 schema；harness SIGINT 竞态（既有 `router-registry.test.js:135` 负载敏感）；方法面改为实现级锁；一次性路径第二次派发样本；弱断言改行为级判据。
 4. **信息级偏差**：上下文块与原文的分隔符措辞（PR 写「换行」、实现为「空行」）；测试 helper 建 fixture 形态未进 §8.3 枚举；`showProjectList()` 路径双次取数；未知 project 回落时 `state.projectId` 未重置的脏状态面。
