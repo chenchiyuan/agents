@@ -15,7 +15,7 @@
 //                       FAKE_ACP_SESSION_ECHO=1 / FAKE_ACP_MEMORY=1。
 //   另支持 **prompt 内指令**（轮次级覆盖，供同一 agent 进程服务混合场景——env 旋钮是进程级的，
 //   而同一用例内既有「成功轮」也有「失败轮」/「超上限轮」，进程级旋钮无法同时表达）：
-//                       `#fail` / `#sleep=<ms>` / `#chunks=<n>` / `#echo-session` / `#memory`。
+//                       `#fail` / `#sleep=<ms>` / `#chunks=<n>` / `#echo-session` / `#memory` / `#json=<单行 JSON>`。
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -64,6 +64,11 @@ const envNum = (name) => (process.env[name] === undefined ? null : Number(proces
 function directive(text, key) {
   const m = new RegExp('#' + key + '=([0-9]+)').exec(text);
   return m === null ? null : Number(m[1]);
+}
+/** 结构化应答指令（轮次级）：#json=<单行 JSON> ⇒ 本轮应答 = 该 JSON 原文（模拟 agent 的结构化终态输出）。 */
+function jsonAnswer(text) {
+  const m = /#json=(\\{.*\\})/.exec(text);
+  return m === null ? null : m[1];
 }
 function splitEvenly(text, n) {
   if (text.length === 0) return [''];
@@ -124,7 +129,8 @@ rl.on('line', async (line) => {
     }
     const sleepMs = directive(text, 'sleep') ?? envNum('FAKE_ACP_SLEEP_MS') ?? 0;
     const chunks = directive(text, 'chunks') ?? envNum('FAKE_ACP_CHUNKS') ?? 3;
-    let answer = '收到：' + text;
+    const json = jsonAnswer(text);
+    let answer = json === null ? '收到：' + text : json;
     if (process.env.FAKE_ACP_SESSION_ECHO === '1' || text.includes('#echo-session')) answer += '\\n[session] ' + msg.params.sessionId;
     if (memory && session.notes.length > 0) answer += '\\n记忆：' + session.notes.join(',');
     const pieces = splitEvenly(answer, chunks);
@@ -570,22 +576,46 @@ test('0018 组 C/D（F05/F06）：受理含 call_id+agent / 进行中与终态�
   assert.equal(blockedEnv.error, null);
   assert.ok(typeof blockedEnv.text === 'string' && blockedEnv.text !== '', '终态 text 应为非空');
 
-  // 验收 4：结构化输出按期望结构返回；不带 schema 时为 null 且 text 可用
+  // 验收 4：结构化输出四态（真实驱动：桩按 `#json=` 指令回**可解析 JSON 原文** ⇒「校验通过」与「校验不通过」两条
+  //          路径都实跑；断言值全部取自运行期 HTTP 响应 ⇒ 实现退化时必红，不保留任何恒真形态）
   const schema = { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] };
-  const structured = await callOnce(web, { chat_id: chatId, agent: 'dev', task: 'F06-STRUCTURED', output_schema: schema, mode: 'block' });
-  const sEnv = structured.body.calls[0];
-  assert.equal(sEnv.state, 'completed', `带 schema 的调用应成功: ${JSON.stringify(sEnv)}`);
-  assert.ok(sEnv.structured_output === null || typeof sEnv.structured_output === 'object', 'structured_output 应为对象或 null');
-  if (sEnv.structured_output !== null) {
-    for (const [name, prop] of Object.entries(schema.properties)) {
-      assert.ok(Object.hasOwn(sEnv.structured_output, name), `structured_output 应含声明键 ${name}`);
-      assert.equal(typeof sEnv.structured_output[name], prop.type, `键 ${name} 类型应相符`);
-    }
-  }
-  const noSchema = await callOnce(web, { chat_id: chatId, agent: 'dev', task: 'F06-NO-SCHEMA' });
+  const okJson = '{"summary":"F06-JSON-摘要"}';
+  const badJson = '{"summary":123}';
+
+  // ④ 无 output_schema ⇒ 即便响应本身是可解析 JSON 也必须 null（负向基线）
+  const noSchema = await callOnce(web, { chat_id: chatId, agent: 'dev', task: `F06-NO-SCHEMA #json=${okJson}` });
   const nEnv = await waitTerminal(web, noSchema.body.calls[0].call_id);
-  assert.equal(nEnv.structured_output, null, '不带 output_schema 时 structured_output = null');
-  assert.ok(typeof nEnv.text === 'string' && nEnv.text !== '', '不带 output_schema 时 text 仍可用');
+  assert.equal(nEnv.structured_output, null, '不带 output_schema 时 structured_output = null（文本可解析也不例外）');
+  assert.equal(nEnv.text, okJson, '不带 output_schema 时 text 保留原文');
+
+  // ① permissive（缺省 schema_mode）+ 校验通过 ⇒ structured_output = 真实解析出的对象，text 保留原文
+  const permissive = await callOnce(web, { chat_id: chatId, agent: 'dev', task: `F06-PERMISSIVE-OK #json=${okJson}`, output_schema: schema, mode: 'block' });
+  const pEnv = permissive.body.calls[0];
+  assert.equal(pEnv.state, 'completed', `permissive 校验通过应 completed: ${JSON.stringify(pEnv)}`);
+  assert.deepEqual(pEnv.structured_output, { summary: 'F06-JSON-摘要' }, 'permissive 校验通过 ⇒ structured_output = 解析出的对象');
+  assert.equal(pEnv.text, okJson, 'permissive 校验通过时 text 保留原文');
+  assert.equal(pEnv.error, null, 'permissive 校验通过时 error = null');
+
+  // ② strict + 校验通过 ⇒ 同 ①，且 state 仍 completed（strict 不得误伤合法结构）
+  const strictOk = await callOnce(web, { chat_id: chatId, agent: 'dev', task: `F06-STRICT-OK #json=${okJson}`, output_schema: schema, schema_mode: 'strict', mode: 'block' });
+  const stEnv = strictOk.body.calls[0];
+  assert.equal(stEnv.state, 'completed', `strict 校验通过应 completed: ${JSON.stringify(stEnv)}`);
+  assert.deepEqual(stEnv.structured_output, { summary: 'F06-JSON-摘要' }, 'strict 校验通过 ⇒ structured_output = 解析出的对象');
+  assert.equal(stEnv.text, okJson, 'strict 校验通过时 text 保留原文');
+
+  // ③ strict + 校验不通过（summary 声明 string、实得 number）⇒ failed + 机器可读原因 + structured_output=null + text 保留
+  const strictBad = await callOnce(web, { chat_id: chatId, agent: 'dev', task: `F06-STRICT-BAD #json=${badJson}`, output_schema: schema, schema_mode: 'strict', mode: 'block' });
+  assert.equal(strictBad.status, 200, `strict 校验不通过仍应受理（终态转 failed）: ${JSON.stringify(strictBad.body)}`);
+  const sbEnv = strictBad.body.calls[0];
+  assert.equal(sbEnv.state, 'failed', `strict 校验不通过应 failed: ${JSON.stringify(sbEnv)}`);
+  assert.equal(sbEnv.error, 'structured_output_invalid', 'strict 校验不通过 ⇒ error = structured_output_invalid');
+  assert.equal(sbEnv.structured_output, null, 'strict 校验不通过 ⇒ structured_output = null');
+  assert.equal(sbEnv.text, badJson, 'strict 校验不通过时 text 仍保留原文（不吞正文）');
+  const sbById = (await callGet(web, sbEnv.call_id)).body;
+  assert.equal(sbById.state, 'failed', '按 id 查询的 strict 失败态应与阻塞响应一致（同一终态写点）');
+  assert.equal(sbById.error, 'structured_output_invalid', '按 id 查询的 error 应与阻塞响应一致');
+  assert.equal(sbById.structured_output, null, '按 id 查询的 structured_output 应为 null');
+  assert.equal(sbById.text, badJson, '按 id 查询的 text 保留原文');
 
   // 验收 6：响应键集合零 usage / tokens / cost / aborted（受理信封 + 按 id 信封）
   const acceptedEnv = await waitTerminal(web, callId);
@@ -983,7 +1013,8 @@ test('0018 组 J（F12）：同 chat 同角色两轮共享上下文 / 跨 chat �
   assert.equal(a2.text.includes(`记忆：${token}`), true, '同 chat 同角色第二轮应复用同一会话（第 1 轮交代的信息可见）');
 
   // 验收 3（辅助判据）：同 chat 两轮 sessionId 相同
-  const sessOf = (text) => (/\[session\] (sess-\d+)/.exec(text) || [])[1];
+  const sessOf = (text) => (/\[session\] (sess-\d+-\d+)/.exec(text) || [])[1];
+  // 桩的 sessionId = `sess-<pid>-<seq>`：正则须覆盖 pid + 序号整段，否则同进程内两个会话会被截断成同值
   assert.equal(sessOf(r1.text), sessOf(a2.text), '同 chat 同角色的两轮应落在同一会话');
 
   // 验收 2：跨 chat 隔离（chat B 向同名角色问同一问题，答复不含 chat A 交代的信息）
