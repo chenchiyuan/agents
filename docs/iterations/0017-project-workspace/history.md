@@ -410,3 +410,9 @@
 
 - 决策内容：`git checkout main` → `git merge --no-ff iteration/0017-project-workspace` → `git branch -d iteration/0017-project-workspace`；status.md 的迭代分支字段改为「（已合并）」
 - 依据：工作流 §「迭代分支合并进 main」协议；阶段 6 判定 pass
+
+### 2026-09-12 17:42:52 · 调度决策 · 阶段推进核查
+
+- 决策内容：迭代 0017-project-workspace **收口完成** —— 迭代分支已合并进 main（merge commit `03a2f00`）并删除；main 合并态全量 **272/272**（57.2s）；四个 worktree 与特性分支全部清理，无失败/阻塞现场保留
+- 触发依据：阶段 6 判定 pass；`git branch` 仅剩 main（另有他人在建分支 iteration/0018-chat-agent-subagent-protocol，非本次工作，未触碰）
+- 遗留：下一迭代第一优先候选 D-2（`/api/chats`、`/api/messages` 登记元数据缺 `project_id` ⇒ `/docs` 参数面不完整、`/debug` 实测 400）已写入 status.md「下一迭代候选」并将在向用户的交付汇报中点出
