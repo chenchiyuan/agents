@@ -37,6 +37,27 @@ function stripAnsi(s) {
   return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
+// §4.1 T-08：可选项目上下文。project 为对象且 name / repo_url / agreement 三要素均为非空字符串才算「合法」；
+// 缺失 / null / 非对象（含数组）/ 要素缺失或非字符串 ⇒ 一律视为「未携带」（不拒收任务，体例同 label）。
+// 三要素逐字取自载荷：不拼接、不重写、不补默认值。
+function parseProject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const { name, repo_url, agreement } = value;
+  if (typeof name !== 'string' || name.length === 0) return null;
+  if (typeof repo_url !== 'string' || repo_url.length === 0) return null;
+  if (typeof agreement !== 'string' || agreement.length === 0) return null;
+  return { name, repo_url, agreement };
+}
+
+/**
+ * §4.2 唯一渲染点（模块级纯函数）：固定 4 行、行序固定、以 \n 连接。
+ * 三行取值全部来自载荷字段：工作约定文本的唯一真源在「派发装配点」（web 侧常量，随载荷携带而来）——
+ * 本模块只渲染该文本，既不复制一份、也不反向依赖 web 侧模块。
+ */
+function renderProjectContext(project) {
+  return `【项目上下文】\n- 项目名：${project.name}\n- 仓库地址：${project.repo_url}\n- 工作约定：${project.agreement}`;
+}
+
 /**
  * 解析任务 payload（executor 路由）。返回 { ok:true, task } 或 { ok:false, reason }。
  *   executor='omp'（真实 LLM 处理）：{ executor:'omp', prompt, model?, tools?, timeout_ms? }
@@ -57,6 +78,7 @@ function parseTaskBody(payload) {
     return { ok: false, reason: 'payload.body 需为 JSON 对象' };
   }
   const label = typeof body.label === 'string' ? body.label : null;
+  const project = parseProject(body.project);
 
   if (body.executor === 'omp') {
     if (typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {
@@ -71,7 +93,7 @@ function parseTaskBody(payload) {
     const tools = typeof body.tools === 'boolean' ? body.tools : null;
     return {
       ok: true,
-      task: { executor: 'omp', prompt: body.prompt, model, tools, timeoutMs, label: label || body.prompt.slice(0, 60) },
+      task: { executor: 'omp', prompt: body.prompt, model, tools, timeoutMs, project, label: label || body.prompt.slice(0, 60) },
     };
   }
 
@@ -98,6 +120,7 @@ function parseTaskBody(payload) {
         prompt: body.prompt,
         model: typeof body.model === 'string' ? body.model : null,
         timeoutMs,
+        project,
         label: label || body.prompt.slice(0, 60),
       },
     };
@@ -163,6 +186,8 @@ function runOmpTask(client, logger, message, task, ctx) {
 
   const bin = OMP_BIN();
   const toolsOn = task.tools === null ? ctx.tools : task.tools; // §4.3 三分支：显式布尔 > CLI --tools / 内置缺省
+  // §4.2：一次性路径无累积状态（--no-session）⇒ 每次派发都注入；未携带 project ⇒ 末位逐字等于原文
+  const projectContext = task.project ? renderProjectContext(task.project) : null;
   const args = ['-p', '--no-session'];
   if (!toolsOn) args.push('--no-tools');
   const model = task.model || ctx.envModel || ctx.modelOverride;
@@ -170,7 +195,7 @@ function runOmpTask(client, logger, message, task, ctx) {
   if (ctx.roleFile) args.push('--append-system-prompt', ctx.roleFile); // §3.3：一次性路径同样注入角色规则
   // §4.4（pr-007）：一次性路径同理——仅工具可用时按 permission 档追加 --approval-mode
   if (toolsOn) args.push('--approval-mode', ctx.permission === 'deny' ? 'always-ask' : 'yolo');
-  args.push(task.prompt);
+  args.push(projectContext ? `${projectContext}\n\n${task.prompt}` : task.prompt);
 
   logger.event('TASK_STARTED', { task_id: taskId, executor: 'omp', from: origin, label: task.label || '' });
   sendUpdate('working', { event: 'started', executor: 'omp', prompt: task.prompt.slice(0, 500) }).catch(() => {});
@@ -297,6 +322,8 @@ function runDaemonTask(client, logger, message, task, ctx) {
       timeoutMs: task.timeoutMs,
       origin,
       onChunk: (text) => sendUpdate('working', { kind: 'chunk', text }).catch(() => {}),
+      // §4.2：常驻路径的「首轮一次性」施加在 ContextSession；此处只渲染，首参始终是用户原文
+      projectContext: task.project ? renderProjectContext(task.project) : null,
     })
     .then((result) => {
       const body = {
