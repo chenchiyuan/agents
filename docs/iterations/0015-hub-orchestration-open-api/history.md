@@ -100,3 +100,29 @@
 - 2. 逐项判定摘要：prd 覆盖性与无技术污染 pass；AR 全填零残留 pass；L1-01 标注成立（且独立复核「transport 全局键 + /api/events」不构成系统边界变更）；三条硬契约可执行性经代码对照 pass；prs 七字段/互斥/无环/覆盖 pass
 - 3. 最需关注发现：L1-01 的用户确认留痕不足（history 无 Gate 记录、status 待确认项无该条）→ **已由主 agent 补齐**（见上一条 Gate确认记录）
 - 4. 疑问/越界：borderline 项（统一错误契约横切变更）判 L2 —— 主 agent 已裁决接受
+
+### 2026-09-12 11:43:10 · 收到报告 · dev（pr-001 ∥ pr-002 实现完成）
+
+- 1. pr-001 产出：config/registry/router/node-client/agent（+heartbeatIdleMs 派生 / findExpired 阈值公式 / next_interval_ms 透传 / 自调度 setTimeout 链 / heartbeatPlan 档位判定）+ agent-heartbeat.test.js（+6 例）；commit 8cee94e；真实环境两档 4/4（活跃 10s、空闲 185s 恰 3 跳、恒 online 零重注册、任务后 31ms 恢复）
+- 2. pr-002 产出：transport（publishGlobal/globalCount）+ web（/api/events、?state=online、sendError 回填 20 处）+ index.html/app.js/style.css（#agent-panel）+ transport/web.test.js（+9 例）；commit b562a26；API 实测（事件上下线、键隔离）+ 浏览器四步实测
+- 3. 已知契约冲突（pr-001 上报）：卡验收 6 与 architecture §3.4/§3.5 对"固定数字入参是否通告"表述冲突 → 主 agent 裁决以契约为准，卡已修正
+- 4. 测试：pr-001 → 232/232；pr-002 → 235/235（两者合入后）
+- 5. 越界：pr-001 额外改 config-file.test.js（派生键断言，属变更必然影响面）；两 PR 主仓库 oamp/ 零改动
+
+### 2026-09-12 11:43:10 · 收到报告 · verifier（pr-001 / pr-002 验收）
+
+- 1. 报告路径：verify-20260912-114015-pr001.md（PASS，0 fail / 2 partial / 4 偏差）、verify-20260912-114018-pr002.md（PASS，0 fail / 1 partial / 5 偏差）
+- 2. 逐项判定摘要：pr-001 协议面/阈值公式/两档行为/降级路径/回归全 pass；pr-002 事件流/错误回填（独立核实 19+1=20 处）/无参响应逐字节相同/浏览器五项/变异实验全 pass
+- 3. 最需关注发现：pr-002 的 partial = 委托书写"期望 232"计数失真（实际 235，非缺陷）；pr-001 的 2 partial + 4 偏差待归档
+- 4. 疑问/越界：两 PR 隔离环境均已清理
+
+### 2026-09-12 11:43:10 · 调度决策 · 槛位释放
+
+- 决策内容：pr-001 与 pr-002 均验收 PASS 并合并 → 槛位释放（累计 2）；pr-003 依赖满足，立即派发；本迭代存在真实并发（首批两 PR 同轮派发）
+- 触发依据：两份 verify 报告结论 PASS；git log merge commits；迭代分支全量 235/235
+
+### 2026-09-12 11:43:10 · 派发 · dev（pr-003-api-doc）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-003（oamp/API.md 接口文档 + README 同步）
+- PR：prs/pr-003-api-doc.md
