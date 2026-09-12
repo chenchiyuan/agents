@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>oamp · 调用</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/api-pages.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand"><span class="logo">◆</span><span class="brand-name">oamp</span><span class="brand-sub">调用</span></div>
+    </header>
+
+    <main class="api-page">
+      <h1>调用</h1>
+      <!-- 块 1：roster 表（六列 = 每次调用一行；加载时取一次 GET /api/calls，随后 5 s 轮询刷新） -->
+      <table class="api-table">
+        <thead>
+          <tr>
+            <th>调用 id</th>
+            <th>agent</th>
+            <th>状态</th>
+            <th>开始时间</th>
+            <th>结束时间</th>
+            <th>模型</th>
+          </tr>
+        </thead>
+        <tbody id="call-rows"></tbody>
+      </table>
+      <!-- 块 2：选中行的进度区（点击某行 ⇒ 按该调用订阅 SSE，渲染 call_state / call_update / call_result） -->
+      <div id="call-progress"></div>
+      <!-- 块 3：空态与错误提示条（纯文本，沿用既有 .hint 体例） -->
+      <div id="call-hint" class="hint"></div>
+    </main>
+
+    <script src="/calls.js"></script>
+  </body>
+</html>
