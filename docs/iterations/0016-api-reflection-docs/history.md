@@ -105,3 +105,23 @@
 - 2. 连带件已转 pr-planner（pr-001 的 llms.txt 路径 2 处 + 补 Q-9~Q-11 探针）
 - 3. 主 agent 侧：history 报告快照的"12 项"已更正为 11 项
 - 4. 触发依据：verify-20260912-132718-stage234.md（标准 6 fail + 标准 3/4/8 partial）
+
+### 2026-09-12 13:52:24 · 收到报告 · dev + verifier（pr-001）
+
+- 1. pr-001 产出：oamp/src/web.js（路由表 11 项 + 具名导出 createApiRoutes/matchRoute/projectRoutes/renderLlmsTxt + STATIC_FILES + 表驱动分发）、oamp/llms.txt（包根 1825 字节）、oamp/scripts/gen-llms-txt.mjs、oamp/API.md（§3 改 11 条 + 新增 §3.11 + 顶部链接块）、oamp/test/api-routes.test.js（497 行：三条锁 + 匹配器单测 + L2 探针）；commit c3a68e4
+- 2. 保真证据：web.test.js 零字节改动且 39/39；改造前/后 50 条输入 diff 为空；handler 体零改写；重叠边界实测固化
+- 3. 锁转红证据：三条锁各篡改一次均转红且点名精确；并修正锁② 差异定位（UTF-16 → UTF-8 码点）
+- 4. 自主发现并修复的真实缺陷：`scheduleReconcile` 未注入（既有 web.test.js 首轮 19 红暴露）
+- 5. 测试：api-routes 7/7、全仓串行 246/246
+- 6. 验收结论：PASS（0 fail / 0 partial / 3 偏差）；**保真复核 = 隔离双服务 80 例输入，既有面 73/73 逐字节一致，7 处差异全为有意新增 URL，控制组排除噪声，handler 体前 10 个 IDENTICAL**
+
+### 2026-09-12 13:52:24 · 调度决策 · 槛位释放
+
+- 决策内容：pr-001 合并 → 槛位释放（累计 1）；pr-002 依赖满足，立即派发
+- 触发依据：verify-20260912-135131-pr001.md 结论 PASS；迭代分支全量 246/246
+
+### 2026-09-12 13:52:24 · 派发 · dev（pr-002-docs-and-debug-pages）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：实现 PR-002（在线文档页 /docs + 可交互调试台 /debug + 顶栏入口 + README 同步）
+- PR：prs/pr-002-docs-and-debug-pages.md
