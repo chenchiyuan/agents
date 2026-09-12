@@ -28,3 +28,21 @@
 
 - 阶段：阶段 2（功能规格）
 - 任务：将需求合同原子化为可独立验证的功能卡，只做产品维度，不做架构决策
+
+### 2026-09-12 10:45:27 · 收到报告 · prd
+
+- 1. prd.md 路径 + 功能点数：docs/iterations/0015-hub-orchestration-open-api/prd.md；8（F01 列表面板 / F02 自动更新 / F03 心跳两档 / F04 接口面 / F05 全局事件流 / F06 统一错误契约 / F07 API 文档 / F08 连接语义回归）
+- 2. prd/ 文件列表：F01-agent-list-panel / F02-agent-list-auto-update / F03-heartbeat-two-tier / F04-open-api-surface / F05-global-event-stream / F06-unified-error-contract / F07-api-doc / F08-connection-semantics-unchanged
+- 3. model_inferred 列表：MI-01 任务/交互口径（最关键）/ MI-02 5s 判定界 / MI-03 相对时间粒度 / MI-04 多标签 / MI-05 断线对齐 / MI-06 事件载荷与时限 / MI-07 错误契约判据 / MI-08 空态 —— 全部经用户确认
+- 4. 架构待填列表：AR-01~AR-08（8 条）
+- 5. 疑问/越界：三条裁决已获用户确认（W2 租约取"机制不变、取值联动"；列表保留在线状态字段；8 卡不合并）
+
+### 2026-09-12 10:45:27 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 2（功能规格）推进条件满足，进入阶段 3（技术架构）
+- 触发依据：8 张卡齐备且覆盖 W1~W7（prd notes 追溯）；MI 项经用户确认（8/8 + 2 裁决）；AR-01~AR-08 已标注
+
+### 2026-09-12 10:45:27 · 派发 · architect
+
+- 阶段：阶段 3（技术架构）
+- 任务：在现有架构上演进，补全功能卡的架构维度；核心难点 = AR-03 心跳降频与租约判活联动
