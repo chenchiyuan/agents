@@ -1,6 +1,6 @@
 # 工作流进度
 
-**工作流**: workflow-pb v0.8.0
+**工作流**: workflow-pb v0.9.0（自本迭代恢复起适用；阶段 1~2 在 v0.8.0 下完成）
 **迭代**: 0018-chat-agent-subagent-protocol
 **当前阶段**: 阶段 3（技术架构，待启动；阶段 1~2 已完成）
 **迭代分支**: iteration/0018-chat-agent-subagent-protocol（tip `deeb1b7` = 合并 main 后的整合态）
