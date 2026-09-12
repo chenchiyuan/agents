@@ -121,6 +121,8 @@ class ContextSession {
     this.inFlight = false;
     this.lastOrigin = null;
     this.closed = false; // 已从池中移除（淘汰/释放/崩溃）
+    // §4.2：本会话已「成功送达」的轮次数（只增不减，不参与任何调度判定）——首轮项目上下文名额的判据
+    this.sentTurns = 0;
   }
 
   /** 实例标识（F05-2/E-1 判据）：context_id = ctx-<pid>-<generation>，与 pid 一并随每轮结果上报。 */
@@ -141,14 +143,14 @@ class ContextSession {
    * 入队一轮（同键串行）。立即回绝的场景：键已释放（context_crashed）、队列已满（context_busy）。
    * 排队轮次的 timeoutMs 从实际开始执行时计时（§6.2）。
    */
-  prompt(text, { model = null, timeoutMs, onChunk = null, origin = null } = {}) {
+  prompt(text, { model = null, timeoutMs, onChunk = null, origin = null, projectContext = null } = {}) {
     if (this.closed) return Promise.reject(new AcpError('context_crashed', '上下文已释放'));
     if (this.queue.length >= QUEUE_LIMIT) {
       return Promise.reject(new AcpError('context_busy', `同键排队轮次已达上限（${QUEUE_LIMIT}）`));
     }
     if (origin) this.lastOrigin = origin;
     return new Promise((resolve, reject) => {
-      this.queue.push({ text, model, timeoutMs, onChunk, resolve, reject });
+      this.queue.push({ text, model, timeoutMs, onChunk, projectContext, resolve, reject });
       this._pump();
     });
   }
@@ -170,11 +172,16 @@ class ContextSession {
     try {
       const client = await this._ensureClient(turn.model);
       if (this.closed) throw new AcpError('context_crashed', '上下文在轮次开始前已释放');
-      const result = await client.prompt(turn.text, {
+      // §4.2：会话「首个成功送达轮次」注入一次项目上下文（块 + \n\n + 原文；未携带即原文）。
+      // sentTurns 只在成功返回后自增 ⇒ context_busy（入队即拒）/ model_unavailable（session/prompt 前失败）/
+      // 崩溃（context_crashed）都不消费首轮名额；permission_denied 已送达故会重复一次（无害 → 不加状态机）。
+      const text = this.sentTurns === 0 && turn.projectContext ? `${turn.projectContext}\n\n${turn.text}` : turn.text;
+      const result = await client.prompt(text, {
         model: turn.model,
         timeoutMs: turn.timeoutMs,
         onChunk: turn.onChunk,
       });
+      this.sentTurns += 1;
       turn.resolve({ ...result, context_id: this.contextId, pid: this.pid });
     } catch (err) {
       turn.reject(err instanceof AcpError ? err : new AcpError('context_crashed', String(err && err.message ? err.message : err)));
