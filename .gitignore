@@ -1,3 +1,4 @@
 .idea/
 .pb-agents/
 .DS_Store
+.pb-agents/worktrees/

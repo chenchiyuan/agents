@@ -1,0 +1,9 @@
+version: 1
+iteration: 0004-model-dispatch
+main:
+  executor: omp
+  model: gpt
+subagent:
+  role: dev
+  executor: omp
+  model: deepseek
