@@ -424,3 +424,23 @@
 - 决策内容：**裁定两份任务图的 9 条 `[model_inferred]` 全部生效**（pr-004 的 5 条 + pr-005 的 4 条；均为架构直接推论或既有体例复用，非新增技术决策）
 - 采纳 planner 的工程提示：pr-004/pr-005 **并行运行必须使用不同端口段**（不得占用 7788）——已写入两份 dev 简报的硬性约束；pr-005 的 API.md 双副本陷阱（须用 `new URL('../API.md', import.meta.url)`）已随 tasks.md 传递给 dev
 - 登记（不处置）：`oamp/src/web.js` 一处注释写「11 键」而实体为 10 键（SSE 帧才是 11 键）——纯注释、零行为影响，属本迭代自身产物遗留的表述瑕疵；**不开修复 PR**，登记为偏差 + 下一迭代候选（理由：为一处注释走完整 PR 流程属仪式性开销，且不影响任何卡片的验收）
+
+### 2026-09-13 01:00:00 · 收到报告 · dev（pr-004）
+
+- 1. 改了什么文件：恰 5 个——新建 `oamp/web/calls.html`（39 行）、`oamp/web/calls.js`（178 行）、`oamp/test/call-console.test.js`（118 行）；修改 `oamp/web/index.html`（+1 行入口）、`oamp/README.md`（+1 bullet）；提交 `d84dba1`
+- 2. 测试结果：新增测试 2/2；`api-pages.test.js` 5/5 且该文件 diff 空；**全量 274/274 PASS**（未出现 F05-4 flake）；真起服务实测 `/calls` 200 `text/html`、`/calls.js` 200 `text/javascript`、`/api/calls` 六列、SSE 实收 `call_state/call_update/call_result`、未知 id 404；**浏览器实测**：表头六列、null 占位「—」、点击后进度区更新、5s 轮询刷到终态、三态提示条、console 零错误；检索式七词零命中（初次实现注释命中已改）；变更面闭合 = 5 文件 + tasks
+- 3. 疑问/待办：无阻塞（报告含设计说明）
+- 4. 违反边界的事：无；端口段 49000–49499（与 pr-005 的 49500–49999 错开）
+
+### 2026-09-13 01:11:00 · 收到报告 · dev（pr-005）
+
+- 1. 改了什么文件：唯一新增 `oamp/test/call-protocol.test.js`（1062 行 / 11 个 test，自带 harness；仅 import 既有 `helpers/harness.js` 与 `helpers/fake-node.js`）；提交 `8e4fa86`；**既有文件零字节改动**
+- 2. 测试结果：单文件 11/11（4 轮全绿、零 flake、≈24s）；12 条 PR 验收标准逐条实测（组 A~J + M 全承接）；**全量 `npm test` 283/283 PASS**（未出现 F05-4）；范围核对 = 新文件 + tasks；`dependencies` 仍 `{}`；超上限用例用 `#chunks=1001` 桩轮次指令，实测未超时
+- 3. 疑问/待办：3 条设计说明（桩在 6 个 env 旋钮外支持 prompt 内轮次指令 `#fail`/`#sleep`/`#chunks`/`#echo-session`/`#memory`，因进程级旋钮无法表达轮次差异；T2「不可用」构造修正为「不再在线（条目移除或 offline 墓碑皆可）」；桩 sessionId 改为 `sess-<pid>-<seq>` 以区分跨 chat 会话）
+- 4. 违反边界的事：无；端口段 49500–49999
+
+### 2026-09-13 01:12:00 · 派发 · verifier（pr-004 ∥ pr-005，同批并发）
+
+- 阶段：阶段 5 末波 PR 级验收（合并前门禁）
+- 验证标准：A 各自全部验收标准（自跑）/ B 测试有效性（pr-004 的 2 用例非空洞性；**pr-005 抽查 ≥4 用例的真观测性**）/ C 既有面零回归 / D 变更面闭合 / E 现场核对（pr-004 真页面；pr-005 无外网零新表）/ F/G 端口与现场清理
+- 报告落点：会话工作区 `clarifications/verify-pr-{NNN}-{timestamp}.md`
