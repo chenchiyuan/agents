@@ -180,3 +180,30 @@
 - 验证标准（内联）：A 七字段格式 / B 功能点全覆盖 / C 文件范围零重叠 / D **依赖正确性（逐条代码级证据，verifier 自行重检索）** / E 无环 / F 验收标准可独立判断 / G 零行号引用 / H 与 architecture §11 覆盖核对 / I 无越界
 - 产出物路径：`docs/iterations/0018-chat-agent-subagent-protocol/prs/`
 - 备注：本迭代不存在 `deferred-demand-changes.md`（规范「搭置的需求变更/错误报告」透传项不适用）
+
+### 2026-09-12 23:20:00 · 收到报告 · verifier（阶段 4 Gate）
+
+- 报告路径：`clarifications/verify-stage4-gate-20260912-231000.md`
+- 结论：**PASS（9/9，fail 0 / partial 0 / blocked 0）**；偏差 4 条（非阻塞）
+- 关键证据：D 项依赖正确性 4/4 条由 verifier 自行重检索核实（transport.js 返回对象键集合、router.task_list→registry.listTasks、STATIC_FILES 无 /calls、/api/calls 全仓零命中）；H 项 §11 的 11 行逐条回代码库复核命中
+- 偏差：P-1（pr-003 验收「diff 仅落在三个文件」未限定为本 PR diff）/ P-2（依赖型 PR 的验收判定来源口径）/ P-3（pr-004 六列表述只列 5 个标签）/ P-4（depends_on 未明示直接依赖 vs 传递闭包）
+
+### 2026-09-12 23:21:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**阶段 4 → 阶段 5**。推进条件逐项核查：① 每个 PR 文件满足七字段规范 ✅（A 项）；② 每个功能点被某个 PR 引用 ✅（B 项，F01~F16 全覆盖）；③ PR 间文件范围无重叠 ✅（C 项，14 路径唯一归属）；④ 依赖图无环 ✅（E 项）。四项全满足
+- 附加：`## 并发配置（阶段 5）` 区块已初始化（起始 3 / 硬上限 5 / 有效 3 / 释放 0 / 已派发 0）；Gate 的 4 条偏差**不阻塞**，P-2/P-3 转为阶段 5 施工时义务（PR 验收报告需按权威读法判定并登记已知假阳性）
+
+### 2026-09-12 23:22:00 · 调度决策 · 槛位释放
+
+- 决策内容：**建立首波 PR worktree 并并发派发 planner**（依赖图首波解锁 = {pr-001, pr-002}，两者 `depends_on` 均为空）
+- worktree（落点 = 会话工作区内子目录，规则 C）：
+  - `.pb-agents/worktrees/0018-pr-001-transport-call-key-namespace`（分支 `feat/0018-pr-001-transport-call-key-namespace`）
+  - `.pb-agents/worktrees/0018-pr-002-registry-task-list-model`（分支 `feat/0018-pr-002-registry-task-list-model`）
+  - 两者 base = 迭代分支 tip `97ee9ac`（阶段 4 Gate 提交）；创建动作在同一批命令内完成
+- 并发配置更新：`已派发总数` 0 → 2
+
+### 2026-09-12 23:22:10 · 派发 · planner（pr-001 ∥ pr-002，同批并发）
+
+- 阶段：阶段 5 首波；两个 planner 在**同一批**并发派发（非串行）
+- 工作区地址：各自 PR worktree 绝对地址
+- 任务：各拆本 PR 内部任务，产出 `prs/pr-001-tasks.md` / `prs/pr-002-tasks.md`
