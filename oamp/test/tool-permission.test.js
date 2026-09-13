@@ -33,6 +33,7 @@ function log(envKey, entry) {
 
 log('FAKE_ACP_ARGS_LOG', argv);
 let promptSeq = 0;
+let pairReplies = 0; // suspend_pair*：本轮已结算的重叠等待数（两个都结算才收尾）
 
 /** 推一帧 session/update（tool_call / tool_call_update）——§4.5 主机制的审计源。 */
 function emit(sessionId, toolCallId, patch) {
@@ -115,6 +116,29 @@ rl.on('line', (line) => {
       // 非审批形状（ask 型 askDialog + boolean confirm）：形状不等同审批门 ⇒ 一律 decline（C5）
       elicit(sid, msg.id, '请选择', 'ask_dialog', { type: 'object', properties: { q0: { type: 'string', title: 'Q', oneOf: [{ const: 'A', title: 'A' }] } }, required: ['q0'] });
       elicit(sid, msg.id, '确认', 'confirm_boolean', { type: 'object', properties: { value: { type: 'boolean' } }, required: ['value'] });
+      return;
+    }
+    if (MODE === 'suspend_pair' || MODE === 'suspend_pair_hang') {
+      // L1-1（偏差 #3）：同一轮内**两个**裁决等待同时未结算——不等第一道门的应答就发第二道门（重叠挂起）。
+      // 挂起期轮次计时必须保持冻结：任一等待未结算都不得解冻，否则轮次会在另一等待裁决前超时（cancel → kill）。
+      serverSeq += 1;
+      awaitingReply.set(serverSeq, { promptId: msg.id, kind: 'permission', label: 'perm_overlap' });
+      send({
+        jsonrpc: '2.0',
+        id: serverSeq,
+        method: 'session/request_permission',
+        params: {
+          sessionId: sid,
+          toolCall: { toolCallId: 'call_ov', toolName: 'bash', title: '$ echo hi', status: 'pending', rawInput: { command: 'echo hi' } },
+          options: [
+            { optionId: 'allow_once' },
+            { optionId: 'allow_always' },
+            { optionId: 'reject_once' },
+            { optionId: 'reject_always' },
+          ],
+        },
+      });
+      elicit(sid, msg.id, 'Allow tool: write', 'gate_overlap');
       return;
     }
     if (MODE === 'toolcall') {
@@ -217,6 +241,11 @@ rl.on('line', (line) => {
       return;
     }
     if (entry.label === 'ask_dialog') return; // 等第二道非审批询问答完再结算
+    if (MODE === 'suspend_pair' || MODE === 'suspend_pair_hang') {
+      pairReplies += 1;
+      if (MODE === 'suspend_pair_hang') return; // 收到应答也不结算该轮（对照：验证恢复后按剩余预算续计）
+      if (pairReplies < 2) return; // 两个重叠等待都结算后才收尾该轮
+    }
     if (MODE === 'hang') return; // 收到应答也不结算该轮（pr-001④ 对照：验证超时路径与「按剩余时间恢复」）
     send({ jsonrpc: '2.0', id: entry.promptId, result: { stopReason: 'end_turn', usage: {} } });
   }
@@ -735,6 +764,73 @@ test('L1-1/pr-001④对照：超时语义不变（无挂起仍 cancel → kill�
   await assert.rejects(() => inflight, (err) => err.code === 'timeout');
   const elapsed = Date.now() - startedAt2;
   assert.ok(elapsed >= 400, `等人拍板的时间不计入轮次预算（总耗时 ≥ 挂起 300 + 剩余 200；实测 ${elapsed}）`);
+});
+
+test('L1-1/偏差#3：重叠挂起（权限门 + 工具审批门同时未结算）期间轮次计时保持冻结；两个等待先后结算后正常结算', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('suspend_pair');
+  const pending = new Map(); // 两个未结算等待各持一个 resolver（key = 上浮面的 kind）
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => new Promise((resolve) => { pending.set(info.kind || 'permission', resolve); }),
+  });
+  const cancels = () => readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length;
+
+  let settled = null;
+  const inflight = client.prompt('执行 echo hi', { timeoutMs: 300 });
+  inflight.then((result) => { settled = { ok: true, result }; }, (err) => { settled = { ok: false, code: err.code }; });
+
+  await waitFor(() => pending.size === 2, '两个裁决等待都已挂起（权限门 + 审批门）');
+  await sleep(450); // > timeoutMs：冻结未生效则轮次早已 cancel → 宽限 → kill
+  assert.equal(settled, null, '挂起期间轮次不得以 timeout 结算');
+  assert.equal(client.dead, false, '冻结期间不得 kill 子进程');
+  assert.equal(cancels(), 0, '冻结期间不得 cancel');
+
+  pending.get('permission')('allow'); // 先结算一个：另一等待仍未结算 ⇒ 必须保持冻结
+  await sleep(450); // > timeoutMs：先结算方若解冻计时器，轮次即在另一挂起未裁决时超时（偏差 #3 实测形态）
+  assert.equal(settled, null, '仍有未结算等待时轮次不得以 timeout 结算');
+  assert.equal(client.dead, false, '仍有未结算等待时不得 kill 子进程');
+  assert.equal(cancels(), 0, '仍有未结算等待时不得 cancel');
+
+  pending.get('tool_approval')('deny'); // 最后一个等待结算 ⇒ 按剩余时间恢复计时
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn', '两个等待先后结算后轮次正常结算');
+  assert.equal(client.dead, false);
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(replies.find((f) => f.label === 'perm_overlap').result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  assert.deepEqual(replies.find((f) => f.label === 'gate_overlap').result, { action: 'accept', content: { value: 'Deny' } });
+});
+
+test('L1-1/偏差#3对照：一个挂起 + 一个立即结算 ⇒ 先结算方不得解冻计时；恢复后按剩余预算续计', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('suspend_pair_hang'); // 两个等待都结算后仍不结算该轮 ⇒ 恢复后的计时器必然到点
+  let release = null;
+  let gateCalls = 0;
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => {
+      if (info.kind === 'tool_approval') { gateCalls += 1; return Promise.resolve('deny'); } // 立即结算的等待
+      return new Promise((resolve) => { release = resolve; }); // 长挂起
+    },
+  });
+
+  let settled = null;
+  const startedAt = Date.now();
+  const inflight = client.prompt('执行 echo hi', { timeoutMs: 300 });
+  inflight.then((result) => { settled = { ok: true, result }; }, (err) => { settled = { ok: false, code: err.code }; });
+
+  await waitFor(() => release !== null && gateCalls === 1, '两个等待都已进入（其一立即结算）');
+  await sleep(450); // > timeoutMs：立即结算的一方若解冻了计时器，此处已超时
+  assert.equal(settled, null, '仍有未结算等待时轮次不得以 timeout 结算');
+  assert.equal(client.dead, false, '仍有未结算等待时不得 kill 子进程');
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length, 0, '仍有未结算等待时不得 cancel');
+
+  release('allow'); // 最后一个等待结算 ⇒ 恢复计时（该轮不结算 ⇒ 剩余预算内到点）
+  await assert.rejects(() => inflight, (err) => err.code === 'timeout');
+  const elapsed = Date.now() - startedAt;
+  assert.ok(elapsed >= 450 + 250, `恢复后按剩余预算（≈timeoutMs）续计，不得清零/缩短（实测 ${elapsed}）`);
 });
 
 test('M4：第一道门放行 ⇒ 第二道审批门（elicitation）答 Approve；无放行凭据 ⇒ 回落 Deny', async (t) => {

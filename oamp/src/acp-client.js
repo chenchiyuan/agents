@@ -305,7 +305,7 @@ export class AcpClient {
         reject(new AcpError('timeout', `${method} 超时（${timeoutMs}ms）`));
         if (onTimeout) Promise.resolve(onTimeout()).catch(() => {});
       };
-      const entry = { resolve, reject, timer: null, errorCode, remainingMs: timeoutMs, startedAt: 0, expire };
+      const entry = { resolve, reject, timer: null, errorCode, remainingMs: timeoutMs, startedAt: 0, paused: false, expire };
       const arm = () => {
         entry.startedAt = Date.now();
         entry.timer = setTimeout(expire, entry.remainingMs);
@@ -463,6 +463,7 @@ export class AcpClient {
       // §4.4 拒绝档三步：① 回 reject_once（上）→ ② 立即 session/cancel → ③ 置标记（prompt() 结算时抛）
       this._permissionDenied = true;
       this.cancel();
+      this._approvalGrants.length = 0; // 一次拒绝即作废全部既有放行凭据（不得留到轮次收尾前被无关门抵扣）
       this._audit('TOOL_DENIED', toolCall, optionId);
       return;
     }
@@ -576,23 +577,30 @@ export class AcpClient {
     return DENY_LABEL;
   }
 
-  /** L1-1：冻结轮次计时（只作用于 `session/prompt` 的计时器 `_request` 所建）；嵌套挂起按深度恢复。 */
+  /** L1-1：冻结轮次计时（只作用于 `session/prompt` 的计时器 `_request` 所建）；同一轮内可重叠挂起，按深度恢复。 */
   _pauseTurnTimer() {
     const entry = this._pending.get(this._turnRequestId);
-    if (!entry || entry.timer == null) return;
+    if (!entry) return;
+    if (entry.paused) {
+      // 已冻结（重叠挂起）：「计时器未建立」与「已暂停」是两态——重叠只递增深度，绝不重建计时器
+      this._pausedTurns += 1;
+      return;
+    }
     entry.remainingMs = Math.max(0, entry.remainingMs - (Date.now() - entry.startedAt));
     clearTimeout(entry.timer);
     entry.timer = null;
+    entry.paused = true;
     this._pausedTurns += 1;
   }
 
-  /** L1-1：裁决到达后按**剩余时间**恢复计时（未冻结则空操作）。 */
+  /** L1-1：裁决到达后按**剩余时间**恢复计时（仅最后一个未结算等待递减到 0 时恢复；未冻结则空操作）。 */
   _resumeTurnTimer() {
     if (this._pausedTurns === 0) return;
     this._pausedTurns -= 1;
     if (this._pausedTurns > 0) return;
     const entry = this._pending.get(this._turnRequestId);
-    if (!entry || entry.timer != null) return;
+    if (!entry || !entry.paused) return; // 跨轮残留的恢复不得给未冻结的轮次装上计时器
+    entry.paused = false;
     entry.startedAt = Date.now();
     entry.timer = setTimeout(entry.expire, entry.remainingMs);
     entry.timer.unref?.();
