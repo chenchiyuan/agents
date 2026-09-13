@@ -40,4 +40,20 @@
 - **本迭代的过渡例外（登记）**：第 4 次派发（prd 阶段 2）发生在该约束下达**之前**，落在 `chat-76db2a03-2832-4c08-8f21-19f6255f1262`（因当时按「一角色一对话」创建）。该次不重做；**其余一切派发（含 prd 的后续轮次）一律使用统一对话**，prd 后续轮如需延续上下文，由主 agent 在简报中重述所需背景（其产物在磁盘上，可自行读取）。
 | 4 | 2026-09-13 12:01 | 阶段 2 | prd（首轮） | pb-prd | `task-1bbae265-f8f1-44fb-8d96-bd5a473ab104` | background | **completed**（truncated） | 203743ms | 产出 `prd.md` + 12 卡（F01~F12）+ `clarifications/prd-round-1.md`；对话 `chat-76db2a03-…`（**过渡例外**） |
 | 5 | 2026-09-13 12:09 | 阶段 2 | prd（第 2 轮） | pb-prd | `task-95038b97-ee3a-47d2-9830-5dc4bc3bf06b` | background | **completed** | 129410ms | 对话 `chat-ad0d43df-…`（**统一对话**）；并 5 项 MI 裁决 |
-| 6 | 2026-09-13 12:16 | 阶段 3 | architect | pb-architect | `task-5d13d79c-fadf-4478-b6cb-f5cfd0f5907c` | background | 进行中 | — | 对话 = 统一对话（`chat-ad0d43df-…`） |
+| 6 | 2026-09-13 12:16 | 阶段 3 | architect | pb-architect | `task-5d13d79c-fadf-4478-b6cb-f5cfd0f5907c` | background | **failed（timeout）** | 300841ms | 对话 = 统一对话；错误 `session/prompt 超时（300000ms）` |
+
+## ⚠️ 实测约束：hub 派发的单轮硬上限 = 5 分钟（2026-09-13，第 6 次派发暴露）
+
+**现象**：architect 阶段 3 首轮在 300.8s 被终止，信封 `state=failed`、`error=timeout`、`text="session/prompt 超时（300000ms）"`；agent 侧日志随后出现 `CONTEXT_RESET error=timeout`——**该角色在本对话的上下文被重置**（下一轮需在简报中重述背景）。
+
+**根因（证据）**：
+- `oamp/src/acp-client.js` → `prompt(text, { …, timeoutMs = 300000 })`：**常驻会话单轮 prompt 默认上限 5 分钟**，超时即 cancel → 宽限 → kill 该轮。
+- `oamp/src/agent.js` → `DEFAULT_OMP_TIMEOUT_MS = 300000`，且任务体可带 `timeout_ms`（校验范围 **1~600000**）⇒ 理论上限 10 分钟。
+- **但调用面不暴露 `timeout_ms`**：`POST /api/calls` 的受理字段为 chat_id / agent / task / tasks / mode / model / output_schema / schema_mode / context（architecture §3.14）⇒ 经 hub 调用面派发的每一轮**实际封顶 5 分钟**。
+
+**对本迭代执行方式的后果（已按此调整）**：
+1. **大任务必须分轮**：单轮只做「探索 + 部分产出」，不得把"读完整个代码库 + 写完长篇架构文档"压进一轮。
+2. **先落盘、后补写**：要求角色**先写文件骨架**（哪怕内容待补），再逐节增量补写 ⇒ 超时也能保住部分产出（本次失败即因全程只探索、零落盘）。
+3. **减少探索面**：简报直接给关键文件与行区间，减少全仓 grep 扫描。
+4. **上下文重置的补偿**：失败后重派时，简报必须重述背景与已产出物路径（本迭代已按此处理）。
+5. **登记为下一迭代候选**：调用面是否应暴露 `timeout_ms`（或提供分轮/续跑语义）——本迭代不实现（超出其 12 张卡范围）。

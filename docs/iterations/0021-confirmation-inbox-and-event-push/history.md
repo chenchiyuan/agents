@@ -98,3 +98,15 @@
 
 - 派发通道：hub API；对话 = 统一对话 `chat-ad0d43df-6d43-428e-bfc8-77e4308624ae`
 - 任务：在现有架构上演进，补全功能卡的架构维度（T-01~T-16），产出 `architecture.md`；L1 决策列出待用户确认
+
+### 2026-09-13 12:22 · 收到报告 · architect（阶段 3 首轮）—— **失败（timeout）**
+
+- call `task-5d13d79c-fadf-4478-b6cb-f5cfd0f5907c`：`state=failed`、`error=timeout`、`text="session/prompt 超时（300000ms）"`、`duration_ms=300841`
+- 过程（转录 51 条）：`started` → 49 条工具/增量 → `result(failed)`；agent 日志显示该轮**大量只读探索**（read/grep/sed 十余次）后撞线，随后 `CONTEXT_RESET error=timeout`
+- 产物：`architecture.md` **未落盘**（本轮全程探索、零写入）；主工作区零改动
+- 根因与处置见 `clarifications/hub-execution-log.md` 的「实测约束：单轮硬上限 5 分钟」段
+
+### 2026-09-13 12:24 · 调度决策 · 阶段推进核查
+
+- 决策内容：**不放弃 hub 派发，改为「分轮 + 先落盘」策略重派 architect**：① 本轮只做「出现点/改动面清单 + L1 清单 + architecture.md 骨架」，T-01~T-16 落定与自查放下轮；② 强制**先写骨架再增量补写**（超时也能保住部分产出）；③ 简报给出关键文件与行区间，压缩探索面；④ 因上下文已被重置，简报重述全部背景与已产出物路径
+- 触发依据：`hub-execution-log.md` 实测约束段；用户「agent 任务请使用 hub api 执行」的指令（不因失败改用宿主 harness 子 agent）
