@@ -188,3 +188,103 @@
 - 决策内容：**执行模式切换（用户指令）**——「此次迭代改为本地 sub agent 执行，不走 hub」。自阶段 5 首波 dev 之后的**全部派发**改回宿主 `task` 工具的本地 sub agent；hub 阶段的 15 次调用记录（`hub-execution-log.md`）作为该阶段执行过程的完整留痕保留
 - 在飞处置：2 个在飞 dev 调用（pr-001 / pr-003）**不中止**（各写各的 PR worktree、零重叠），产物照常接受；若失败则改由本地 sub agent 接力
 - 触发依据：用户指令（2026-09-13，迭代执行中下达）
+
+### 2026-09-13 12:41 · 收到报告 · dev（阶段 5 首波 pr-001，hub 派发 #14）
+
+- 1. 改了什么文件：**无**——PR worktree `…/0021-pr-001-permission-suspend-and-reply-fix` 检出 `feat/0021-pr-001-permission-suspend-and-reply-fix`（HEAD `27eef14` = planner 任务图提交），`git status --porcelain` 空、相对迭代分支 `git diff --stat` 仅 `prs/pr-001-tasks.md`（planner 产出）⇒ **hub 轮次零实现落盘**
+- 2. 测试结果：无可核验测试证据。信封 `state=completed`、`duration_ms=565058`、`truncated=false`；正文为过程叙述（argv / 答复链路排查 → 提出假设「omp 第二道审批门经 `elicitation/create` 能力可达，客户端未声明该能力」）——**该假设零落盘证据，不采信、不作为 pr-001 的输入结论**
+- 3. 疑问/待办：与 #15 在同一毫秒级窗口终止（≈565s）⇒ 判定该批 hub dev 轮次整体不可用
+- 4. 违反边界：无（仓库主工作区 `git status --porcelain -uall` 空；会话工作区空）
+
+### 2026-09-13 12:41 · 收到报告 · dev（阶段 5 首波 pr-003，hub 派发 #15）
+
+- 1. 改了什么文件：**无**（HEAD `a5b2043` = planner 任务图提交；零提交、零未提交改动）
+- 2. 测试结果：无（信封 `state=failed`、`error=context_crashed`、`text="ACP error: Internal error"`、`duration_ms=565059`）
+- 3. 疑问/待办：与 #14 同批同时终止 ⇒ 同批 hub dev 轮次不可用
+- 4. 违反边界：无
+
+### 2026-09-13 12:42 · 调度决策 · 阶段推进核查
+
+- 决策内容：**阶段 5 首波两个 PR 的 dev 改由本地 sub agent 接力**（pr-001 `completed` 但零落盘 / pr-003 `failed` ⇒ 二者均按「未产出」处理，任何口头结论一律不采信）；planner 产物 `prs/pr-001-tasks.md`、`prs/pr-003-tasks.md` **有效**，直接作为 dev 的输入契约（不重派 planner）
+- 触发依据：`GET /api/calls/<id>` 实测（`completed` + 零落盘；`failed/context_crashed`）+ 两个 PR worktree 的 `git log` / `git status` / `git diff --stat` 实测 + `status.md` 执行方式字段（本地 sub agent）
+- 时标口径说明：本机 `date` 实测 = 12:4x；本文件先前若干条目时间戳曾误记为 13:xx（较 git committer time 超前约 78 分钟）⇒ **顺序以文件物理顺序为准**，本条目起一律按 `date` 实测记录
+- 并发配置更新：`已派发总数` 4（planner×2 + hub dev×2）→ 本次本地 dev×2 ⇒ 6；`累计槛位释放次数` 仍为 0（两个 PR 均未合并）
+
+### 2026-09-13 12:42 · 派发 · dev（阶段 5 首波 pr-001，本地 sub agent 接力）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：在 pr-001 专属 worktree 内按 `prs/pr-001-tasks.md` 的 T1~T6 串行落地最小实现（T1/T2/T3/T4/T6 同写 `acp-client.js` 不得并发；含 **M4 答复链路修复**硬义务的双向真实 omp 验证），使 PR 文件 6 条验收标准全部通过并提交到本 PR 分支
+- PR：prs/pr-001-agent-permission-suspend-and-reply-fix.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 工作目录纪律
+- 工作区：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001-permission-suspend-and-reply-fix`）
+- 主 agent 裁决注入：p-001-Q2（D3 允许临时 wrapper bin 达成 daemon 真实 argv；不改产品代码、不改入库探针 `clarifications/probe-always-ask.mjs`）
+
+### 2026-09-13 12:42 · 派发 · dev（阶段 5 首波 pr-003，本地 sub agent 接力）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：在 pr-003 专属 worktree 内按 `prs/pr-003-tasks.md` 的 T1~T6 落地最小实现（`web.js` 被 T2/T3/T4/T6 修改，不得并发），使 PR 文件 12 条验收标准全部通过并提交到本 PR 分支
+- PR：prs/pr-003-web-inbox-and-decision-api.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 工作目录纪律
+- 工作区：`…/0021-pr-003-web-inbox-and-decision-api`（分支 `feat/0021-pr-003-web-inbox-and-decision-api`）
+- 主 agent 裁决注入：p-003-Q1（`publishState` 全局广播 = 每次调用追加一次、帧类型复用 `chat_state`、全局键；`API.md §4.2` / `web.test.js` 键隔离断言 / 实现三面口径一致）/ p-003-Q2（不抽取既有 handler，新增 handler 内编排既有原语，保 `§11.4`「既有 19 条 handler 零改动」）/ p-003-Q3（`oamp/web/debug.js` 不扩范围，登记为边界）
+
+### 2026-09-13 12:55 · 收到报告 · dev（阶段 5 首波 pr-003，本地 sub agent 接力）
+
+- 1. 改了什么文件：9 文件（PR 文件范围内）——`oamp/src/inbox.js` 新建 42 行（导出面恰 5 函数）；`oamp/src/web.js` +134（路由表末位 2 条 / `STATIC_FILES` 追加 `/notify.js` / `publishState` 追加全局广播 / `handleDeliver` 消费 2 个新 kind）；`oamp/API.md` +94（§3 → 21 条、新增 §3.20/§3.21、§4.2 → 4 类）；`oamp/llms.txt` 脚本重生成；4 个既有测试文件的硬编码清单/条数/标题同步 + `oamp/test/confirmation-inbox.test.js` 新建 478 行
+- 2. 测试结果：PR 12 条验收标准逐条 **pass**（T1~T6 逐条 pass）；`node --test`（5 文件）**84/84 pass**；`hygiene` 3/3 pass；`llms.txt` 生成脚本重跑无差异
+- 3. 疑问/待办：① 偏差登记——架构 §11.2 **B-6 记「3 类」与裁决 p-003-Q1 的 4 类（含全局 `chat_state`）不一致**，按裁决实现，请求阶段 6 汇总时回填；② 边界——`oamp/web/debug.js:8` 的 `EVENT_TYPES` 未含 `confirmation`（调试台不显示新帧），不扩范围；③ 实现期判断三条（400 路径 take 后回填致条目回队尾、文本落地前先查项目行、回传 best-effort）
+- 4. 违反边界：无（三点 diff 仅含本 PR 9 文件 + planner 任务图；`--no-verify` 未用；仓库根零改动）
+- 交付证据：提交 `0d9cbc2`；worktree `git status --porcelain` 空；全局链路实测 `GLOBAL_EVENT_TYPES = [agent_offline, chat_state, confirmation]`（第 3 条 `chat_state(working)` 来自裁决文本落地的一次 `publishState`，与裁决口径一致）
+
+### 2026-09-13 12:56 · 派发 · verifier（阶段 5 · pr-003 验收）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：对 pr-003 的实现在其 worktree 内做独立逐项验证（PR 文件 12 条验收标准 + tasks T1~T6 验收标准 + 主 agent 裁决口径 p-003-Q1/Q2/Q3），产出 `clarifications/verify-pr-003-{timestamp}.md`
+- PR：prs/pr-003-web-inbox-and-decision-api.md
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + **不注入任何执行过程上下文**
+- 工作区（只读）：`…/0021-pr-003-web-inbox-and-decision-api`（分支 `feat/0021-pr-003-web-inbox-and-decision-api`，HEAD `0d9cbc2`）
+- 报告落点：`…/docs/iterations/0021-confirmation-inbox-and-event-push/clarifications/verify-pr-003-{timestamp}.md`
+
+### 2026-09-13 13:02 · 收到报告 · dev（阶段 5 首波 pr-001，本地 sub agent 接力）
+
+- 1. 改了什么文件：3 文件（PR 文件范围内）——`oamp/src/acp-client.js` +159/-34（argv 恒 `always-ask`；`initialize` 声明 `clientCapabilities.elicitation.form`；`session/request_permission` 改异步挂起；新增 `_handlePermissionRequest` / `_handleElicitationRequest` / `_pauseTurnTimer` / `_resumeTurnTimer`；`_request` 计时器可续计）；`oamp/test/tool-permission.test.js` +219（新增 5 用例 + R-12 断言改写 + argv 断言同步）；`oamp/test/acp-daemon.test.js` 1 行（`:532` `yolo` → `always-ask`，`:554` 一次性路径逐字保留）
+- 2. 测试结果：PR 6 条验收标准逐条 **pass**（T1~T6 逐条 pass）；`tool-permission` 18/18；`acp-daemon` 7/7；oamp 全量 **290/290**
+- 3. 疑问/待办：① `{optionId}` 侧别按 `reject*` 前缀判定（非法值同口径回落）；② `reject_once` 走既有拒绝三步时 `cancel` 常先于工具失败结果到达（模型侧看到「轮次取消」而非拒绝原文，仍确实未执行）；③ **架构 §9.4.3 D3 行事实有误**（daemon 亦带 `--no-session`，`acp-client.js:126` 无条件追加）建议回填；④ **新副作用**：声明 `elicitation.form` 使 omp 安装可交互 UI ⇒ `ask` 工具变为可用（非审批类 elicitation 一律 `decline`）；⑤ 未做 daemon 端到端复跑（判据已由 daemon 真实 argv 覆盖，端到端需 pr-002 注入后才有意义）
+- 4. 违反边界：**有一处已发生并已回滚**——首轮 edit 因相对路径误改仓库主工作区 `oamp/src/acp-client.js`（20+/5-），发现后 `git checkout --` 回滚，主工作区现零改动（主 agent 已独立核验：`git status --porcelain -uall` 空、`git diff HEAD -- oamp/src/acp-client.js` 空）；另有一处**在文件范围内**但超出任务图列举的测试改写（`tool-permission.test.js` R-12：原断言 `clientCapabilities === {}` 与 M4 修复直接冲突，改为「只声明 `elicitation.form`」）
+- 交付证据：提交 `dd59d31`；worktree `git status --porcelain` 空；M4 双向真实 omp 证据（放行 ⇒ 模型侧 `rawOutput` = 真实输出且带副作用文件；拒绝 ⇒ 模型侧 denied 且副作用文件未创建；审计行未作判据）
+- **根因判定（M4）**：架构 D1/D2/D3 三方向**全部不成立**，真根因 = omp 18.0.11 在 `always-ask` 下叠加的**第二道工具审批门**（tier ≥ write 必经），其 UI 通道依赖客户端声明 `elicitation.form`；客户端未声明 ⇒ `select()` 返回 undefined ⇒ 恒判 denied（模型侧文案 `Tool call denied by user`）
+
+### 2026-09-13 13:03 · 派发 · verifier（阶段 5 · pr-001 验收）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：对 pr-001 的实现在其 worktree 内做独立逐项验证（PR 文件 6 条验收标准 + tasks T1~T6 验收标准 + 主 agent 追加的边界/副作用核查项），**含 M4 双向真实 omp 复跑**，产出 `clarifications/verify-pr-001-{timestamp}.md`
+- PR：prs/pr-001-agent-permission-suspend-and-reply-fix.md
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + **不注入任何执行过程上下文**
+- 工作区（只读）：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001-permission-suspend-and-reply-fix`，HEAD `dd59d31`）
+- 报告落点：`…/docs/iterations/0021-confirmation-inbox-and-event-push/clarifications/verify-pr-001-{timestamp}.md`
+
+### 2026-09-13 13:11 · 收到报告 · verifier（阶段 5 · pr-001 首轮验收）
+
+- 报告路径：`clarifications/verify-pr-001-20260913-131042.md`（41 项判定：A 6 + B/T1~T6 24 + C/C1~C8 8 + D 3）
+- 结论：**PASS**（pass 38 / fail 0 / partial 3 / blocked 0）
+- fail 条目数：0；partial 条目数：3（T5.1 / T5.2 / T5.4——均为「T5 根因定位的**原始证据未落盘**」，非功能缺陷）
+- 偏差记录条数：**5**（#1 高：非 `bEs` 写类工具在 `allow` 档被静默拒绝，本 PR 引入且无下游 PR 承接；#2 中：架构 §9.4.3 D3 行误述 daemon argv；#3 中：T5 证据未落盘；#4 低：单槽凭据窗口内误放行同型门；#5 低：`elicitation.form` 连带使 `ask` 工具对模型可见）
+- 下一迭代候选条数：5
+- 关键独立证据：M4 双向真实 omp（放行 ⇒ 模型侧得真实输出 + 副作用文件落盘；拒绝 ⇒ 模型侧 denied + 未执行，裸 ACP 驱动隔离 `cancel` 观测）；挂起/冻结计时四项帧级判据由**自建 fake ACP 探针**复现（不依赖 PR 自带用例）；`acp-daemon:554` 一次性 `yolo` 断言与同步 `allow`/`deny` 两用例**字节级 IDENTICAL**；仓库根越界已回滚（`git status` 空）
+
+### 2026-09-13 13:13 · 调度决策 · 阶段推进核查
+
+- 决策内容：**pr-001 暂不合并，先做第 2 轮修复**。采纳验证报告偏差 #1 为**合并前返工项**（本 PR 在 `always-ask` 下对不经 ACP 权限门的写类工具——实测 `write`——无人工介入地静默拒绝，改动前同一调用正常执行；pr-002 只注入权限门钩子，不覆盖该门）⇒ 第 2 轮把「工具审批门」纳入上浮面，并按契约 C1~C6 消除静默拒绝与单槽凭据误放行窗口
+- 性质判定：**非需求变更**（`demand.md` W3「受门禁工具调用上浮给人裁决」已覆盖 `always-ask` 下的写类工具）⇒ 不写 `deferred-demand-changes.md`、不回退阶段、不暂停；在本阶段直接解决
+- 触发依据：`clarifications/verify-pr-001-20260913-131042.md` §偏差记录 #1（高）+ §结论附注「本报告不构成合并许可」；架构 §3.1 L1-2②「上浮」语义；omp dist 双层门代码（权限门 `bEs={bash,edit,delete,move}` vs 审批门 tier ≥ `write`）
+- 处置文件：`clarifications/pr001-round2-verdicts.md`（第 2 轮行为契约 C1~C6 + 附加交付项 4 条）
+- 不阻塞项：偏差 #2（架构 §9.4.3 D3 文档误述）与 #5（`ask` 连带面）登记为阶段 6 汇总项 / 下一迭代候选；#3 由第 2 轮的「M4 证据落盘」交付项闭合
+
+### 2026-09-13 13:14 · 派发 · dev（阶段 5 · pr-001 第 2 轮修复）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：在 pr-001 同一 worktree 分支上落地第 2 轮修复——把 omp 的**工具审批门**（`elicitation/create`）纳入上浮面（无人工裁决不得拒绝、同一 toolCall 已放行者不重复提问、消除单槽凭据误放行窗口），并补落 T5 的 M4 原始证据
+- PR：prs/pr-001-agent-permission-suspend-and-reply-fix.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001-permission-suspend-and-reply-fix`，HEAD `dd59d31`）
+- 验收标准注入：PR 文件 6 条 + `prs/pr-001-tasks.md` T1~T6 + **`clarifications/pr001-round2-verdicts.md` C1~C6 与附加交付项**

@@ -23,7 +23,7 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.2.0**：12 张卡（F01~F09 需求功能点 + F10~F12 保证项）；5 项 MI 全部 `user_confirmed`；`model_inferred` 归零；`[架构待填]` T-01~T-16 留白 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **821 行**：T-01~T-16 = **16/16** 落定；12 卡架构段改造写；**L1 四条 + 覆盖范围全部 `user_confirmed`**；自查 C 表；必然变更点 B 表 |
 | 4 | PR 规划 | ✅ | ✅ | 4 个 PR（依赖图 `pr-001→pr-002`、`pr-003→pr-004`）；Gate 验证 **PASS 11/11**（`clarifications/verify-stage4-gate-20260913-122303.md`） |
-| 5 | PR 实现 | ⏸ | ⬜ | 首波并发 {pr-001, pr-003} |
+| 5 | PR 实现 | ⏸ | ⬜ | 首波并发 {pr-001, pr-003}：planner 任务图已交付（两 PR 各 6 任务）；**hub dev 轮次零落盘**（#14 `completed` 无产物 / #15 `failed context_crashed`）⇒ dev 改由本地 sub agent 接力中 |
 | 6 | 独立验证 | ⬜ | ⬜ | |
 
 ## 并发配置（阶段 5）
@@ -34,7 +34,7 @@
 | **硬上限** | 5（公式 `2×起始-1`） |
 | **当前有效上限** | 3（初始 = 起始并发数） |
 | **累计槛位释放次数** | 0 |
-| **已派发总数** | 0 |
+| **已派发总数** | 6（阶段 5：planner×2 + hub dev×2 + 本地 dev×2） |
 
 依赖图（阶段 4 产出）：`pr-001 → pr-002`、`pr-003 → pr-004`；**首波可并发 = {pr-001, pr-003}**，次波 = {pr-002, pr-004}。
 
@@ -42,9 +42,9 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-agent-permission-suspend-and-reply-fix.md | （无） | 进行中（planner 已派发） | `feat/0021-pr-001-permission-suspend-and-reply-fix` | — | 占用 |
+| pr-001-agent-permission-suspend-and-reply-fix.md | （无） | 进行中（planner 任务图已交付；dev 本地 sub agent 接力中） | `feat/0021-pr-001-permission-suspend-and-reply-fix` | — | 占用 |
 | pr-002-agent-confirmation-wiring.md | pr-001 | 未解锁 | — | — | — |
-| pr-003-web-inbox-and-decision-api.md | （无） | 进行中（planner 已派发） | `feat/0021-pr-003-web-inbox-and-decision-api` | — | 占用 |
+| pr-003-web-inbox-and-decision-api.md | （无） | 进行中（planner 任务图已交付；dev 本地 sub agent 接力中） | `feat/0021-pr-003-web-inbox-and-decision-api` | — | 占用 |
 | pr-004-console-inbox-column-and-notify.md | pr-003 | 未解锁 | — | — | — |
 
 ## 更新日志
@@ -58,3 +58,5 @@
 - 2026-09-13: **阶段 3 完成**（architecture.md 821 行；L1-1~L1-4 + 覆盖范围经用户裁决；L1-2 经**受控实测证实**并新增「答复链路修复」义务）⇒ 进入阶段 4（PR 规划）。
 
 - 2026-09-13: **阶段 4 Gate PASS 11/11** ⇒ 进入阶段 5；并发配置初始化（起始 3 / 硬上限 5 / 有效 3 / 释放 0 / 已派发 0）；按 Gate 建议把 M4 复跑探针纳入仓库（`clarifications/probe-always-ask.mjs`）。
+
+- 2026-09-13: 阶段 5 首波：planner 交付 `prs/pr-001-tasks.md`、`prs/pr-003-tasks.md`（各 6 任务，依赖图无环）；hub dev 两轮实测**零落盘**（pr-001 `completed` 无产物 / pr-003 `failed context_crashed`）⇒ 按执行方式字段改由**本地 sub agent** 接力 dev（planner 产物有效，不重派）。
