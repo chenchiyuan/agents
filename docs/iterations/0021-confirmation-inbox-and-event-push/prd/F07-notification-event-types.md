@@ -29,7 +29,12 @@
 - 不含通知偏好设置（N4 → F08 边界）。
 - 不含事件类型定义的承载形态（→ T-14）；不含事件投递路径（→ T-13）。
 
-## 架构待填（本阶段留白）
+## 架构落定（阶段 3）
 
-- **T-13** 事件投递走哪条路径 / 通道的具体实现。
-- **T-14** 事件类型定义的承载形态（清单 / 常量 / 文案）。
+> 架构维度结论；产品维度**未改动**。详见 `../architecture.md` §2.2 流 3 / §7 T-13、T-14 / §5.5。
+
+- **T-14 事件类型的承载形态**（§7 T-14）：**前端一处冻结常量** `EVENT_TYPES = Object.freeze(['chat_completed','chat_failed','confirmation_required'])` + `service` 层一个 `switch`（`oamp/web/notify.js`）；**服务端零事件类型常量**（服务端只推事实：`chat_state` / `confirmation`）⇒ 唯一真源，无第二处可漂移。
+- **T-13 投递路径**（§7 T-13）：服务端 → **既有两条 SSE 连接** → 前端 `notify.js` → 浏览器 Notification API。`chat_completed` / `chat_failed` 由前端从既有 `chat_state` 派生；`confirmation_required` 来自新增的 `confirmation` 帧。
+- **产生时机**：对话终态 = 既有 `publishState`（`web.js:1374`）**追加一次全局广播**（L2-8），既有 `chat:<id>` 键发布行为逐字不变；`confirmation_required` = **确认项首次进入 inbox 时恰一次**（MI-01，服务端事实）。
+- **不含 `call_completed`（N5）**：调用事件走 `call:` / `chat-calls:` 键（`transport.js:18-22` 三个互不为前缀的空间），前端**不在那些键上派生通知** ⇒ **结构上不可能产生**，非靠约定。
+- **必然变更**：`API.md §4.2`（`API.md:912-924`）"2 类事件 / 全局链路上只有这两类"须改写为 3 类（§11.2 B-6）。

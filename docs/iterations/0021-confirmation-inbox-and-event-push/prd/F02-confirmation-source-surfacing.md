@@ -32,7 +32,12 @@
 - 不含栏内裁决交互（→ F03）；不含裁决回传与该轮后果（→ F04）；不含未裁决时的挂起语义（→ F05）。
 - 不含条目的呈现形态与字段（→ T-02）；不含确认源的接线方式与是否需新增承载体（→ T-05）。
 
-## 架构待填（本阶段留白）
+## 架构落定（阶段 3）
 
-- **T-02** 确认项在栏内的呈现形态（验收 2 的"选项集合"如何呈现）。
-- **T-05** 确认源的接线方式（复用既有授权请求钩子的具体接法）与是否需在 oamp 侧新增承载体。
+> 架构维度结论；产品维度**未改动**。详见 `../architecture.md` §7 T-05 / §5.3 / §5.4 / §9.1(R3)。
+
+- **T-02 选项集合的呈现**（§7 T-02）：选项**逐字来自 ACP** `session/request_permission` 的 `params.options`（`acp-client.js:415-425` 已把 `options` 传给钩子）；栏内每个 `optionId` 一个按钮，`label` 缺失时显示 `optionId`。
+- **T-05 接线与承载体**（§7 T-05）：**不新增承载体**。三处最小扩展 = ① `acp-client.js:397-425` 钩子返回值域扩为 `'allow'|'deny'|{optionId}|Promise<…>` ② `context-pool.js:204-212` 透传 `onPermissionRequest`（该能力**现无注入者**）③ `agent.js` daemon 任务注入钩子并发出 `notice{kind:'confirmation_request'}`。
+- **档位**（R3）：`ContextPool` **仅在 `permission === 'allow'` 时注入**上浮钩子；`deny` 档不注入 ⇒ `acp-client.js:404-407` 的自动拒绝三步**逐字不变**。
+- **必然变更**：`allow` 档 argv `--approval-mode yolo` → `always-ask`（否则 omp 不发权限请求，功能不存在）；连带改 `acp-daemon.test.js:532`、`tool-permission.test.js:397`。**见 architecture.md §9.3 V1（[INFERENCE]，实现期实测）**、§11.1 B-1/B-2。
+- **覆盖面边界（待主 agent 确认）**：仅 `omp-daemon` 常驻路径可上浮；一次性 `omp` / `!` shell 路径无 ACP 应答通道，**不上浮**（`architecture.md` §9.2 K3 / §10.1 疑问 1）。

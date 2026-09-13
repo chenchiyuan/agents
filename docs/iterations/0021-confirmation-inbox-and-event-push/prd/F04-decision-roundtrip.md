@@ -27,6 +27,12 @@
 - 不含裁决的撤销 / 二次修改（`demand.md` 未要求，本阶段不新增）。
 - 不含通知（→ F07 / F08）。
 
-## 架构待填（本阶段留白）
+## 架构落定（阶段 3）
 
-- **T-06** 裁决回传到请求方的载体与形态（如何让该轮继续或中止）。
+> 架构维度结论；产品维度**未改动**。详见 `../architecture.md` §5.3 / §5.4 / §7 T-06。
+
+- **T-06 回传载体与形态**（§7 T-06）：`web.js` 的 R-2 handler → **既有** `sendControlNotice`（`web.js:1559-1566`）→ agent 进程 → 按 **`confirmation_id`** 从本地 `pending` Map 取 Promise 结算 → `acp-client` 用 `optionId` 回 `_respond`。
+- **信封**（§5.3）：复用既有 `notice` 类型（`router.js:23` 的 `VALID_TYPES` 是封闭集合，新增 `type` 会波及 Router 进程）⇒ 新增 `kind:'confirmation_decision'`，**Router 零改动**。
+- **作用域保证**：作用域 = `confirmation_id`，非"当前对话"、非"最近一条" ⇒ 并发多对话 / 同对话多请求均精确投递。
+- **继续 or 中止**：`allow*` ⇒ 轮次自然继续；`reject*` ⇒ 走既有拒绝路径 `acp-client.js:404-407`（`_permissionDenied = true` + `cancel()` ⇒ `prompt()` 结算时抛 `permission_denied`）。
+- **取不到 pending 的处置**：静默丢弃 + 一行审计；不给浏览器回错误（浏览器侧已 `200`，两个失败面不同源）。

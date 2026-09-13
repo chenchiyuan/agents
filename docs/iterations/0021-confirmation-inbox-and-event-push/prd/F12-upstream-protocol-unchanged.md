@@ -24,6 +24,11 @@
 - 不含 agent 侧其它行为（挂起语义 → F05）。
 - 不含协议方法清单之外的上游内容（本迭代不改任何上游）。
 
-## 架构待填（本阶段留白）
+## 架构落定（阶段 3）
 
-- **T-05** 确认源的接线方式（复用既有授权请求钩子的具体接法）与是否需在 oamp 侧新增承载体。
+> 架构维度结论；产品维度**未改动**。详见 `../architecture.md` §5.3 / §5.4 / §7 T-05 / §10.3。
+
+- **T-05 接线方式与承载体**（§7 T-05）：**不新增承载体**。ACP 侧 `session/request_permission` 及其 `options` **原样消费**——不新增、不修改任何 omp / harness 侧协议方法；改动全部落在 oamp 侧（`acp-client.js` 钩子异步化、`context-pool.js` 透传、`agent.js` 注入）。
+- **ACP 侧仅有的两处变化**（都不改协议形状）：① **何时应答**（挂起期不回 `_respond`）② **应答值**（回显用户选中的 `optionId`，取代 `acp-client.js:400` 的硬编码 `allow_once` / `reject_once`；同步返回的两条既有路径仍恒为这两个值，逐字不变）。
+- **oamp 内部跨进程面**：复用既有 `notice` 类型（`router.js:23` 的 `VALID_TYPES` 为封闭集合）+ 新增 3 个 `kind` ⇒ **Router 零改动**，也没有第二套协议词汇。
+- **必然变更**：`agent` 侧 argv `--approval-mode`（allow 档 `yolo` → `always-ask`）——属 **omp CLI 调用参数**，非协议方法面（N3 仍成立）。
