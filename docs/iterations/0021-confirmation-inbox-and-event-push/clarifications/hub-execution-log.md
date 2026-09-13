@@ -83,5 +83,7 @@
 3. 本迭代自身的执行记录（本次失败 → 调整 → 重派）可作为「hub 派发单轮上限」议题的真实样本。
 | 10 | 2026-09-13 13:20 | 阶段 4 | pr-planner | pb-pr-planner | `task-d050e792-c248-4806-8ec9-9d892ea75768` | background | **completed** | 306775ms | **4 个 PR**；依赖图 `pr-001→pr-002`、`pr-003→pr-004`；首波可并发 {pr-001, pr-003}；提交 `ad47ea0` |
 | 11 | 2026-09-13 13:27 | 阶段 4 | verifier（Gate） | pb-verifier | `task-dc76f986-31cf-4bfd-bedb-1442f73445d7` | background | **completed** | 230214ms | Gate **PASS 11/11**；报告 `verify-stage4-gate-20260913-122303.md` |
-| 12 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-001） | pb-planner | `task-aa2957f0-503b-4dc8-b72e-6d325c36653f` | background | 进行中 | — | PR worktree `0021-pr-001-permission-suspend-and-reply-fix` |
-| 13 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-003） | pb-planner | `task-fdab6b60-efe2-4114-b648-f21b77a465ff` | background | 进行中 | — | PR worktree `0021-pr-003-web-inbox-and-decision-api`；**与 #12 同批并发** |
+| 12 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-001） | pb-planner | `task-aa2957f0-503b-4dc8-b72e-6d325c36653f` | background | **completed** | ~180s | 产出 `prs/pr-001-tasks.md`（18.6KB） |
+| 13 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-003） | pb-planner | `task-fdab6b60-efe2-4114-b648-f21b77a465ff` | background | **completed** | ~360s | 产出 `prs/pr-003-tasks.md`（21.1KB）；**与 #12 同批并发** |
+| 14 | 2026-09-13 13:50 | 阶段 5 首波 | dev（pr-001） | pb-dev | `task-611698ac-6016-4854-b01b-57333c091936` | background | 进行中 | — | 含 **M4 答复链路修复**硬义务 |
+| 15 | 2026-09-13 13:50 | 阶段 5 首波 | dev（pr-003） | pb-dev | `task-ad76744f-6c6b-499d-a5cf-19a73ef79e50` | background | 进行中 | — | **与 #14 同批并发** |
