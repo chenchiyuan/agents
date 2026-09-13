@@ -23,7 +23,7 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.2.0**：12 张卡（F01~F09 需求功能点 + F10~F12 保证项）；5 项 MI 全部 `user_confirmed`；`model_inferred` 归零；`[架构待填]` T-01~T-16 留白 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **821 行**：T-01~T-16 = **16/16** 落定；12 卡架构段改造写；**L1 四条 + 覆盖范围全部 `user_confirmed`**；自查 C 表；必然变更点 B 表 |
 | 4 | PR 规划 | ✅ | ✅ | 4 个 PR（依赖图 `pr-001→pr-002`、`pr-003→pr-004`）；Gate 验证 **PASS 11/11**（`clarifications/verify-stage4-gate-20260913-122303.md`） |
-| 5 | PR 实现 | ⏸ | ⬜ | **pr-003 已合并**（`1f7eceb`，验收 PASS 46/46）⇒ 解锁 pr-004；**pr-001 第 2 轮已提交 `1f11b59`（工具审批门上浮 + 凭据一次性抵扣 + M4 证据落盘）⇒ 独立复验中**；**pr-004 dev 执行中**（含用户裁决的 Q4 文案修复并入） |
+| 5 | PR 实现 | ⏸ | ⬜ | **pr-001 已合并**（`c84233a`，第 3 轮复验 PASS 45/46；合并后 oamp 全量 **302/302**）⇒ 解锁 pr-002；**pr-003/pr-001 已完成**；**pr-002 planner 派发中**；**pr-004 第 2 轮已提交 `a431225`（Q6 修复）⇒ 复验中** |
 | 6 | 独立验证 | ⬜ | ⬜ | |
 
 ## 并发配置（阶段 5）
@@ -33,8 +33,8 @@
 | **起始并发数** | 3 |
 | **硬上限** | 5（公式 `2×起始-1`） |
 | **当前有效上限** | 5（= min(3 + 1×3, 5)，pr-003 合并释放 1 次槛位） |
-| **累计槛位释放次数** | 1（pr-003 合并） |
-| **已派发总数** | 9（阶段 5：planner×3 + hub dev×2 + 本地 dev×3 + verifier 复验×1） |
+| **累计槛位释放次数** | 2（pr-003、pr-001 合并） |
+| **已派发总数** | 11（阶段 5：planner×4 + hub dev×2 + 本地 dev×5 + verifier 复验×3） |
 
 依赖图（阶段 4 产出）：`pr-001 → pr-002`、`pr-003 → pr-004`；**首波可并发 = {pr-001, pr-003}**，次波 = {pr-002, pr-004}。
 
@@ -42,10 +42,10 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-agent-permission-suspend-and-reply-fix.md | （无） | 进行中（第 2 轮已提交 `1f11b59`；独立复验中） | `feat/0021-pr-001-permission-suspend-and-reply-fix` | — | 占用 |
-| pr-002-agent-confirmation-wiring.md | pr-001 | 未解锁 | — | — | — |
+| pr-001-agent-permission-suspend-and-reply-fix.md | （无） | ✅ 已完成（第 3 轮复验 PASS 45/46） | `feat/0021-pr-001…`（已清理） | ✅（`c84233a`） | 已释放 |
+| pr-002-agent-confirmation-wiring.md | pr-001（已合并） | 进行中（planner 派发中） | `feat/0021-pr-002-agent-confirmation-wiring` | — | 占用 |
 | pr-003-web-inbox-and-decision-api.md | （无） | ✅ 已完成（验收 PASS 46/46） | `feat/0021-pr-003…`（已清理） | ✅（`1f7eceb`） | 已释放 |
-| pr-004-console-inbox-column-and-notify.md | pr-003 | 进行中（任务图 `cce5f8b`；dev 执行中） | `feat/0021-pr-004-console-inbox-column-and-notify` | — | 占用 |
+| pr-004-console-inbox-column-and-notify.md | pr-003 | 进行中（第 2 轮已提交 `a431225`；复验中） | `feat/0021-pr-004-console-inbox-column-and-notify` | — | 占用 |
 
 ## 更新日志
 
@@ -68,3 +68,9 @@
 - 2026-09-13: **用户裁决三项**（真实阻塞式转呈）：pr-004 的 2 项 `[model_inferred]` 均确认（`notify.js` 全局入口 / 同值终态去重）；pr-003 合并后发现的 `/api/events` 文案少报 ⇒ **并入 pr-004**（显式扩范围 2 文件 + 追加验收项 AE-1）。裁决落盘 `clarifications/pr004-round-1-verdicts.md`。
 
 - 2026-09-13: pr-001 第 2 轮 dev 提交 `1f11b59`（首轮单槽凭据 → FIFO 一次性抵扣；审批门经钩子上浮；补落 `clarifications/pr-001-m4-evidence.md` 17608 B）；派发独立复验。pr-004 dev 并行执行中。
+
+- 2026-09-13: **pr-001 完成**——第 2 轮复验 PASS（38/41，含「`write` 类工具静默拒绝」高严重度回退已闭合）后，主 agent 依复验偏差 #3 再开第 3 轮最小修复（`dd7badd`：重叠挂起按深度冻结 + 拒绝即清凭据），复验 **PASS（45/46）**；**合并进迭代分支**（`c84233a`），合并后 oamp 全量 **302/302 绿**；worktree/分支已清理 ⇒ **解锁 pr-002**。偏差 D3-3（残留暂停态跨轮、极窄、非本轮引入）与既有测试 flake 按偏差登记留阶段 6。
+
+- 2026-09-13: **pr-004 第 2 轮**（`a431225`）——独立验收判 PASS（60/62，2 个 partial 同指「hub 调用面完成产生通知」违反 `prd/F07` 验收 3/N5）⇒ 主 agent 裁定为绑定条款并授权修：调用面驱动的 chat 状态变化不进全局 `chat_state` 链路（定向帧逐字不变）+ 新建 `oamp/test/notification-scope.test.js`（3 断言，含红→绿反证）；复验中。
+
+- 2026-09-13: pr-002（agent 进程接线）解锁并派发 planner（worktree base = `c84233a`）。

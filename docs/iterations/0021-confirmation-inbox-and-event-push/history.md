@@ -464,3 +464,30 @@
 - 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + 不注入执行过程上下文
 - 工作区（只读）：`…/0021-pr-004-console-inbox-column-and-notify`（分支 `feat/0021-pr-004…`，HEAD `a431225`；本轮改动面 = `git diff 76e33d5...HEAD`）
 - 报告落点：`…/clarifications/verify-pr-004-r2-{timestamp}.md`
+
+### 2026-09-13 14:52 · 收到报告 · verifier（阶段 5 · pr-001 第 3 轮复验）
+
+- 报告路径：`clarifications/verify-pr-001-r3-20260913-202634.md`
+- 结论：**PASS**（46 项判定：45 pass / **1 partial** / 0 fail / 0 blocked）
+- fail 条目数：0；partial 条目数：1；blocked：0；偏差记录条数：**6**；下一迭代候选条数：7
+- 变更面闭合：**D1 闭合**（自建 fake + 帧级探针：两道权限门 / 权限门+审批门两种重叠形态在挂起 > 3×`timeoutMs` 期间 `cancels=0`/`dead=false`/未以 `timeout` 结算；先结算其一后仍冻结；全部结算后 `end_turn`；**对照 `1f11b59` 源确定性复现修复前失效形态**）；**D2 闭合**（放行 A → 拒绝 B → 无关同型门：HEAD=Deny 且上浮，`1f11b59`=Approve 且钩子零调用）；**D3 未完全闭合**（D3-1/D3-2 pass；**D3-3「上一轮遗留暂停态不得影响下一轮」不通过** ⇒ 记为偏差 #1，且在 `1f11b59` 同形、**非本轮引入**）
+- M4 硬义务（真实 omp 18.0.11，13 次运行）：`bash`/`write` 双向全成立（放行 ⇒ 模型侧真实输出 + 副作用文件落盘；拒绝 ⇒ 模型侧 denied + 文件未创建；无钩子 ⇒ 保守拒绝且 `end_turn`）；全程未以审计行作判据
+- 回归：`tool-permission` 24/24（规范运行）、`acp-daemon` 7/7、**oamp 全量 296/296 单次全绿**
+- 附加：1 例既有用例（`tool-permission.test.js:447` 拒绝后立即 `session/cancel` 的观测时序竞争）在 11 次对照中 0 复现 ⇒ 既有测试 flake（偏差 #6）
+
+### 2026-09-13 14:53 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-001 合并进迭代分支**——`git merge --no-ff feat/0021-pr-001-permission-suspend-and-reply-fix` ⇒ merge commit `c84233a`（4 文件 / +861 −34；含 planner 的 `prs/pr-001-tasks.md` 一并并入迭代分支，闭掉 progress-observer 的 #1 不一致）；pr-001 worktree/分支**已清理**；释放 1 个槛位
+- 并发配置更新：`累计槛位释放次数` 1 → **2**；`当前有效上限` 保持 **5**（已触硬上限）；`已派发总数` 9 → 10（含本轮复验）
+- 依赖解锁：**pr-002 解锁**（`depends_on: pr-001`，worktree 从已含 pr-001 的迭代分支 `c84233a` 拉出）
+- 不阻塞项（偏差登记，留阶段 6 汇总 + 下一迭代候选）：**D3-3**（极窄：某轮挂起未结算而该轮以其他方式结束时，残留暂停态会使**下一轮**的计时器不再装回 ⇒ 该轮可能不超时；`1f11b59` 同形、非本轮引入；与 F05「确认项默认阻塞且无上限」方向一致，故按偏差处理不阻塞合并）、偏差 #6（既有测试时序竞争 flake）
+- 触发依据：`clarifications/verify-pr-001-r3-20260913-202634.md` 结论 PASS；workflow-pb「依赖解锁式并发」第 3 条
+
+### 2026-09-13 14:54 · 派发 · planner（阶段 5 · 次波 pr-002）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：为该 PR 产出内部任务图 `prs/pr-002-tasks.md`（验收标准可追溯、依赖图无环、粒度合适）并提交到本 PR 分支
+- PR：prs/pr-002-agent-confirmation-wiring.md
+- 通道：宿主 `task` 工具（本地 sub agent）；planner 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-002-agent-confirmation-wiring`（分支 `feat/0021-pr-002-agent-confirmation-wiring`，base = 迭代分支 `c84233a`，**已含 pr-001 与 pr-003 代码**）
+- 注入的既有事实与裁决：pr-001 最终的钩子契约（`{sessionId, toolCall, options}` 权限门 / `{kind:'tool_approval', toolCall:{toolName,title}, options:['Approve','Deny']}` 审批门；返回域 `'allow'|'deny'|{optionId}|Promise<…>`；审批门仅 `'allow'`/`{optionId:'Approve'}` 视为放行）+ pr-001 tasks §5 Q1 的待承接检查项（若 `agent.js` 侧引入 task 级计时/取消，须复核与 acp-client 冻结语义的冲突）+ pr-003 已合并的信封与路由事实（`confirmation_decision` 的 `option_id` 来自该条 options，故审批门场景回传值为 `Approve`/`Deny`）+ 架构 §5.3 信封三型 + Router 零改动
