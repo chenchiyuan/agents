@@ -1042,9 +1042,9 @@ test('0018 组 M（F15）：路由表零禁用词 / API.md 调用面章节命中
   const { web } = await setup(t);
   const BANNED = ['cancel', 'terminate', 'steer', 'isolated', 'effort', 'local://', 'agent://'];
 
-  // 验收 1：运行期路由投影（19 条 = 既有 13 + 调用面 6）的 path 与 params[].name 零命中
+  // 验收 1：运行期路由投影（21 条 = 既有 15 + 调用面 6）的 path 与 params[].name 零命中
   const docs = await jget(web.base, '/api/docs');
-  assert.equal(docs.body.routes.length, 19, `路由表应为 19 条（实得 ${docs.body.routes.length}）`);
+  assert.equal(docs.body.routes.length, 21, `路由表应为 21 条（实得 ${docs.body.routes.length}）`);
   for (const route of docs.body.routes) {
     for (const word of BANNED) {
       assert.equal(route.path.includes(word), false, `路由路径不得含禁用词 ${word}: ${route.path}`);
@@ -1064,16 +1064,17 @@ test('0018 组 M（F15）：路由表零禁用词 / API.md 调用面章节命中
 
   // 验收 2：API.md 调用面章节的命中行 ⊆ 允许区间（§6 不做声明 ∪ §7 全章）
   const lines = fs.readFileSync(API_MD, 'utf8').split('\n');
+  // 行号锚点随 0021 pr-003 的 API.md §3.20 / §3.21 追加（+2 表行 / +86 正文行）同步平移
   const SCOPE = [
-    [628, 898],
-    [937, 962],
-    [1279, 1386],
-    [1387, 1412],
-    [1415, 1534],
+    [630, 900],
+    [1025, 1050],
+    [1367, 1474],
+    [1475, 1500],
+    [1503, 1622],
   ];
   const ALLOWED = [
-    [1387, 1412],
-    [1415, 1534],
+    [1475, 1500],
+    [1503, 1622],
   ];
   const inRanges = (n, ranges) => ranges.some(([a, b]) => n >= a && n <= b);
   const hits = [];

@@ -33,14 +33,31 @@ function log(envKey, entry) {
 
 log('FAKE_ACP_ARGS_LOG', argv);
 let promptSeq = 0;
+let pairReplies = 0; // suspend_pair*：本轮已结算的重叠等待数（两个都结算才收尾）
 
 /** 推一帧 session/update（tool_call / tool_call_update）——§4.5 主机制的审计源。 */
 function emit(sessionId, toolCallId, patch) {
   send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: Object.assign({ toolCallId }, patch) } });
 }
+/** 推一帧 form elicitation——缺省即第二道审批门（Approve|Deny select，真实 omp 同型帧）；label 供帧日志归位、schema 可换非审批形状。 */
+function elicit(sessionId, promptId, message, label, schema) {
+  serverSeq += 1;
+  awaitingReply.set(serverSeq, { promptId, kind: 'elicitation', label: label || null });
+  send({
+    jsonrpc: '2.0',
+    id: serverSeq,
+    method: 'elicitation/create',
+    params: {
+      mode: 'form',
+      sessionId,
+      message: message || 'Allow tool: edit',
+      requestedSchema: schema || { type: 'object', properties: { value: { type: 'string', enum: ['Approve', 'Deny'] } }, required: ['value'] },
+    },
+  });
+}
 
 let serverSeq = 9000;
-const awaitingReply = new Map(); // 服务端请求 id -> 对应的 session/prompt id
+const awaitingReply = new Map(); // 服务端请求 id -> { promptId, kind }
 
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
@@ -68,6 +85,62 @@ rl.on('line', (line) => {
   if (msg.method === 'session/prompt') {
     promptSeq += 1;
     const sid = msg.params.sessionId;
+    if (MODE === 'elicit_only') {
+      // 无第一道 permission 的 elicitation（非受门禁工具的审批门：无钩子时必须回落 Deny，不猜放行）
+      elicit(sid, msg.id);
+      return;
+    }
+    if (MODE === 'elicit_window') {
+      // C2/C4 复现：call_A 经权限门放行后，窗口内插入一道与 call_A 无关的同型门；call_A 终态后再来一道。
+      // 权限请求帧**不带** toolName（真实 omp 帧形：ACP 桥 mba() 只序列化 toolCallId/title/kind/rawInput/content/locations）。
+      serverSeq += 1;
+      awaitingReply.set(serverSeq, { promptId: msg.id, kind: 'permission', label: 'permission_A' });
+      send({
+        jsonrpc: '2.0',
+        id: serverSeq,
+        method: 'session/request_permission',
+        params: {
+          sessionId: sid,
+          toolCall: { toolCallId: 'call_A', title: '$ echo hi', status: 'pending', rawInput: { command: 'echo hi', cwd: '/tmp' } },
+          options: [
+            { optionId: 'allow_once' },
+            { optionId: 'allow_always' },
+            { optionId: 'reject_once' },
+            { optionId: 'reject_always' },
+          ],
+        },
+      });
+      return;
+    }
+    if (MODE === 'elicit_other') {
+      // 非审批形状（ask 型 askDialog + boolean confirm）：形状不等同审批门 ⇒ 一律 decline（C5）
+      elicit(sid, msg.id, '请选择', 'ask_dialog', { type: 'object', properties: { q0: { type: 'string', title: 'Q', oneOf: [{ const: 'A', title: 'A' }] } }, required: ['q0'] });
+      elicit(sid, msg.id, '确认', 'confirm_boolean', { type: 'object', properties: { value: { type: 'boolean' } }, required: ['value'] });
+      return;
+    }
+    if (MODE === 'suspend_pair' || MODE === 'suspend_pair_hang') {
+      // L1-1（偏差 #3）：同一轮内**两个**裁决等待同时未结算——不等第一道门的应答就发第二道门（重叠挂起）。
+      // 挂起期轮次计时必须保持冻结：任一等待未结算都不得解冻，否则轮次会在另一等待裁决前超时（cancel → kill）。
+      serverSeq += 1;
+      awaitingReply.set(serverSeq, { promptId: msg.id, kind: 'permission', label: 'perm_overlap' });
+      send({
+        jsonrpc: '2.0',
+        id: serverSeq,
+        method: 'session/request_permission',
+        params: {
+          sessionId: sid,
+          toolCall: { toolCallId: 'call_ov', toolName: 'bash', title: '$ echo hi', status: 'pending', rawInput: { command: 'echo hi' } },
+          options: [
+            { optionId: 'allow_once' },
+            { optionId: 'allow_always' },
+            { optionId: 'reject_once' },
+            { optionId: 'reject_always' },
+          ],
+        },
+      });
+      elicit(sid, msg.id, 'Allow tool: write', 'gate_overlap');
+      return;
+    }
     if (MODE === 'toolcall') {
       // 同 id 三帧（pending → in_progress → completed）：终态首见落行 ⇒ 恰 1 行；title 超长以验截断
       emit(sid, 'tc-' + promptSeq, { sessionUpdate: 'tool_call', kind: 'edit', title: 'Create /tmp/role-smoke.txt ' + 'x'.repeat(130), status: 'pending', rawInput: { path: '/tmp/role-smoke.txt' } });
@@ -106,7 +179,7 @@ rl.on('line', (line) => {
       return;
     }
     serverSeq += 1;
-    awaitingReply.set(serverSeq, msg.id);
+    awaitingReply.set(serverSeq, { promptId: msg.id, kind: MODE === 'unknown' ? 'unknown_method' : 'permission' });
     if (MODE === 'unknown') {
       send({ jsonrpc: '2.0', id: serverSeq, method: 'fs/read_text_file', params: { sessionId: 'sess-1', path: '/tmp/x' } });
     } else {
@@ -137,15 +210,44 @@ rl.on('line', (line) => {
 
   // 客户端对我们服务端请求的应答（正常 result，或未知方法的 -32601 error）
   if (msg.id !== undefined && awaitingReply.has(msg.id)) {
-    const promptId = awaitingReply.get(msg.id);
+    const entry = awaitingReply.get(msg.id);
     awaitingReply.delete(msg.id);
     log('FAKE_ACP_FRAMES_LOG', {
       frame: 'server_request_reply',
+      kind: entry.kind,
+      label: entry.label || null,
+      at: Date.now(),
       server_request_id: msg.id,
       result: msg.result || null,
       error: msg.error || null,
     });
-    send({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn', usage: {} } });
+    // M4：第一道门放行后才进第二道审批门（真实 omp 同序：放行 ⇒ 执行前 elicit；拒绝 ⇒ 不 elicit）
+    if (entry.kind === 'permission' && MODE === 'elicit' && msg.result && msg.result.outcome && String(msg.result.outcome.optionId).startsWith('allow')) {
+      elicit('sess-1', entry.promptId);
+      return;
+    }
+    // C2/C4：permission_A 放行 ⇒ call_A 自己的门（gate_1）⇒ 无关同型门（gate_2）⇒ call_A 终态 ⇒ 终态后的门（gate_3）
+    if (entry.label === 'permission_A' && msg.result && msg.result.outcome && String(msg.result.outcome.optionId).startsWith('allow')) {
+      elicit('sess-1', entry.promptId, 'Allow tool: bash', 'gate_1_own');
+      return;
+    }
+    if (entry.label === 'gate_1_own') {
+      elicit('sess-1', entry.promptId, 'Allow tool: write', 'gate_2_unrelated');
+      return;
+    }
+    if (entry.label === 'gate_2_unrelated') {
+      emit('sess-1', 'call_A', { sessionUpdate: 'tool_call_update', status: 'completed' });
+      elicit('sess-1', entry.promptId, 'Allow tool: bash', 'gate_3_after_terminal');
+      return;
+    }
+    if (entry.label === 'ask_dialog') return; // 等第二道非审批询问答完再结算
+    if (MODE === 'suspend_pair' || MODE === 'suspend_pair_hang') {
+      pairReplies += 1;
+      if (MODE === 'suspend_pair_hang') return; // 收到应答也不结算该轮（对照：验证恢复后按剩余预算续计）
+      if (pairReplies < 2) return; // 两个重叠等待都结算后才收尾该轮
+    }
+    if (MODE === 'hang') return; // 收到应答也不结算该轮（pr-001④ 对照：验证超时路径与「按剩余时间恢复」）
+    send({ jsonrpc: '2.0', id: entry.promptId, result: { stopReason: 'end_turn', usage: {} } });
   }
 });
 `;
@@ -189,6 +291,17 @@ function readJsonLines(file) {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 轮询等待**进程外**事实成立（帧日志 / 子进程状态只能等，不能断言瞬时值）。 */
+async function waitFor(predicate, what, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await sleep(10);
+  }
+  throw new Error(`等待超时：${what}`);
 }
 
 async function startClient(clients, bin, opts = {}, logger = null) {
@@ -386,7 +499,7 @@ test('§12.2 契约 1：onPermissionRequest 优先于静态 permission', async (
 
 // ─────────── pr-007（阶段 6 返工）：argv 档位映射（§4.4 主机制）+ `tool_call` 通知 → TOOL_CALL（§4.5） ───────────
 
-test('§4.4/pr-007①：permission 档 → argv 追加 --approval-mode（仅 tools=true；tools=off/匿名不变）', async (t) => {
+test('§4.4/L1-2②/pr-001①：tools=true 时两档 argv 恒为 --approval-mode always-ask（tools=off/匿名不变）', async (t) => {
   const clients = withClients(t);
 
   const allow = writeFake('allow');
@@ -394,7 +507,7 @@ test('§4.4/pr-007①：permission 档 → argv 追加 --approval-mode（仅 too
   const allowArgv = readJsonLines(allow.argsLog)[0];
   const allowIdx = allowArgv.indexOf('--approval-mode');
   assert.ok(allowIdx >= 0, 'allow 档必须追加 --approval-mode');
-  assert.equal(allowArgv[allowIdx + 1], 'yolo');
+  assert.equal(allowArgv[allowIdx + 1], 'always-ask', 'yolo 档下 omp 不发权限请求（实测 M1）⇒ 上浮无来源');
   assert.ok(!allowArgv.includes('--no-tools'));
 
   const deny = writeFake('allow');
@@ -514,12 +627,370 @@ test('§4.5/NC-5：只读类 kind（read）同样落一行 TOOL_CALL（path 取 
   assert.equal(rows[0].fields.path, '/tmp/foo.txt');
 });
 
-test('§4.4/R-12：initialize 握手 clientCapabilities 恒为空对象（不得声明 fs.* / terminal）', async (t) => {
+test('§4.4/R-12：initialize 握手只声明 elicitation.form（fs.* / terminal 仍不声明）', async (t) => {
   const clients = withClients(t);
   const fake = writeFake('allow');
   await startClient(clients, fake.bin, { tools: true, permission: 'allow' });
 
   const init = readJsonLines(fake.framesLog).find((f) => f.frame === 'initialize');
   assert.ok(init, 'fake 应记录 initialize 帧');
-  assert.deepEqual(init.params.clientCapabilities, {}, 'V-10③：声明能力会把文件写入 / 终端委托给客户端 → 工具 failed');
+  assert.deepEqual(
+    init.params.clientCapabilities,
+    { elicitation: { form: {} } },
+    'M4：omp 的第二道审批门经 elicitation form select 询问；fs.* / terminal 仍不声明（V-10③：声明即把文件写入/终端委托给客户端）',
+  );
+});
+// ─────────── pr-001：挂起链路（L1-2② / L1-1） + M3 应答契约 + M4 第二道审批门 ───────────
+
+test('L1-2/pr-001②：未结算 Promise 期间不回包；结算后回显钩子选定 optionId（审计在裁决后写）', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('allow');
+  const rec = recorder();
+  let release = null;
+  const client = await startClient(
+    clients,
+    fake.bin,
+    { tools: true, permission: 'allow', onPermissionRequest: () => new Promise((resolve) => { release = resolve; }) },
+    rec.logger,
+  );
+
+  const inflight = client.prompt('创建 role-smoke.txt');
+  await waitFor(() => release !== null, '钩子被调用');
+  await sleep(150);
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply').length, 0, '挂起期不得回包');
+  assert.equal(
+    rec.events.filter((e) => e.name === 'TOOL_APPROVED' || e.name === 'TOOL_DENIED').length,
+    0,
+    '审计行在裁决到达后写',
+  );
+
+  const settledAt = Date.now();
+  release({ optionId: 'allow_always' });
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn');
+
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.equal(replies.length, 1);
+  assert.deepEqual(replies[0].result, { outcome: { outcome: 'selected', optionId: 'allow_always' } }, '回包 = 钩子选定值');
+  assert.ok(replies[0].at >= settledAt, '应答帧晚于 Promise 结算');
+  const approved = rec.events.filter((e) => e.name === 'TOOL_APPROVED');
+  assert.equal(approved.length, 1);
+  assert.equal(approved[0].fields.option, 'allow_always');
+});
+
+test('§5.4/pr-001③：optionId 不在该请求 options 集合内 ⇒ 回落默认项（应答值恒为合法 optionId）', async (t) => {
+  const clients = withClients(t);
+
+  const allowFake = writeFake('allow');
+  const recAllow = recorder();
+  const allowClient = await startClient(
+    clients,
+    allowFake.bin,
+    { tools: true, permission: 'allow', onPermissionRequest: () => ({ optionId: 'allow_everything_forever' }) },
+    recAllow.logger,
+  );
+  const result = await allowClient.prompt('创建 role-smoke.txt');
+  assert.equal(result.stop_reason, 'end_turn', '非法 optionId 不得让该轮崩在协议校验里');
+  const allowReply = readJsonLines(allowFake.framesLog).find((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(allowReply.result, { outcome: { outcome: 'selected', optionId: 'allow_once' } }, '放行侧回落 allow_once');
+  assert.equal(allowReply.error, null, 'fake 侧不得出现未知 option ID 类错误');
+  const approved = recAllow.events.filter((e) => e.name === 'TOOL_APPROVED');
+  assert.equal(approved.length, 1);
+  assert.equal(approved[0].fields.option, 'allow_once');
+
+  const denyFake = writeFake('allow');
+  const recDeny = recorder();
+  const denyClient = await startClient(
+    clients,
+    denyFake.bin,
+    { tools: true, permission: 'allow', onPermissionRequest: () => ({ optionId: 'reject_forever' }) },
+    recDeny.logger,
+  );
+  await assert.rejects(() => denyClient.prompt('创建 role-smoke.txt'), (err) => err.code === 'permission_denied');
+  const denyReply = readJsonLines(denyFake.framesLog).find((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(denyReply.result, { outcome: { outcome: 'selected', optionId: 'reject_once' } }, '拒绝侧回落 reject_once');
+  const denied = recDeny.events.filter((e) => e.name === 'TOOL_DENIED');
+  assert.equal(denied.length, 1);
+  assert.equal(denied[0].fields.option, 'reject_once');
+});
+
+test('L1-1/pr-001④：单次挂起 > timeoutMs 时轮次未被 cancel/kill；裁决后正常结算', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('allow');
+  let release = null;
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => new Promise((resolve) => { release = resolve; }),
+  });
+
+  const inflight = client.prompt('创建 role-smoke.txt', { timeoutMs: 150 });
+  await waitFor(() => release !== null, '钩子被调用');
+  await sleep(500); // > timeoutMs：冻结未生效则轮次早已被 cancel → 宽限 → kill
+  assert.equal(client.dead, false, '冻结期间不得 kill 子进程');
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length, 0, '冻结期间不得 cancel');
+
+  release('allow');
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn', '裁决到达后按剩余时间恢复并正常结算');
+  assert.equal(client.dead, false);
+});
+
+test('L1-1/pr-001④对照：超时语义不变（无挂起仍 cancel → kill）；挂起后按剩余时间恢复计时', async (t) => {
+  const clients = withClients(t);
+
+  // ① 无挂起（静态 allow）且轮次不结算 ⇒ 计时照常到点：session/cancel → 宽限 → kill
+  const hang = writeFake('hang');
+  const c1 = await startClient(clients, hang.bin, { tools: true, permission: 'allow' });
+  const startedAt1 = Date.now();
+  await assert.rejects(() => c1.prompt('创建 role-smoke.txt', { timeoutMs: 200 }), (err) => err.code === 'timeout');
+  assert.ok(Date.now() - startedAt1 < 1500, '同步路径不因冻结逻辑而延长超时');
+  await waitFor(() => readJsonLines(hang.framesLog).some((f) => f.frame === 'session/cancel'), '超时后 session/cancel 落帧');
+  await waitFor(() => c1.dead === true, '超时后 kill 子进程');
+
+  // ② 挂起 300ms 后裁决、轮次仍不结算 ⇒ 恢复后按剩余时间（200ms）续计：总耗时 ≈ 300 + 200
+  const hang2 = writeFake('hang');
+  let release = null;
+  const c2 = await startClient(clients, hang2.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => new Promise((resolve) => { release = resolve; }),
+  });
+  const startedAt2 = Date.now();
+  const inflight = c2.prompt('创建 role-smoke.txt', { timeoutMs: 200 });
+  await waitFor(() => release !== null, '钩子被调用');
+  await sleep(300);
+  release('allow');
+  await assert.rejects(() => inflight, (err) => err.code === 'timeout');
+  const elapsed = Date.now() - startedAt2;
+  assert.ok(elapsed >= 400, `等人拍板的时间不计入轮次预算（总耗时 ≥ 挂起 300 + 剩余 200；实测 ${elapsed}）`);
+});
+
+test('L1-1/偏差#3：重叠挂起（权限门 + 工具审批门同时未结算）期间轮次计时保持冻结；两个等待先后结算后正常结算', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('suspend_pair');
+  const pending = new Map(); // 两个未结算等待各持一个 resolver（key = 上浮面的 kind）
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => new Promise((resolve) => { pending.set(info.kind || 'permission', resolve); }),
+  });
+  const cancels = () => readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length;
+
+  let settled = null;
+  const inflight = client.prompt('执行 echo hi', { timeoutMs: 300 });
+  inflight.then((result) => { settled = { ok: true, result }; }, (err) => { settled = { ok: false, code: err.code }; });
+
+  await waitFor(() => pending.size === 2, '两个裁决等待都已挂起（权限门 + 审批门）');
+  await sleep(450); // > timeoutMs：冻结未生效则轮次早已 cancel → 宽限 → kill
+  assert.equal(settled, null, '挂起期间轮次不得以 timeout 结算');
+  assert.equal(client.dead, false, '冻结期间不得 kill 子进程');
+  assert.equal(cancels(), 0, '冻结期间不得 cancel');
+
+  pending.get('permission')('allow'); // 先结算一个：另一等待仍未结算 ⇒ 必须保持冻结
+  await sleep(450); // > timeoutMs：先结算方若解冻计时器，轮次即在另一挂起未裁决时超时（偏差 #3 实测形态）
+  assert.equal(settled, null, '仍有未结算等待时轮次不得以 timeout 结算');
+  assert.equal(client.dead, false, '仍有未结算等待时不得 kill 子进程');
+  assert.equal(cancels(), 0, '仍有未结算等待时不得 cancel');
+
+  pending.get('tool_approval')('deny'); // 最后一个等待结算 ⇒ 按剩余时间恢复计时
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn', '两个等待先后结算后轮次正常结算');
+  assert.equal(client.dead, false);
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(replies.find((f) => f.label === 'perm_overlap').result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  assert.deepEqual(replies.find((f) => f.label === 'gate_overlap').result, { action: 'accept', content: { value: 'Deny' } });
+});
+
+test('L1-1/偏差#3对照：一个挂起 + 一个立即结算 ⇒ 先结算方不得解冻计时；恢复后按剩余预算续计', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('suspend_pair_hang'); // 两个等待都结算后仍不结算该轮 ⇒ 恢复后的计时器必然到点
+  let release = null;
+  let gateCalls = 0;
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => {
+      if (info.kind === 'tool_approval') { gateCalls += 1; return Promise.resolve('deny'); } // 立即结算的等待
+      return new Promise((resolve) => { release = resolve; }); // 长挂起
+    },
+  });
+
+  let settled = null;
+  const startedAt = Date.now();
+  const inflight = client.prompt('执行 echo hi', { timeoutMs: 300 });
+  inflight.then((result) => { settled = { ok: true, result }; }, (err) => { settled = { ok: false, code: err.code }; });
+
+  await waitFor(() => release !== null && gateCalls === 1, '两个等待都已进入（其一立即结算）');
+  await sleep(450); // > timeoutMs：立即结算的一方若解冻了计时器，此处已超时
+  assert.equal(settled, null, '仍有未结算等待时轮次不得以 timeout 结算');
+  assert.equal(client.dead, false, '仍有未结算等待时不得 kill 子进程');
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length, 0, '仍有未结算等待时不得 cancel');
+
+  release('allow'); // 最后一个等待结算 ⇒ 恢复计时（该轮不结算 ⇒ 剩余预算内到点）
+  await assert.rejects(() => inflight, (err) => err.code === 'timeout');
+  const elapsed = Date.now() - startedAt;
+  assert.ok(elapsed >= 450 + 250, `恢复后按剩余预算（≈timeoutMs）续计，不得清零/缩短（实测 ${elapsed}）`);
+});
+
+test('M4：第一道门放行 ⇒ 第二道审批门（elicitation）答 Approve；无放行凭据 ⇒ 回落 Deny', async (t) => {
+  const clients = withClients(t);
+
+  const allow = writeFake('elicit');
+  const c1 = await startClient(clients, allow.bin, { tools: true, permission: 'allow' });
+  await c1.prompt('创建 role-smoke.txt');
+  const allowReplies = readJsonLines(allow.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(allowReplies.find((f) => f.kind === 'permission').result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  assert.deepEqual(
+    allowReplies.find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Approve' } },
+    '放行路径第二道门必须答 Approve（不答 ⇒ 模型侧得 Tool call denied by user——M4 根因）',
+  );
+
+  // 拒绝路径：第一道门即 cancel，不进入第二道门（真实 omp 同序：拒绝 ⇒ execute 不发起）
+  const deny = writeFake('elicit');
+  const c2 = await startClient(clients, deny.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => ({ optionId: 'reject_once' }),
+  });
+  await assert.rejects(() => c2.prompt('创建 role-smoke.txt'), (err) => err.code === 'permission_denied');
+  const denyReplies = readJsonLines(deny.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.equal(denyReplies.length, 1, '拒绝路径不得进入第二道门');
+  assert.deepEqual(denyReplies[0].result, { outcome: { outcome: 'selected', optionId: 'reject_once' } });
+
+  // 无放行凭据的 elicitation（非受门禁工具的第二道门）：回落 Deny，绝不猜放行
+  const orphan = writeFake('elicit_only');
+  const c3 = await startClient(clients, orphan.bin, { tools: true, permission: 'allow' });
+  const orphanResult = await c3.prompt('创建 role-smoke.txt');
+  assert.equal(orphanResult.stop_reason, 'end_turn', 'C3：无钩子时审批门保守拒绝，轮次不得崩在协议校验里');
+  const orphanReplies = readJsonLines(orphan.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(orphanReplies[0].result, { action: 'accept', content: { value: 'Deny' } });
+});
+
+test('M4/C1：无权限门的工具审批门（write 型）经钩子上浮；钩子放行 ⇒ Approve，钩子拒绝 ⇒ Deny（轮次均正常结算）', async (t) => {
+  const clients = withClients(t);
+
+  // 钩子放行：该形状的工具（不经 bEs 权限门）只有这一道门，必须可上浮（否则 always-ask 下写类工具被静默拒绝）
+  const allow = writeFake('elicit_only');
+  const allowCalls = [];
+  const c1 = await startClient(clients, allow.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => {
+      allowCalls.push(info);
+      return info.kind === 'tool_approval' ? 'allow' : 'deny';
+    },
+  });
+  const allowed = await c1.prompt('创建 role-smoke.txt');
+  assert.equal(allowed.stop_reason, 'end_turn');
+  assert.equal(allowCalls.length, 1, '审批门必须上浮，且恰一次');
+  const info = allowCalls[0];
+  assert.equal(info.kind, 'tool_approval', '上浮项须可与 ACP 权限门判定区分');
+  assert.equal(info.sessionId, 'sess-1');
+  assert.equal(info.toolCall.toolName, 'edit', '上浮项须携带工具名（取自 message 首行 Allow tool: <name>）');
+  assert.equal(info.toolCall.title, 'Allow tool: edit');
+  assert.deepEqual(info.options.map((o) => o.optionId), ['Approve', 'Deny'], '上浮项须携带请求方给的选项集合');
+  assert.deepEqual(
+    readJsonLines(allow.framesLog).find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Approve' } },
+    '钩子放行 ⇒ 审批门答 Approve',
+  );
+
+  // 钩子拒绝：答 Deny 且轮次正常结算（不 cancel、不抛）
+  const deny = writeFake('elicit_only');
+  const c2 = await startClient(clients, deny.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (gate) => (gate.kind === 'tool_approval' ? 'deny' : 'allow'),
+  });
+  const denied = await c2.prompt('创建 role-smoke.txt');
+  assert.equal(denied.stop_reason, 'end_turn');
+  assert.deepEqual(
+    readJsonLines(deny.framesLog).find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Deny' } },
+    '钩子拒绝 ⇒ 审批门答 Deny',
+  );
+});
+
+test('M4/C1：审批门挂起（钩子返回未结算 Promise）期间同样冻结轮次计时，裁决后正常结算', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_only');
+  let release = null;
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    // pr-002 的 pending 表即此形态：上浮后等人答复，等的时间不计入轮次预算（L1-1）
+    onPermissionRequest: () => new Promise((resolve) => { release = resolve; }),
+  });
+
+  const inflight = client.prompt('创建 role-smoke.txt', { timeoutMs: 150 });
+  await waitFor(() => release !== null, '审批门钩子被调用');
+  await sleep(400); // > timeoutMs：冻结未生效则轮次早已被 cancel → 宽限 → kill
+  assert.equal(client.dead, false, '冻结期间不得 kill 子进程');
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length, 0, '冻结期间不得 cancel');
+
+  release('allow');
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn', '裁决到达后按剩余时间恢复并正常结算');
+  assert.deepEqual(
+    readJsonLines(fake.framesLog).find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Approve' } },
+  );
+});
+
+test('M4/C2+C4：放行凭据只抵扣紧随其后的一个审批门——窗口内无关同型门不再被静默放行', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_window');
+  const gateCalls = [];
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => {
+      if (info.kind === 'tool_approval') {
+        gateCalls.push(info.toolCall.toolName);
+        return 'deny'; // 上浮后由人裁决；本用例固定「拒绝」以便区分「凭据抵扣」与「上浮」
+      }
+      return 'allow';
+    },
+  });
+  const result = await client.prompt('执行 echo hi');
+  assert.equal(result.stop_reason, 'end_turn');
+
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  const gate = (label) => replies.find((f) => f.label === label);
+  assert.deepEqual(gate('permission_A').result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  assert.deepEqual(
+    gate('gate_1_own').result,
+    { action: 'accept', content: { value: 'Approve' } },
+    'C2：call_A 自己的审批门由本次放行凭据抵扣，不再重复上浮',
+  );
+  assert.deepEqual(
+    gate('gate_2_unrelated').result,
+    { action: 'accept', content: { value: 'Deny' } },
+    'C4：放行窗口内与 call_A 无关的同型门必须上浮（不得沿用凭据静默 Approve）',
+  );
+  assert.deepEqual(
+    gate('gate_3_after_terminal').result,
+    { action: 'accept', content: { value: 'Deny' } },
+    'C2：call_A 终态后凭据已失效，后续门一律上浮',
+  );
+  assert.deepEqual(gateCalls, ['write', 'bash'], 'C2/C4：只有无关门与终态后的门走上浮（自己的门被凭据抵扣 ⇒ 钩子零调用）');
+});
+
+test('M4/C5：非审批形状的 elicitation（ask 型 askDialog / boolean confirm）仍一律 decline', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_other');
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => 'allow', // 钩子恒放行：以此证明 decline 由「非审批形状」决定，而非钩子没给值
+  });
+  const result = await client.prompt('向用户提问');
+  assert.equal(result.stop_reason, 'end_turn');
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(replies.map((f) => f.label), ['ask_dialog', 'confirm_boolean']);
+  for (const reply of replies) {
+    assert.deepEqual(reply.result, { action: 'decline' }, `非审批 elicitation（${reply.label}）不得被本轮改动误答 Approve`);
+  }
 });

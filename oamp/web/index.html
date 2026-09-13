@@ -57,6 +57,15 @@
         <div id="load-more-slot" class="load-more-slot"></div>
       </aside>
 
+      <!-- 0021 / F01（architecture §7 T-01）：第三栏 = 待确认 inbox，.sidebar 与 .detail 之间的兄弟节点（跨对话集中）；
+           条目内容由 app.js 渲染（静态骨架 + 空态），不新增页面 / 路由 / 顶栏抽屉 / 左栏 tab（N7）。 -->
+      <section id="inbox" class="inbox">
+        <div class="inbox-top">
+          <button id="btn-inbox-toggle" class="inbox-toggle" type="button">待确认 <span id="inbox-count" class="inbox-count">0</span></button>
+        </div>
+        <div id="inbox-list" class="inbox-list"></div>
+      </section>
+
       <section class="detail">
         <header class="detail-head">
           <h1 id="detail-title">选择或新建一个对话</h1>
@@ -88,6 +97,7 @@
       </section>
     </main>
 
+    <script src="/notify.js"></script>
     <script src="/app.js"></script>
   </body>
 </html>

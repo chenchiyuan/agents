@@ -8,7 +8,7 @@
 - 服务地址：http://127.0.0.1:7788（默认端口；`--port` / `OAMP_WEB_PORT` 可改；仅本机监听，无鉴权）
 - 全量字段元数据（机器可读）：GET /api/docs
 
-## 接口（19 条）
+## 接口（21 条）
 
 - GET /api/agents — 在线 agent 列表（Router 拓扑快照；?state=online 只返回在线实例）
 - GET /api/chats — 对话列表（搜索 / 过滤 / 分页；默认排除已归档）
@@ -18,7 +18,7 @@
 - POST /api/chats/:chat_id/activate — 激活归档对话（清标记 + 状态还原 + 置顶）
 - POST /api/chats/:chat_id/rename — 重命名对话（只写 title，不动 updated_at）
 - GET /api/stream — 按对话订阅实时事件（SSE：message / task_update / chat_state / notice）
-- GET /api/events — 全局事件订阅（SSE：agent_online / agent_offline）
+- GET /api/events — 全局事件订阅（SSE：agent_online / agent_offline / confirmation / chat_state）
 - POST /api/messages — 发送消息（落库 + 派发任务；归档 / 已关闭 → 409）
 - GET /api/docs — 接口元数据（文档页 / 调试台 / 索引文件的数据源）
 - GET /api/projects — 项目列表（含对话数与最近活动时间）
@@ -29,6 +29,8 @@
 - GET /api/calls/:call_id/stream — 按调用订阅事件（SSE：call_state / call_update / call_result）
 - GET /api/calls/:call_id/transcript — 按调用取转录（进程内、不持久；含终态条目）
 - GET /api/calls/:call_id — 按调用取终态（进行中给状态）
+- GET /api/confirmations — 待确认项列表（跨对话的在途确认项；进程内，不持久）
+- POST /api/confirmations/:confirmation_id/decision — 提交确认项裁决（选项 id 必填 + 可选文本；条目随即移出在途表并回传请求方）
 
 ## 深入
 
