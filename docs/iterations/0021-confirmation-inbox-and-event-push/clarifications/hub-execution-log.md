@@ -85,8 +85,8 @@
 | 11 | 2026-09-13 13:27 | 阶段 4 | verifier（Gate） | pb-verifier | `task-dc76f986-31cf-4bfd-bedb-1442f73445d7` | background | **completed** | 230214ms | Gate **PASS 11/11**；报告 `verify-stage4-gate-20260913-122303.md` |
 | 12 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-001） | pb-planner | `task-aa2957f0-503b-4dc8-b72e-6d325c36653f` | background | **completed** | ~180s | 产出 `prs/pr-001-tasks.md`（18.6KB） |
 | 13 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-003） | pb-planner | `task-fdab6b60-efe2-4114-b648-f21b77a465ff` | background | **completed** | ~360s | 产出 `prs/pr-003-tasks.md`（21.1KB）；**与 #12 同批并发** |
-| 14 | 2026-09-13 13:50 | 阶段 5 首波 | dev（pr-001） | pb-dev | `task-611698ac-6016-4854-b01b-57333c091936` | background | 进行中 | — | 含 **M4 答复链路修复**硬义务 |
-| 15 | 2026-09-13 13:50 | 阶段 5 首波 | dev（pr-003） | pb-dev | `task-ad76744f-6c6b-499d-a5cf-19a73ef79e50` | background | 进行中 | — | **与 #14 同批并发** |
+| 14 | 2026-09-13 13:50（时标含固定偏移，见文末订正） | 阶段 5 首波 | dev（pr-001） | pb-dev | `task-611698ac-6016-4854-b01b-57333c091936` | background | **completed（但零落盘）** | 565058ms | 终态信封 `state=completed`、`truncated=false`，正文为过程叙述；**PR worktree 零提交、零未提交改动 ⇒ 无实现产物**（主 agent 复核，见 `history.md` 12:41 条） |
+| 15 | 2026-09-13 13:50（时标含固定偏移，见文末订正） | 阶段 5 首波 | dev（pr-003） | pb-dev | `task-ad76744f-6c6b-499d-a5cf-19a73ef79e50` | background | **failed（context_crashed）** | 565059ms | 信封 `state=failed`、`error=context_crashed`、`text="ACP error: Internal error"`；零落盘（主 agent 复核） |
 
 ## ⚠️ 模式切换（2026-09-13，用户指令）
 
@@ -96,3 +96,9 @@
 - **hub 阶段的范围（本文件即其记录）**：阶段 1 → 阶段 5 首波 dev，共 **15 次调用**（含 1 次 timeout 失败、1 次被集群重启中断），全部逐条留痕如上。
 - **在飞处置**：切换时在飞的 2 个 dev 调用不中止（各写各的 PR worktree、零重叠），其产物照常接受；若有失败，该 PR 剩余工作由本地 sub agent 接力。
 - **hub 阶段的可复用产出**（不因切换而作废）：`probe-always-ask.mjs`（M4 探针，已入库）、M1~M4 实测证据、以及本文件记录的「单轮 5 分钟上限 → 已抬至 30 分钟」全过程。
+
+## 时标订正说明（2026-09-13，主 agent 于阶段 5 核实后补记）
+
+**事实**：本文件表内 #6~#15 的时间列曾按一个**偏移时钟**记录（较真实本地时钟超前约 78 分钟）；本文件自身最后一次落盘提交 `bd39abb` 的 committer time = **12:40:17**，却含 12:56~13:50 的行 ⇒ 行内时标与落盘时刻自相矛盾（`progress-observer` 于阶段 5 独立核实发现，见 `progress.md` §5）。
+
+**订正**：本文件**不再改写已记录的行内时间**（保留原始记录，以免二次失真）；凡涉及提交/合并的时间，一律以对应 **commit 的 committer time 为权威时间**。据此的真实时刻：阶段 5 首波 planner 产出提交 = `27eef14` / `a5b2043`（12:30:45）；首波 dev 派发 = 12:31:18（`a779ebd`）；执行模式切换 = 12:40:17（`bd39abb`）；#14/#15 的终态判定 = 主 agent 阶段 5 复核（`history.md` 12:41 条）。自 `history.md` 的 12:42 条目起，时标一律按 `date` 实测记录。

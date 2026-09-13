@@ -288,3 +288,103 @@
 - 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
 - 工作区：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001-permission-suspend-and-reply-fix`，HEAD `dd59d31`）
 - 验收标准注入：PR 文件 6 条 + `prs/pr-001-tasks.md` T1~T6 + **`clarifications/pr001-round2-verdicts.md` C1~C6 与附加交付项**
+
+### 2026-09-13 13:21 · 收到报告 · verifier（阶段 5 · pr-003 验收）
+
+- 报告路径：`clarifications/verify-pr-003-20260913-132013.md`（验证者身份：oamp web 进程 / SSE 键空间 / 漂移锁体系的同级服务端代码审查者）
+- 结论：**PASS**（pass 46 / fail 0 / partial 0 / blocked 0；A 12 + B/T1~T6 27 + C/C1~C3 3 + D/红线 4）
+- fail 条目数：0；partial 条目数：0；blocked 条目数：0；偏差记录条数：**5**（均为文档/规格表述层）；下一迭代候选条数：5
+- 关键独立证据：自建 3 个探针（真 Router 子进程 + 真 `oamp web start` + 真 HTTP/SSE）独立取证——`confirmation_request` → 全局**恰 1 帧**、重复投递不增帧、重建面零帧、取消零帧、定向流零帧；`chat_state` 双链路同形且全局含非终态帧（证实 C1 裁决口径）；R-2 全错误契约 + 文本落地/空白不落地；`web.js` 既有 19 条 handler 块与 `POST /api/messages` 107 行**逐字相同**；`llms.txt` 在 /tmp 副本重跑生成脚本逐字节相等
+- 附加发现（既有脆弱性，非本 PR 引入）：完整既有套件在 PR head 上 7 轮 4 红，唯一失败恒为 `oamp/test/status.test.js:157`（心跳计时脆弱），基线对照树同样复现 ⇒ 记入下一迭代候选
+
+### 2026-09-13 13:22 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-003 合并进迭代分支**——`git merge --no-ff feat/0021-pr-003-web-inbox-and-decision-api` ⇒ merge commit `1f7eceb`（10 文件 / +949 −29）；合并后跑 6 个测试文件 **87/87 绿**；pr-003 的 worktree 与分支**已清理**（成功合并后可清理）；释放 1 个槛位
+- 并发配置更新：`累计槛位释放次数` 0 → **1**；`当前有效上限` 3 → **5**（= min(3 + 1×3, 5)，触顶硬上限）；`已派发总数` 6 → 7
+- 依赖解锁：**pr-004 解锁**（`depends_on: pr-003`，其 worktree 从已含 pr-003 的迭代分支 `1f7eceb` 拉出，分支 `feat/0021-pr-004-console-inbox-column-and-notify`）
+- 触发依据：`clarifications/verify-pr-003-20260913-132013.md` 结论 PASS；workflow-pb「依赖解锁式并发」第 3 条（每次 merge 后重新扫描依赖图）
+
+### 2026-09-13 13:22 · 派发 · progress-observer（pr-003 合并后自动触发）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：独立核实迭代 0021 的真实 git 状态与 `status.md` 声称的一致性，产出/覆盖 `docs/iterations/0021-confirmation-inbox-and-event-push/progress.md`（六部分）
+- 通道：宿主 `task` 工具（本地 sub agent）；progress-observer 角色定义全文注入；代码库根 = 迭代工作区（只读 git 命令，唯一写入 = `progress.md`）
+- 触发依据：workflow-pb「可观测性」自动触发时机 1（每次一个 PR 完成 merge 之后）
+
+### 2026-09-13 13:22 · 派发 · planner（阶段 5 · 次波 pr-004）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：为该 PR 产出内部任务图 `prs/pr-004-tasks.md`（验收标准可追溯、依赖图无环、粒度合适）并提交到本 PR 分支
+- PR：prs/pr-004-console-inbox-column-and-notify.md
+- 通道：宿主 `task` 工具（本地 sub agent）；planner 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-004-console-inbox-column-and-notify`（分支 `feat/0021-pr-004-console-inbox-column-and-notify`，base = 迭代分支 `1f7eceb`，**已含 pr-003 代码**）
+- 注入的既有裁决与事实：阶段 4 Gate 的 D-h8（检索式 `class="layout"` 不命中，实际 `class="layout hidden"` → 以 `layout` 为检索词）；p-003-Q1（全局 wire 事件类型 = `agent_online`/`agent_offline`/`confirmation`/`chat_state`）；p-003-Q3（`oamp/web/debug.js` 不扩范围）；pr-003 已合并（两条新路由与全局 `confirmation` 帧可用）
+
+### 2026-09-13 13:25 · 收到报告 · progress-observer（pr-003 合并后自动触发）
+
+- 1. `progress.md` 路径：`docs/iterations/0021-confirmation-inbox-and-event-push/progress.md`（11866 B / 90 行，六部分齐备；整体覆盖写入）
+- 2. 六部分摘要：阶段完成度 1~6 与 `status.md` 声称**全部一致**（无虚假打勾）；依赖核实——pr-001/pr-003 的 `depends_on`（无）不适用，`pr-002→pr-001` **未满足**（迭代分支上 `acp-client.js` 仍为 `yolo`/同步判定，实体层面确认），`pr-004→pr-003` **已满足**（`1f7eceb` 真双亲 merge，两条新路由 + `publishGlobal confirmation` + `STATIC_FILES /notify.js` + `src/inbox.js` 可验）；PR 实现状态——pr-003 已合并且现场已清理（一致）、pr-002 未解锁（一致）、pr-001 进行中（一致，含 2 文件未提交改动）、**pr-004 部分一致**（worktree/分支存在但 HEAD == 迭代分支 tip、零自有 commit、无 `pr-004-tasks.md`）；并发度——**完全闲置 PR = 0**，pr-001 正常推进、pr-004 已认领未落点、pr-002 正常阻塞；不一致 **6 条**；无法核实 **6 条**
+- 3. 最需关注：① pr-004 是本迭代唯一「依赖已满足、已认领但零 git 可见落点」的 PR（planner 在飞）；② `prs/pr-001-tasks.md` 只存在于未合并的 pr-001 分支；③ `hub-execution-log.md` 表内时标与自身落盘时刻（`bd39abb` 12:40:17）自相矛盾；④ **判据陷阱**：`git branch --merged` 会把 pr-004 分支误报为「已合并」（因其 HEAD 与迭代分支 tip 同值）
+- 4. 疑问/越界：无（只列事实，未做严重性判断或调度建议）
+
+### 2026-09-13 13:26 · 调度决策 · 阶段推进核查
+
+- 决策内容：按 progress-observer 的 6 条不一致逐条处置——① `hub-execution-log.md` 的 #14/#15 行内终态由「进行中」**订正为终态**（`completed` 但零落盘 / `failed context_crashed`）并补「时标订正说明」段（行内时间保留原样、不改写；凡涉及提交/合并一律以 commit committer time 为权威）；② 其余 5 条判定为**预期内的时序现象**（pr-004 planner 在飞、`status.md`/`history.md` 改动尚未落盘、`pr-001-tasks.md` 随 pr-001 分支合并时并入、`--merged` 判据陷阱已知并采纳其结论），无需调度动作
+- 触发依据：`progress.md` §5 六条 + `history.md` 12:42 条（时标口径说明）+ `git log | worktree list` 一手状态
+- 并发度结论：**无闲置 PR**（可并发集合 {pr-001, pr-004} 均已认领在飞）⇒ 不触发补位派发
+
+### 2026-09-13 13:33 · 收到报告 · dev（阶段 5 · pr-001 第 2 轮修复）
+
+- 1. 改了什么文件：2 文件（本轮增量，相对 `dd59d31`）——`oamp/src/acp-client.js` +109/-29（`_approvalGrants` FIFO 凭据取代单槽；新增 `_askHook`（权限门与审批门共用，挂起期冻结计时）；`_handleElicitationRequest` 改 async：形状守卫 → 凭据一次性抵扣 → 否则**经钩子上浮**；新增 `_approvalGateDecision`，入参 `{kind:'tool_approval', toolCall:{toolName,title}, options}`）；`oamp/test/tool-permission.test.js` +186（fake 新增 `elicit_window` / `elicit_other` 模式 + 4 个新用例）；另新建证据文件 `clarifications/pr-001-m4-evidence.md`（17608 B）
+- 2. 测试结果：PR 6 条验收标准 + T1~T6 + C1~C6 + 证据落盘 + 回归**逐条 pass**；`tool-permission` 22/22；`acp-daemon` 7/7；oamp 全量 4 次跑（3 次 flake、1 次 **294/294**，flake 恒为 `status.test.js` 心跳时序断言，未改动的一轮对照树同样复现 ⇒ 环境性）
+- 3. 疑问/待办：① **关联机制的设计选择**——wire 上不存在可做名字级匹配的显式身份（omp 的 ACP 桥在权限请求帧上**丢弃 `toolName`**；审批门帧不带任何 toolCallId，工具名只在 `message` 首行），故采用「显式登记的放行 toolCallId（FIFO）+ 消费即失效 + 终态即失效」，把首轮「整个窗口内静默放行」收敛为「至多一个门」；残余窄窗口 = 凭证被窗口内另一道同型门先抵扣，此时真实那道门会上浮（**多问一次，安全方向失败**）；② 残余边界：同消息并发多门未验证、`ask` 仍恒 decline、**审批门钩子返回 `{optionId:'allow_once'}` 等权限门语汇会被判为 Deny**（只有 `'allow'`/`{optionId:'Approve'}` 视为放行 ⇒ pr-002 的 pending 表须按此返回域实现）；③ 本轮 `acp-daemon.test.js` 零改动（daemon 未注入钩子）
+- 4. 违反边界：无（全程绝对路径；非目标文件零改动；入库探针未触碰；未用 `--no-verify`；临时对照 worktree 已清理）
+- 交付证据：提交 `1f11b59`；worktree `git status` 空；真实 omp 双向——`write` 放行 ⇒ 模型侧 `Successfully wrote 15 bytes…` + 副作用文件落盘、拒绝 ⇒ `Tool call denied by user: write` + 文件未创建；`bash` 放行时钩子**恰 1 条调用**（审批门被凭据抵扣，未重复上浮）
+
+### 2026-09-13 13:40 · 调度决策 · 阶段推进核查
+
+- 决策内容：**pr-004 任务图的 2 项 `[model_inferred]` 验收标准 + 1 项改变计划的发现，真实阻塞式转呈用户**（宿主 `ask`，三个问题一次呈现）；用户逐项裁决——**MI-1「notify.js 以全局入口暴露」= 确认**、**MI-2「同值终态去重」= 确认**、**Q4「pr-003 已合并后发现的 `/api/events` 文案少报」= 并入 pr-004（显式扩范围 2 文件：`oamp/src/web.js` 仅该路由两条文案 + `oamp/llms.txt` 重生成）**
+- 落盘：`clarifications/pr004-round-1-verdicts.md`（MI 两项 `user_confirmed` + Q1~Q5 裁定 + 追加验收项 AE-1）
+- 触发依据：workflow-pb「需要用户决策的情况」第 1 条（产物出现 `[model_inferred]` 未经确认项）；两个 MI 项由 pr-004 planner 报告（任务图提交 `cce5f8b`）；Q4 由 pr-004 planner 的 Q4 提出并由主 agent 核实（`web.js:747/749` 与 `llms.txt:21` 仍写 2 类，而 `API.md §4.2` 与 `web.js:14` 已 4 类）
+
+### 2026-09-13 13:41 · 派发 · verifier（阶段 5 · pr-001 第 2 轮复验）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：对 pr-001 第 2 轮提交 `1f11b59` 做独立复验——PR 文件 6 条 + T1~T6 + `clarifications/pr001-round2-verdicts.md` C1~C6 与附加交付项（证据落盘）+ 首轮验证报告偏差 #1/#4 的**闭合复核** + 回归；含 `write` 类工具上浮的真实 omp 独立复跑与 C4 的 fake 层独立复现
+- PR：prs/pr-001-agent-permission-suspend-and-reply-fix.md
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + **不注入任何执行过程上下文**
+- 工作区（只读）：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001-permission-suspend-and-reply-fix`，HEAD `1f11b59`；本轮改动面 = `git diff dd59d31...HEAD`）
+- 报告落点：`…/docs/iterations/0021-confirmation-inbox-and-event-push/clarifications/verify-pr-001-r2-{timestamp}.md`
+
+### 2026-09-13 13:42 · 派发 · dev（阶段 5 · 次波 pr-004）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：在 pr-004 专属 worktree 内按 `prs/pr-004-tasks.md` 的 T1~T5 落地最小实现（第三栏 + `notify.js` 服务/通道分离 + `app.js` 接线 + 前端静态契约测试），使 PR 文件 10 条验收标准全部通过并提交到本 PR 分支
+- PR：prs/pr-004-console-inbox-column-and-notify.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-004-console-inbox-column-and-notify`（分支 `feat/0021-pr-004-console-inbox-column-and-notify`，HEAD `cce5f8b` = planner 任务图提交，base = 迭代分支 `1f7eceb`）
+- 主 agent 裁决注入：`clarifications/pr004-round-1-verdicts.md` —— MI-1（`notify.js` 全局入口，**用户确认**）/ MI-2（同值终态去重，**用户确认**）/ Q1（冷启动首帧即终态仍通知一次）/ Q2（404 移除不重放、400 保留条目不新增组件）/ Q3（第三栏视图可见性为边界，不行动）/ **Q4（用户裁决：并入本 PR，文件范围显式追加 `oamp/src/web.js` 仅 `/api/events` 路由两条文案 + `oamp/llms.txt` 重生成；追加验收项 AE-1）** / Q5（先 grep 校验再定稿静态断言）；另注入 D-h8（检索词用 `layout`）、p-003-Q1（全局 4 类事件口径）、p-003-Q3（`web/debug.js` 不扩范围）
+
+### 2026-09-13 13:55 · 收到报告 · verifier（阶段 5 · pr-001 第 2 轮复验）
+
+- 报告路径：`clarifications/verify-pr-001-r2-20260913-200400.md`
+- 结论：**PASS**（A 6/6、B 24/24、C 6/6、D1~D3 全 pass、E 3 组回归 + 4 项内务全 pass；fail 0 / partial 0 / blocked 0）
+- fail 条目数：0；partial：0；blocked：0；偏差记录条数：**4**；下一迭代候选条数：5
+- 关键独立证据：首轮判「高」的行为回退**已闭合**（`write` 经上浮可裁决：放行 ⇒ 模型侧 `Successfully wrote…` + 副作用文件落盘；拒绝 ⇒ `Tool call denied by user: write` + 文件未创建；无钩子 ⇒ 保守拒绝且轮次正常结算）；以 `dd59d31` 源在同一探针下**确定性复现旧行为**（钩子零调用 + 恒 denied）构成因果对照；`pr-001-m4-evidence.md` §4 的 6 处 omp dist 偏移经直读 dist 逐字复核全部命中；`node --test oamp/test/*.test.js` **294/294 首轮无 flake**
+- 偏差：**#3（扣分项，实测观测到）** 「重叠挂起时冻结失效」——`_pauseTurnTimer` 在「已暂停」时提前返回 ⇒ 深度计数失准，实测两个挂起未裁决期间 `prompt` 仍 `timeout`（elapsedMs=704 < 900）；#1（凭据与工具身份无绑定：帧级可构造无人工裁决的 `Approve`，真实 omp 未观测到——实测轮内工具串行、窗口内只出现该工具自身的门）；#2（deny 分支不再清空既有凭据：S15 帧序 post=Approve / pre=Deny，真实 omp 因 cancel 后轮末清空而不可达）；#4（架构 §9.4.3 D3 行前提误述，已登记）
+
+### 2026-09-13 13:56 · 调度决策 · 阶段推进核查
+
+- 决策内容：**pr-001 再开一轮（第 3 轮）最小修复**——只修复验报告偏差 **#3**（重叠挂起时冻结深度失准 ⇒ 未裁决期间轮次仍会超时，违反 L1-1 与 F05「默认阻塞且无上限」）；**顺带修 #2**（deny 分支清空既有凭据，恢复首轮语义，1 行）；**#1 与 #4 按偏差登记，不修**（#1 需上游在审批门帧上补 toolCallId，属协议变更不在本 PR 范围；#4 为架构文档订正）
+- 触发依据：`clarifications/verify-pr-001-r2-20260913-200400.md` 偏差 #3（实测：`_pauseTurnTimer` 提前返回 + 深度计数失准 + `elapsedMs=704 < 900` 的 `timeout` 观测）
+- 不阻塞项：偏差 #1 / #4 记入阶段 6 汇总与下一迭代候选；偏差 #2 本轮一并修
+- 并发面：pr-004 dev 在飞（另一 worktree，零文件重叠），不受影响
+
+### 2026-09-13 13:57 · 派发 · dev（阶段 5 · pr-001 第 3 轮最小修复）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：在 pr-001 同一 worktree 分支上修偏差 #3（重叠挂起时冻结失效：`_pauseTurnTimer`/`_resumeTurnTimer` 的深度语义）与 #2（deny 分支清空既有凭据），并补 fake 层用例固定「多挂起未裁决期间不得超时」
+- PR：prs/pr-001-agent-permission-suspend-and-reply-fix.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001-permission-suspend-and-reply-fix`，HEAD `1f11b59`）
+- 验收标准注入：偏差 #3 / #2 的行为契约 + 既有 A/B/C 不得回归（首轮同步 `'allow'`/`'deny'` 用例与一次性 `yolo` 断言逐字不变）

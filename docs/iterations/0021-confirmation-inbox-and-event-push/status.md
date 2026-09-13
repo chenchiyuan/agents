@@ -23,7 +23,7 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.2.0**：12 张卡（F01~F09 需求功能点 + F10~F12 保证项）；5 项 MI 全部 `user_confirmed`；`model_inferred` 归零；`[架构待填]` T-01~T-16 留白 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **821 行**：T-01~T-16 = **16/16** 落定；12 卡架构段改造写；**L1 四条 + 覆盖范围全部 `user_confirmed`**；自查 C 表；必然变更点 B 表 |
 | 4 | PR 规划 | ✅ | ✅ | 4 个 PR（依赖图 `pr-001→pr-002`、`pr-003→pr-004`）；Gate 验证 **PASS 11/11**（`clarifications/verify-stage4-gate-20260913-122303.md`） |
-| 5 | PR 实现 | ⏸ | ⬜ | 首波并发 {pr-001, pr-003}：planner 任务图已交付（两 PR 各 6 任务）；**hub dev 轮次零落盘**（#14 `completed` 无产物 / #15 `failed context_crashed`）⇒ dev 改由本地 sub agent 接力中 |
+| 5 | PR 实现 | ⏸ | ⬜ | **pr-003 已合并**（`1f7eceb`，验收 PASS 46/46）⇒ 解锁 pr-004；**pr-001 第 2 轮已提交 `1f11b59`（工具审批门上浮 + 凭据一次性抵扣 + M4 证据落盘）⇒ 独立复验中**；**pr-004 dev 执行中**（含用户裁决的 Q4 文案修复并入） |
 | 6 | 独立验证 | ⬜ | ⬜ | |
 
 ## 并发配置（阶段 5）
@@ -32,9 +32,9 @@
 |---|---|
 | **起始并发数** | 3 |
 | **硬上限** | 5（公式 `2×起始-1`） |
-| **当前有效上限** | 3（初始 = 起始并发数） |
-| **累计槛位释放次数** | 0 |
-| **已派发总数** | 6（阶段 5：planner×2 + hub dev×2 + 本地 dev×2） |
+| **当前有效上限** | 5（= min(3 + 1×3, 5)，pr-003 合并释放 1 次槛位） |
+| **累计槛位释放次数** | 1（pr-003 合并） |
+| **已派发总数** | 9（阶段 5：planner×3 + hub dev×2 + 本地 dev×3 + verifier 复验×1） |
 
 依赖图（阶段 4 产出）：`pr-001 → pr-002`、`pr-003 → pr-004`；**首波可并发 = {pr-001, pr-003}**，次波 = {pr-002, pr-004}。
 
@@ -42,10 +42,10 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-agent-permission-suspend-and-reply-fix.md | （无） | 进行中（planner 任务图已交付；dev 本地 sub agent 接力中） | `feat/0021-pr-001-permission-suspend-and-reply-fix` | — | 占用 |
+| pr-001-agent-permission-suspend-and-reply-fix.md | （无） | 进行中（第 2 轮已提交 `1f11b59`；独立复验中） | `feat/0021-pr-001-permission-suspend-and-reply-fix` | — | 占用 |
 | pr-002-agent-confirmation-wiring.md | pr-001 | 未解锁 | — | — | — |
-| pr-003-web-inbox-and-decision-api.md | （无） | 进行中（planner 任务图已交付；dev 本地 sub agent 接力中） | `feat/0021-pr-003-web-inbox-and-decision-api` | — | 占用 |
-| pr-004-console-inbox-column-and-notify.md | pr-003 | 未解锁 | — | — | — |
+| pr-003-web-inbox-and-decision-api.md | （无） | ✅ 已完成（验收 PASS 46/46） | `feat/0021-pr-003…`（已清理） | ✅（`1f7eceb`） | 已释放 |
+| pr-004-console-inbox-column-and-notify.md | pr-003 | 进行中（任务图 `cce5f8b`；dev 执行中） | `feat/0021-pr-004-console-inbox-column-and-notify` | — | 占用 |
 
 ## 更新日志
 
@@ -60,3 +60,11 @@
 - 2026-09-13: **阶段 4 Gate PASS 11/11** ⇒ 进入阶段 5；并发配置初始化（起始 3 / 硬上限 5 / 有效 3 / 释放 0 / 已派发 0）；按 Gate 建议把 M4 复跑探针纳入仓库（`clarifications/probe-always-ask.mjs`）。
 
 - 2026-09-13: 阶段 5 首波：planner 交付 `prs/pr-001-tasks.md`、`prs/pr-003-tasks.md`（各 6 任务，依赖图无环）；hub dev 两轮实测**零落盘**（pr-001 `completed` 无产物 / pr-003 `failed context_crashed`）⇒ 按执行方式字段改由**本地 sub agent** 接力 dev（planner 产物有效，不重派）。
+
+- 2026-09-13: **pr-003 合并进迭代分支**（`1f7eceb`）——独立验证 PASS 46/46（`clarifications/verify-pr-003-20260913-132013.md`）；合并后 6 测试文件 87/87 绿；pr-003 worktree/分支已清理 ⇒ **解锁 pr-004**，派发其 planner。
+
+- 2026-09-13: pr-001 首轮独立验证 **PASS（38/41）但存高严重度偏差 #1**（`always-ask` 下不经 ACP 权限门的写类工具——实测 `write`——被无人工介入地静默拒绝）⇒ 主 agent 裁决为**合并前返工项**，第 2 轮修复中（裁决文件 `clarifications/pr001-round2-verdicts.md`）；不构成需求变更，不回退阶段。
+
+- 2026-09-13: **用户裁决三项**（真实阻塞式转呈）：pr-004 的 2 项 `[model_inferred]` 均确认（`notify.js` 全局入口 / 同值终态去重）；pr-003 合并后发现的 `/api/events` 文案少报 ⇒ **并入 pr-004**（显式扩范围 2 文件 + 追加验收项 AE-1）。裁决落盘 `clarifications/pr004-round-1-verdicts.md`。
+
+- 2026-09-13: pr-001 第 2 轮 dev 提交 `1f11b59`（首轮单槽凭据 → FIFO 一次性抵扣；审批门经钩子上浮；补落 `clarifications/pr-001-m4-evidence.md` 17608 B）；派发独立复验。pr-004 dev 并行执行中。
