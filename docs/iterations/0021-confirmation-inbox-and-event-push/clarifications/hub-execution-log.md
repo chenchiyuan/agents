@@ -13,3 +13,10 @@
 - **进度观测**：`GET /api/calls/<call_id>`（终态信封）与 `GET /api/calls/<call_id>/transcript`（过程条目，含 `started`/`result` 与流式增量）。
 - **不可对话的补偿**：集群角色无法直接与用户交互 ⇒ 其**回复正文**由主 agent 转呈用户；用户答复经主 agent 在同对话追派下一轮。
 - **工作目录纪律**：集群实例 cwd = 仓库主工作区（main）⇒ 每次简报强制「绝对路径 + `git -C <工作区地址>`」，派发后由主 agent 核验产物落点与三处 `git status`。
+
+## 第 1 轮结果（call `task-34713cc0-d0d9-4874-bbb4-41a08f0465e0`）
+
+- 状态：`completed`，`duration_ms=129437`，`model=deepseek/deepseek-v4-flash`，`truncated=true`（正文超上限被截断）
+- **完整正文的取回方式（重要）**：`truncated=true` 时信封 `text` 不完整 ⇒ 从 `GET /api/calls/<id>/transcript` 的 `entries[]`（`detail.text` 流式增量 + `detail.event='result'` 终态体）重建全文（本次重建 7995 字符，entries=1001）
+- 产物：`clarifications/demand-round-1-proposals.md`（9 提案 + 5 方案雏形询问 + 12 待裁决项）
+- 纪律核验：① 本迭代工作区新增该文件；② 仓库主工作区 `git status --porcelain -uall` = **空**；③ 无其他工作区改动 ⇒ **工作目录纪律未被违反**
