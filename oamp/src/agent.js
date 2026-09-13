@@ -27,6 +27,7 @@ const MAX_STREAM_LINES = 200;
 const DEFAULT_TASK_TIMEOUT_MS = 30000; // shell 任务默认
 const DEFAULT_OMP_TIMEOUT_MS = 300000; // omp（LLM）任务默认：给足推理时间
 const MAX_TIMEOUT_MS = 600000;
+const CONFIRMATION_TITLE_MAX = 120; // §5.3 信封 1（pr-002）：title 截断 120 字符（沿用 acp-client 的 TOOL_TITLE_MAX 口径）
 const OMP_BIN = () => process.env.OAMP_OMP_BIN || 'omp';
 // §7.2 模型标识校验（daemon 路径；风格同 0010 payload 校验）
 const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/;
@@ -278,18 +279,89 @@ function runOmpTask(client, logger, message, task, ctx) {
   });
 }
 
-/** 发 notice（上下文释放/重置提示，§5.2/§6.3；不入库）给发起者；失败静默（同 task.update 语义）。 */
-function sendNotice(client, logger, { chatId, kind, text, origin }) {
-  if (!client || !client.peer || !origin) return;
+/**
+ * 发 notice（上下文释放/重置提示，§5.2/§6.3；不入库）给发起者；失败静默（同 task.update 语义）。
+ * `fields` = 确认面信封（§5.3，pr-002）的整包 body；缺省时沿用既有 `{chat_id, kind, text}`（形状逐字不变）。
+ * 返回是否**同步**写出（连接不可用 ⇒ false：调用方据此决定是否挂起）。
+ */
+function sendNotice(client, logger, { chatId, kind, text, origin, fields = null }) {
+  if (!client || !client.peer || !origin) return false;
+  const body = fields === null ? { chat_id: chatId, kind, text } : { kind, ...fields };
   client
     .send(origin, {
       protocol: 'oamp/1',
       message_id: `ntc-${randomUUID()}`,
       type: 'notice',
-      payload: { content_type: 'application/json', body: JSON.stringify({ chat_id: chatId, kind, text }) },
+      payload: { content_type: 'application/json', body: JSON.stringify(body) },
     })
     .catch(() => {});
   logger.event('CONTEXT_NOTICE', { chat_id: chatId, kind, to: origin });
+  return true;
+}
+
+/** §5.3 信封 1 的 `options`：ACP 选项原样映射为 `{option_id, label?}`（不筛选、不增补、不翻译；label 取不到即省略）。 */
+function readConfirmationOptions(options) {
+  if (!Array.isArray(options)) return [];
+  return options.map((option) => {
+    const raw = option || {};
+    const optionId = raw.optionId ?? null;
+    const label = [raw.name, raw.label].find((value) => typeof value === 'string' && value !== '');
+    return label === undefined ? { option_id: optionId } : { option_id: optionId, label };
+  });
+}
+
+/**
+ * §5.3 信封 1（pr-002 / MI-1~MI-2）：把一次门请求上浮为 `notice{kind:'confirmation_request'}`，返回**未结算 Promise**——
+ * 该 Promise 即挂起的唯一载体（AcpClient 在钩子返回 Promise 期间冻结轮次计时：轮次既不推进也不超时）。
+ * 两型钩子入参（ACP 权限门 / 工具审批门）共用本函数与同一条 pending 表，差异只在字段来源（Q1）。
+ * 钩子体内绝不抛错：无收件人（连接不可用 / 无 origin）⇒ 返回 null 交回落静态档位，绝不把轮次永久吊起。
+ */
+function raiseConfirmation(client, logger, pending, info) {
+  const origin = info.origin;
+  if (!client || !client.peer || !origin) return null;
+  const toolCall = info.toolCall || {};
+  const confirmationId = `cfm-${randomUUID()}`;
+  const fields = {
+    confirmation_id: confirmationId,
+    chat_id: info.chatId ?? null,
+    agent_id: info.agentId ?? null,
+    tool: typeof toolCall.toolName === 'string' && toolCall.toolName !== '' ? toolCall.toolName : null,
+    title: typeof toolCall.title === 'string' ? toolCall.title.slice(0, CONFIRMATION_TITLE_MAX) : null,
+    options: readConfirmationOptions(info.options),
+    created_at: Date.now(),
+  };
+  return new Promise((resolve) => {
+    pending.set(confirmationId, { chatId: fields.chat_id, origin, resolve });
+    sendNotice(client, logger, { chatId: fields.chat_id, kind: 'confirmation_request', origin, fields });
+  });
+}
+
+/**
+ * §5.3 信封 2（pr-002 / Q1）：裁决命中 ⇒ 以 `{optionId}` 结算该挂起（两型的 `option_id` 都可原样回显给 ACP）；
+ * 未命中（未知 id / 缺合法 `option_id`）⇒ 静默丢弃，且**恰一行**审计（`matched` 可区分命中与否）——
+ * 不影响其它挂起项、不向发起方回错误。
+ */
+function settleConfirmation(logger, pending, body, from) {
+  const confirmationId = typeof body.confirmation_id === 'string' ? body.confirmation_id : '';
+  const optionId = typeof body.option_id === 'string' && body.option_id !== '' ? body.option_id : null;
+  const entry = optionId === null ? undefined : pending.get(confirmationId);
+  logger.event('CONFIRMATION_DECISION', { confirmation_id: confirmationId, option_id: optionId, matched: entry !== undefined, from });
+  if (entry === undefined) return;
+  pending.delete(confirmationId);
+  entry.resolve({ optionId });
+}
+
+/**
+ * §5.3 信封 3（pr-002 / MI-3）：失效清扫——未裁决项发 `notice{kind:'confirmation_cancelled'}` 并移出 pending。
+ * 两个触发点：轮次 settle（按 chat_id——同键 FIFO 串行 ⇒ 精确，不误伤其它 chat）与 SIGINT 前的全量清扫。
+ * 不结算该 Promise：轮次侧已死 / 进程正在退出，回包既无收件人也无意义（且不得产生应答帧）。
+ */
+function cancelPending(client, logger, pending, { chatId = null } = {}) {
+  for (const [confirmationId, entry] of [...pending]) {
+    if (chatId !== null && entry.chatId !== chatId) continue;
+    pending.delete(confirmationId);
+    sendNotice(client, logger, { chatId: entry.chatId, kind: 'confirmation_cancelled', origin: entry.origin, fields: { confirmation_id: confirmationId } });
+  }
 }
 
 /**
@@ -354,7 +426,10 @@ function runDaemonTask(client, logger, message, task, ctx) {
       };
       sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
       logger.event('TASK_RESULT', { task_id: taskId, state: 'failed', error: code });
-    });
+    })
+    // §5.3 信封 3（pr-002 / MI-3）：轮次终结（成功或失败）即清扫该 chat 名下仍未裁决的条目——
+    // 同键 FIFO 串行 ⇒ 按 chat_id 精确（不误伤其它 chat）；正常结束的轮次此时条目已空（裁决即删）⇒ 零误报。
+    .finally(() => cancelPending(client, logger, ctx.pending, { chatId: task.chatId }));
 }
 
 /** 任务执行分派：executor='omp' → 一次性 LLM；'omp-daemon' → 常驻上下文（默认）；缺省 → shell。 */
@@ -462,7 +537,7 @@ function createTaskDeliverHandler(client, logger, ctx) {
   return function handleDeliver(message) {
     ctx.markActivity(); // F03/§3.4 钩子①：任何投递 = 交互（含 task.request / notice）；心跳不经过本钩子
     if (message.type === 'notice') {
-      handleNotice(logger, message, ctx.pool);
+      handleNotice(logger, message, ctx);
       return undefined; // 自动 ack accepted = 受理
     }
     if (message.type !== 'task.request') return undefined;
@@ -485,18 +560,25 @@ function createTaskDeliverHandler(client, logger, ctx) {
 }
 
 /**
- * web → agent 控制消息：`notice{kind:'context_release', chat_id}` → 释放该 chat 的全部常驻上下文。
+ * web → agent 控制消息两条（§5.3，pr-002 追加第 2 条）：
+ * `notice{kind:'context_release', chat_id}` → 释放该 chat 的全部常驻上下文；
+ * `notice{kind:'confirmation_decision', confirmation_id, option_id}` → 结算对应的挂起钩子（信封 2）。
  * 命名区分（§5.2）：控制消息 kind = `context_release`；SSE 侧提示 kind = `context_released`（由本侧回发 notice）。
  */
-function handleNotice(logger, message, pool) {
+function handleNotice(logger, message, ctx) {
   let body = null;
   try {
     body = JSON.parse(message.payload && message.payload.body);
   } catch {
     body = null;
   }
-  if (!body || body.kind !== 'context_release' || typeof body.chat_id !== 'string' || body.chat_id === '') return;
-  const released = pool.release(body.chat_id, { origin: message.from.instance_id });
+  if (!body) return;
+  if (body.kind === 'confirmation_decision') {
+    settleConfirmation(logger, ctx.pending, body, message.from.instance_id);
+    return;
+  }
+  if (body.kind !== 'context_release' || typeof body.chat_id !== 'string' || body.chat_id === '') return;
+  const released = ctx.pool.release(body.chat_id, { origin: message.from.instance_id });
   logger.event('CONTEXT_RELEASE', { chat_id: body.chat_id, released, from: message.from.instance_id });
 }
 
@@ -609,6 +691,9 @@ export default async function startAgent(restArgs) {
   // OAMP_RECONNECT=0 恢复旧行为（断线即退 1）。被 Router 通知 agent.replaced（同 id 新会话顶替）
   // 时退出而非重连，避免同 id 互踢。
   let activeClient = null;
+  // §5.3（pr-002）：确认项 pending 表（confirmation_id → {chatId, origin, resolve}）——进程级；挂起的唯一载体是
+  // 钩子返回的未结算 Promise，本表只负责「裁决（信封 2）/ 失效（信封 3）时找到它」。
+  const pending = new Map();
   // §6.1~§6.4：chat 维度常驻上下文池（omp-daemon 路径）；提示出口 = 当前连接（重连后自动指向新 client）
   const pool = new ContextPool({
     max: config.contextMax,
@@ -616,6 +701,8 @@ export default async function startAgent(restArgs) {
     cwd: process.cwd(),
     logger,
     onNotice: (notice) => sendNotice(activeClient, logger, notice),
+    // §5.3 信封 1（pr-002）：上浮钩子——**是否注入由 ContextPool 按 permission 档单点判定**（deny 档恒不注入）
+    onPermissionRequest: (info) => raiseConfirmation(activeClient, logger, pending, info),
     // §4.3/§4.4/§3.2：会话能力随实例固化，经 _ensureClient() 透传给 AcpClient
     role,
     roleFile,
@@ -632,6 +719,7 @@ export default async function startAgent(restArgs) {
   };
   const taskCtx = {
     pool,
+    pending,
     instanceId,
     defaultModel: config.defaultModel,
     envModel,
@@ -669,6 +757,9 @@ export default async function startAgent(restArgs) {
       shutdownResolve(0);
       return;
     }
+    // §5.3 信封 3（pr-002 / MI-3）：退出前全量清扫未裁决项——**必须先于** deregister/关连接
+    // （晚于它则帧随连接关闭丢失，对端观测不到「退出前告知」）。
+    cancelPending(c, logger, pending);
     // §6.3：停心跳 → deregister（请求语义，等响应 ≤1s，best-effort）→ 退出 0
     c.stopHeartbeat();
     c.deregister()
