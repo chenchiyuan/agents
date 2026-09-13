@@ -7,6 +7,8 @@
 //   + POST /api/chats/<chat_id>/activate；激活后的「上下文不延续」说明条由 chats.context_released 驱动（F05-6）。
 // 顶栏 agent 列表（0015 / F01 / F02）：点击 #conn-status 开合 #agent-panel（静态浮层）；数据 = 既有
 //   GET /api/agents（全量，前端按 state==='online' 过滤）；变化由全局 SSE GET /api/events 驱动，展开期 5s 刷新兜底。
+// 待确认 inbox（0021 / F01 · F03 · F06）：第三栏 = 全局 `confirmation` 帧 + GET /api/confirmations 重建（每次 open
+//   再对齐一次）；点选即 POST 裁决（200 / 404 移出栏内，不等 SSE）。通知面在独立脚本 notify.js（本文件零投递实现）。
 'use strict';
 
 const RETRY_HINT = '连接已断开，正在重连…';
@@ -30,6 +32,9 @@ const state = {
   stream: { chatId: null, text: '' }, // 流式占位文本（task_update 累积；终态 message 到达即清空）
   titleEdit: null, // ★ 标题行内编辑态：null = 未编辑；{ chatId } = 正在编辑该对话的标题
   notices: [], // 会话内系统提示条（SSE notice，运行时事件不入库；仅本次页面会话保留，刷新即不重现）
+  // 0021 / F01（architecture §7 T-02 / T-07）：第三栏（待确认 inbox）——在途项 + 窄屏开合态。
+  // 唯一来源 = 重建面 GET /api/confirmations 与全局 `confirmation` 帧；零前端存储（刷新后靠重建面对齐）。
+  inbox: { items: [], open: false },
 };
 
 let source = null; // 当前会话的 EventSource
@@ -43,7 +48,11 @@ async function api(path, { method = 'GET', body } = {}) {
     method === 'GET' ? undefined : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
   );
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    err.status = res.status; // 0021 / F03：裁决提交按码分流（404 已裁决 / 400 选项非法）；既有调用方只读 message
+    throw err;
+  }
   return data;
 }
 
@@ -152,6 +161,45 @@ function connectAgentEvents() {
     state.agents = state.agents.filter((a) => a.instance_id !== data.instance_id);
     setConn(true);
     renderAgentPanel();
+  });
+  // 0021 / F01 · F06（§7 T-07）：在途确认项重建——挂全局 open（含首次与每次自动重连），纯拉取、零缓存、
+  //   零通知派发（MI-01：重建不算「进入」）。既有 es.onopen（agent 列表对齐）逐字不变，两者互不依赖。
+  es.addEventListener('open', loadConfirmations);
+  // 0021 / F01 · F03（§7 T-02 / T-03）：确认请求首次入栏 ⇒ 追加条目 + 通知一次。服务端单一发布点已保证
+  //   「首次入表恰一帧」（重复投递不发帧）⇒ 前端不再去重；重建路径不经过本分支。
+  es.addEventListener('confirmation', (ev) => {
+    let entry = null;
+    try {
+      entry = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
+    if (!entry || typeof entry.confirmation_id !== 'string') return;
+    if (state.inbox.items.some((e) => e.confirmation_id === entry.confirmation_id)) return;
+    state.inbox.items = [...state.inbox.items, entry];
+    renderInbox();
+    oampNotify.dispatch('confirmation_required', entry);
+  });
+  // 0021 / F07（§2.2 流 3 / §7 T-13）：对话终态派生——停在其他对话甚至项目列表视图同样收到（全局键）。
+  //   判据 = 「状态转变」（MI-2）：同一 chat 的同一终态重复广播不重复派发；冷启动首帧即终态仍派发一次。
+  const chatStates = new Map(); // chat_id → 上一次观测到的状态（仅本页生命周期；零持久化）
+  es.addEventListener('chat_state', (ev) => {
+    let data = null;
+    try {
+      data = JSON.parse(ev.data);
+    } catch {
+      return;
+    }
+    if (!data || typeof data.chat_id !== 'string') return;
+    const prev = chatStates.get(data.chat_id);
+    chatStates.set(data.chat_id, data.state);
+    if (data.state !== 'completed' && data.state !== 'failed') return;
+    if (prev === data.state) return;
+    const item = state.chats.find((c) => c.chat_id === data.chat_id);
+    oampNotify.dispatch(data.state === 'completed' ? 'chat_completed' : 'chat_failed', {
+      chat_id: data.chat_id,
+      label: item ? item.title : null, // 左栏已加载则带标题，取不到回落 chat_id（不额外拉取）
+    });
   });
   es.onopen = () => loadAgents();
 }
@@ -563,6 +611,109 @@ function appendChunk(chatId, chunk) {
   box.scrollTop = box.scrollHeight;
 }
 
+// ── 第三栏：待确认 inbox（0021 / F01 · F03 · F06；architecture §4.2 M-8、§7 T-02 / T-03 / T-07）──
+
+/** 来源对话标识（MI-02）：左栏已加载则用标题，取不到回落 chat_id —— 栏内**不额外拉取**对话详情。 */
+function inboxSource(entry) {
+  const chat = state.chats.find((c) => c.chat_id === entry.chat_id);
+  return `${entry.agent_id} · ${(chat && chat.title) || entry.chat_id}`;
+}
+
+/** 在途项列表重建（T-07）：纯拉取、零缓存、整栏覆盖重绘，**零通知派发**（重建不算「进入」）。
+ *  调用点 = boot 与全局 SSE 的每次 open（含首次与每次自动重连）⇒ 刷新 / 断线重连后仍在栏内（F06）。 */
+async function loadConfirmations() {
+  try {
+    const { confirmations } = await api('/api/confirmations');
+    state.inbox.items = confirmations || [];
+    renderInbox();
+  } catch {
+    /* 忽略瞬时错误（与既有 loadChats 同口径） */
+  }
+}
+
+/** 一条（T-02 三行 + T-03 控件）：① 来源对话 ② 工具名 + 动作描述 ③ 每个选项一个按钮 + 一个单行文本框。 */
+function renderInboxItem(entry) {
+  const options = (Array.isArray(entry.options) ? entry.options : [])
+    .map((o) => `<button class="inbox-option" data-option="${escapeHtml(o.option_id)}">${escapeHtml(o.label || o.option_id)}</button>`)
+    .join('');
+  return `<div class="inbox-item" data-confirmation="${escapeHtml(entry.confirmation_id)}">
+      <div class="inbox-source">${escapeHtml(inboxSource(entry))}</div>
+      <div class="inbox-request">${escapeHtml(entry.tool)} · ${escapeHtml(entry.title)}</div>
+      <div class="inbox-actions">${options}</div>
+      <input class="inbox-text" type="text" autocomplete="off" placeholder="拒绝理由 / 补充说明（可不填）" />
+    </div>`;
+}
+
+/** 整栏重绘（唯一渲染路径：重建面与增量帧共用；体量小 ⇒ 不做 DOM diff）。 */
+function renderInbox() {
+  $('inbox-count').textContent = String(state.inbox.items.length);
+  $('inbox').classList.toggle('open', state.inbox.open); // 折叠态只在窄屏断点内生效（宽屏恒三栏同屏）
+  const list = $('inbox-list');
+  list.innerHTML =
+    state.inbox.items.length === 0
+      ? '<div class="inbox-empty">暂无待确认项</div>'
+      : state.inbox.items.map(renderInboxItem).join('');
+  for (const el of list.querySelectorAll('.inbox-item')) {
+    const entry = state.inbox.items.find((i) => i.confirmation_id === el.dataset.confirmation);
+    const text = el.querySelector('.inbox-text');
+    for (const btn of el.querySelectorAll('.inbox-option')) btn.onclick = () => decide(entry, btn, text);
+  }
+}
+
+/** 来源标签同步（T-02 的标题回落口径）：左栏列表变更后只改写文本、不重建条目 DOM ⇒ 不打断正在输入的文本。
+ *  栏内条目与重建面同形，标题取不到时回落 chat_id；本函数让「列表后到」不会把标签永久留在回落值。 */
+function syncInboxLabels() {
+  for (const el of $('inbox-list').querySelectorAll('.inbox-item')) {
+    const entry = state.inbox.items.find((i) => i.confirmation_id === el.dataset.confirmation);
+    if (entry) el.querySelector('.inbox-source').textContent = inboxSource(entry);
+  }
+}
+
+/** 移出栏内条目（裁决成功 / 404 已失效共用）；重建面下次拉取自然不含已裁决项。 */
+function dropInboxItem(confirmationId) {
+  state.inbox.items = state.inbox.items.filter((e) => e.confirmation_id !== confirmationId);
+  renderInbox();
+}
+
+/** 点选即裁决（T-03 / §5.1 R-2）：提交 {option_id, text}（文本原样提交，前端不校验）；提交中该条按钮 disabled。
+ *  200 ⇒ 立即整条移出（不等 SSE）；404（已裁决 / 已失效 / 从未存在同一码）⇒ 同样移出、不重放；
+ *  其余失败 ⇒ 保留条目、不重放（Q2：不新增弹窗 / 横幅 / 组件；重绘即复位控件）。 */
+async function decide(entry, button, textInput) {
+  oampNotify.requestPermission(); // 手势入口（T-11）：至多一次
+  const item = button.closest('.inbox-item');
+  for (const btn of item.querySelectorAll('.inbox-option')) btn.disabled = true;
+  button.textContent = '提交中…';
+  try {
+    await api(`/api/confirmations/${encodeURIComponent(entry.confirmation_id)}/decision`, {
+      method: 'POST',
+      body: { option_id: button.dataset.option, text: textInput.value },
+    });
+    dropInboxItem(entry.confirmation_id);
+  } catch (err) {
+    if (err.status === 404) dropInboxItem(entry.confirmation_id);
+    else renderInbox(); // 条目保留（重绘同时复位按钮 disabled / 文案）
+  }
+}
+
+/** 通知点击去向（T-09）：终态类 → 切到该对话；确认类 → 展开并高亮栏内条目（裁决仍在栏内完成，不切对话）。 */
+function focusFromNotify(target) {
+  if (!target) return;
+  if (target.chat_id) {
+    openChat(target.chat_id);
+    return;
+  }
+  if (!target.confirmation_id) return;
+  state.inbox.open = true;
+  renderInbox();
+  const el = Array.from($('inbox-list').querySelectorAll('.inbox-item')).find(
+    (n) => n.dataset.confirmation === target.confirmation_id,
+  );
+  if (el) {
+    el.classList.add('highlight');
+    el.scrollIntoView({ block: 'nearest' });
+  }
+}
+
 // ── 数据加载 ──
 async function loadAgents() {
   try {
@@ -668,6 +819,7 @@ async function loadChats() {
     const { chats } = await api(`/api/chats?project_id=${encodeURIComponent(state.projectId)}`);
     state.chats = chats || [];
     renderChats();
+    syncInboxLabels(); // 0021 / F01：栏内来源标签依赖左栏标题，列表到达后同步一次（不重建条目 DOM）
   } catch {
     /* 顶栏已提示 */
   }
@@ -961,6 +1113,13 @@ function bind() {
   }
   // 实时通道已不再轮询：agent 列表在窗口重新聚焦时刷新一次（@ 补全与连接指示不长期失真）
   window.addEventListener('focus', loadAgents);
+  // 第三栏（0021 / F01）：标题按钮 = 窄屏开合（宽屏该态不生效）+ 手势入口（T-11：至多一次权限请求）
+  $('btn-inbox-toggle').onclick = () => {
+    state.inbox.open = !state.inbox.open;
+    renderInbox();
+    oampNotify.requestPermission();
+  };
+  oampNotify.onTarget = focusFromNotify; // 通知点击去向（T-09）：通道只透传 intent.target，不认识事件类型
   // 顶栏 agent 只读列表（0015 / F01 / AR-01）：点击计数开合；点外 / Esc 收起（与标题编辑的 Esc 各自监听，互不干扰）
   $('conn-status').onclick = toggleAgentPanel;
   document.addEventListener('click', (e) => {
@@ -977,6 +1136,7 @@ bind();
 (async function init() {
   await loadAgents();
   connectAgentEvents(); // 全局事件流（F05 的界面消费方 / F02）：页面打开即建立，全程 1 条
+  loadConfirmations(); // 0021 / F06：首屏拉取在途确认项（跨对话；不等 SSE 首帧，每次 open 会再对齐一次）
   const project = await resolveCurrentProject();
   if (!project) {
     showProjectList(); // `/` 与未知 id：项目列表视图（不请求 /api/chats）

@@ -18,7 +18,7 @@
 - POST /api/chats/:chat_id/activate — 激活归档对话（清标记 + 状态还原 + 置顶）
 - POST /api/chats/:chat_id/rename — 重命名对话（只写 title，不动 updated_at）
 - GET /api/stream — 按对话订阅实时事件（SSE：message / task_update / chat_state / notice）
-- GET /api/events — 全局事件订阅（SSE：agent_online / agent_offline）
+- GET /api/events — 全局事件订阅（SSE：agent_online / agent_offline / confirmation / chat_state）
 - POST /api/messages — 发送消息（落库 + 派发任务；归档 / 已关闭 → 409）
 - GET /api/docs — 接口元数据（文档页 / 调试台 / 索引文件的数据源）
 - GET /api/projects — 项目列表（含对话数与最近活动时间）
