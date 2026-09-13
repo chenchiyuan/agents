@@ -691,3 +691,20 @@
 - 任务：在新终态 `575c634` 上复核阶段 6 的关键结论仍成立 + **偏差 D-1 闭合复核** + pr-005 集成无回归 + 终态完整性，产出 `clarifications/verify-stage6-r2-{timestamp}.md`
 - 触发依据：workflow-pb「迭代分支合并进 main」以「阶段 6 对**本迭代最终产物**判定 pass」为前置；pr-005 在首轮阶段 6 之后加入 ⇒ 最终产物变化，须复验
 - 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入
+
+### 2026-09-13 16:56 · 收到报告 · verifier（阶段 6 · 终态复验）
+
+- 报告路径：`clarifications/verify-stage6-r2-20260913-220530.md`
+- 结论：**PASS**（48 项判定：**48 pass / 0 fail / 0 partial / 0 blocked**；A D-1 闭合复核 4 + B 首轮结论 35 + C pr-005 集成 3 + D 终态完整性 4 + E 全量回归 1 + F 偏差台账 1）
+- **D-1 闭合（用户可见面）**：真实渲染面（真实 SSE 帧驱动未改动的 `app.js` → 真实 DOM；真实 `Notification` 构造实录）+ 端到端真机链路（真实 omp → agent → web → 浏览器）取证——`tool` 为 `null`/缺键时栏内行与通知正文**均无字面量 `null`/`undefined`、无悬空分隔符**（基线 `697176f` 对照为 `null · …` / `undefined · …` / `请求执行 null：…`）；`tool` 有值（`bash`/`write`/`<b>`）时 `renderInboxItem` 全量返回与 `697176f` **逐字节一致**；改动 hunk 中**无 `title→tool` 映射**（未引入猜测性派生）
+- 未闭合残留：**D-1 的文档口径半**（`architecture.md` §7 T-02/T-09、`prd/F01` T-02 仍写「工具名恒在场」）——pr-005 显式列为非目标
+- pr-005 集成无回归：`confirmation-roundtrip.test.js` 零 diff 且 20/20；`inbox-console.test.js` numstat 48/0 纯新增、base 364 行按序全在场；`oamp/src/**` 零改动
+- 终态完整性：5 个 merge 父数均为 2 且均为迭代分支祖先；`git worktree list` 恰 2 条、PR worktree 全部清理；仓库根干净
+- 回归：全量 **333/333**（D-5 flake 未复现）；偏差台账 14 行（13 个独立事实）；下一迭代候选 9 条
+
+### 2026-09-13 16:58 · 调度决策 · 阶段推进核查（迭代收口）
+
+- 决策内容：**迭代分支合并进 main**——按用户裁决解决唯一冲突（`oamp/src/agent.js` 常量区：取 main 的 `DEFAULT_OMP_TIMEOUT_MS/MAX_TIMEOUT_MS = 1800000`，保留本迭代新增 `CONFIRMATION_TITLE_MAX = 120`；冲突块外由 git 自动合并，pr-002 的全部接线改动保留）⇒ merge commit **`1ef6d55`**；随后 **删除迭代分支**（`4a11eda`）与**清理迭代工作区**（`git worktree remove`）
+- 验证：合并后 main 上 `node --test oamp/test/*.test.js` = **333/333 pass / 0 fail**（64.4s）；`git worktree list` 仅剩主工作区；`git status --porcelain` 空
+- 触发依据：`clarifications/verify-stage6-r2-20260913-220530.md` 结论 PASS（`can_merge: true`）；workflow-pb「迭代分支合并进 main」三步（checkout main → merge --no-ff → branch -d）
+- **迭代 0021 最终状态**：5/5 PR 合并（4 个规划 PR + 收口补做的 pr-005）、6/6 阶段收口、每 PR 均经独立验收 PASS、阶段 6 两轮 PASS（33/33 与 48/48）；需求层搭置 `deferred-demand-changes.md` 不存在；偏差台账 14 条 + 下一迭代候选 9 条留待下迭代决策

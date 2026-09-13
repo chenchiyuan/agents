@@ -2,10 +2,10 @@
 
 **工作流**: workflow-pb **v0.10.0**
 **迭代**: 0021-confirmation-inbox-and-event-push
-**当前阶段**: 阶段 6（独立验证，进行中）
-**迭代分支**: `iteration/0021-confirmation-inbox-and-event-push`（base = main `854766c`；创建于阶段 1 前）
+**当前阶段**: **已完成**（6/6 阶段收口）
+**迭代分支**: `iteration/0021-confirmation-inbox-and-event-push`（**已合并进 main**：merge `1ef6d55`；分支与工作区已清理）
 **工作区地址**: `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0021-confirmation-inbox-and-event-push`
-**状态**: **进行中**
+**状态**: **已完成**（阶段 6 终态复验 PASS；迭代分支已合并 main）
 **history**: 开启
 **执行方式（2026-09-13 用户二次指令后切换）**: **本迭代改用本地 sub agent 执行（宿主 `task` 工具），不再经 hub API 派发**。
 
@@ -22,9 +22,9 @@
 | 1 | 需求收敛 | ✅ | ⬜ | `demand.md` **v1.1.0**：15 项裁决全部 `user_confirmed`（第 1 批 12 + 第 2 批 3）；`model_inferred` 归零；`[待裁决]` 归零；两段齐备、无活跃冲突 |
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.2.0**：12 张卡（F01~F09 需求功能点 + F10~F12 保证项）；5 项 MI 全部 `user_confirmed`；`model_inferred` 归零；`[架构待填]` T-01~T-16 留白 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **821 行**：T-01~T-16 = **16/16** 落定；12 卡架构段改造写；**L1 四条 + 覆盖范围全部 `user_confirmed`**；自查 C 表；必然变更点 B 表 |
-| 4 | PR 规划 | ✅ | ✅ | 4 个 PR（依赖图 `pr-001→pr-002`、`pr-003→pr-004`）；Gate 验证 **PASS 11/11**（`clarifications/verify-stage4-gate-20260913-122303.md`） |
-| 5 | PR 实现 | ✅ | ⬜ | **4/4 PR 全部合并进迭代分支**（`1f7eceb` pr-003 / `c84233a` pr-001 / `017961a` pr-004 / `697176f` pr-002）；**每个 PR 均经独立验收 PASS**（46/46、45/46、57/57、56/56）；合并后 oamp 全量 **332/332 绿**；全部 worktree/分支已清理 |
-| 6 | 独立验证 | ⏸ | ⬜ | 迭代终态收口验证中（PR 粒度框架 / 依赖正确性 / 并发真实执行证据 / 12 卡覆盖 / M4 终态 / 端到端 / 回归） |
+| 4 | PR 规划 | ✅ | ✅ | 4 个 PR（依赖图 `pr-001→pr-002`、`pr-003→pr-004`）；Gate 验证 **PASS 11/11**（`clarifications/verify-stage4-gate-20260913-122303.md`）；**阶段 6 收口时按用户裁决补做 pr-005**（偏差 D-1 修复，已单独走 planner→dev→verifier→merge） |
+| 5 | PR 实现 | ✅ | ✅ | **5/5 PR 全部合并**（4 个规划 PR：`1f7eceb` pr-003 / `c84233a` pr-001 / `017961a` pr-004 / `697176f` pr-002；**收口补做**：`575c634` pr-005）；**每个 PR 均经独立验收 PASS**（46/46、45/46、57/57、56/56、38/38）；合并后迭代分支全量 **333/333**；全部 worktree/分支已清理 |
+| 6 | 独立验证 | ✅ | ✅ | 首轮 **PASS 33/33**（`verify-stage6-20260913-213704.md`）；pr-005 后终态复验 **PASS 48/48**（`verify-stage6-r2-20260913-220530.md`，偏差 D-1 闭合） |
 
 ## 并发配置（阶段 5）
 
@@ -84,3 +84,13 @@
 - 2026-09-13: 进入**阶段 6（独立验证）**——派发 verifier 对迭代终态（`697176f`）做收口验证；`deferred-demand-changes.md` 经核实**不存在**（本迭代无需求层搭置）。
 
 - 2026-09-13: progress-observer 第三次核实（触发 = pr-002 合并）——4/4 PR 的真合并与 worktree/分支清理**经三路核实**（引用存在性 + `worktree list` + `.git/worktrees` 元数据，规避 `--merged` 误报陷阱）；**无闲置 PR**。其 8 条不一致逐条处置：头部阶段行、并发配置计数（释放 3→4、有效上限括注、已派发总数分项）与 pr-002 合并记录的落盘均在本日修正；**登记 1 条真实契约缺口**——pr-001 合并（20:45:46）后未独立触发一次 progress-observer 快照（与 pr-004 合并共用了一次派发），记入阶段 6 汇总与下一迭代候选。
+
+- 2026-09-13: **阶段 6 首轮 PASS 33/33**（`clarifications/verify-stage6-20260913-213704.md`）——PR 粒度框架 / 依赖正确性 / 并发真实执行证据 3 项 / F01~F12 覆盖 / M4 双向 / 端到端（真实 omp + 真实 Chromium）/ 回归全通过；偏差 7 条、下一迭代候选 8 条。其中 **D-1（用户可见）**：ACP 权限门来源的确认项 `tool` 恒为 `null` ⇒ 栏内渲染 `null · …`、通知正文「请求执行 null：…」。
+
+- 2026-09-13: **用户裁决两项**（真实阻塞式转呈）：① 合入 main 的 `oamp/src/agent.js` 常量区冲突 ⇒ **按事实解决**（取 main 的 `1800000/1800000` + 保留本迭代新增 `CONFIRMATION_TITLE_MAX=120`）；② D-1 ⇒ **本轮先修再合 main**（新增 pr-005）。
+
+- 2026-09-13: **pr-005**（迭代第 5 个 PR，收口补做）——pr-planner 产出 PR 文件（`638d068`）+ planner 任务图（`3a018a2`，T1~T3）+ dev 实现（`9e34e96`，消费侧空段省略）+ **独立验收 PASS 38/38**（`verify-pr-005-20260913-215436.md`，真实 Chromium DOM 对比 + 变异敏感度证明新断言非空断言）；合并进迭代分支（`575c634`），合并后全量 **333/333**。
+
+- 2026-09-13: **阶段 6 终态复验 PASS 48/48**（`clarifications/verify-stage6-r2-20260913-220530.md`）——**D-1 闭合**（真实渲染面 + 端到端真机链路取证：`null`/缺键时栏内与通知正文均无字面量 `null`/`undefined`、无悬空分隔符；`tool` 有值时输出与合并前逐字节一致）；pr-005 集成无回归（`confirmation-roundtrip` 零改动且绿、既有断言零削弱）；终态 5 个 merge 均为真双亲 merge；全量 **333/333**；偏差台账 14 条（唯一未闭合残留 = D-1 的**文档口径半**：`architecture.md` §7 T-02/T-09 与 `prd/F01` T-02 仍写「工具名恒在场」，留待下一迭代同步）。
+
+- 2026-09-13: **迭代收口**——`git merge --no-ff iteration/0021-confirmation-inbox-and-event-push` ⇒ merge `1ef6d55`（冲突按用户裁决解决：常量区取 main 的 30 分钟取值 + 保留 `CONFIRMATION_TITLE_MAX`）；合并后 main 上全量测试复跑；迭代分支与工作区已清理。**迭代 0021 完成：5/5 PR 合并、6/6 阶段收口、每 PR 均经独立验收 PASS**。
