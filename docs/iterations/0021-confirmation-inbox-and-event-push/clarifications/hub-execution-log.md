@@ -41,6 +41,9 @@
 | 4 | 2026-09-13 12:01 | 阶段 2 | prd（首轮） | pb-prd | `task-1bbae265-f8f1-44fb-8d96-bd5a473ab104` | background | **completed**（truncated） | 203743ms | 产出 `prd.md` + 12 卡（F01~F12）+ `clarifications/prd-round-1.md`；对话 `chat-76db2a03-…`（**过渡例外**） |
 | 5 | 2026-09-13 12:09 | 阶段 2 | prd（第 2 轮） | pb-prd | `task-95038b97-ee3a-47d2-9830-5dc4bc3bf06b` | background | **completed** | 129410ms | 对话 `chat-ad0d43df-…`（**统一对话**）；并 5 项 MI 裁决 |
 | 6 | 2026-09-13 12:16 | 阶段 3 | architect | pb-architect | `task-5d13d79c-fadf-4478-b6cb-f5cfd0f5907c` | background | **failed（timeout）** | 300841ms | 对话 = 统一对话；错误 `session/prompt 超时（300000ms）` |
+| 7 | 2026-09-13 12:28 | 阶段 3 | architect | pb-architect | `task-ec3d248a-5fe0-4bc9-bb97-4d913a31b082` | background | 中断（集群重启） | ~120s | 分轮策略首轮；因抬高超时上限重启集群被中断 |
+| 8 | 2026-09-13 12:56 | 阶段 3 | architect | pb-architect | `task-561dacf7-f9f7-4425-9333-bf368af2babd` | background | **completed** | 217040ms | **交付 `architecture.md` 736 行**（T-01~T-16 = 16/16；L1 四条 + 1 项覆盖疑问） |
+| 9 | 2026-09-13 13:12 | 阶段 3 | architect（第 2 轮） | pb-architect | `task-5c27b3e9-79f6-4078-877a-ae8c6f56e1a9` | background | **completed** | 91985ms | 并入 L1 裁决与 **M1~M4 实测证据**；`architecture.md` → **821 行**；新增「答复链路修复」义务 |
 | 7 | 2026-09-13 12:28 | 阶段 3 | architect | pb-architect | `task-ec3d248a-5fe0-4bc9-bb97-4d913a31b082` | background | 中断（集群重启） | ~120s | 分轮策略首轮；因用户指示抬高超时上限而重启集群，该轮被中断 |
 
 ## ⚠️ 实测约束：hub 派发的单轮硬上限 = 5 分钟（2026-09-13，第 6 次派发暴露）
@@ -78,3 +81,4 @@
 1. **对账软 TTL**（`web.js` `RECONCILE_TTL_DEFAULT_MS` = 30 分钟）与新的 30 分钟单轮上限**已持平**——长任务的补拉窗口是否够用需重新评估。
 2. **调用面未暴露 `timeout_ms`**：现在靠"抬高全局默认"实现 30 分钟；更干净的做法是让调用面按次传 `timeout_ms`（或提供分轮/续跑语义），避免全局默认被单次需求牵引。
 3. 本迭代自身的执行记录（本次失败 → 调整 → 重派）可作为「hub 派发单轮上限」议题的真实样本。
+| 10 | 2026-09-13 13:20 | 阶段 4 | pr-planner | pb-pr-planner | （见下） | background | 进行中 | — | 对话 = 统一对话 |

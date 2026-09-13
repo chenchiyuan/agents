@@ -35,4 +35,6 @@
 
 - **T-16 挂起期间行为**（§7 T-16）：ACP 请求**保持未应答**（不写 `_respond`）⇒ omp 自然停在等待态；**不 kill / 不 cancel / 不重试**；挂起期**不发** `task.update`；一轮内可有**多个**确认项同时挂起（各自独立 Promise）；审计行 **不入表即写**，改为**裁决后写恰一行**（字段集合不变，仅时机变）。
 - **T-15 策略扩展点**（§7 T-15）：**不预留**——零配置项（N6 禁）、零恒不调用的钩子（死代码）。可扩展性由**结构**保证：裁决唯一入口 = `inbox.take()` + R-2 handler，未来"超时默认选项"只需在 `inbox.js` 内加基于 entry 上已有 `created_at` 的定时器，**不动 ACP / 信封 / 前端契约**。
-- **"无上限"的实现前提 = L1-1（需主 agent 确认）**：现状超时三层封顶——ACP 层 `prompt(text,{timeoutMs=300000})` 超时即 `cancel → 宽限 2s → kill`（`acp-client.js:163/188`）、agent 层 `task.timeoutMs`、HTTP 入口 `MAX_TIMEOUT_MS = 600000`（`agent.js:27-29`）。**任何参数组合都到不了"无上限"** ⇒ 挂起期**冻结轮次计时**（`clearTimeout` + 记 `remainingMs`，裁决后重启）。不改：`MAX_TIMEOUT_MS` 校验范围、shell / 一次性路径的超时语义。
+- **"无上限"的实现前提 = L1-1（✅ `[user_confirmed]` 采纳）**：现状超时三层封顶——ACP 层 `prompt(text,{timeoutMs=300000})` 超时即 `cancel → 宽限 2s → kill`（`acp-client.js:163/188`）、agent 层 `task.timeoutMs`、HTTP 入口 `MAX_TIMEOUT_MS = 600000`（`agent.js:27-29`）。**任何参数组合都到不了"无上限"** ⇒ 挂起期**冻结轮次计时**（`clearTimeout` + 记 `remainingMs`，裁决后重启）。不改：`MAX_TIMEOUT_MS` 校验范围、shell / 一次性路径的超时语义。
+- **附加要求（裁决时给出）**：冻结计时须**同时**覆盖 ACP 层（`acp-client.js` 的 `_request` 计时器）与 agent 层计时（`agent.js` 的 daemon 任务 `task.timeoutMs`）。
+- **覆盖面（`[user_confirmed]` 采纳）**：上浮只覆盖 `omp-daemon` 常驻路径 ⇒ "无上限阻塞"受此边界限定（一次性 `omp -p` / `!` shell 路径维持现状）。

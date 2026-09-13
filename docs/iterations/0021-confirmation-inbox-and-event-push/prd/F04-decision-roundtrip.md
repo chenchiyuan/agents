@@ -36,3 +36,6 @@
 - **作用域保证**：作用域 = `confirmation_id`，非"当前对话"、非"最近一条" ⇒ 并发多对话 / 同对话多请求均精确投递。
 - **继续 or 中止**：`allow*` ⇒ 轮次自然继续；`reject*` ⇒ 走既有拒绝路径 `acp-client.js:404-407`（`_permissionDenied = true` + `cancel()` ⇒ `prompt()` 结算时抛 `permission_denied`）。
 - **取不到 pending 的处置**：静默丢弃 + 一行审计；不给浏览器回错误（浏览器侧已 `200`，两个失败面不同源）。
+- **⚠️「继续」分支当前是断的（M4，本迭代硬义务）**：实测 M4 证明"回了 `allow_once` 也未必真的放行"——模型侧仍得 `Tool call denied by user: bash`。⇒ 本卡的"该轮继续"**在修复前不成立**；修复落点 = `acp-client.js:397-410` / `:400`（`architecture.md` §4.2 M-16 / §9.4.3 / §11.5 B-15）。
+- **验收证据换锚（B-15b）**：本卡判定**以模型侧工具结果为据**（工具真的被执行 / 真的被拒），**不得**以 `TOOL_APPROVED` / `TOOL_DENIED` 审计行为据——M4 正是"审计行与真实后果脱钩"的实证。**且须双向测**：`reject*` 路径下模型侧确实得到 denied（只测放行会把"恒放行"的错误修复误判为成功，B-15a）。
+- **M3 的应答契约约束**：omp 以 `SEs.get(optionId)` 校验，**未知 optionId 直接抛错** ⇒ 回传的 `option_id` 必须是该条 options 集合内的合法值。

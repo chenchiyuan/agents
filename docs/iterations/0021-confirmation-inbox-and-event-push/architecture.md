@@ -1,6 +1,7 @@
 # architecture.md — 0021-confirmation-inbox-and-event-push
 
-**版本**: 1.0.0（**阶段 3 全部交付**：§1~§11 全落盘；T-01~T-16 落定 16/16；12 张卡的架构维度已补全；L1 四条待主 agent 确认）
+**版本**: 1.1.0（**阶段 3 · 第 2 轮**：L1 四条 + 覆盖范围**均已 `[user_confirmed]`**；并入真实 omp 受控实测证据 M1~M4（§9.4）；**M4「答复链路修复」升格为本迭代硬义务**）
+**输入补充**: `clarifications/arch-round-1-verdicts.md`（L1 裁决 + 实测证据，2026-09-13）
 **迭代**: 0021-confirmation-inbox-and-event-push
 **阶段**: 3（技术架构）
 **创建日期**: 2026-09-13
@@ -8,11 +9,11 @@
 **代码基线**: `<工作区地址>/oamp/**`（只读）；迭代分支 `iteration/0021-confirmation-inbox-and-event-push`（base = main `854766c`）
 **本方案的对象**: **oamp** —— 本机 `http://127.0.0.1:7788` 的 Web 控制台与其 HTTP/SSE 接口面。**不改 omp / harness 侧协议**（N3 → F12）。
 
-> 阅读顺序建议：先看 §1 现状基线（30 秒建立心智模型）→ §3 L1 清单（需决策项，4 条）→ §4 改动面清单（落点在哪）。
+> 阅读顺序建议：先看 §1 现状基线（30 秒建立心智模型）→ §3 L1 清单（**4 条，均已 `[user_confirmed]`**）→ §4 改动面清单（落点在哪）→ **§9.4 实测证据（M1~M4，含 M4 的必做义务）**。
 
 ---
 
-## 0. 本文件状态（第 1 轮可达边界）
+## 0. 本文件状态（阶段 3 · 全量落盘）
 
 | 章节 | 状态 |
 |---|---|
@@ -24,8 +25,8 @@
 | §6 inbox 项的承载形态与生命周期 | ✅ 已落盘（进程内 Map / 5 函数 / 生命周期图 / 边界判定） |
 | §7 T-01~T-16 逐项落定（12 张卡的 `[架构待填]` 补全） | ✅ 已落盘（16/16） |
 | §8 内部一致性自查全表 | ✅ 已落盘（C1~C12） |
-| §9 风险与已知代价（R1~R3 承载 + 本方案新增 K1~K3 + 两条 [INFERENCE] 待实测） | ✅ 已落盘 |
-| §10 越界与疑问 | ✅ 已落盘（含 1 条待用户裁决的覆盖面疑问） |
+| §9 风险与已知代价（R1~R3 承载 + K1~K3 + **§9.4 实测证据 M1~M4 与可复跑方法**） | ✅ 已落盘 |
+| §10 越界与疑问 | ✅ 已落盘（覆盖面疑问**已裁决**，§10.1 改为裁决回填） |
 | §11 必然变更点清单（测试 / 文档 / 行为） | ✅ 已落盘（B-1~B-14 + 零改动清单） |
 
 ---
@@ -190,9 +191,11 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 
 ## 3. 关键技术决策
 
-### 3.1 L1 决策清单（**需主 agent 确认，未确认前不进入实现**）
+### 3.1 L1 决策清单（**4 条全部 `[user_confirmed]`** ✅）
 
 > 判定口径（角色契约）：L1 = 引入新技术栈 / 改变现有核心模块职责 / 影响系统整体边界。以下 4 条**均落在既有技术栈内**，但都改变既有语义或跨进程契约，故按 L1 上报。
+>
+> **裁决状态**（`clarifications/arch-round-1-verdicts.md`，2026-09-13）：**L1-1 / L1-3 / L1-4 采纳**；**L1-2「先实测再定」→ 实测（M1/M2/M3）证实推断后采纳，并附加义务「答复链路修复」（M4）**。**覆盖范围**疑问（仅 `omp-daemon` 常驻路径）**采纳**。⇒ 四条 L1 可进入实现。
 
 #### L1-1 · 挂起期间**冻结**轮次超时计时（使 M3「默认阻塞且无上限」成立）
 
@@ -203,15 +206,17 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 | **备选** | ① **冻结计时**（推荐）：只改"计时是否推进"，不改既有契约的语义面；② 调用方显式传超大/零超时：需改 `POST /api/messages`、`POST /api/calls` 的 `MAX_TIMEOUT_MS` 校验与所有调用方（本迭代自身的 hub 派发即调用方之一），且**把"无上限"这个产品语义外推给每个调用方**，脆弱；③ 不改超时、另起一条"确认轮次豁免 kill"的旁路：等于给同一轮次造两套生命周期，理解成本高于收益。 |
 | **影响面** | `oamp/src/acp-client.js`（`prompt` / `_request` 的计时器：`setTimeout` → 可控的暂停/恢复）；`oamp/src/agent.js`（daemon 任务的 `task.timeoutMs` 传递）；`oamp/API.md`（需说明"挂起不计时"）；`oamp/test/`（既有超时断言的行为边界）。**不改**：`MAX_TIMEOUT_MS` 的校验范围、shell / 一次性 `omp` 路径的超时语义。 |
 | **不确认的后果** | 实现将退化为"确认项在 `timeoutMs` 内必须被裁决"，与 F05 验收 1~2 / E4 直接矛盾。 |
+| **裁决** | ✅ **`[user_confirmed]` 采纳**（推荐项）。**附加实测要求**：冻结计时的覆盖面必须**同时**涵盖 ACP 层（`acp-client.js` 的 `_request` 计时器）与 agent 层计时（`agent.js` 的 daemon 任务 `task.timeoutMs`）——见 §9.4 派生义务 4。 |
 
 #### L1-2 · `allow` 档语义变更的承载点 = 把 `onPermissionRequest` 从**同步回调**改为**可异步挂起**
 
 | 项 | 内容 |
 |---|---|
-| **是什么** | ① `AcpClient` 的权限判定钩子由 `(info) => 'allow'\|'deny'`（同步）扩展为可返回 **Promise** 或 `{optionId}`；未被结算期间 `session/request_permission` **保持未应答**（不发 `_respond`），轮次自然阻塞在 ACP 层。②**同时**把 `allow` 档的 argv 由 `--approval-mode yolo` 改为 `always-ask`（`acp-client.js:123`）——`yolo` 的字面语义是"不询问、自动放行"，若 omp 在 yolo 下**根本不发**权限请求，则"上浮给人"**没有可上浮的请求**（功能不存在）。〔[INFERENCE]，实现期实测；见 §9.3 V1〕 |
+| **是什么** | ① `AcpClient` 的权限判定钩子由 `(info) => 'allow'\|'deny'`（同步）扩展为可返回 **Promise** 或 `{optionId}`；未被结算期间 `session/request_permission` **保持未应答**（不发 `_respond`），轮次自然阻塞在 ACP 层。②**同时**把 `allow` 档的 argv 由 `--approval-mode yolo` 改为 `always-ask`（`acp-client.js:123`）——`yolo` 的字面语义是"不询问、自动放行"，若 omp 在 yolo 下**根本不发**权限请求，则"上浮给人"**没有可上浮的请求**（功能不存在）。〔**已由真实 omp 受控实测证实**：**M1** `yolo` 档零 PERMISSION 行、工具直接执行；**M2** `always-ask` 档发请求并携带 4 项 options；**M3** omp 以 `SEs.get(optionId)` 校验应答。见 §9.4〕 |
 | **为何必须** | 现状 `_handleServerRequest` 在同一个 tick 里判定并回 `_respond`（`acp-client.js:397-411`）。"上浮给人裁决"必须在**人拍板之前不回包**——这是 F02/F04 的全部技术内容。`allow` 档改为上浮（R3）意味着**默认路径**（缺省 `allow`）也走这条异步分支，不再是边缘路径。 |
 | **备选** | ① **钩子返回 Promise**（推荐）：改动最小，`_permissionDecision` 的调用点从"取返回值"改为"await 结算"；② 新增独立的 `onPermissionRequestAsync` 配置项：同一件事两条路径，违背"只有一种实现时的配置项是纯负债"（`transport.js:3` 既有立场）；③ 在 ACP 之外另起一层代理子进程拦截：引入新进程与协议转换层，**用大炮打蚊子**。 |
 | **影响面** | `oamp/src/acp-client.js`（`_handleServerRequest` / `_permissionDecision` 的异步化与 `optionId` 回显、`permission_denied` 触发时机、`:123` 的 argv）；`oamp/src/context-pool.js`（透传钩子）；`oamp/src/agent.js`（钩子的注入者）；**测试必然变更 2 处**：`tool-permission.test.js:397`、`acp-daemon.test.js:532`（`yolo` → `always-ask`）。**一次性路径的 argv（`agent.js:197`）零改动**（见 §9.2 K3）。 |
+| **裁决** | ✅ **`[user_confirmed]` 采纳（「先实测再定」→ 实测证实后采纳）**。**附加义务**：**「答复链路修复」（M4）为本迭代硬义务**——受控实测中 oamp 已回 `allow_once` 且审计 `TOOL_APPROVED`，但模型侧工具结果仍是 `Tool call denied by user: bash` ⇒ 现有自动答复路径**在真实 omp 上从未跑通**（因 `yolo` 档从不触发）。**不得降级为文档说明**，须在承载 F02 / F04 的实现中定位根因并修复（落点与排查方向见 §4.2 M-16、§11.5 B-15）。 |
 | **兼容性** | `deny` 档**保持自动拒绝**（F02 验收 4 / T-1）：由 `ContextPool` **不注入**上浮钩子实现 ⇒ `acp-client.js:414` 的优先级语义与 `:404-407` 的三步**逐字不变**。**同步返回 `'allow'`/`'deny'` 的两条路径也逐字不变**（仍回 `allow_once`/`reject_once`，`tool-permission.test.js:268`/`:333` 继续绿）——异步与 `{optionId}` 是**追加**的返回形态，不是替换。 |
 
 #### L1-3（**本轮修订**）· 新增 **agent ⇄ web** 的确认请求 / 裁决**双向关联消息**（oamp 内部跨进程契约扩展）
@@ -222,7 +227,8 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 | **为何必须** | 既有 `notice` 是 fire-and-forget、**无请求 id、无回执语义**（`web.js:1478`）；web→agent 的控制面只有 `notice{kind:'context_release'}`（`web.js:1559`）。F04 要求"裁决只作用于其所属的那一条 / 那一轮"——**没有关联 id 就无法保证作用域**，也无法在并发多对话时把裁决投递到正确的轮次。 |
 | **备选（本轮按实测重排）** | ① **复用 `notice` + 扩 `kind` 枚举（本轮改为推荐）**：`router.js:23` 的 `VALID_TYPES = {task.request, task.update, task.result, notice}` 是**封闭集合**，`validateSendMessage` 对未知 `type` 直接拒（`router.js:29`）⇒ **新增 `type` 必然要改 Router 进程**；复用 `notice` 则 **Router 零改动**。代价 = `kind` 的语义从"提示"扩到"请求 / 应答"（靠 kind 命名自解释）。② 新增一对信封类型（首轮推荐）：语义最显式，但要动 `VALID_TYPES` + Router 校验面 + `API.md`；③ 另开 side-channel HTTP(S)（agent 反调 web 的 REST）：引入反向依赖与端口 / 鉴权问题，**与 N1/F10 的边界纠缠**。 |
 | **影响面（修订后）** | `oamp/src/web.js`（`handleDeliver` 的 `notice` 分支：既有 kind 过滤需放行 3 个新 kind + 消费 / 发送两侧）；`oamp/src/agent.js`（发送侧 + 接收侧）；`oamp/API.md §7`（若其中列举了 `notice` 的 kind，需补）。**零改动**：`oamp/src/router.js`（`VALID_TYPES` 不动）、`omp`/`harness` 协议本身（N3 仍成立：ACP 的 `session/request_permission` 是既有原语，本方案不新增、不修改 ACP 侧任何方法）。 |
-| **与 N3 的关系** | N3 禁止的是改 **omp / harness 侧**协议。本项改的是 **oamp 自己的** agent↔web 信封，**不触碰 ACP**。此边界需主 agent 确认无误判。 |
+| **与 N3 的关系** | N3 禁止的是改 **omp / harness 侧**协议。本项改的是 **oamp 自己的** agent↔web 信封，**不触碰 ACP**。 |
+| **裁决** | ✅ **`[user_confirmed]` 采纳**（推荐项：复用 `notice` + 3 个 `kind`，**Router 零改动**）。 |
 
 #### L1-4 · 通知投递的能力边界 = **页面打开时才可通知**（不引入 Service Worker / Web Push / VAPID）
 
@@ -232,7 +238,7 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 | **为何必须**（说明而非主张） | E3 的判据是"**不依赖用户停留在该对话**"（可切到别的页面/标签**仍**收到），**不是**"浏览器关闭后仍收到"。前者用页面内 Notification API + 全局 SSE 即可满足；后者才需要 Service Worker + Web Push（并涉及 N1 的"投递路径经浏览器厂商推送服务"这条 T-2 裁决解禁的路）。**本迭代按 E3 的字面判据取前者**。 |
 | **备选** | ① **页面内 Notification API**（推荐）：零新依赖、零密钥、零服务端出网；② Service Worker + Web Push：为一条本迭代未要求的判据引入 SW 生命周期、密钥管理与离线投递语义，**YAGNI**；③ 站内横幅/声音：N4 明确不做偏好，且不满足"切到别的页面仍被叫到"。 |
 | **影响面** | 前端新增通知模块（`oamp/web/`）；`oamp/API.md` 可为空改动（通道是前端行为）；**服务端零新增出网路径**（F10 的"仅 127.0.0.1"边界因此**天然保持**）。 |
-| **需主 agent 确认的点** | 若用户对"浏览器关闭后仍要收到"有期待，则此项需升级为 SW + Web Push（**范围与 N1 的解读都会变**）。**本方案按 E3 字面判据，判为不需要。** |
+| **裁决** | ✅ **`[user_confirmed]` 采纳**：只做**页面内 Notification API**，**不引入** Service Worker / Web Push / VAPID。判据按 E3 字面（可切到别的页面 / 标签仍收到），**不含**"浏览器关闭后仍收到"。 |
 
 ### 3.2 L2 决策清单（**自主决定**）
 
@@ -280,6 +286,7 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 | M-7 | `oamp/web/index.html` | `44-85`（`<main class="layout">` … `</main>`） | `main.layout` 内新增第三栏容器（结构节点；既有 `.sidebar`(45) 与 `.detail`(60) 之间的兄弟节点） | F01 |
 | M-8 | `oamp/web/app.js` | `128-157`（全局 SSE `connectAgentEvents`）、`493-500`（chat SSE `onopen`）、`196-400`（渲染体例） | 全局 SSE 增加 `confirmation` 分支；第三栏渲染（选项按钮 + 文本输入 + 提交）；`onopen`（含重连）后重建在途列表；调用 `notify.js` 派发三类事件 | F01 / F03 / F06 / F07 / F08 |
 | **M-14** | `oamp/API.md` | `§4.2`（`912-924`） | "全局订阅（**2 类事件**）" + "全局链路上**只**有这两类事件" → 改写为 3 类（+`confirmation`）并补事件表行 | F07 |
+| **M-16** | **`oamp/src/acp-client.js`** | `397-410`、**`400`（`_respond` 包形态）** | **答复链路修复（M4 · 本迭代硬义务，`[user_confirmed]` L1-2 附加义务）**：现状回 `allow_once` 且审计 `TOOL_APPROVED`，但真实 omp 上模型侧仍得 `Tool call denied by user: bash` ⇒ 裁决**未真正放行工具**。根因方向见 §9.4.3（D1 响应包形态 / D2 时序 / D3 与 `--no-session` 的交互 / D4 审计与真实后果脱钩）。**观测判据 = 模型侧工具结果**，不是审计行 | F02 / F04 |
 | **M-15** | `oamp/api-routes.test.js` 之外的**派生面同步** | —— | 与 M-4 同一提交完成：`node oamp/scripts/gen-llms-txt.mjs`（M-10）+ `API.md` 新接口小节（M-9）。**漂移锁以"同步派生面"转绿，不是改测试** | F10 |
 | M-9 | `oamp/API.md` | §3 末尾（现止于 `840` 行 `### 3.19`） | **追加** §3.20+ 小节，登记新增的确认面接口（漂移锁③ D2 强制；既有 19 条**逐字不改**） | F10 / F12 |
 | M-10 | `oamp/llms.txt` | `11`（`## 接口（19 条）`） | **重新生成**（`node oamp/scripts/gen-llms-txt.mjs`）——纯派生文件，**不手改** | F10 |
@@ -308,6 +315,8 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 2. **服务端其次**：N-1（inbox）→ M-5（消费/回传）→ M-4（路由）→ **M-9 + M-10（派生面同步，与 M-4 同一提交）**。
 3. **前端最后**：M-7（结构）→ M-8（消费与交互）→ N-2（通知）→ M-11（样式）。
 4. **挂起语义（M-1 / M-2）与 L1-1 冻结**必须与 #2 同批——否则"条目能进栏、轮次却会超时死"，中间态不可验收。
+5. **M-16（答复链路修复）必须与 M-12（argv 档位改写）同批**——两者是同一枚硬币：改了 argv 才有请求，而有请求而不修答复链路，结果是**每个受门禁调用都被拒**（比现状更坏）。**M-12 单独合入 = 已知的负向中间态**，禁止拆成两个 PR。
+6. **M-16 的排查顺序**：先做 D3（用 daemon 真实 argv 复跑探针，排除探针 argv 干扰）→ 再 D1（帧逐字比对）→ 再 D2（时序分档）。**D3 最先**，因为它决定 D1/D2 是否成立。
 
 ### 4.5 既有断言的影响判定（**必然变更点**，第 2 轮给具体断言行）
 
@@ -321,6 +330,8 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 | `oamp/test/project-workspace.test.js`（1327 行）/ `oamp/test/web.test.js`（1640 行） | ⚠️ **需实现期复核**（本轮未逐行核） | ① 第三栏改变 `.layout` 的 DOM 结构——**若**含子元素计数 / 结构断言则受影响；② **若** `web.test.js` 对 `/api/events` 事件集合做**封闭断言**（"恰好 2 类"）⇒ 新增 `confirmation` 帧后须同步（§11.1 B-5）；为"包含"断言则零改动。`/api/stream` 的 4 类事件不变 ⇒ 该面零影响。**两条均登记为实现期检查项** | F01 / F07 |
 
 ---
+
+## 5. 接口与事件契约
 
 > 三个契约面：**① 浏览器 ⇄ web**（HTTP + SSE）、**② agent ⇄ web**（信封 body）、**③ 前端内部控制面**（服务 ⇄ 通道）。全部复用既有形状，无新依赖。
 
@@ -379,6 +390,8 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
   "tool": "edit",                    // toolCall.toolName
   "title": "…",                      // toolCall.title，截断 120 字符（沿用 TOOL_TITLE_MAX）
   "options": [{ "option_id": "allow_once", "label": "…" }], // ← 逐字来自 ACP params.options（F03 的选项来源）
+  //   M2 实测：真实 omp 给出 4 项 = [allow_once, allow_always, reject_once, reject_always]
+  //   ⇒ 这 4 项就是 W2「确认选项」的真实全集，**原样**进入 inbox 条目（不筛选、不增补、不翻译）
   "created_at": 1757… }
 ```
 
@@ -408,7 +421,7 @@ Service Worker、Web Push、VAPID、WebSocket、新 npm 依赖、新进程、新
 |---|---|---|
 | 同步 `'allow'`（缺省，无钩子） | `allow_once` | **逐字不变**（`tool-permission.test.js:268` 继续绿） |
 | 同步 `'deny'`（deny 档） | `reject_once` | **逐字不变**（`:333` 继续绿） |
-| 钩子返回 `{optionId}`（新增返回形态） | **该 `optionId`** | 新能力；`optionId` **必须**属于请求的 `options` 集合（agent 侧校验；非集合内 → 回落 `allow_once`/`reject_once` 并记审计） |
+| 钩子返回 `{optionId}`（新增返回形态） | **该 `optionId`** | 新能力；`optionId` **必须**属于请求的 `options` 集合。**M3 实测：omp 以 `SEs.get(optionId)` 校验，未知值直接抛错** ⇒ agent 侧必须先校验（非集合内 → 回落 `allow_once`/`reject_once` 并记审计）。**这是硬约束，不是体验优化**——回一个非法 id 会让轮次崩在协议的校验里 |
 
 ⇒ `_permissionDecision` 的返回值域从 `'allow'|'deny'` 扩为 `'allow' | 'deny' | {optionId} | Promise<…>`。**同步返回的两条既有路径逐字不变**。
 
@@ -516,12 +529,15 @@ notify.js
 
 | 步骤 | 落点 | 内容 | 级别 |
 |---|---|---|---|
-| ① 钩子可异步 | `acp-client.js:415-425`（`_permissionDecision`） | 返回值域扩为 `'allow'\|'deny'\|{optionId}\|Promise<…>`；`_handleServerRequest:397-410` 从"同步取判定"改为"`await` 判定后再 `_respond`" | L1-2 |
+| ① 钩子可异步 | `acp-client.js:415-425`（`_permissionDecision`） | 返回值域扩为 `'allow'\|'deny'\|{optionId}\|Promise<…>`；`_handleServerRequest:397-410` 从"同步取判定"改为"`await` 判定后再 `_respond`"；**并修复答复链路本身**（M4，见 §9.4.3） | L1-2 |
 | ② 钩子注入 | `context-pool.js:204-212`（构造 `AcpClient` 处） | `ContextPool` 的 opts 增加 `onPermissionRequest` 并透传（**现为未接通的能力**——实测全仓 `onPermissionRequest` 只在 `acp-client.js` 出现，无注入者） | L2 |
 | ③ 上浮产出 | `agent.js` daemon 任务（`runDaemonTask`，`agent.js:296-358`） | 注入钩子：生成 `confirmation_id`、登记本地 `pending` Promise、`sendNotice(origin, {kind:'confirmation_request',…})` | L2 |
 
 **档位接线（R3）**：`ContextPool` 仅在 `permission === 'allow'` 时注入上浮钩子；`deny` 档**不注入** ⇒ `acp-client.js:414` 的既有优先级语义（钩子 > 静态档）**逐字不变**，deny 档自动拒绝的路径（`:404-407` 三步）**逐字不变**。
+**argv 接线（L1-2 ②，**实测证实** M1/M2）**：`acp-client.js:123` 的 `allow` 档由 `yolo` 改为 `always-ask`——**不改就没有请求可上浮**（`yolo` 档实测零权限请求）。
+**选项来源（M2）**：钩子收到的 `info.options` 即真实 omp 给出的 **4 项** `[allow_once, allow_always, reject_once, reject_always]`，**原样**进 inbox 条目（不筛选、不增补、不翻译）。
 **承载体**：**无新建进程 / 无新端口 / 无新文件落盘**；`confirmation_id` 与 pending Promise 都活在 agent 进程内存里。
+**答复链路（M4 · 硬义务）**：钩子形参**不是**本项的全部——实测发现"回了 `allow_once` 但模型侧仍 denied"（§9.4.3）。⇒ 本 T 项的验收判据 = **模型侧工具结果**（工具真的执行），**不是**审计行 `TOOL_APPROVED`。
 
 ### T-06 · 裁决回传到请求方的载体与形态 → F04
 
@@ -529,6 +545,7 @@ notify.js
 **作用域保证**（F04 验收 3）：作用域 = `confirmation_id`（不是"当前对话"、不是"最近一条"）⇒ 并发多对话、同对话多请求都精确投递。
 **取不到的处置**：`pending` 无此 id（web 重启后残留 / 已收尾清理）⇒ **静默丢弃**并记一行审计；**不**给浏览器回错误（浏览器侧已 `200` 且条目已移除——两个失败面不同源，不伪造关联）。
 **继续 or 中止**：由 `optionId` 决定——`allow*` ⇒ 轮次自然继续（ACP 收 allow 后模型接着跑）；`reject*` ⇒ 沿既有拒绝路径（`:404-407`：`_permissionDenied = true` + `cancel()` ⇒ `prompt()` 结算时抛 `permission_denied`）。
+**"继续"的前提未成立（M4）**：实测表明即便回 `allow_once`，模型侧仍得 `Tool call denied by user: bash` ⇒ **本 T 项的"继续"分支在当前代码里是断的**，修复是 M-16（§4.2）/ B-15（§11.5）。⇒ 本 T 项的**观测判据 = 模型侧工具结果**，审计行不可作为证据（D4）。
 
 ### T-07 · 在途列表重建机制 → F06
 
@@ -627,7 +644,9 @@ notify.js
 | C1 | **T-01~T-16 全覆盖** | ✅ 16/16 | §7 逐项落定；每项标 L1/L2/L3 与代码事实（`acp-client.js` / `context-pool.js` / `agent.js` / `web.js` / `transport.js` / `router.js` / `index.html` / `app.js`） |
 | C2 | **每组件可追溯到卡** | ✅ | N-1 `inbox.js` → F01/F02/F04/F06/F11；N-2 `notify.js` → F07/F08/F09；🆕 `POST` 裁决 → F03/F04；`confirmation` 全局帧 → F01/F06；信封 1/2/3 → F02/F04/F05 |
 | C3 | **无凭空组件**（YAGNI） | ✅ | §2.4 列的 10 项（SW / Web Push / VAPID / WebSocket / 新依赖 / 新进程 / 新端口 / 新持久化表 / 新配置项 / 前端框架）删掉后**无任何功能需求无法实现**；`package.json` dependencies 为空由 `hygiene.test.js` 强制 |
-| C4 | **L1 已列出、未实施** | ✅ | §3.1 四条 L1（含本轮修订 L1-2 / L1-3）逐条给了「是什么 / 为何必须 / 备选 / 影响面」；**本阶段零代码改动** |
+| C4 | **L1 已列出、未实施** | ✅ | §3.1 四条 L1 逐条给了「是什么 / 为何必须 / 备选 / 影响面」，**均已 `[user_confirmed]`**（第 2 轮并入裁决）；**本阶段零代码改动** |
+| C4b | **覆盖范围疑问已裁决** | ✅ | `omp-daemon` 常驻路径（采纳）；一次性 `omp -p` / `!` shell 维持现状（§9.2 K3 / §10.1） |
+| C4c | **L1-2 的 `[INFERENCE]` 已消解** | ✅ | **架构论证中的 `[INFERENCE]` 标记 = 0 处**（仅本表与 §9.3『已消解』的陈述句保留该词）；结论由真实 omp 受控实测 M1/M2/M3 替代（§9.3 / §9.4） |
 | C5 | **与既有架构结论的关系** | ✅ | 复用：全局键 `null`（`transport.js:16-24`）、路由表 + 投影派生（`web.js:465`/`1265`/`1283`）、`notice` 信封（`web.js:1478`）/`sendControlNotice`（`:1559`）、进程内状态表体例、`onopen` 全量拉取体例（`app.js:156`/`494`）。**唯一被扩展的既有语义 = `notice` 的 `kind` 枚举**（L1-3） |
 | C6 | **零新依赖声明** | ✅ | 零 npm 依赖、零构建链、零新工具；新建 2 个源文件均为**同构复用既有模块**（`inbox.js` 同 `web.js` 内进程内表的体例；`notify.js` 同 `app.js` 的零框架原生 JS） |
 | C7 | **不改上游协议**（N3 / F12） | ✅ | ACP 侧零新增 / 零修改方法；`session/request_permission` 及其 `options` **原样消费**；仅有的 ACP 侧改动是**应答值**（回显用户选中的 `optionId`）与**何时应答**（挂起），**不动协议形状** |
@@ -636,6 +655,8 @@ notify.js
 | C10 | **每架构决策可追溯到卡** | ✅ | §3.2 的 L2-1~L2-10 每条带卡号；§7 的 T-01~T-16 每条带卡号 |
 | C11 | **组件图/数据流可自然语言理解** | ✅ | §2.1 图 + 读图要点；§2.2 三条流各 5 步，无架构背景可读；§5 三个契约面各给字段表 |
 | C12 | **功能规格 `[架构待填]` 全部填写** | ✅ 16/16 | §7；且**只填架构维度**——12 张卡的产品维度（用户价值 / 验收标准 / 边界）**一字未改** |
+| C13 | **M4 已升格为硬义务且有落点** | ✅ | 义务声明 §3.1 L1-2「裁决」行 + §9.4.3；落点 §4.2 **M-16**；顺序约束 §4.4 第 5~6 条；必然变更点 §11.5 **B-15**；观测判据（模型侧工具结果，非审计行）已写入 T-05 / T-06 |
+| C14 | **M2 的 options 四项已接入设计** | ✅ | §5.3 信封 1 的原样注释、§5.4（M3 的 `SEs.get` 校验 → 硬约束）、§7 T-02（每项一按钮）、§7 T-05（选项来源）|
 
 **本轮未发现**「功能规格与技术约束之间的根本冲突」——唯一真实冲突（M3 无上限 vs 三层超时封顶）已作为 **L1-1** 上报，未擅自修改功能规格。
 
@@ -657,28 +678,84 @@ notify.js
 |---|---|---|---|
 | **K1** | **多标签页不同步**：同一确认项在标签页 A 被裁决后，标签页 B 的栏内条目**不自动消失**（无"移除帧"，§5.2），直到 B 刷新/重连重建 | 同时开两个 oamp 页面 | `demand.md` 只要求"裁决后条目消失"（W2，单页语义）；跨标签页同步需要额外事件 + 前端记忆，是为未要求的场景造实体（YAGNI）。**回退口**：加一帧 `confirmation_resolved`（不改任何既有契约） |
 | **K2** | **跨 web 重启的孤儿**：web 进程重启后表清空，而 agent 侧 Promise 仍挂（轮次仍在等）⇒ 该确认项**不可达**（栏里没有、也无人能裁决） | web 进程重启（开发期常见） | N2 禁止持久化 ⇒ 无第二处可选；且 E5 只判"在**活着的**进程内刷新/重连后仍在"。**收敛路径**：agent 进程重启会一并清掉（轮次随之终结）；或用户重启对话。**回退口**：若实测痛，下一迭代把表落 SQLite（**但这会与 N2 正面冲突**，故须用户先改 N2） |
-| **K3** | **一次性 `omp` / `!` shell 路径不上浮**：只有 `omp-daemon` 常驻路径的受门禁调用会产生确认项 | 勾选「一次性」发送，或 `!` 开头的 shell 命令 | ① 一次性路径**不使用 `AcpClient`**（`agent.js:186-198` 直接 `spawn omp -p --no-session`），**没有可应答的 ACP 通道**；② 该路径若改为 `--approval-mode always-ask`，将出现**无人可答**的挂起（比"不上浮"更糟）。⇒ **这是本方案的覆盖面边界，需主 agent 确认**（见 §10 疑问 1） |
+| **K3** | **一次性 `omp` / `!` shell 路径不上浮**：只有 `omp-daemon` 常驻路径的受门禁调用会产生确认项 | 勾选「一次性」发送，或 `!` 开头的 shell 命令 | ① 一次性路径**不使用 `AcpClient`**（`agent.js:186-198` 直接 `spawn omp -p --no-session`），**没有可应答的 ACP 通道**；② 该路径若改为 `--approval-mode always-ask`，将出现**无人可答**的挂起（比"不上浮"更糟）。⇒ **这是本方案的覆盖面边界。**✅ **`[user_confirmed]` 采纳**：（见 §10.1） |
 
-### 9.3 实现期须实测验证的两条假设（**标记为 [INFERENCE]，非实测**）
+### 9.3 两条假设的实测状态（**均已由受控实测裁决**，证据见 §9.4）
 
-| # | 假设 | 若为假的后果 | 验证方式 |
+| # | 假设 | 状态 | 依据 |
 |---|---|---|---|
-| V1 | `--approval-mode yolo` 下 omp **不再发出** `session/request_permission`，故 `allow` 档必须改为 `always-ask`（L1-2 的一半） | 若 yolo 下 omp 仍会发请求，则本项改动可撤销（`acp-client.js:123` 保持 yolo），`acp-daemon.test.js:532` 也不需改 | 阶段 4 实现期：跑一次真实受门禁调用，观察 fake/真实 `frames.log` 是否出现 `session/request_permission`。**两条路都不影响其余设计**（信封、inbox、前端均不变） |
-| V2 | ACP 的 `session/request_permission` 应答**只能**给 `optionId`，**无**自由文本字段 | 若存在扩展字段，§5.3 的"文本 → 追加 chat 输入"可改为随应答下发（产品行为不变，F03 验收 3 的"一并提交"仍成立） | 阶段 4 实现期读 ACP 应答 schema |
+| V1 | `--approval-mode yolo` 下 omp **不再发出** `session/request_permission`，故 `allow` 档必须改为 `always-ask` | ✅ **实测证实**（L1-2 的 `[INFERENCE]` 已消解） | **M1**：`yolo` 档工具**直接执行**，agent 日志**零** PERMISSION/APPROVED 行（只有 `TOOL_CALL … kind=execute … status=completed`）。**M2**：`always-ask` 档**发**请求，携带 `[allow_once, allow_always, reject_once, reject_always]` |
+| V2 | ACP 的 `session/request_permission` 应答**只能**给 `optionId`，**无**自由文本字段 | ✅ **实测证实**（应答契约为 `result.outcome = {outcome:'selected', optionId}`，且以 `SEs.get(optionId)` 校验，未知 id 抛错） | **M3**：omp dist `cli.js` 决策段 `let T = h.outcome; … let R = SEs.get(T.optionId); if (!R) throw new X('Tool permission response used unknown option ID: …')`；**M2** 的 options 四项 = 合法 `optionId` 全集 |
+
+⇒ §5.3 的"文本 → 追加一条 chat 输入"**不再是权宜之计，而是唯一不漏项的落地方式**：文本**不进** ACP 应答包（应答包只接受合法 `optionId`，且未知值会抛错）。
+
+### 9.4 受控实测证据（M1~M4）与可复跑方法
+
+> 实测时间 2026-09-13，真实 `omp`（非 fake）。记录来源：`clarifications/arch-round-1-verdicts.md` 第二节。**证据可复跑**（方法见下）。
+
+#### 9.4.1 结论表
+
+| # | 实测项 | 结果 | 证据 |
+|---|---|---|---|
+| **M1** | `yolo` 档（= 现状 `allow` 档）是否发权限请求 | **不发** —— 工具直接执行，agent 日志**零** PERMISSION / APPROVED 行 | `oamp/.runtime/cluster/pb-dev.log`：`TOOL_CALL … kind=execute title="$ echo L1-2-PROBE" status=completed`（**无权限行**）；调用 `task-d3140142-…` 返回真实输出 |
+| **M2** | `always-ask` 档是否发权限请求 | **发**，且**携带请求方选项集合**：`[allow_once, allow_always, reject_once, reject_always]`（`title = "echo ALWAYS-ASK-PROBE"`） | 受控脚本 `/tmp/probe-always-ask.mjs` 输出 `hookFired: 1`、`options: [4 项]`；审计序列 `ACP_READY → TOOL_APPROVED → TOOL_CALL` |
+| **M3** | omp 的响应契约 | 读 `result.outcome = { outcome: 'selected', optionId }`，并以 `SEs.get(optionId)` **校验**；**未知 `optionId` 直接抛错** | omp dist `cli.js` 决策段：`let T=h.outcome; … let R=SEs.get(T.optionId); if(!R) throw new X('Tool permission response used unknown option ID: …')` |
+| **M4** | ⚠️ **新现象（未解）** | oamp 回 `allow_once`、审计 `TOOL_APPROVED`，但**模型侧收到的工具结果仍是「Tool call denied by user: bash」** ⇒ 接线缝**存在但不通**；该路径因 `yolo` 档从不触发，**从未在真实 omp 上跑通过** | 同一脚本输出 `text` 逐字：「我调用了 bash…工具返回的原始结果只有一行：`Tool call denied by user: bash`」 |
+
+#### 9.4.2 三条已成立的结论（本轮并入设计）
+
+| # | 结论 | 并入位置 |
+|---|---|---|
+| 1 | **不改 argv 就没有可上浮的请求**（M1+M2）——L1-2 的 argv 面**是功能的存在前提**，不是优化 | §3.1 L1-2、§4.2 M-12、§11.1 B-1/B-2 |
+| 2 | **选项来源 = 请求方 options 原样**（M2 的 4 项即 W2「确认选项」的真实全集） | §5.3 信封 1、§7 T-02 / T-05、§11.5 义务 3 |
+| 3 | **应答包只接受合法 `optionId`，未知值抛错**（M3） | §5.4 的"非集合内 → 回落"**升级为硬约束**（回落不是体验优化，是不让轮次崩） |
+
+#### 9.4.3 **M4：答复链路修复（本迭代硬义务）**
+
+**定位**：不是"未实现"，是"**实现存在但从未在真实 omp 上跑通**"——该路径因 `yolo` 档从不触发，因而**从未被真实调用**（fake ACP 的 `session/request_permission` 是构造的，不校验真实放行后果）。**⇒ `L1-2` 的采纳使这条沉睡路径首次进入生产路径，它的正确性成为功能可用性的前提。**
+
+**为什么必须在本迭代修**：若只改 argv 不改答复链路，结果是**每一个受门禁调用都被拒**（模型收到 "denied by user"）——比现状（自动放行）**更坏**，且 F02 / F04 的验收（"该轮继续"）全线失败。**不得降级为文档说明或后续迭代**。
+
+**落点**：`oamp/src/acp-client.js:397-410`（`_handleServerRequest` 的 permission 分支）+ `:400`（`_respond` 的包形态）。**与 F02 / F04 的对应**：F02（上浮）与 F04（裁决回路）的**共同末梢**——裁决最终必须变成"工具真的执行了"，这一跳就在这两行。
+
+**排查方向（**本轮不下定论**，实现期实证）**：
+
+| # | 方向 | 具体怀疑点 | 验证手段 |
+|---|---|---|---|
+| D1 | **响应包形态** | 现状回 `{ outcome: { outcome: 'selected', optionId } }`（`acp-client.js:400`），而 omp 读的是 `result.outcome`（**M3**）。若 ACP 的 JSON-RPC `result` 需要**再包一层**（如 `{ result: { outcome: … } }`）或字段名不同（如 `optionId` vs `option_id`），则 omp 取到 `undefined` ⇒ `SEs.get(undefined)` 走不到抛错分支而**静默当作拒绝** | 抓 **M2 受控脚本**的真实帧（`frames.log` 的 `server_request_reply`），逐字比对 omp 源码读取路径；这是**最可疑**的一条（M3 的抛错行为未在实测中出现 ⇒ 说明 `h.outcome` 不是 `undefined` 就是取到了别的对象） |
+| D2 | **时序** | 现状是"收到请求同步应答"；异步化后**应答变晚**。若 omp 侧对 `session/request_permission` 有**等待窗口**，或要求应答**先于**某个后续通知（`session/update`），晚回会被判为无应答 ⇒ 回落成 denied | 在受控脚本里人为延迟回包（如 0ms / 1ms / 100ms / 1s 四档），观察模型侧工具结果是否改变 |
+| D3 | **与 `--no-session` 的交互** | 受控实测用的 argv 含 `--no-session`（`omp acp --no-skills --no-rules --no-session --approval-mode …`），而 **daemon 常驻路径不带 `--no-session`**（`AcpClient.start()` 的 argv 由 `acp-client.js:118-123` 构造）。若"无会话"下的权限应答不落到工具结果上，则实测的 M4 **可能部分是探针 argv 的产物** | **用 daemon 的真实 argv**（不带 `--no-session`）重跑同一探针；**这一步应最先做**——它决定 D1/D2 是否成立 |
+| D4 | 审计与真实后果的**脱钩** | `TOOL_APPROVED` 在**回包后立即写**（`:401-403`），它证明"oamp 回了包"，**不证明**"omp 采纳了包"（M4 正是这条脱钩的实证） | 审计行**不得**作为 F02 / F04 的验证证据；验收须以**模型侧工具结果**（工具真的执行 / 真的被拒）为准 |
+
+**复跑方法（可执行）**：
+
+```sh
+# ① 受控探针：直接以 AcpClient 起真实 omp（always-ask），钩子固定回 allow_once
+node /tmp/probe-always-ask.mjs      # 期望：hookFired: 1 + options 四项 + 工具真实输出
+                                     # 现状（M4）：text 里出现 "Tool call denied by user: bash"
+
+# ② daemon 真实路径：hub API 派发同型任务给 allow 档角色，读 agent 日志
+#    观测面 = oamp/.runtime/cluster/pb-dev.log 的 TOOL_CALL 行 title/status 与
+#            TOOL_APPROVED / TOOL_DENIED 行；以及任务的 task.result.text（模型侧描述）
+```
+
+**观测判据（修复完成的定义）**：受控探针输出中，**模型侧工具结果等于工具真实输出**（如 `L1-2-PROBE`），而**不是** `Tool call denied by user: …`；且 `reject_once` 路径下**确实是** denied。**两条都要**（只测放行会把"恒放行"的错误修复误判为成功）。
+
 
 ---
 
 ## 10. 越界与疑问
 
-### 10.1 需主 agent 裁决 / 转呈用户的疑问
+### 10.1 上轮疑问的裁决回填（**已全部 `[user_confirmed]`**）
 
-1. **上浮覆盖面是否含"一次性 omp / shell 路径"？**（K3）
+1. **上浮覆盖面是否含"一次性 omp / `!` shell 路径"？** → ✅ **裁决：不含**。
    - 事实：只有 `omp-daemon` 路径能上浮（有 ACP 通道与常驻上下文）；一次性路径 `agent.js:186-198` 直启 `omp -p --no-session`，无应答方。
-   - F02 验收 1 的措辞是"受门禁工具调用"，未限定路径；但 E1 的判定（"受门禁操作发起时，待确认栏出现该条目"）在一次性路径下**不会成立**。
-   - **本轮推荐**：本迭代覆盖面 = `omp-daemon`（= `POST /api/messages` 的**默认路径**，不勾选一次性）；一次性路径维持现状（`yolo` 自动放行，即 **R3 未覆盖该路径**）。
-   - **需要的裁决**：确认此覆盖面可接受，或要求扩展（扩展则需为一次性路径另造应答通道——**新的 L1**，本轮不擅自动手）。
+   - **裁决**：本迭代覆盖面 = `omp-daemon`（= `POST /api/messages` 的**默认路径**，不勾选一次性）；一次性 `omp -p` 与 `!` shell 路径**维持现状**（`yolo`）。⇒ `agent.js:197` **零改动**（§4.3 Z-12）。
+   - 残留含义：F02 验收 1 的"受门禁工具调用"在本迭代**指常驻路径上的**受门禁调用；一次性路径不在其内。**此项已由用户确认，不再是开放式疑问。**
 
-2. **L1-1 ~ L1-4 四条**（§3.1）。其中 **L1-3 本轮已修订**：从"新增信封类型"降级为"复用 `notice` + 扩 `kind`"，因为 `router.js:23` 的 `VALID_TYPES` 是封闭集合，新增 `type` 会把改动扩到 Router 进程（第三处）。修订后**Router 零改动**。
+2. **L1-1 ~ L1-4**（§3.1）→ ✅ **四条全部采纳**（L1-2 经实测证实后采纳，并附加「答复链路修复」义务 M4 → §9.4.3 / §11.5）。
+
+**本轮无新增待裁决疑问**。M4 的**根因**是**实现期实证**事项（不是决策事项）——四条排查方向与复跑方法已给（§9.4.3），不阻塞架构阶段收尾。
 
 ### 10.2 本阶段未做的事（边界自陈）
 
@@ -706,8 +783,8 @@ notify.js
 
 | # | 文件:行 | 断言原文 | 为何必然变 | 处置 | 卡 |
 |---|---|---|---|---|---|
-| B-1 | `acp-daemon.test.js:532` | `assert.equal(devArgv[…], 'yolo', '§4.4/pr-007①：tools on + allow 的常驻 argv 应含 --approval-mode yolo')` | `allow` 档改为上浮 ⇒ daemon 路径必须 `always-ask`（否则 omp 不发权限请求，功能不存在；V1） | **改断言为 `always-ask`**（依据 R3 的语义变更，不是"为过测试而改"） | F02 |
-| B-2 | `tool-permission.test.js:397` | `assert.equal(allowArgv[allowIdx + 1], 'yolo')` | 同上（`AcpClient` 的 `allow` 档 argv） | **改断言为 `always-ask`** | F02 |
+| B-1 | `acp-daemon.test.js:532` | `assert.equal(devArgv[…], 'yolo', '§4.4/pr-007①：tools on + allow 的常驻 argv 应含 --approval-mode yolo')` | `allow` 档改为上浮 ⇒ daemon 路径必须 `always-ask`（否则 omp 不发权限请求，功能不存在；V1） | **改断言为 `always-ask`**（依据 R3 的语义变更 + **M1/M2 实测证实**，不是"为过测试而改"） | F02 |
+| B-2 | `tool-permission.test.js:397` | `assert.equal(allowArgv[allowIdx + 1], 'yolo')` | 同上（`AcpClient` 的 `allow` 档 argv） | **改断言为 `always-ask`**（同 B-1，M1/M2 实测证实） | F02 |
 | B-3 | `api-routes.test.js:278-287` | `llms.txt` 逐字节快照 + `## 接口（19 条）` | 新增 2 条路由 ⇒ 投影必变 | **重生成 `llms.txt`**（`node oamp/scripts/gen-llms-txt.mjs`）——**不改测试** | F10 |
 | B-4 | `api-routes.test.js:303-315` | API.md 与登记集合的**双向覆盖** | 新增路由必须在 `API.md` 出现 `` `(GET\|POST) (/api/…)` `` 签名 | **追加 `API.md §3.20 / §3.21`**（既有 19 条逐字不动）——**不改测试** | F10 / F12 |
 | B-5 | `api-pages.test.js`（全局事件面） | 若存在对 `/api/events` 事件清单（2 类）的**逐条**断言 | 新增 `confirmation` 帧 ⇒ 全局链路事件集合由 2 类变 3 类 | **须实测复核**：若为"恰好这两类"的封闭断言 → 改断言为 3 类；若为"包含这两类" → 零改动 | F07 |
@@ -734,3 +811,11 @@ notify.js
 ### 11.4 判定**为零改动**的项（明确不动）
 
 `persist.js`（schema/调用面）、`transport.js`（键空间不扩充）、`router.js`（`VALID_TYPES` 不动 —— L1-3 修订的直接收益）、`cluster-config.js`（档位取值与校验不动）、`web.js` 的 server 构造处 / 静态面 / 既有 19 条路由 handler、`oamp/test/hygiene.test.js`、既有 19 条 `API.md` 条目、`GET /api/stream` 的 4 类事件、调用面三类事件、`app.js` 既有渲染与交互、`style.css` 既有规则（只**追加**三列与新栏样式）。
+
+### 11.5 **必做义务**（非"变更点"而是"必须做到"，缺则本迭代失败）
+
+| # | 义务 | 为什么是义务而非可选 | 落点 | 卡 |
+|---|---|---|---|---|
+| **B-15** | **答复链路修复（M4）**：确认 `allow_once`（及人裁决选定的 `optionId`）在**真实 omp** 上被采纳并**真的放行工具** | 该路径因 `yolo` 档从不触发而**从未在真实 omp 上跑通**（实测 M4：回 `allow_once` + 审计 `TOOL_APPROVED`，模型侧仍 `Tool call denied by user: bash`）。**L1-2 的采纳使这条沉睡路径首次进入生产路径** ⇒ 不修的后果是**每一个受门禁调用都被拒**（比现状更坏），F02 / F04 的"该轮继续"全线失败。**不得降级为文档说明或后续迭代** | `acp-client.js:397-410`、**`:400`**（排查方向 D1~D4 见 §9.4.3） | F02 / F04 |
+| **B-15a** | **并修"拒"的一侧**：`reject*` 路径下模型侧**确实**得到 denied | 只测放行会把"恒放行"的错误修复**误判为成功**（观测判据必须双向） | 同上 | F04 |
+| **B-15b** | **验收证据换锚**：F02 / F04 的验证**以模型侧工具结果为据**，**不得**以 `TOOL_APPROVED` / `TOOL_DENIED` 审计行为据 | M4 正是"审计行与真实后果脱钩"的实证（D4）：审计只证明"oamp 回了包" | 验证报告（阶段 6） | F02 / F04 |

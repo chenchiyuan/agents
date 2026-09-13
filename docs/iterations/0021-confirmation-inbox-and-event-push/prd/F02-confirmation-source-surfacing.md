@@ -39,5 +39,8 @@
 - **T-02 选项集合的呈现**（§7 T-02）：选项**逐字来自 ACP** `session/request_permission` 的 `params.options`（`acp-client.js:415-425` 已把 `options` 传给钩子）；栏内每个 `optionId` 一个按钮，`label` 缺失时显示 `optionId`。
 - **T-05 接线与承载体**（§7 T-05）：**不新增承载体**。三处最小扩展 = ① `acp-client.js:397-425` 钩子返回值域扩为 `'allow'|'deny'|{optionId}|Promise<…>` ② `context-pool.js:204-212` 透传 `onPermissionRequest`（该能力**现无注入者**）③ `agent.js` daemon 任务注入钩子并发出 `notice{kind:'confirmation_request'}`。
 - **档位**（R3）：`ContextPool` **仅在 `permission === 'allow'` 时注入**上浮钩子；`deny` 档不注入 ⇒ `acp-client.js:404-407` 的自动拒绝三步**逐字不变**。
-- **必然变更**：`allow` 档 argv `--approval-mode yolo` → `always-ask`（否则 omp 不发权限请求，功能不存在）；连带改 `acp-daemon.test.js:532`、`tool-permission.test.js:397`。**见 architecture.md §9.3 V1（[INFERENCE]，实现期实测）**、§11.1 B-1/B-2。
-- **覆盖面边界（待主 agent 确认）**：仅 `omp-daemon` 常驻路径可上浮；一次性 `omp` / `!` shell 路径无 ACP 应答通道，**不上浮**（`architecture.md` §9.2 K3 / §10.1 疑问 1）。
+- **必然变更**：`allow` 档 argv `--approval-mode yolo` → `always-ask`；连带改 `acp-daemon.test.js:532`、`tool-permission.test.js:397`。**已由真实 omp 受控实测证实**（**M1**：`yolo` 档零权限请求、工具直接执行；**M2**：`always-ask` 档发请求且携带 4 项 options）——**不改 argv 就没有可上浮的请求**。见 `architecture.md` §9.4 / §11.1 B-1/B-2。
+- **M2 的选项四项进入条目**（W2「选项为主」的来源）：真实 omp 给出 `[allow_once, allow_always, reject_once, reject_always]`，**原样**进 inbox（不筛选、不增补、不翻译）；栏内每项一个按钮（§7 T-02）。
+- **M3 的硬约束**：omp 以 `SEs.get(optionId)` 校验应答，**未知 optionId 抛错** ⇒ agent 侧必须先校验合法性（非集合内 → 回落并记审计）。
+- **⚠️ 答复链路修复（M4，本迭代硬义务，用户确认 L1-2 时附加）**：实测中 oamp 回了 `allow_once` + 审计 `TOOL_APPROVED`，但模型侧工具结果仍是 `Tool call denied by user: bash` ⇒ 该路径因 `yolo` 档从不触发、**从未在真实 omp 上跑通**。**落点 = `acp-client.js:397-410` 与 `:400`**（`architecture.md` §4.2 M-16 / §9.4.3 / §11.5 B-15）。**观测判据 = 模型侧工具结果（工具真的执行了），不是审计行**（B-15b）。
+- **覆盖面边界（`[user_confirmed]` 采纳）**：仅 `omp-daemon` 常驻路径可上浮；一次性 `omp` / `!` shell 路径无 ACP 应答通道，**维持现状、不上浮**（`architecture.md` §9.2 K3 / §10.1）。⇒ `agent.js:197` 零改动。
