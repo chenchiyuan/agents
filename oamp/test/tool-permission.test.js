@@ -38,10 +38,10 @@ let promptSeq = 0;
 function emit(sessionId, toolCallId, patch) {
   send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: Object.assign({ toolCallId }, patch) } });
 }
-/** 推一帧 form elicitation（第二道审批门：Approve|Deny select）——真实 omp 同型帧（M4 实测）。 */
-function elicit(sessionId, promptId) {
+/** 推一帧 form elicitation——缺省即第二道审批门（Approve|Deny select，真实 omp 同型帧）；label 供帧日志归位、schema 可换非审批形状。 */
+function elicit(sessionId, promptId, message, label, schema) {
   serverSeq += 1;
-  awaitingReply.set(serverSeq, { promptId, kind: 'elicitation' });
+  awaitingReply.set(serverSeq, { promptId, kind: 'elicitation', label: label || null });
   send({
     jsonrpc: '2.0',
     id: serverSeq,
@@ -49,8 +49,8 @@ function elicit(sessionId, promptId) {
     params: {
       mode: 'form',
       sessionId,
-      message: 'Allow tool: edit',
-      requestedSchema: { type: 'object', properties: { value: { type: 'string', enum: ['Approve', 'Deny'] } }, required: ['value'] },
+      message: message || 'Allow tool: edit',
+      requestedSchema: schema || { type: 'object', properties: { value: { type: 'string', enum: ['Approve', 'Deny'] } }, required: ['value'] },
     },
   });
 }
@@ -85,8 +85,36 @@ rl.on('line', (line) => {
     promptSeq += 1;
     const sid = msg.params.sessionId;
     if (MODE === 'elicit_only') {
-      // 无第一道 permission 的 elicitation（非受门禁工具的审批门）：客户端必须回落 Deny（不猜放行）
+      // 无第一道 permission 的 elicitation（非受门禁工具的审批门：无钩子时必须回落 Deny，不猜放行）
       elicit(sid, msg.id);
+      return;
+    }
+    if (MODE === 'elicit_window') {
+      // C2/C4 复现：call_A 经权限门放行后，窗口内插入一道与 call_A 无关的同型门；call_A 终态后再来一道。
+      // 权限请求帧**不带** toolName（真实 omp 帧形：ACP 桥 mba() 只序列化 toolCallId/title/kind/rawInput/content/locations）。
+      serverSeq += 1;
+      awaitingReply.set(serverSeq, { promptId: msg.id, kind: 'permission', label: 'permission_A' });
+      send({
+        jsonrpc: '2.0',
+        id: serverSeq,
+        method: 'session/request_permission',
+        params: {
+          sessionId: sid,
+          toolCall: { toolCallId: 'call_A', title: '$ echo hi', status: 'pending', rawInput: { command: 'echo hi', cwd: '/tmp' } },
+          options: [
+            { optionId: 'allow_once' },
+            { optionId: 'allow_always' },
+            { optionId: 'reject_once' },
+            { optionId: 'reject_always' },
+          ],
+        },
+      });
+      return;
+    }
+    if (MODE === 'elicit_other') {
+      // 非审批形状（ask 型 askDialog + boolean confirm）：形状不等同审批门 ⇒ 一律 decline（C5）
+      elicit(sid, msg.id, '请选择', 'ask_dialog', { type: 'object', properties: { q0: { type: 'string', title: 'Q', oneOf: [{ const: 'A', title: 'A' }] } }, required: ['q0'] });
+      elicit(sid, msg.id, '确认', 'confirm_boolean', { type: 'object', properties: { value: { type: 'boolean' } }, required: ['value'] });
       return;
     }
     if (MODE === 'toolcall') {
@@ -163,6 +191,7 @@ rl.on('line', (line) => {
     log('FAKE_ACP_FRAMES_LOG', {
       frame: 'server_request_reply',
       kind: entry.kind,
+      label: entry.label || null,
       at: Date.now(),
       server_request_id: msg.id,
       result: msg.result || null,
@@ -173,6 +202,21 @@ rl.on('line', (line) => {
       elicit('sess-1', entry.promptId);
       return;
     }
+    // C2/C4：permission_A 放行 ⇒ call_A 自己的门（gate_1）⇒ 无关同型门（gate_2）⇒ call_A 终态 ⇒ 终态后的门（gate_3）
+    if (entry.label === 'permission_A' && msg.result && msg.result.outcome && String(msg.result.outcome.optionId).startsWith('allow')) {
+      elicit('sess-1', entry.promptId, 'Allow tool: bash', 'gate_1_own');
+      return;
+    }
+    if (entry.label === 'gate_1_own') {
+      elicit('sess-1', entry.promptId, 'Allow tool: write', 'gate_2_unrelated');
+      return;
+    }
+    if (entry.label === 'gate_2_unrelated') {
+      emit('sess-1', 'call_A', { sessionUpdate: 'tool_call_update', status: 'completed' });
+      elicit('sess-1', entry.promptId, 'Allow tool: bash', 'gate_3_after_terminal');
+      return;
+    }
+    if (entry.label === 'ask_dialog') return; // 等第二道非审批询问答完再结算
     if (MODE === 'hang') return; // 收到应答也不结算该轮（pr-001④ 对照：验证超时路径与「按剩余时间恢复」）
     send({ jsonrpc: '2.0', id: entry.promptId, result: { stopReason: 'end_turn', usage: {} } });
   }
@@ -722,7 +766,135 @@ test('M4：第一道门放行 ⇒ 第二道审批门（elicitation）答 Approve
   // 无放行凭据的 elicitation（非受门禁工具的第二道门）：回落 Deny，绝不猜放行
   const orphan = writeFake('elicit_only');
   const c3 = await startClient(clients, orphan.bin, { tools: true, permission: 'allow' });
-  await c3.prompt('创建 role-smoke.txt');
+  const orphanResult = await c3.prompt('创建 role-smoke.txt');
+  assert.equal(orphanResult.stop_reason, 'end_turn', 'C3：无钩子时审批门保守拒绝，轮次不得崩在协议校验里');
   const orphanReplies = readJsonLines(orphan.framesLog).filter((f) => f.frame === 'server_request_reply');
   assert.deepEqual(orphanReplies[0].result, { action: 'accept', content: { value: 'Deny' } });
+});
+
+test('M4/C1：无权限门的工具审批门（write 型）经钩子上浮；钩子放行 ⇒ Approve，钩子拒绝 ⇒ Deny（轮次均正常结算）', async (t) => {
+  const clients = withClients(t);
+
+  // 钩子放行：该形状的工具（不经 bEs 权限门）只有这一道门，必须可上浮（否则 always-ask 下写类工具被静默拒绝）
+  const allow = writeFake('elicit_only');
+  const allowCalls = [];
+  const c1 = await startClient(clients, allow.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => {
+      allowCalls.push(info);
+      return info.kind === 'tool_approval' ? 'allow' : 'deny';
+    },
+  });
+  const allowed = await c1.prompt('创建 role-smoke.txt');
+  assert.equal(allowed.stop_reason, 'end_turn');
+  assert.equal(allowCalls.length, 1, '审批门必须上浮，且恰一次');
+  const info = allowCalls[0];
+  assert.equal(info.kind, 'tool_approval', '上浮项须可与 ACP 权限门判定区分');
+  assert.equal(info.sessionId, 'sess-1');
+  assert.equal(info.toolCall.toolName, 'edit', '上浮项须携带工具名（取自 message 首行 Allow tool: <name>）');
+  assert.equal(info.toolCall.title, 'Allow tool: edit');
+  assert.deepEqual(info.options.map((o) => o.optionId), ['Approve', 'Deny'], '上浮项须携带请求方给的选项集合');
+  assert.deepEqual(
+    readJsonLines(allow.framesLog).find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Approve' } },
+    '钩子放行 ⇒ 审批门答 Approve',
+  );
+
+  // 钩子拒绝：答 Deny 且轮次正常结算（不 cancel、不抛）
+  const deny = writeFake('elicit_only');
+  const c2 = await startClient(clients, deny.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (gate) => (gate.kind === 'tool_approval' ? 'deny' : 'allow'),
+  });
+  const denied = await c2.prompt('创建 role-smoke.txt');
+  assert.equal(denied.stop_reason, 'end_turn');
+  assert.deepEqual(
+    readJsonLines(deny.framesLog).find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Deny' } },
+    '钩子拒绝 ⇒ 审批门答 Deny',
+  );
+});
+
+test('M4/C1：审批门挂起（钩子返回未结算 Promise）期间同样冻结轮次计时，裁决后正常结算', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_only');
+  let release = null;
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    // pr-002 的 pending 表即此形态：上浮后等人答复，等的时间不计入轮次预算（L1-1）
+    onPermissionRequest: () => new Promise((resolve) => { release = resolve; }),
+  });
+
+  const inflight = client.prompt('创建 role-smoke.txt', { timeoutMs: 150 });
+  await waitFor(() => release !== null, '审批门钩子被调用');
+  await sleep(400); // > timeoutMs：冻结未生效则轮次早已被 cancel → 宽限 → kill
+  assert.equal(client.dead, false, '冻结期间不得 kill 子进程');
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length, 0, '冻结期间不得 cancel');
+
+  release('allow');
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn', '裁决到达后按剩余时间恢复并正常结算');
+  assert.deepEqual(
+    readJsonLines(fake.framesLog).find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Approve' } },
+  );
+});
+
+test('M4/C2+C4：放行凭据只抵扣紧随其后的一个审批门——窗口内无关同型门不再被静默放行', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_window');
+  const gateCalls = [];
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: (info) => {
+      if (info.kind === 'tool_approval') {
+        gateCalls.push(info.toolCall.toolName);
+        return 'deny'; // 上浮后由人裁决；本用例固定「拒绝」以便区分「凭据抵扣」与「上浮」
+      }
+      return 'allow';
+    },
+  });
+  const result = await client.prompt('执行 echo hi');
+  assert.equal(result.stop_reason, 'end_turn');
+
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  const gate = (label) => replies.find((f) => f.label === label);
+  assert.deepEqual(gate('permission_A').result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  assert.deepEqual(
+    gate('gate_1_own').result,
+    { action: 'accept', content: { value: 'Approve' } },
+    'C2：call_A 自己的审批门由本次放行凭据抵扣，不再重复上浮',
+  );
+  assert.deepEqual(
+    gate('gate_2_unrelated').result,
+    { action: 'accept', content: { value: 'Deny' } },
+    'C4：放行窗口内与 call_A 无关的同型门必须上浮（不得沿用凭据静默 Approve）',
+  );
+  assert.deepEqual(
+    gate('gate_3_after_terminal').result,
+    { action: 'accept', content: { value: 'Deny' } },
+    'C2：call_A 终态后凭据已失效，后续门一律上浮',
+  );
+  assert.deepEqual(gateCalls, ['write', 'bash'], 'C2/C4：只有无关门与终态后的门走上浮（自己的门被凭据抵扣 ⇒ 钩子零调用）');
+});
+
+test('M4/C5：非审批形状的 elicitation（ask 型 askDialog / boolean confirm）仍一律 decline', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_other');
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => 'allow', // 钩子恒放行：以此证明 decline 由「非审批形状」决定，而非钩子没给值
+  });
+  const result = await client.prompt('向用户提问');
+  assert.equal(result.stop_reason, 'end_turn');
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(replies.map((f) => f.label), ['ask_dialog', 'confirm_boolean']);
+  for (const reply of replies) {
+    assert.deepEqual(reply.result, { action: 'decline' }, `非审批 elicitation（${reply.label}）不得被本轮改动误答 Approve`);
+  }
 });
