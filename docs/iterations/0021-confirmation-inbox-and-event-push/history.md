@@ -154,3 +154,16 @@
 
 - 决策内容：**裁定 planner 的 A1~A4 / B / C 六项**（详见 `clarifications/prplanner-round-1-verdicts.md`）：A1~A3 采纳代码证据（§11.4 静态面、全局事件类型三源一致口径、三个测试文件的硬编码路由集合均列入 pr-003）；A4 含关闭 B-5 疑问；B 采纳「拆 3 个新测试文件」的偏离；C 采纳（布局实现不绑验收）。派生 **5 条偏差 D-a~D-e** 登记供阶段 6 汇总
 - 阶段 4 推进条件核查：① 每个 PR 文件满足七字段 ✅；② 12 张卡全被引用 ✅；③ 文件范围零重叠 ✅（21 文件唯一归属）；④ 依赖图无环 ✅ ⇒ 满足，进入 Gate 验证
+
+### 2026-09-13 13:30 · 收到报告 · verifier（阶段 4 Gate）
+
+- call `task-dc76f986-31cf-4bfd-bedb-1442f73445d7`（`completed`，230214ms）；报告 `clarifications/verify-stage4-gate-20260913-122303.md`（291 行）
+- 结论：**PASS** —— A~K **11/11 全 pass**（fail 0 / partial 0 / blocked 0）
+- 关键证据：七字段齐备；**F01~F12 全覆盖无幻影**；21 条文件范围零重叠；**两条 `depends_on` 均经 verifier 自行代码级重检索证实**（`acp-client.js:397-400/414-424/123`、`web.js:410-424/465-466/741`、`STATIC_FILES` 无兜底、`onPermissionRequest` 生产侧零注入者）；无环；首波可并发 = {pr-001, pr-003}；**M4 义务落地 pass**（有一个 PR 明确承载且验收可独立判定）；K 项 6/6 与主 agent 裁定一致
+- 偏差 **8 条**（均文档/措辞层，已给建议处理）：D-h1「重新生成」标注词表 / D-h2 两个测试文件缺 §4/§11 字面锚点 / D-h3 §4.2 标题「11 条」vs 表体 16 行 / D-h4~D-h7 为 D-a~D-e 的独立复核确认 / **D-h8 pr-004 的检索式 `class="layout"` 不命中（实际 `class="layout hidden"`）→ 实现期以 `layout` 为检索词**
+- 下一迭代候选 4 条：①「200 字以内」计数口径未定义；② **M4 复跑探针锚在 `/tmp`（建议纳入仓库）**；③ 跨 PR 共享契约的引用方向；④ `context-pool.test.js` 的条件口径
+
+### 2026-09-13 13:32 · 调度决策 · 阶段推进核查
+
+- 决策内容：**阶段 4 → 阶段 5**（Gate PASS）；同时**采纳 Gate 候选 ②**：把 M4 复跑探针 `probe-always-ask.mjs` 纳入迭代工作区 `clarifications/`（否则阶段 6 无法独立复跑 M4 判据）；D-h8 转为阶段 5 实现期义务（写入 pr-004 的简报）
+- 阶段 5 初始化：并发配置五字段写盘；建首波 PR worktree（落点 = `<会话工作区>/.pb-agents/worktrees/0021-pr-00N-{slug}`，分支 `feat/0021-pr-00N-{slug}`，base = 迭代分支）
