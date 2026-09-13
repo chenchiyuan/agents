@@ -91,6 +91,13 @@ function notificationStub(permission, log) {
   return stub;
 }
 
+/** app.js 栏内第二行文本函数：提取顶层函数体在沙箱内执行（断言跑产出，不做源码文本匹配）。 */
+function loadInboxRequest() {
+  const src = read('app.js');
+  const code = `function escapeHtml(s) {${fnBody(src, 'escapeHtml')}\n}\nfunction inboxRequest(entry) {${fnBody(src, 'inboxRequest')}\n}\ninboxRequest;`;
+  return vm.runInNewContext(code, {}, { filename: 'web/app.js#inboxRequest' });
+}
+
 // ────────────────────────── T2 / T5：index.html 结构契约 ──────────────────────────
 
 test('T2：index.html——第三栏是 main.layout 内 .sidebar 与 .detail 之间的兄弟节点 + 独立脚本（PR 验收 1 / 6）', () => {
@@ -229,6 +236,47 @@ test('T1：notify.js 运行期——通道投递 / 静默降级 / 加载期零�
   askable.requestPermission();
   askable.requestPermission();
   assert.equal(askLog.filter((e) => e.ask).length, 1, '同一页面至多请求一次');
+});
+
+// ────────────────────────── pr-005：消费侧 tool 空值语义（栏内行 + 通知正文） ──────────────────────────
+
+test('T1：消费侧空值语义——tool 缺失不产伪值（栏内行 + 通知正文，PR 验收 1~6）', () => {
+  const inboxRequest = loadInboxRequest();
+
+  // 栏内第二行：tool 可得 ⇒ 逐字同现状（PR 验收 2）；缺失（null / 无键）⇒ 整段省略（PR 验收 1）
+  assert.equal(inboxRequest({ tool: 'bash', title: 'echo E2E-1' }), 'bash · echo E2E-1');
+  assert.equal(inboxRequest({ tool: null, title: 'echo E2E-1' }), 'echo E2E-1', 'tool=null ⇒ 省略该段');
+  assert.equal(inboxRequest({ title: 'echo E2E-1' }), 'echo E2E-1', '无 tool 键 ⇒ 同值');
+  assert.equal(inboxRequest({ tool: null, title: null }), '', '两段皆空 ⇒ 空串（不留悬空 ·）');
+  const rows = [
+    inboxRequest({ tool: null, title: 'echo E2E-1' }),
+    inboxRequest({ title: 'echo E2E-1' }),
+    inboxRequest({ tool: null, title: null }),
+  ];
+  for (const row of rows) {
+    assert.doesNotMatch(row, /null|undefined/, '不得出现字面量 null / undefined（也不得以 title 猜工具名）');
+    assert.doesNotMatch(row, /^\s*·|·\s*$/, '不得留下悬空 ·');
+  }
+  assert.notEqual(rows[0], inboxRequest({ tool: 'bash', title: 'echo E2E-1' }), '可得 / 缺失两态产出可区分（被测值确实参与逻辑）');
+
+  // 转义面不变（PR 验收 3）：每段先 escapeHtml 再拼
+  const escaped = inboxRequest({ tool: null, title: '<img src=x onerror=1>' });
+  assert.match(escaped, /&lt;img/);
+  assert.doesNotMatch(escaped, /<img/);
+  assert.equal(inboxRequest({ tool: '<b>', title: 'x' }), '&lt;b&gt; · x', '工具名同样逐段转义');
+
+  // 通知正文：同一口径（PR 验收 4 / 5；tool='bash' 的逐字档由本文件既有断言原文钉死）
+  const notify = loadNotify({});
+  const base = { confirmation_id: 'cfm-1', agent_id: 'pb-dev', title: 'echo hi' };
+  const bodyOf = (payload) => notify.service.onEvent('confirmation_required', payload).body;
+  assert.equal(bodyOf({ ...base, tool: null }), 'pb-dev 请求执行 echo hi', 'tool=null ⇒ 省略该段');
+  assert.equal(bodyOf(base), 'pb-dev 请求执行 echo hi', '无 tool 键 ⇒ 同值');
+  assert.equal(bodyOf({ ...base, tool: 'bash' }), 'pb-dev 请求执行 bash：echo hi', 'tool 可得 ⇒ 逐字同现状');
+  for (const body of [bodyOf({ ...base, tool: null }), bodyOf(base)]) {
+    assert.doesNotMatch(body, /null|undefined/, '不得出现字面量 null / undefined');
+    assert.doesNotMatch(body, /：/, '不留悬空 ：');
+  }
+  assert.notEqual(bodyOf({ ...base, tool: 'bash' }), bodyOf(base), '可得 / 缺失两态产出可区分');
 });
 
 // ────────────────────────── T2：style.css 三列 + 窄屏折叠（只追加） ──────────────────────────
