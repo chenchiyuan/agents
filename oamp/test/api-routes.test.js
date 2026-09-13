@@ -53,6 +53,8 @@ const EXPECTED_SIGNATURES = [
   'GET /api/calls/:call_id/stream',
   'GET /api/calls/:call_id/transcript',
   'GET /api/calls/:call_id',
+  'GET /api/confirmations',
+  'POST /api/confirmations/:confirmation_id/decision',
 ];
 
 function pickPort() {
@@ -463,7 +465,7 @@ test('L2 探针：既有 API 行为等价（怪癖 Q-1~Q-5b / 无 405 / 单 try-
 
 // ────────────────────────── 派生面 HTTP：GET /api/docs + GET /llms.txt ──────────────────────────
 
-test('派生面 HTTP：/api/docs 的 13 条投影（danger 派生 / docLink）与 /llms.txt（200 + text/plain + 与快照逐字节相等）', async (t) => {
+test('派生面 HTTP：/api/docs 的 21 条投影（danger 派生 / docLink）与 /llms.txt（200 + text/plain + 与快照逐字节相等）', async (t) => {
   const web = await setupWeb(t);
 
   const docs = await jreq(web.base, 'GET', '/api/docs');
@@ -476,7 +478,7 @@ test('派生面 HTTP：/api/docs 的 13 条投影（danger 派生 / docLink）�
     assert.ok(typeof route.docLink === 'string' && route.docLink.startsWith('API.md#'), `docLink 应指向 API.md 章节：${route.path}`);
     assert.equal('handler' in route, false, `投影不含 handler：${route.path}`);
   }
-  assert.equal(docs.body.routes.filter((r) => r.danger).length, 7, '写接口（POST）= 7 条');
+  assert.equal(docs.body.routes.filter((r) => r.danger).length, 8, '写接口（POST）= 8 条');
 
   const llms = await jreq(web.base, 'GET', '/llms.txt');
   assert.equal(llms.status, 200);
@@ -486,7 +488,7 @@ test('派生面 HTTP：/api/docs 的 13 条投影（danger 派生 / docLink）�
     'HTTP 响应应与仓库快照 llms.txt（包根）逐字节相等（单产物结构）',
   );
   assert.match(llms.text, /^# oamp /m);
-  assert.match(llms.text, /^## 接口（19 条）$/m);
+  assert.match(llms.text, /^## 接口（21 条）$/m);
   for (const sig of EXPECTED_SIGNATURES) {
     assert.ok(llms.text.includes(`- ${sig} — `), `索引应含一行摘要：${sig}`);
   }
@@ -498,11 +500,11 @@ test('派生面 HTTP：/api/docs 的 13 条投影（danger 派生 / docLink）�
 
 // ────────────────────────── API.md 同步（PR-1 交付的三处） ──────────────────────────
 
-test('API.md 同步：顶部引用块指向 /docs + §3 标题 13 条 + 3.11~3.13 小节与登记行', () => {
+test('API.md 同步：顶部引用块指向 /docs + §3 标题 21 条 + 3.11~3.13 小节与登记行', () => {
   const text = fs.readFileSync(API_MD, 'utf8');
   const head = text.split('\n').slice(0, 16).join('\n');
   assert.match(head, /^> 在线接口文档页：<http:\/\/127\.0\.0\.1:7788\/docs>/m, '顶部引用块应指向 /docs（F08 验收 3）');
-  assert.match(text, /^## 3\. 接口清单（19 条）$/m);
+  assert.match(text, /^## 3\. 接口清单（21 条）$/m);
   assert.match(text, /^### 3\.14 `POST \/api\/calls`$/m);
   assert.match(text, /^\| 14 \| `POST \/api\/calls` \|/m);
   assert.match(text, /^### 3\.15 `GET \/api\/calls`$/m);
@@ -515,6 +517,11 @@ test('API.md 同步：顶部引用块指向 /docs + §3 标题 13 条 + 3.11~3.1
   assert.match(text, /^\| 18 \| `GET \/api\/calls\/<call_id>\/transcript` \|/m);
   assert.match(text, /^### 3\.19 `GET \/api\/calls\/<call_id>`$/m);
   assert.match(text, /^\| 19 \| `GET \/api\/calls\/<call_id>` \|/m);
+  // 0021 pr-003（T5 验收 1）：§3 追加两条确认面小节 + 清单表两行（既有 19 条逐字不改）
+  assert.match(text, /^### 3\.20 `GET \/api\/confirmations`$/m);
+  assert.match(text, /^\| 20 \| `GET \/api\/confirmations` \|/m);
+  assert.match(text, /^### 3\.21 `POST \/api\/confirmations\/<confirmation_id>\/decision`$/m);
+  assert.match(text, /^\| 21 \| `POST \/api\/confirmations\/<confirmation_id>\/decision` \|/m);
   assert.match(text, /^### 3\.11 `GET \/api\/docs`$/m);
   assert.match(text, /^\| 11 \| `GET \/api\/docs` \|/m);
   assert.match(text, /^### 3\.12 `GET \/api\/projects`$/m);

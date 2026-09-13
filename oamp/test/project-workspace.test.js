@@ -1223,6 +1223,8 @@ const EXPECTED_ROUTE_SIGNATURES = [
   'GET /api/calls/:call_id/stream',
   'GET /api/calls/:call_id/transcript',
   'GET /api/calls/:call_id',
+  'GET /api/confirmations',
+  'POST /api/confirmations/:confirmation_id/decision',
 ];
 
 const ROUTE_META_KEYS = ['method', 'path', 'summary', 'params', 'response', 'errors', 'kind', 'docLink'];
@@ -1233,10 +1235,10 @@ const shapePath = (p) => p.split(/[?#]/)[0].replace(/<[^>]*>/g, ':').replace(/:[
 test('F10：登记面（进程内）两条新表项元数据逐字 + 追加末位 + 三条锁的静默真源', () => {
   const routes = createApiRoutes({});
   assert.deepEqual(routes.map((r) => `${r.method} ${r.path}`), EXPECTED_ROUTE_SIGNATURES);
-  assert.equal(routes.length, 19);
+  assert.equal(routes.length, 21);
   assert.deepEqual(
     routes.slice(-6).map((r) => `${r.method} ${r.path}`),
-    ['POST /api/calls', 'GET /api/calls', 'GET /api/calls/stream', 'GET /api/calls/:call_id/stream', 'GET /api/calls/:call_id/transcript', 'GET /api/calls/:call_id'],
+    ['GET /api/calls/stream', 'GET /api/calls/:call_id/stream', 'GET /api/calls/:call_id/transcript', 'GET /api/calls/:call_id', 'GET /api/confirmations', 'POST /api/confirmations/:confirmation_id/decision'],
     '新面追加末位',
   );
 
@@ -1272,7 +1274,7 @@ test('F10：登记面（进程内）两条新表项元数据逐字 + 追加末�
   const expected = renderLlmsTxt(projectRoutes(createApiRoutes({})));
   const snapshot = fs.readFileSync(LLMS_SNAPSHOT, 'utf8');
   assert.equal(Buffer.compare(Buffer.from(snapshot, 'utf8'), Buffer.from(expected, 'utf8')), 0, '快照与生成结果逐字节相等');
-  assert.match(snapshot, /^## 接口（19 条）$/m);
+  assert.match(snapshot, /^## 接口（21 条）$/m);
   for (const sig of ['GET /api/projects', 'POST /api/projects']) {
     assert.ok(snapshot.includes(`- ${sig} — `), `索引应含清单行：${sig}`);
   }
@@ -1296,7 +1298,7 @@ test('F10：登记面（进程内）两条新表项元数据逐字 + 追加末�
   assert.deepEqual(pkg.dependencies === undefined ? {} : pkg.dependencies, {});
 });
 
-test('F10：/api/docs 投影 13 条（写接口 6 条）；/docs 与 /debug 自动出现且零硬编码路径', async (t) => {
+test('F10：/api/docs 投影 21 条（写接口 8 条）；/docs 与 /debug 自动出现且零硬编码路径', async (t) => {
   const { web } = await setup(t, { withAgent: false });
 
   const docs = await jget(web.base, '/api/docs');
@@ -1308,7 +1310,7 @@ test('F10：/api/docs 投影 13 条（写接口 6 条）；/docs 与 /debug 自�
     assert.ok(route.docLink.startsWith('API.md#'), `docLink 应指向 API.md 章节：${route.path}`);
     assert.equal('handler' in route, false, `投影不含 handler：${route.path}`);
   }
-  assert.equal(docs.body.routes.filter((r) => r.danger).length, 7, '写接口（POST）= 7 条');
+  assert.equal(docs.body.routes.filter((r) => r.danger).length, 8, '写接口（POST）= 8 条');
 
   // 两个派生面自动出现（不新增静态面条目、不需手改页面）
   for (const p of ['/docs', '/debug']) {
