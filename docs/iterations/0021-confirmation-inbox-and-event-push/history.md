@@ -546,3 +546,27 @@
 - 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
 - 工作区：`…/0021-pr-002-agent-confirmation-wiring`（分支 `feat/0021-pr-002-agent-confirmation-wiring`，HEAD `70c8877`，base = 迭代分支 `c84233a`）
 - 验收标准注入：PR 7 条 + T1~T6 + `clarifications/pr002-round-1-verdicts.md` 的 MI-1~MI-4（用户确认）与 Q1~Q6
+
+### 2026-09-13 15:45 · 收到报告 · dev（阶段 5 · 次波 pr-002，含实现期上报）
+
+- 1. 改了什么文件：4 文件（PR 范围 3 + Q7 授权 1）——`oamp/src/context-pool.js` +10（**上浮钩子唯一注入点**：仅 `permission==='allow'` 注入，并附会话身份 `chatId`/`agentId`/`origin`）；`oamp/src/agent.js` +111（`sendNotice` 扩 fields、`readConfirmationOptions`、`raiseConfirmation`/`settleConfirmation`/`cancelPending` 三型信封、轮次 settle 清扫、`handleNotice` 裁决分支、进程级 pending 表、池构造传钩子、SIGINT 前全量清扫且先于 deregister；**零新增计时/取消**）；`oamp/test/confirmation-roundtrip.test.js` **新建 741 行 / 20 用例**；`oamp/test/acp-daemon.test.js` +29（Q7 授权的最小连带更新：新增 `decideConfirmation` helper + 两处调用点改为「先放行后等终态」，原 75 条断言逐字保留、断言数 75→76）
+- 2. 测试结果：PR 7 条验收标准全 pass + T1~T6 全 pass；`confirmation-roundtrip` 20/20、`acp-daemon` 7/7、`confirmation-inbox` 6/6、`web` 39/39、`context-pool` 16/16、**oamp 全量 322/322 全绿**
+- 3. 疑问/待办：① **Q4 两条判据均稳定为真**（对端收到 `cancelled` 且 `confirmation_id` 逐字相同 + stdout `CONTEXT_NOTICE … confirmation_cancelled` 行先于 `DEREGISTERED` 行）⇒ 无需降级 partial；② 两型钩子的差异点已列明（权限门 `tool=toolCall.toolName`（可 null）、`title=toolCall.title`、`options` 逐字映射；审批门 `tool` 取自 message 首行、`title=message.slice(0,120)`、`options=[Approve,Deny]`），**未引入第二套去重**；③ `oamp/test/context-pool.test.js` 保持零改动（T1 进程内判据落在新文件，避免触碰既有断言）——如需平移到该文件可再指示；④ 上游假设被证伪：PR 文件「既有断言不与之相撞」不成立（`acp-daemon.test.js:665` 依赖旧「无裁决方也自动放行」语义），已按 Q7 处理
+- 4. 违反边界：**一项已自查并复原**——`edit` 工具的 `§<相对路径>` 被解析到**会话根**（仓库根），前两次编辑误写仓库根 `oamp/src/context-pool.js`（10 行 + 1 行探针），发现后 `git checkout --` 复原（主 agent 已独立核验：仓库根 `git status --porcelain -uall` 空、`git diff HEAD -- oamp/src/context-pool.js` 空）；另一项为 Q7 授权面
+- 交付证据：提交 `4d16ba4`；worktree `git status --porcelain` 空；信封 1/2/3 body 原文 + 帧级回包证据（`optionId` 逐字等于信封 2 的 `option_id`）+ 调用序证据齐备
+
+### 2026-09-13 15:46 · 调度决策 · 阶段推进核查（Q7 裁决与落地）
+
+- 决策内容：**授权 (a) 最小连带更新**——`oamp/test/acp-daemon.test.js:665`（「常驻路径 permission 审计」，依赖旧「无裁决方也自动放行」语义）与 L1-2（`allow` 档上浮，`user_confirmed`）不相容 ⇒ 该文件由本裁决显式加入 pr-002 文件面（第 5 个文件）；改法限定为「经 pr-003 的 `POST /api/confirmations/<id>/decision`（`option_id: allow_once`）放行 + 既有断言逐字保留」；除该文件外其余测试文件仍禁改；收口判据 = oamp 全量全绿 + 逐用例断言对照
+- 落盘：`clarifications/pr002-round-1-verdicts.md` §四（Q7）
+- 触发依据：dev 实现期上报（base `c84233a` 单跑 1.5s PASS vs 带改动 10s 超时 FAIL；全量 321/322，唯一失败即此条）+ L1-2 的用户确认语义
+- 结果：dev 已按裁决落地 ⇒ 全量 **322/322**；同类不相容用例仅此一条
+
+### 2026-09-13 15:47 · 派发 · verifier（阶段 5 · pr-002 验收）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：对 pr-002 的实现做独立逐项验证（PR 7 条 + T1~T6 + `pr002-round-1-verdicts.md` 的 MI-1~MI-4 与 Q1~Q7 + 红线），含**真实进程链路行为面**与**全量回归**，产出 `clarifications/verify-pr-002-{timestamp}.md`
+- PR：prs/pr-002-agent-confirmation-wiring.md
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + **不注入任何执行过程上下文**
+- 工作区（只读）：`…/0021-pr-002-agent-confirmation-wiring`（分支 `feat/0021-pr-002-agent-confirmation-wiring`，HEAD `4d16ba4`，base = 迭代分支 `c84233a`）
+- 报告落点：`…/clarifications/verify-pr-002-{timestamp}.md`

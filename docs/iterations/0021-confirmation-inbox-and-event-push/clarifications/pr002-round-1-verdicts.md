@@ -31,3 +31,14 @@
 - **文件范围**（PR 文件 4 项）：`oamp/src/context-pool.js`、`oamp/src/agent.js`、`oamp/test/confirmation-roundtrip.test.js`（新建）、`oamp/test/context-pool.test.js`（如实现期需要）。**不得**触碰 pr-004 的文件面（`oamp/web/**`、`oamp/src/web.js`、`oamp/llms.txt`、`oamp/test/inbox-console.test.js`、`oamp/test/notification-scope.test.js`）与 `oamp/test/helpers/**`。
 - **Router 零改动**（复用既有 `notice` 类型 + 扩 `kind`）；一次性 `omp -p` 与 `!` shell 路径零改动；`permission='deny'` 不注入钩子。
 - 上游契约以**已合并的实际代码**为准（`oamp/src/acp-client.js` 的钩子入参两型与返回域），不以本文件转述为准。
+
+## 四、Q7（dev 实现期上报，主 agent 裁决）
+
+**问题**：`oamp/test/acp-daemon.test.js:665` 的「常驻路径 permission 审计」用例（真实 agent `--tools on --permission allow` + fake ACP 每轮发 `session/request_permission` + 真实 web，**无任何裁决方**）与 pr-002 的语义不相容——钩子注入后该轮无裁决方 ⇒ 永久挂起。dev 实测：base `c84233a` 单跑 1.5s PASS；带 pr-002 改动后 10s 超时 FAIL；oamp 全量 **322 tests / 321 pass / 1 fail**（唯一失败即此条）。该文件原不在 pr-002 文件面内。
+
+**裁定：授权 (a) 最小连带更新，`oamp/test/acp-daemon.test.js` 由本裁决显式加入 pr-002 文件面（第 5 个文件）。**
+
+- **改法**：该用例喂入 ACP 权限请求后，经 pr-003 已合入的 `POST /api/confirmations/<id>/decision`（`option_id: allow_once`）放行；**既有断言逐字保留**（`TOOL_APPROVED` 四键非空 + 第 2 轮 N=N），不得削弱或删除。
+- **理由**：这是 **L1-2（`allow` 档由「自动放行」改为「上浮给人裁决」，`user_confirmed`）的必然连带**——该用例原先依赖「无裁决方也自动放行」这一已被本迭代推翻的前提。不修则 T6 验收 2「oamp 全量全绿」无法满足，违反迭代合并门。
+- **边界**：除该文件外其余「其他测试文件」仍为禁改；若全量复跑暴露同类不相容用例（同因），按同一口径一并处理并逐条报告（文件:行 + 改法 + 保留的断言）。
+- **收口判据**：`node --test oamp/test/*.test.js` 全绿 + 逐用例对照（改前断言 vs 改后断言）。
