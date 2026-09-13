@@ -276,6 +276,26 @@ async function sendAndWait(web, payload, { rounds = 1, timeoutMs = 10000 } = {})
 
 const outOf = (detail, round) => detail.messages.filter((m) => m.direction === 'out')[round - 1];
 
+/**
+ * 0021 pr-002 连带（L1-2：`allow` 档改为「上浮给人裁决」）：受门禁轮次不再自动放行，而是挂起等待裁决
+ * （无人裁决 ⇒ 轮次保持等待，见 §9.1 R1）⇒ 本文件的受门禁用例须显式放行。裁决走 pr-003 已合入的
+ * `POST /api/confirmations/<id>/decision`（`option_id` 必属该条 `options`），放行后原断言逐字成立。
+ */
+async function decideConfirmation(web, optionId) {
+  const entry = await waitFor(
+    async () => {
+      const list = await jget(web.base, '/api/confirmations');
+      const rows = list.body && list.body.confirmations;
+      return Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+    },
+    { timeoutMs: 10000, what: '在途确认项（confirmation_request 上浮）' },
+  );
+  const chosen = entry.options.some((o) => o && o.option_id === optionId) ? optionId : entry.options[0].option_id;
+  const decided = await jpost(web.base, `/api/confirmations/${encodeURIComponent(entry.confirmation_id)}/decision`, { option_id: chosen });
+  assert.equal(decided.status, 200, `裁决应受理: ${JSON.stringify(decided.body)}`);
+  return entry;
+}
+
 // ────────────────────────── E-1 / E-5：同 chat 记忆 + 实例标识 + 落盘两类 ──────────────────────────
 test('E2E：E-1 同 chat 两轮上下文累积（第二轮记得 42 且 context_id/pid 相同）+ E-5 落盘恰两类', async (t) => {
   const { web, dbPath, projectId } = await setup(t);
@@ -687,7 +707,10 @@ test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N
   const projectId = project.body.project.project_id;
 
   // 第 1 轮：一次受门禁调用（变更类指令 → edit，§11.2）
-  const turn1 = await sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev', text: '请创建 /tmp/role-smoke.txt' });
+  // 0021 pr-002（L1-2）连带：受门禁轮次挂起等待裁决 ⇒ 显式放行该条确认项后原断言逐字成立
+  const turn1Promise = sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev', text: '请创建 /tmp/role-smoke.txt' });
+  await decideConfirmation(web, 'allow_once');
+  const turn1 = await turn1Promise;
   await dev.waitLine(/TOOL_APPROVED/, 1);
   assert.equal(turn1.detail.chat.state, 'completed', '允许档该轮应 completed');
   assert.match(outOf(turn1.detail, 1).text, /已创建/, '该轮终态文本应为 fake ACP 应答');
@@ -705,7 +728,9 @@ test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N
   assert.ok(Number.isInteger(Number(f1.pid)), 'pid 应为数字');
 
   // 第 2 轮（同 chat = 同常驻会话）：再一次受门禁请求 → 累计恰 2 行（N=N）
-  await sendAndWait(web, { chat_id: turn1.chatId, agent_id: 'pb-dev', text: '再创建一次' }, { rounds: 2 });
+  const turn2Promise = sendAndWait(web, { chat_id: turn1.chatId, agent_id: 'pb-dev', text: '再创建一次' }, { rounds: 2 });
+  await decideConfirmation(web, 'allow_once');
+  await turn2Promise;
   await dev.waitLine(/TOOL_APPROVED/, 2);
   const second = parseEventLines(dev.stdout(), 'TOOL_APPROVED');
   assert.equal(second.length, 2, '同一会话两次受门禁请求 → 2 行（N=N）');

@@ -19,6 +19,8 @@ export class ContextPool {
    * @param {string} [opts.cwd]            子进程 cwd
    * @param {object|null} [opts.logger]    createEventLog 实例（可选）
    * @param {function|null} [opts.onNotice] ({chatId, kind, text, origin}) => void；上下文事件提示出口
+   * @param {function|null} [opts.onPermissionRequest] (info) => 'allow'|'deny'|{optionId}|Promise<…>；确认面上浮钩子
+   *   （§5.3 信封 1，pr-002）；**仅 `permission === 'allow'` 档**注入给 AcpClient（`deny` 档恒不注入）
    * @param {string|null} [opts.role]      绑定角色（审计身份字段，§4.5）；null = 匿名实例
    * @param {string|null} [opts.roleFile]  角色定义绝对路径；非空 ⇒ ACP argv 追加 --append-system-prompt（§3.2）
    * @param {boolean} [opts.tools]         工具开关（§4.3，常驻路径生效点）；缺省 false = 0011 argv
@@ -30,6 +32,7 @@ export class ContextPool {
     cwd = process.cwd(),
     logger = null,
     onNotice = null,
+    onPermissionRequest = null,
     role = null,
     roleFile = null,
     tools = false,
@@ -40,6 +43,7 @@ export class ContextPool {
     this.cwd = cwd;
     this.logger = logger;
     this.onNotice = onNotice;
+    this.onPermissionRequest = onPermissionRequest;
     this.role = role;
     this.roleFile = roleFile;
     this.tools = tools;
@@ -214,6 +218,12 @@ class ContextSession {
       },
       logger: this.pool.logger,
       onExit: () => this._onClientExit(),
+      // §5.3/§4.2 M-13（pr-002）：上浮钩子的**唯一注入点**——会话身份（chatId/agentId/该轮 origin）只有本层持有，
+      // 在此附加后透传；档位判定点同样唯一：仅 allow 档注入，deny 档恒 null（既有自动拒绝三步逐字不变）。
+      onPermissionRequest:
+        this.pool.permission === 'allow' && typeof this.pool.onPermissionRequest === 'function'
+          ? (info) => this.pool.onPermissionRequest({ ...info, chatId: this.chatId, agentId: this.agentId, origin: this.lastOrigin })
+          : null,
     });
     this.client = client;
     await client.start();
