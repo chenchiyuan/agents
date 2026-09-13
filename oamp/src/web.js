@@ -71,6 +71,11 @@ const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，�
 const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟，覆盖 agent 侧 300s 超时上限有余）
 // pr-002（F05 / architecture §4.2）：全局拓扑轮询间隔（仅存在全局订阅者时运行）；测试用 env 压缩时间轴。
 const TOPOLOGY_POLL_DEFAULT_MS = 2000;
+// ★ 0021 pr-004 第 2 轮（F07 验收 3 / N5，主 agent 裁决 Q6）：调用面驱动的 chat 状态变化**不进**全局
+// `chat_state` 链路——全局 chat_state 的唯一消费者是前端「对话完成 / 失败」通知派生，而调用面完成明确不
+// 产生通知（N5：事件集合不含 `call_completed`）。传此选项 ⇒ 只发定向 `chat:<id>` 帧（形态与时机逐字不变，
+// 调用面板照常更新）；不传 = 既有两键行为。
+const LOCAL_ONLY = { global: false };
 
 /** 读正数毫秒环境变量（`OAMP_WEB_RECONCILE_*` 供测试压缩时间轴）；缺省/非法回退 fallback。 */
 function readPositiveMs(name, fallback) {
@@ -1073,7 +1078,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
           const inAt = Date.now();
           const input = db.insertInput({ chatId, projectId: projectRow === null ? null : projectRow.project_id, text: item.task, agentId, meta: { task_id: callId }, nowMs: inAt });
           publishMessage(chatId, { id: input.message_id, direction: 'in', agent_id: agentId, text: item.task, model: null, duration_ms: null, error: null, created_at: inAt });
-          publishState(chatId, 'working');
+          publishState(chatId, 'working', LOCAL_ONLY);
           let resolve = null;
           const done = item.mode === CALL_MODES[1] ? new Promise((r) => { resolve = r; }) : null; // 阻塞等待句柄（释放点 = 终态单一发布点）
           const call = { callId, role, chatId, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
@@ -1097,7 +1102,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
             const out = db.insertOutput({ chatId, text: outText, agentId, error: 'dispatch_failed', nowMs: outAt });
             publishMessage(chatId, { id: out.message_id, direction: 'out', agent_id: agentId, text: outText, model: null, duration_ms: null, error: 'dispatch_failed', created_at: outAt });
             const chat = db.getChat(chatId);
-            if (chat) publishState(chatId, chat.chat.state);
+            if (chat) publishState(chatId, chat.chat.state, LOCAL_ONLY);
             const unavailable = err && (err.dataCode === 'AGENT_OFFLINE' || err.dataCode === 'AGENT_NOT_FOUND');
             if (unavailable) {
               sendError(res, 404, ERR_CODE.NOT_FOUND, `agent 不可用: ${role}（无对应在线实例）`);
@@ -1469,8 +1474,11 @@ export default async function startWeb(restArgs) {
   // ★ 0021 pr-003（architecture §3.2 L2-8 / §7 T-13、T-14）：状态发布点**追加**一次全局广播——帧形态与既有
   //   chat:<id> 帧逐字相同，只多走全局键（既有订阅者行为零变化）；对话终态因此在全局链路上可观测（F07 / E3：
   //   不停留在该对话也能收到）。「这算不算一类通知」由前端从 chat_state 派生，服务端零事件类型常量、不判通知。
-  const publishState = (chatId, state) => {
+  // ★ 0021 pr-004 第 2 轮（Q6）：`opts` 默认等价——不传 = 上述行为逐字不变；传 LOCAL_ONLY ⇒ 定向帧照发、
+  //   全局广播关闭（调用面驱动的状态变化）。
+  const publishState = (chatId, state, opts = {}) => {
     transport.publish(chatId, { type: 'chat_state', data: { chat_id: chatId, state } });
+    if (opts.global === false) return;
     transport.publishGlobal({ type: 'chat_state', data: { chat_id: chatId, state } });
   };
 
@@ -1513,7 +1521,8 @@ export default async function startWeb(restArgs) {
     const { message_id } = db.insertOutput({ chatId: entry.chatId, text, agentId: entry.agentId, model, durationMs, error, meta, nowMs });
     publishMessage(entry.chatId, { id: message_id, direction: 'out', agent_id: entry.agentId, text, model, duration_ms: durationMs, error, created_at: nowMs });
     const chat = db.getChat(entry.chatId);
-    if (chat) publishState(entry.chatId, chat.chat.state);
+    // ★ 0021 pr-004 第 2 轮（Q6）：调用面条目（entry.call）的终态同样只走定向键
+    if (chat) publishState(entry.chatId, chat.chat.state, entry.call ? LOCAL_ONLY : undefined);
     // ★ 0018（architecture §4.3）：调用面终态分发是**追加**发布（既有三行顺序零改动）；仅调用面登记条目参与
     // ⇒ 既有 /api/messages 派发的任务零额外 UDS 查询（E9）。Router 任务表是权威运行态且投递发生在记表之后，
     // 故经既有 task_get 取回条目交给单一发布点。
