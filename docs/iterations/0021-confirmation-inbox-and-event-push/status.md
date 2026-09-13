@@ -7,7 +7,11 @@
 **工作区地址**: `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0021-confirmation-inbox-and-event-push`
 **状态**: **进行中**
 **history**: 开启
-**执行方式**: 本迭代的角色任务**全部经 hub API 派发**（`POST http://127.0.0.1:7788/api/calls`），执行过程记录于 `clarifications/hub-execution-log.md`（用户指令：agent 任务请使用 hub api 执行，记录下执行过程）
+**执行方式（2026-09-13 用户二次指令后切换）**: **本迭代改用本地 sub agent 执行（宿主 `task` 工具），不再经 hub API 派发**。
+
+- **阶段 1~5 首波（切换前）**：经 hub API 派发（`POST /api/calls`），共 **15 次调用**，执行过程完整留痕于 `clarifications/hub-execution-log.md`（满足用户首条指令「agent 任务请使用 hub api 执行，记录下执行过程」）。
+- **切换点之后的全部派发**（阶段 5 首波 dev 之后的验收、次波、阶段 6 等）：一律用**本地 sub agent**。
+- **在飞任务处置**：切换时 hub 上有 2 个在飞的 dev 调用（pr-001 / pr-003，各自写自己的 PR worktree、互不重叠）——**不中止、任其完成**（避免丢弃已发生的实现工作），其产物按同一验收标准接受；若其中断或失败，该 PR 的剩余工作改由本地 sub agent 完成。
 
 **迭代对话（用户约束，2026-09-13）**: **同一迭代只用一个对话** —— 本迭代的统一对话 = `chat-ad0d43df-6d43-428e-bfc8-77e4308624ae`。全部角色的派发都进这一个对话，**不再为每个角色新建对话**。说明：上下文池键 =（chat_id, agent_id），故同一对话内**各角色仍各自持有独立上下文**，不会互相污染；"一个对话"承载的是本迭代的**全部派发痕迹**（可追溯性）。用户原话：「我希望同迭代在同chat中。不用新建chat来对话，这条得记录下。我后续会约束」
 
