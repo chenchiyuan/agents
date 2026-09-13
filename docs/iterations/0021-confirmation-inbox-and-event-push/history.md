@@ -570,3 +570,94 @@
 - 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + **不注入任何执行过程上下文**
 - 工作区（只读）：`…/0021-pr-002-agent-confirmation-wiring`（分支 `feat/0021-pr-002-agent-confirmation-wiring`，HEAD `4d16ba4`，base = 迭代分支 `c84233a`）
 - 报告落点：`…/clarifications/verify-pr-002-{timestamp}.md`
+
+### 2026-09-13 16:00 · 收到报告 · verifier（阶段 5 · pr-002 验收）
+
+- 报告路径：`clarifications/verify-pr-002-20260913-212048.md`
+- 结论：**PASS**（56 项判定：**56 pass / 0 fail / 0 partial / 0 blocked**）
+- fail 条目数：0；partial：0；blocked：0；偏差记录条数：**2**（均为文档/文件范围表述层）；下一迭代候选条数：4
+- 覆盖：A(7/7) + B/T1~T6(28/28) + C(MI-1~4/Q1/Q2/Q4/Q7 = 8/8) + D(红线 4/4) + E(Q7 专项) + F(行为面 7/7) + G(回归)
+- 关键独立证据：**自建 harness**（自写 fake ACP + 自写驱动 + 真实 router/web/agent 子进程，17 场景全 pass）——信封 1 raw body 8 键逐字、`options` 与 ACP 请求帧逐字相等；放行 `allow_always`（非默认项）⇒ 回包 `optionId` 逐字 + 轮次 `completed`；拒绝 ⇒ `session/cancel` + `permission_denied`；双挂起作用域、同轮两门两 id、`tool=null` 与 title 截断 120；未知 id ⇒ 恰一行 `matched=false`、零应答帧；**四条失效路径**（ACP 崩溃 / LRU / `context_release` / SIGINT）均发 `confirmation_cancelled` 且不残留（SIGINT 时对端实收且发送序先于 `DEREGISTERED`）；`deny` 档零确认项；一次性 argv `yolo` 逐字；`timeout_ms=300` 挂起 1.1s 不 cancel（L1-1 冻结唯一点确在 `AcpClient`）
+- **Q7 专项**：改前 75 条 `assert.*` → 改后 76 条，多重集比对空差 ⇒ **既有断言逐字保留、零弱化**；净新增恰 1 条；helper 未绕过 `TOOL_APPROVED` 审计断言
+- 红线：改动恰 5 文件；`acp-client.js`/`web.js`/`router.js`/`persist.js`/`helpers/**`/pr-004 文件面零改动；零新依赖；仓库根干净且 `context-pool.js` 与 base 逐字节相同（**相对路径误写仓库根的回滚完整性已独立复核**）
+- 回归：oamp 全量 **322/322 两次连跑均全绿**（无 flake）
+
+### 2026-09-13 16:01 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-002 合并进迭代分支**——`git merge --no-ff feat/0021-pr-002-agent-confirmation-wiring` ⇒ merge commit `697176f`（5 文件 / +1090 −12，含 planner 的 `prs/pr-002-tasks.md`）；pr-002 worktree/分支**已清理** ⇒ **阶段 5 的 4 个 PR 全部合并完成**
+- 并发配置更新：`累计槛位释放次数` 3 → **4**；`当前有效上限` 维持 **5**；`已派发总数` → 15（含 verifier 复验）
+- 阶段性结论：**阶段 5 完成**（4/4 PR 合并、每 PR 均经独立验证 PASS；合并后 oamp 全量 322/322）⇒ 进入**阶段 6（独立验证）**
+- 触发依据：`clarifications/verify-pr-002-20260913-212048.md` 结论 PASS；workflow-pb「依赖解锁式并发」+ 阶段 5 推进条件（该 PR 验收标准全部通过 / 无简报外改动 / PR 文件存在）
+
+### 2026-09-13 16:02 · 派发 · verifier（阶段 6 · 迭代终态独立验证）
+
+- 阶段：阶段 6（独立验证）
+- 任务：对本迭代的**最终产物**做独立验证（不接收执行过程上下文）——PR 粒度判断框架 3 条 + 依赖正确性 + **并发调度真实执行证据 3 项** + 12 张功能卡覆盖复核 + M4 硬义务终态复核 + 端到端可用性 + 全量回归，产出 `clarifications/verify-stage6-{timestamp}.md`
+- 产出物路径：`docs/iterations/0021-confirmation-inbox-and-event-push/`（全量）+ 迭代分支终态代码（`697176f`）
+- **需求变更搭置**：主 agent 已确认 `docs/iterations/0021-confirmation-inbox-and-event-push/deferred-demand-changes.md` **不存在**（本迭代无需求层搭置）——委托中显式告知，verifier 无需扫描目录
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入
+- 报告落点：`…/clarifications/verify-stage6-{timestamp}.md`
+
+### 2026-09-13 16:12 · 收到报告 · progress-observer（pr-002 合并后自动触发，第三次）
+
+- 1. `progress.md` 路径：`docs/iterations/0021-confirmation-inbox-and-event-push/progress.md`（整体覆盖，111 行 / 20374 B）
+- 2. 六部分摘要：阶段 1~5 声称与核实**一致**（4 个 merge 全为 HEAD 祖先）；依赖 2/2 已满足、**0 幽灵依赖**（`merge-base 4d16ba4 c84233a = c84233a`、`merge-base a431225 1f7eceb = 1f7eceb`）；PR 实现状态 4/4 一致（均真实合并且 worktree/分支**经三路核实**已清理）；**并发度：可并发但闲置 = 0、正常并发 = 0、正常阻塞 = 0**；不一致 **8 条**、无法核实 **6 条**
+- 3. 最需关注：① pr-001 合并（20:45:46）**无独立快照**（git 上只有 2 个 progress.md 版本，分别自述触发于 pr-003 / pr-004 合并）⇒ 与「每次 merge 自动触发」契约有一处不对齐；② `status.md` 并发配置计数与分项不等、头部阶段行滞后；③ 阶段 5 收口记录当时仅在未提交的工作区版本
+- 4. 疑问/越界：无（明确不做质量判断、不复跑测试）
+
+### 2026-09-13 16:15 · 收到报告 · verifier（阶段 6 · 迭代终态收口验证）
+
+- 报告路径：`clarifications/verify-stage6-20260913-213704.md`
+- 结论：**PASS**（33 项判定：**33 pass / 0 fail / 0 partial / 0 blocked**；A 4 PR 粒度 + B 依赖正确性 5 + C 并发证据 3 + D F01~F12 12 + E M4 双向 4 + F 端到端 2 + G 回归洁净 3）
+- 搭置：**已确认 `deferred-demand-changes.md` 不存在**，无搭置内容可摘录
+- C 项（并发真实执行证据）：**C1 pass**（首波 `pr-001∥pr-003` 有一手 git 证据：同 base、提交时间窗重叠、`pr-003` 合并时 `pr-001` 分支仍存活）；**C2 pass**（`status.md` 并发配置区块经 5 次真实写入与逐次更新）；**C3 pass**（爬升公式 `min(3+1×3,5)=5` 与独立核算一致，已触硬上限）
+- 关键独立证据：M4 双向（真实 omp 18.0.11 + 自建帧级探针）——`bash` 与 `write` 的放行/拒绝双向成立（判据仅模型侧结果 + 磁盘副作用）；端到端（真实 router + web + agent + 真实 omp + 真实 Chromium）——入栏/裁决/作用域/三类通知/调用面零通知全部实测
+- 回归：`node --test oamp/test/*.test.js` 9 次——8 次 **332/332**、1 次 330/332（2 条未复现失败，记偏差 D-5）
+- 偏差 **7** 条；下一迭代候选 **8** 条
+- **blocking_facts（集成前置）**：迭代分支合入 main（`d84b2be`）时 `oamp/src/agent.js` **1 处内容冲突**（常量区：main `1800000/1800000` vs 迭代分支 `300000/600000` + 新增 `CONFIRMATION_TITLE_MAX=120`）
+
+### 2026-09-13 16:20 · 调度决策 · 阶段推进核查
+
+- 决策内容：**两处真实阻塞式转呈用户**（宿主 `ask`）：① 迭代分支合入 main 的冲突处置；② 阶段 6 报告的**用户可见缺陷 D-1**（ACP 权限门来源的确认项 `tool` 恒为 `null` ⇒ 第三栏渲染 `null · echo …`、通知正文「请求执行 null：…」，违反 F01「工具名 + 动作描述」）
+- 用户裁决：**① 按事实解决冲突后合并**（取 main 的 `1800000/1800000` + 保留本迭代新增 `CONFIRMATION_TITLE_MAX=120`）；**② 本轮先修再合 main**（新建小 PR，不走「记为偏差留待下一迭代」的默认路径）
+- 触发依据：workflow-pb「迭代分支合并进 main」步骤 2（冲突须停止推进并上报）；阶段 6 报告 §blocking_facts 与偏差 D-1
+- 其余 6 条偏差（D-2 跨标签页陈旧条目〔架构 §5.2 明示代价〕/ D-3 文件范围表述 / D-4 次波并发无证据 / D-5 1/9 次 flake 等）按协议记录、不阻塞收口
+- progress-observer 第三次核实的 8 条不一致处置：头部阶段行、并发配置计数（释放 3→4 / 有效上限括注 / 已派发总数分项）与 pr-002 合并记录的落盘已在本次修正；**pr-001 合并后未独立触发快照**这一契约缺口记入阶段 6 汇总与下一迭代候选
+
+### 2026-09-13 16:21 · 派发 · pr-planner（阶段 5 · pr-005 新增 PR 文件）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：为「确认项 `tool` 为 `null` 的用户可见缺陷」新增 `prs/pr-005-null-tool-name-fix.md`（七字段格式规范：上下文摘要 / 涉及功能点 / 文件范围 / 验收标准 / 参考资料 / depends_on / batch）并提交到本 PR 分支
+- PR 文件：`docs/iterations/0021-confirmation-inbox-and-event-push/prs/pr-005-null-tool-name-fix.md`（新建）
+- 通道：宿主 `task` 工具（本地 sub agent）；pr-planner 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-005-null-tool-name-fix`（分支 `feat/0021-pr-005-null-tool-name-fix`，base = 迭代分支 `697176f`，已含全部四个 PR）
+
+### 2026-09-13 16:26 · 收到报告 · pr-planner（阶段 5 · pr-005 PR 文件）
+
+- 1. 产出文件清单：`prs/pr-005-null-tool-name-fix.md`（新建并提交 `638d068`，七字段齐备）——职责：确认项 `tool` 为 `null` 的**消费侧**最小修复（第三栏行 + 通知正文）
+- 2. 依赖图摘要：新增边 `pr-005 → {pr-002, pr-004}`（均为直接消费关系，各附基线反证命令输出）；既有边不变；**无环**（pr-005 为叶）；pr-003 作为传递性前置不列为直接依赖（已写明理由）
+- 3. 文件范围重叠检测：pr-005 面 = {`oamp/web/app.js`, `oamp/web/notify.js`, `oamp/test/inbox-console.test.js`}；与 pr-001/pr-002/pr-003 **两两零交集**；与 pr-004 的 3 条路径重叠但均落在**已合并**文件上（追加改动而非范围冲突，已在 PR 文件写明）
+- 4. 功能点覆盖率：引用 F01（T-02 工具名 + title）与 F08（T-09 通知正文）；12 卡仍由既有 4 PR 全覆盖
+- 5. 疑问/越界：无越界；登记一条边界——`confirmation-roundtrip.test.js:445-451` 把「权限门来源 `tool=null`」钉死 ⇒ 本 PR **不得在生产侧派生可读工具名**（那是改写 pr-002 契约），只能按「`null` 是协议如实、伪值由渲染产生」在消费侧修
+
+### 2026-09-13 16:29 · 收到报告 · planner（阶段 5 · pr-005 任务图）
+
+- 1. `prs/pr-005-tasks.md` 路径 + 任务总数：`prs/pr-005-tasks.md`（提交 `3a018a2`）；**3 任务（T1~T3）**
+- 2. 依赖图摘要：单链 `T1 → T2 → T3`（2 跳，无并行支路——按「明显低于 1-2 天 ⇒ 合并」判据把两处消费点合为一个任务）
+- 3. `[model_inferred]` 清单：**4 项**（① `inbox-request` 字面量必须留在 `renderInboxItem` 函数体内（`fnBody` 只取函数体 ⇒ 整行抽取会挂既有 :285 断言）；② 缺失判定 = `null` | `undefined`（空串已在 `agent.js:328` 折叠）；③ PR 验收 8 的判据面收敛为代码面 `git diff --name-only 697176f -- oamp/`；④ flake 扣除口径（扣除已登记的 D-5））
+- 4. 循环依赖：无
+- 5. 疑问/越界：① **文档口径差提请裁决**——`architecture.md:564-566`（§7 T-09 模板原文）与 `prd/F01:40` 仍按「工具名恒在场」描述，与实现（缺失即省略）留有一处口径差；② 粒度自决已报备（两处消费点合一）
+
+### 2026-09-13 16:30 · 调度决策 · 阶段推进核查
+
+- 决策内容：① 采纳 planner 的 4 项 `[model_inferred]`（均为可测试的形态判据，且与既有断言/既有契约一致）；② **文档口径差按偏差处理**——`architecture.md` §7 T-09 与 `prd/F01` 的「工具名恒在场」描述与本 PR 后的实现（缺失即省略）不一致，**登记为文档偏差**（阶段 6 汇总 / 下一迭代同步），**不加入 pr-005 文件面**（保持最小修复）；③ dev 简报追加反证要求：必须证明「`tool` 缺失时是省略该段，而不是用 `title` 猜工具名」
+- 触发依据：planner 报告（`3a018a2`）的两项疑问；PR 文件「非目标」与文件范围
+
+### 2026-09-13 16:31 · 派发 · dev（阶段 5 · pr-005）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：在 pr-005 worktree 内按 `prs/pr-005-tasks.md` 的 T1→T2→T3 单链落地消费侧最小实现，使 PR 文件 8 条验收标准全部通过并提交
+- PR：prs/pr-005-null-tool-name-fix.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-005-null-tool-name-fix`（分支 `feat/0021-pr-005-null-tool-name-fix`，HEAD `3a018a2`）
+- 验收标准注入：PR 8 条 + T1~T3 + 主 agent 裁决（只修消费侧 / 文档口径差按偏差处理 / 反证不得猜工具名）

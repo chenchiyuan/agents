@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb **v0.10.0**
 **迭代**: 0021-confirmation-inbox-and-event-push
-**当前阶段**: 阶段 5（PR 实现，进行中）
+**当前阶段**: 阶段 6（独立验证，进行中）
 **迭代分支**: `iteration/0021-confirmation-inbox-and-event-push`（base = main `854766c`；创建于阶段 1 前）
 **工作区地址**: `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0021-confirmation-inbox-and-event-push`
 **状态**: **进行中**
@@ -23,8 +23,8 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.2.0**：12 张卡（F01~F09 需求功能点 + F10~F12 保证项）；5 项 MI 全部 `user_confirmed`；`model_inferred` 归零；`[架构待填]` T-01~T-16 留白 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **821 行**：T-01~T-16 = **16/16** 落定；12 卡架构段改造写；**L1 四条 + 覆盖范围全部 `user_confirmed`**；自查 C 表；必然变更点 B 表 |
 | 4 | PR 规划 | ✅ | ✅ | 4 个 PR（依赖图 `pr-001→pr-002`、`pr-003→pr-004`）；Gate 验证 **PASS 11/11**（`clarifications/verify-stage4-gate-20260913-122303.md`） |
-| 5 | PR 实现 | ⏸ | ⬜ | **pr-001/pr-003/pr-004 三个 PR 已合并**（`c84233a` / `1f7eceb` / `017961a`）；**pr-002 任务图已交付（`70c8877`）⇒ dev 执行中**；合并后 oamp 全量各次均全绿（302/302、65/65、104/104） |
-| 6 | 独立验证 | ⬜ | ⬜ | |
+| 5 | PR 实现 | ✅ | ⬜ | **4/4 PR 全部合并进迭代分支**（`1f7eceb` pr-003 / `c84233a` pr-001 / `017961a` pr-004 / `697176f` pr-002）；**每个 PR 均经独立验收 PASS**（46/46、45/46、57/57、56/56）；合并后 oamp 全量 **332/332 绿**；全部 worktree/分支已清理 |
+| 6 | 独立验证 | ⏸ | ⬜ | 迭代终态收口验证中（PR 粒度框架 / 依赖正确性 / 并发真实执行证据 / 12 卡覆盖 / M4 终态 / 端到端 / 回归） |
 
 ## 并发配置（阶段 5）
 
@@ -32,9 +32,9 @@
 |---|---|
 | **起始并发数** | 3 |
 | **硬上限** | 5（公式 `2×起始-1`） |
-| **当前有效上限** | 5（= min(3 + 1×3, 5)，pr-003 合并释放 1 次槛位） |
-| **累计槛位释放次数** | 3（pr-003、pr-001、pr-004 合并） |
-| **已派发总数** | 12（阶段 5：planner×4 + hub dev×2 + 本地 dev×6 + verifier 复验×3） |
+| **当前有效上限** | 5（= min(3 + 4×3, 5) = 5，**已触硬上限**；历次释放：pr-003 / pr-001 / pr-004 / pr-002 各 1 次） |
+| **累计槛位释放次数** | 4（pr-003、pr-001、pr-004、pr-002 合并，阶段 5 共释放 4 次） |
+| **已派发总数** | 23（planner×4 + hub dev×2 + 本地 dev×6 + verifier 验收/复验×7 + progress-observer×3；阶段 6：verifier×1 已计入 verifier 计数） |
 
 依赖图（阶段 4 产出）：`pr-001 → pr-002`、`pr-003 → pr-004`；**首波可并发 = {pr-001, pr-003}**，次波 = {pr-002, pr-004}。
 
@@ -43,7 +43,7 @@
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
 | pr-001-agent-permission-suspend-and-reply-fix.md | （无） | ✅ 已完成（第 3 轮复验 PASS 45/46） | `feat/0021-pr-001…`（已清理） | ✅（`c84233a`） | 已释放 |
-| pr-002-agent-confirmation-wiring.md | pr-001（已合并） | 进行中（任务图 `70c8877`；dev 执行中） | `feat/0021-pr-002-agent-confirmation-wiring` | — | 占用 |
+| pr-002-agent-confirmation-wiring.md | pr-001（已合并） | ✅ 已完成（验收 PASS 56/56，Q7 专项通过） | `feat/0021-pr-002…`（已清理） | ✅（`697176f`） | 已释放 |
 | pr-003-web-inbox-and-decision-api.md | （无） | ✅ 已完成（验收 PASS 46/46） | `feat/0021-pr-003…`（已清理） | ✅（`1f7eceb`） | 已释放 |
 | pr-004-console-inbox-column-and-notify.md | pr-003（已合并） | ✅ 已完成（第 2 轮复验 PASS 57/57，Q6 闭合） | `feat/0021-pr-004…`（已清理） | ✅（`017961a`） | 已释放 |
 
@@ -78,3 +78,9 @@
 - 2026-09-13: **pr-004 完成**——第 2 轮（`a431225`）修复「调用面完成产生通知」（违反 `prd/F07` 验收 3/N5）+ 新建 `oamp/test/notification-scope.test.js`，第 2 轮复验 **PASS 57/57（Q6 三判据全闭合、新断言经红→绿反证为非空断言）**；**合并进迭代分支**（`017961a`，合并后 65/65、10 文件 104/104 绿）；worktree/分支已清理。
 
 - 2026-09-13: **pr-002** 任务图交付（`70c8877`，T1~T6）；其 4 项 `[model_inferred]` **经用户真实阻塞式确认**（裁决文件 `clarifications/pr002-round-1-verdicts.md`）⇒ dev 执行中。progress-observer 第二次核实发现的状态漂移（文档滞后于 git）已在本日修正。
+
+- 2026-09-13: **阶段 5 完成**——pr-002（`4d16ba4`）经 **Q7 裁决**（`acp-daemon.test.js` 因 L1-2 语义变更的必然连带，授权最小更新且既有 75 条断言逐字保留）落地，独立验收 **PASS 56/56**；**合并进迭代分支**（`697176f`）；合并后 oamp 全量 **332/332**。四 PR 依赖链（`pr-001→pr-002`、`pr-003→pr-004`）全部走完，worktree/分支全部清理。
+
+- 2026-09-13: 进入**阶段 6（独立验证）**——派发 verifier 对迭代终态（`697176f`）做收口验证；`deferred-demand-changes.md` 经核实**不存在**（本迭代无需求层搭置）。
+
+- 2026-09-13: progress-observer 第三次核实（触发 = pr-002 合并）——4/4 PR 的真合并与 worktree/分支清理**经三路核实**（引用存在性 + `worktree list` + `.git/worktrees` 元数据，规避 `--merged` 误报陷阱）；**无闲置 PR**。其 8 条不一致逐条处置：头部阶段行、并发配置计数（释放 3→4、有效上限括注、已派发总数分项）与 pr-002 合并记录的落盘均在本日修正；**登记 1 条真实契约缺口**——pr-001 合并（20:45:46）后未独立触发一次 progress-observer 快照（与 pr-004 合并共用了一次派发），记入阶段 6 汇总与下一迭代候选。
