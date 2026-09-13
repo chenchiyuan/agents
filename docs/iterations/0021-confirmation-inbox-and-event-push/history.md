@@ -167,3 +167,11 @@
 
 - 决策内容：**阶段 4 → 阶段 5**（Gate PASS）；同时**采纳 Gate 候选 ②**：把 M4 复跑探针 `probe-always-ask.mjs` 纳入迭代工作区 `clarifications/`（否则阶段 6 无法独立复跑 M4 判据）；D-h8 转为阶段 5 实现期义务（写入 pr-004 的简报）
 - 阶段 5 初始化：并发配置五字段写盘；建首波 PR worktree（落点 = `<会话工作区>/.pb-agents/worktrees/0021-pr-00N-{slug}`，分支 `feat/0021-pr-00N-{slug}`，base = 迭代分支）
+
+### 2026-09-13 13:36 · 派发 · planner（阶段 5 首波，pr-001 ∥ pr-003，同批并发）
+
+- 通道：hub API；对话 = 统一对话（按用户约束）
+- call：pr-001 = `task-aa2957f0-503b-4dc8-b72e-6d325c36653f`；pr-003 = `task-fdab6b60-efe2-4114-b648-f21b77a465ff`
+- 工作区地址：各自 PR worktree 绝对路径（落点 = `<会话工作区>/.pb-agents/worktrees/0021-pr-00N-{slug}`；base = 迭代分支 tip `10cbca6`）
+- 简报：各 ~12.8KB（planner 角色全文注入 + 纪律 + 该 PR 文件路径）
+- 并发配置更新：`已派发总数` 0 → 2

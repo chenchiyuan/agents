@@ -82,4 +82,6 @@
 2. **调用面未暴露 `timeout_ms`**：现在靠"抬高全局默认"实现 30 分钟；更干净的做法是让调用面按次传 `timeout_ms`（或提供分轮/续跑语义），避免全局默认被单次需求牵引。
 3. 本迭代自身的执行记录（本次失败 → 调整 → 重派）可作为「hub 派发单轮上限」议题的真实样本。
 | 10 | 2026-09-13 13:20 | 阶段 4 | pr-planner | pb-pr-planner | `task-d050e792-c248-4806-8ec9-9d892ea75768` | background | **completed** | 306775ms | **4 个 PR**；依赖图 `pr-001→pr-002`、`pr-003→pr-004`；首波可并发 {pr-001, pr-003}；提交 `ad47ea0` |
-| 11 | 2026-09-13 13:27 | 阶段 4 | verifier（Gate） | pb-verifier | （见下） | background | 进行中 | — | 对话 = 统一对话 |
+| 11 | 2026-09-13 13:27 | 阶段 4 | verifier（Gate） | pb-verifier | `task-dc76f986-31cf-4bfd-bedb-1442f73445d7` | background | **completed** | 230214ms | Gate **PASS 11/11**；报告 `verify-stage4-gate-20260913-122303.md` |
+| 12 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-001） | pb-planner | `task-aa2957f0-503b-4dc8-b72e-6d325c36653f` | background | 进行中 | — | PR worktree `0021-pr-001-permission-suspend-and-reply-fix` |
+| 13 | 2026-09-13 13:36 | 阶段 5 首波 | planner（pr-003） | pb-planner | `task-fdab6b60-efe2-4114-b648-f21b77a465ff` | background | 进行中 | — | PR worktree `0021-pr-003-web-inbox-and-decision-api`；**与 #12 同批并发** |
