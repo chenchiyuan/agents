@@ -388,3 +388,79 @@
 - 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
 - 工作区：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001-permission-suspend-and-reply-fix`，HEAD `1f11b59`）
 - 验收标准注入：偏差 #3 / #2 的行为契约 + 既有 A/B/C 不得回归（首轮同步 `'allow'`/`'deny'` 用例与一次性 `yolo` 断言逐字不变）
+
+### 2026-09-13 14:12 · 收到报告 · dev（阶段 5 · 次波 pr-004）
+
+- 1. 改了什么文件：7 文件（PR 范围 5 + 裁决追加 2）——`oamp/web/notify.js`（新建 108 行：service/channel 分层 + 3 类事件常量 + `window.oampNotify` 全局入口）/ `oamp/web/index.html`（+10：第三栏骨架 + 独立 `<script src="/notify.js">`）/ `oamp/web/app.js`（+162/-1：`confirmation` 分支 + `open` 重建 + 终态派生去重 + 第三栏渲染/提交/移除 + `api()` 附 `err.status`）/ `oamp/web/style.css`（+81 纯追加，含 `@media (max-width:1100px)`）/ `oamp/test/inbox-console.test.js`（新建 364 行、8 用例）/ `oamp/src/web.js`（**仅 L747/749 两条文案**，numstat `2 2`）/ `oamp/llms.txt`（脚本重生成，仅 L21 一行）
+- 2. 测试结果：PR 文件 **10 条验收标准全 pass**、T1~T5 全 pass、**AE-1 pass**（llms 1 行变化 + 漂移锁 `api-routes` 7/7）；回归 `inbox-console` 8/8、`api-pages+hygiene` 16/16、5 个既有测试文件 84/84；另有**真实 Chromium 浏览器实测**（非默认端口 + 临时 DB + 假 omp 真 agent：入栏/点选即裁决/刷新与重连重建/窄屏折叠/四类通知与去重/降级，`window.onerror` 0 条）
+- 3. 疑问/待办：① `api()` 增 1 行 `err.status = res.status`（附加属性，既有调用方只读 `.message`）；② **形态偏差登记**：全局 `chat_state` 载荷只有 `{chat_id, state}`，T-09 的「回答首行 / error 文案」取不到 ⇒ 终态通知正文退化为对话标识（模板保留 `lineOf` 的 `text` 分支，未来载荷带 `text` 即自动带内容）；③ `es.addEventListener('open', …)` 与既有 `es.onopen` 并列（既有字面断言要求后者逐字在场）；④ `syncInboxLabels()` 为超出任务图字面要求的判断性增项（避免重绘清空用户输入）；⑤ 复跑重连用例**勿用 CDP URL 阻塞法**（Chromium 侧假象），改用重启 web 进程；⑥ 400 分支以模拟方式实测
+- 4. 违反边界：**无**（恰 7 文件；`src/web.js` 只动两条文案；既有 19 条 handler / 禁改清单 / 既有测试文件 / `docs/**` 零改动；仓库根与迭代工作区零改动；浏览器实测临时资源已清理）
+- 交付证据：提交 `76e33d5`；worktree `git status` 空；`GET /notify.js` = 200 且与仓库文件逐字节相等
+
+### 2026-09-13 14:13 · 派发 · verifier（阶段 5 · pr-004 验收）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：对 pr-004 的实现在其 worktree 内做独立逐项验证（PR 文件 10 条 + tasks T1~T5 + 裁决文件 MI-1/MI-2/Q1~Q5/AE-1 + 红线核查），产出 `clarifications/verify-pr-004-{timestamp}.md`
+- PR：prs/pr-004-console-inbox-column-and-notify.md
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + **不注入任何执行过程上下文**
+- 工作区（只读）：`…/0021-pr-004-console-inbox-column-and-notify`（分支 `feat/0021-pr-004…`，HEAD `76e33d5`）
+- 报告落点：`…/docs/iterations/0021-confirmation-inbox-and-event-push/clarifications/verify-pr-004-{timestamp}.md`
+
+### 2026-09-13 14:20 · 收到报告 · dev（阶段 5 · pr-001 第 3 轮最小修复）
+
+- 1. 改了什么文件：2 文件——`oamp/src/acp-client.js`（**13 insertions / 5 deletions**：`_request` 的 pending entry 增 `paused` 态；`_pauseTurnTimer` 重写为「已暂停 ⇒ 只累加深度并返回」+ 冻结时置 `entry.paused = true`；`_resumeTurnTimer` 以 `!entry.paused` 兜底、恢复时先清态再按 `remainingMs` 续计；拒绝分支新增 `_approvalGrants.length = 0`）；`oamp/test/tool-permission.test.js`（+96 纯增补：fake 新增 `suspend_pair` / `suspend_pair_hang` 帧序 + 2 条新用例）；`acp-daemon.test.js` 零改动（`:554` 一次性 `yolo` 断言原文完好）
+- 2. 测试结果：偏差 #3 契约 **pass**（`timeoutMs=300`、两个等待同时未结算：挂起 450ms 后 `settled===null`、`dead===false`、`session/cancel` 0 帧；先结算其一后再等 450ms（累计 ~900ms > 300ms）仍无 cancel；第二个等待结算 ⇒ `stop_reason='end_turn'` 正常结算）；偏差 #2 契约 pass；既有 22 条用例逐字未改
+- 3. 疑问/待办：无（超时路径 `onTimeout`/`cancel`/`kill` 零改动）
+- 4. 违反边界：无（未动 `agent.js` / `web/**` / 迭代工作区 / 仓库根）
+- 交付证据：提交 `dd7badd`；本轮改动面仅 2 文件
+
+### 2026-09-13 14:21 · 派发 · verifier（阶段 5 · pr-001 第 3 轮复验）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：对 pr-001 第 3 轮提交 `dd7badd` 做独立复验——重点为**变更面**（冻结深度语义 + 拒绝清凭据）与对第 2 轮已通过项的**不回归**；仍按 A（PR 6 条）/ B（T1~T6）/ C（C1~C6）逐条判定；不得引用任何先前报告作为证据（可读它来确定待复核清单，但结论必须自证）
+- PR：prs/pr-001-agent-permission-suspend-and-reply-fix.md
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + 不注入执行过程上下文
+- 工作区（只读）：`…/0021-pr-001-permission-suspend-and-reply-fix`（分支 `feat/0021-pr-001…`，HEAD `dd7badd`；本轮改动面 = `git diff 1f11b59...HEAD`）
+- 报告落点：`…/clarifications/verify-pr-001-r3-{timestamp}.md`
+
+### 2026-09-13 14:30 · 收到报告 · verifier（阶段 5 · pr-004 验收）
+
+- 报告路径：`clarifications/verify-pr-004-20260913-202425.md`（验证者身份：前端 SPA + SSE 行为面评审者）
+- 结论：**PASS**（pass 60 / fail 0 / partial **2** / blocked 0，共 62 项判定）
+- fail 条目数：0；partial 条目数：2（**同一子项**：PR 验收 7 / T4-4 的「hub 调用面完成（`call_result`）不产生通知」⇒ 实测后台调用完成后产生 1 条「对话已完成」）；偏差记录条数：**3**；下一迭代候选条数：5
+- 关键独立证据：6 条红线全 pass（三点 diff 7 文件、`src/web.js` numstat 2/2 仅两条文案、`style.css` 81/0 零删除、既有测试零修改、禁改清单零命中、零依赖零构建）；行为面 4 组以**自建环境**（非默认端口 web + 自建 router socket + 临时 DB + headless Chromium + Notification 桩 5 档 + 自建透传代理触发真实重连）独立取证；回归 8 套件 100 tests 全绿零 flake
+- 附注：D-3 指出该 partial 子项**在 pr-004 文件范围内不可修复**（前端无从区分调用驱动/消息驱动终态），口径判定权交主 agent
+
+### 2026-09-13 14:31 · 调度决策 · 阶段推进核查
+
+- 决策内容：**pr-004 再开一轮（第 2 轮）**，采纳 Q6（新增裁决，落 `clarifications/pr004-round-1-verdicts.md` §四）：**「调用面完成不产生通知」是绑定条款，必须修**——其源头是 `prd/F07` 验收 3 / N5（`user_confirmed`：不覆盖 hub 调用面完成通知）；架构在该处的「调用事件走 `call:` 键 ⇒ 结构上不可能产生」论证**被实测证伪**（调用面驱动的**对话**状态变化同样经 `publishState` 推全局 `chat_state`）⇒ 属技术方案问题，在本阶段直接解决（不动需求、不写 `deferred-demand-changes.md`）
+- 修复口径：调用面驱动的 chat 状态变化不进全局 `chat_state` 链路；**既有 `chat:<id>` 帧逐字不变**；消息驱动终态仍全局可观测；新增自动化断言文件
+- 文件范围追加（第 3 次）：`oamp/src/web.js`（扩为 `publishState` 选项参数 + 调用面驱动路径的全局广播开关）+ **新建** `oamp/test/notification-scope.test.js`
+- 登记不修：验收报告 D-1（T4-3 去重措辞）、D-2（来源标识含 `agent_id` 前缀）⇒ 阶段 6 汇总
+- 触发依据：`clarifications/verify-pr-004-20260913-202425.md` 的 2 个 partial 与 D-3 附注；`prd/F07` 验收 3 + `demand.md` N5/P6（`user_confirmed`）
+
+### 2026-09-13 14:32 · 派发 · dev（阶段 5 · pr-004 第 2 轮修复）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：修复 Q6 缺口（调用面驱动状态不进全局链路）+ 新建 `oamp/test/notification-scope.test.js`（3 条断言）+ 上一轮 60 项不回归
+- PR：prs/pr-004-console-inbox-column-and-notify.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-004-console-inbox-column-and-notify`（分支 `feat/0021-pr-004…`，HEAD `76e33d5`）
+- 验收标准注入：Q6 三条判据 + 新断言文件全绿 + 六套件回归 + 上一轮红线不回归
+
+### 2026-09-13 14:40 · 收到报告 · dev（阶段 5 · pr-004 第 2 轮修复）
+
+- 1. 改了什么文件：2 文件——`oamp/src/web.js`（+13/-4：新增模块常量 `LOCAL_ONLY = { global: false }`；`publishState(chatId, state, opts = {})` 默认等价、`opts.global === false` 时跳过全局发布**且置于定向帧之后**；`:1081`/`:1105` 调用面派发处 + `finishTask` 终态按 `entry.call` 传 `LOCAL_ONLY`）；**新建** `oamp/test/notification-scope.test.js`（247 行 2 用例 3 断言）
+- 2. 测试结果：新文件 **2/2 pass**；`confirmation-inbox`（T4 双链路）保持绿（8/8 合计）；六套件 **78/78** + `call-protocol` **11/11** + 额外三套件 **20/20** ⇒ 本轮验收集 **97 项全绿**（含额外套件共 117）；**反证（红→绿）**：把 `web.js` 暂存回 `76e33d5` 后新文件 test 1 **FAIL**（失败原文即 Q6 症状：全局收到该 chat 的 `chat_state{working/completed}`），test 2 对照仍 pass ⇒ 断言非空断言
+- 3. 疑问/待办：① **文档漂移登记**：`oamp/API.md:1005/1012`（「`chat_state` 两处都发」「对话状态变化」）未区分驱动来源，实现后调用面驱动的对话在全局链路零帧 ⇒ 需按实现更新，但 `API.md` 在本轮禁改清单内（未动）；② 口径登记：调用面驱动的 chat **完全不进全局链路**（含 `working`）；若日后要「全局可见但不可通知」需在帧内加驱动来源字段（服务端面变更，不在本 PR 范围）；③ 边界不变（`web/debug.js` 未动）
+- 4. 违反边界：**无**（仅 `oamp/src/web.js` + 新建断言文件；未碰既有 19 条 handler 其他行为 / `oamp/web/**` / `llms.txt` / 既有测试；临时取证脚本与产物在 `/tmp` 且已清理）
+- 交付证据：提交 `a431225`；worktree `git status` 空；`git diff --name-only 76e33d5...HEAD` = 上述 2 文件
+
+### 2026-09-13 14:41 · 派发 · verifier（阶段 5 · pr-004 第 2 轮复验）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：对 pr-004 第 2 轮提交 `a431225` 做独立复验——重点为 Q6 三条判据（调用面终态不进全局链路 / 定向帧逐字不变 / 消息驱动终态仍全局可观测）+ 新断言文件非空断言核查 + 上一轮 60 项不回归 + 红线
+- PR：prs/pr-004-console-inbox-column-and-notify.md
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入 + 不注入执行过程上下文
+- 工作区（只读）：`…/0021-pr-004-console-inbox-column-and-notify`（分支 `feat/0021-pr-004…`，HEAD `a431225`；本轮改动面 = `git diff 76e33d5...HEAD`）
+- 报告落点：`…/clarifications/verify-pr-004-r2-{timestamp}.md`

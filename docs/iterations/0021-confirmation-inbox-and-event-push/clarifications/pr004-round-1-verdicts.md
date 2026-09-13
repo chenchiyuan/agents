@@ -51,3 +51,20 @@ T1 落盘后**先 grep 校验命中**，再定稿 T5 的断言检索式（先例
 - **p-003-Q3**：`oamp/web/debug.js` **不在**本 PR 文件范围（`EVENT_TYPES` 未含 `confirmation` 属已知边界，登记不动）。
 - 架构 §11.4 零改动清单继续生效；`style.css` **只追加**；零新依赖、零构建；不新增页面 / 路由 / 顶栏抽屉 / 左栏 tab。
 - **pr-003 已合并**（`1f7eceb`）：两条新路由、`oamp/src/inbox.js`、全局 `confirmation` 帧、`STATIC_FILES` 的 `/notify.js` 登记均**已在基线内**（`GET /notify.js` 现在 404，pr-004 落盘 `web/notify.js` 后应 200）。
+
+---
+
+## 四、Q6（第 2 轮追加裁决，来自 pr-004 独立验收报告）
+
+**触发**：`clarifications/verify-pr-004-20260913-202425.md` 判定 **PASS（60 pass / 0 fail / 2 partial）**，两个 partial 指向同一子项——PR 验收 7 / 任务图 T4-4 的「hub 调用面完成（`call_result`）**不产生**通知」不成立：后台调用完成时，`src/web.js` 的 `finishTask` 经 `publishState(entry.chatId, chat.state)` 推全局 `chat_state{completed}`，前端无法区分调用驱动与消息驱动的终态 ⇒ 产生 1 条「对话已完成」通知。
+
+**裁定：该子项是绑定条款，必须修（不按「措辞宽松化」处理）。**
+
+- **依据**：PR 验收 7 的该子句直接来自 **`prd/F07` 验收 3（N5）**，而 N5/P6 是 `user_confirmed` 需求——「经 hub 调用面派发的后台调用完成时**不产生**通知；『完成』类事件只覆盖**对话完成**语义」（`demand.md` N5 原话：不覆盖 hub 调用面的完成通知，事件集合不含 `call_completed`）。这不是实现口味问题。
+- **架构前提被实测证伪**：`architecture.md` §prd 补全 F07「不含 `call_completed`」处断言「调用事件走 `call:` / `chat-calls:` 键 ⇒ 前端结构上不可能产生」——实测显示调用面驱动的**对话**状态变化同样经 `publishState` 推全局 `chat_state`，故该结构论证不成立（属技术方案问题，在本阶段直接解决，不动需求）。
+- **修复口径（最小、且不改既有可观测面）**：
+  1. **调用面驱动的 chat 状态变化不得进入全局 `chat_state` 链路**（`GET /api/events`）；**既有 `chat:<id>`（`GET /api/stream`）的帧形态与时机逐字不变**（对话面板照常更新）。实现落点 = `oamp/src/web.js`（`publishState` 增加默认等价的选项参数 + 调用面驱动路径按 `entry.call` 关闭全局广播；`finishTask` 的终态发布是必改点，调用面派发处的 `working` 发布是否同改由实现按同一语义定，判据见下 3）。
+  2. 消息驱动（`POST /api/messages`）的对话终态**仍须**在全局链路上可观测（pr-003 验收 10 与 `confirmation-inbox.test.js` 的 T4 用例保持绿）。
+  3. **新增自动化断言**（授权新文件）：新建 `oamp/test/notification-scope.test.js`——起 router + web（临时 DB/socket）+ 假节点，经 `POST /api/calls`（background）派发一次并等其终态：断言①该对话在 `GET /api/events` 上**不出现** `chat_state` 终态帧；②在 `GET /api/stream?chat_id=` 上**仍出现**既有 `chat_state` 帧（形态逐字）；③作为对照，`POST /api/messages` 路径的终态**仍出现**在全局链路上。若实现选择「调用面驱动的 chat 完全不进全局链路」，则①扩展为「不出现该 chat 的任何 `chat_state` 帧」——两种口径均可，但必须在报告中写明所选口径。
+- **文件范围追加（第 3 次）**：`oamp/src/web.js`（由「仅两条文案」扩为 `publishState` 的选项参数 + 调用面驱动路径的全局广播开关，**仍不得触碰既有 19 条路由 handler 的其他行为**）、**新建** `oamp/test/notification-scope.test.js`。其余范围与禁改清单不变。
+- **偏差登记（不修）**：验收报告的 D-1（T4-3「前端不额外去重」措辞 vs `app.js` 按 `confirmation_id` 去重——按实现更新任务图措辞）、D-2（PR 验收 3 的「来源对话标识」实际渲染含 `agent_id` 前缀）——两条按实现更新规格措辞，留阶段 6 汇总。
