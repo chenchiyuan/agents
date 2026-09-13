@@ -23,7 +23,7 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.2.0**：12 张卡（F01~F09 需求功能点 + F10~F12 保证项）；5 项 MI 全部 `user_confirmed`；`model_inferred` 归零；`[架构待填]` T-01~T-16 留白 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **821 行**：T-01~T-16 = **16/16** 落定；12 卡架构段改造写；**L1 四条 + 覆盖范围全部 `user_confirmed`**；自查 C 表；必然变更点 B 表 |
 | 4 | PR 规划 | ✅ | ✅ | 4 个 PR（依赖图 `pr-001→pr-002`、`pr-003→pr-004`）；Gate 验证 **PASS 11/11**（`clarifications/verify-stage4-gate-20260913-122303.md`） |
-| 5 | PR 实现 | ⏸ | ⬜ | **pr-001 已合并**（`c84233a`，第 3 轮复验 PASS 45/46；合并后 oamp 全量 **302/302**）⇒ 解锁 pr-002；**pr-003/pr-001 已完成**；**pr-002 planner 派发中**；**pr-004 第 2 轮已提交 `a431225`（Q6 修复）⇒ 复验中** |
+| 5 | PR 实现 | ⏸ | ⬜ | **pr-001/pr-003/pr-004 三个 PR 已合并**（`c84233a` / `1f7eceb` / `017961a`）；**pr-002 任务图已交付（`70c8877`）⇒ dev 执行中**；合并后 oamp 全量各次均全绿（302/302、65/65、104/104） |
 | 6 | 独立验证 | ⬜ | ⬜ | |
 
 ## 并发配置（阶段 5）
@@ -33,8 +33,8 @@
 | **起始并发数** | 3 |
 | **硬上限** | 5（公式 `2×起始-1`） |
 | **当前有效上限** | 5（= min(3 + 1×3, 5)，pr-003 合并释放 1 次槛位） |
-| **累计槛位释放次数** | 2（pr-003、pr-001 合并） |
-| **已派发总数** | 11（阶段 5：planner×4 + hub dev×2 + 本地 dev×5 + verifier 复验×3） |
+| **累计槛位释放次数** | 3（pr-003、pr-001、pr-004 合并） |
+| **已派发总数** | 12（阶段 5：planner×4 + hub dev×2 + 本地 dev×6 + verifier 复验×3） |
 
 依赖图（阶段 4 产出）：`pr-001 → pr-002`、`pr-003 → pr-004`；**首波可并发 = {pr-001, pr-003}**，次波 = {pr-002, pr-004}。
 
@@ -43,9 +43,9 @@
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
 | pr-001-agent-permission-suspend-and-reply-fix.md | （无） | ✅ 已完成（第 3 轮复验 PASS 45/46） | `feat/0021-pr-001…`（已清理） | ✅（`c84233a`） | 已释放 |
-| pr-002-agent-confirmation-wiring.md | pr-001（已合并） | 进行中（planner 派发中） | `feat/0021-pr-002-agent-confirmation-wiring` | — | 占用 |
+| pr-002-agent-confirmation-wiring.md | pr-001（已合并） | 进行中（任务图 `70c8877`；dev 执行中） | `feat/0021-pr-002-agent-confirmation-wiring` | — | 占用 |
 | pr-003-web-inbox-and-decision-api.md | （无） | ✅ 已完成（验收 PASS 46/46） | `feat/0021-pr-003…`（已清理） | ✅（`1f7eceb`） | 已释放 |
-| pr-004-console-inbox-column-and-notify.md | pr-003 | 进行中（第 2 轮已提交 `a431225`；复验中） | `feat/0021-pr-004-console-inbox-column-and-notify` | — | 占用 |
+| pr-004-console-inbox-column-and-notify.md | pr-003（已合并） | ✅ 已完成（第 2 轮复验 PASS 57/57，Q6 闭合） | `feat/0021-pr-004…`（已清理） | ✅（`017961a`） | 已释放 |
 
 ## 更新日志
 
@@ -74,3 +74,7 @@
 - 2026-09-13: **pr-004 第 2 轮**（`a431225`）——独立验收判 PASS（60/62，2 个 partial 同指「hub 调用面完成产生通知」违反 `prd/F07` 验收 3/N5）⇒ 主 agent 裁定为绑定条款并授权修：调用面驱动的 chat 状态变化不进全局 `chat_state` 链路（定向帧逐字不变）+ 新建 `oamp/test/notification-scope.test.js`（3 断言，含红→绿反证）；复验中。
 
 - 2026-09-13: pr-002（agent 进程接线）解锁并派发 planner（worktree base = `c84233a`）。
+
+- 2026-09-13: **pr-004 完成**——第 2 轮（`a431225`）修复「调用面完成产生通知」（违反 `prd/F07` 验收 3/N5）+ 新建 `oamp/test/notification-scope.test.js`，第 2 轮复验 **PASS 57/57（Q6 三判据全闭合、新断言经红→绿反证为非空断言）**；**合并进迭代分支**（`017961a`，合并后 65/65、10 文件 104/104 绿）；worktree/分支已清理。
+
+- 2026-09-13: **pr-002** 任务图交付（`70c8877`，T1~T6）；其 4 项 `[model_inferred]` **经用户真实阻塞式确认**（裁决文件 `clarifications/pr002-round-1-verdicts.md`）⇒ dev 执行中。progress-observer 第二次核实发现的状态漂移（文档滞后于 git）已在本日修正。

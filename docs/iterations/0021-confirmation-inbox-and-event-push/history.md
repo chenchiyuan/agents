@@ -491,3 +491,58 @@
 - 通道：宿主 `task` 工具（本地 sub agent）；planner 角色定义全文注入 + 该 PR 工作目录纪律
 - 工作区：`…/0021-pr-002-agent-confirmation-wiring`（分支 `feat/0021-pr-002-agent-confirmation-wiring`，base = 迭代分支 `c84233a`，**已含 pr-001 与 pr-003 代码**）
 - 注入的既有事实与裁决：pr-001 最终的钩子契约（`{sessionId, toolCall, options}` 权限门 / `{kind:'tool_approval', toolCall:{toolName,title}, options:['Approve','Deny']}` 审批门；返回域 `'allow'|'deny'|{optionId}|Promise<…>`；审批门仅 `'allow'`/`{optionId:'Approve'}` 视为放行）+ pr-001 tasks §5 Q1 的待承接检查项（若 `agent.js` 侧引入 task 级计时/取消，须复核与 acp-client 冻结语义的冲突）+ pr-003 已合并的信封与路由事实（`confirmation_decision` 的 `option_id` 来自该条 options，故审批门场景回传值为 `Approve`/`Deny`）+ 架构 §5.3 信封三型 + Router 零改动
+
+### 2026-09-13 15:05 · 收到报告 · verifier（阶段 5 · pr-004 第 2 轮复验）
+
+- 报告路径：`clarifications/verify-pr-004-r2-20260913-204918.md`
+- 结论：**PASS**（57 项判定：**57 pass / 0 fail / 0 partial / 0 blocked**）
+- fail 条目数：0；partial：0；blocked：0；偏差记录条数：5；下一迭代候选条数：5
+- **Q6 三条判据全部闭合**：① 调用面 background 派发并等终态 ⇒ `GET /api/events` 该窗口**零** `chat_state` 帧（baseline 3→3）；② 定向 `chat:<id>` 帧原文 `{chat_id,state}`（working→completed）形态逐字不变；③ 两次对照（新对话 / 先调用面后消息面的同一对话）全局链路均仍得 working+completed
+- **新断言文件被证明为非空断言**：在 `/tmp` 副本上把 `src/web.js` 回退为 `76e33d5` ⇒ 该文件 test 1 **FAIL**（失败原文即预期反例「调用驱动的 chat 不得进全局 chat_state 链路」），修复版 2/2 绿
+- **上一轮 2 个 partial 均已闭合**（同一子项：hub 调用面完成不产生通知）；A7 子项经**浏览器实测**复核（调用面轮次零通知 / 消息面轮次恰 1 条「对话已完成」）
+- 回归：10 文件 **104/104 pass**；六条红线全 pass；仓库根与被验 worktree 均干净、HEAD 未变、临时资源已清理
+
+### 2026-09-13 15:06 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-004 合并进迭代分支**——`git merge --no-ff feat/0021-pr-004-console-inbox-column-and-notify` ⇒ merge commit `017961a`（9 文件 / +1172 −8）；合并后 6 个测试文件 **65/65 绿**；pr-004 worktree/分支**已清理**；释放 1 个槛位
+- 并发配置更新：`累计槛位释放次数` 2 → **3**；`当前有效上限` 维持 **5**（已触硬上限）
+- 依赖状态：pr-003 → pr-004 链**全部完成**；**只剩 pr-002 一条待完成**（planner 在飞）
+- 触发依据：`clarifications/verify-pr-004-r2-20260913-204918.md` 结论 PASS；workflow-pb「依赖解锁式并发」第 3 条
+
+### 2026-09-13 15:06 · 派发 · progress-observer（pr-004 合并后自动触发）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：独立核实迭代 0021 的真实 git 状态与 `status.md` 声称的一致性，整体覆盖 `docs/iterations/0021-confirmation-inbox-and-event-push/progress.md`
+- 通道：宿主 `task` 工具（本地 sub agent）；progress-observer 角色定义全文注入；代码库根 = 迭代工作区（只读 git 命令，唯一写入 = `progress.md`）
+- 触发依据：workflow-pb「可观测性」自动触发时机 1（每次一个 PR 完成 merge 之后）
+
+### 2026-09-13 15:12 · 收到报告 · planner（阶段 5 · 次波 pr-002）
+
+- 1. `prs/pr-002-tasks.md` 路径 + 任务总数：`docs/iterations/0021-confirmation-inbox-and-event-push/prs/pr-002-tasks.md`（211 行，提交 `70c8877`）；**6 任务（T1~T6）**
+- 2. 依赖图摘要：形状 `T1 ‖ T2 → T3 → T4/T5 → T6`（无环）；最长依赖链 `T1 → T2 → T3 → T4 → T6`（5 跳）；关键路径任务 T2、T3；同文件串行约束（`agent.js` 与新测试文件由 T2→T3→T4→T5 单实现者顺序落地）
+- 3. `[model_inferred]` 清单：**4 项**（① 会话身份在 `ContextPool._ensureClient` 注入；② 审批门 `title` = 透传 `message` 截断 120；③ 失效路径落点 = 轮次 settle 清扫 + SIGINT 前全量清扫；④ 档位判定点取架构口径 `ContextPool`）
+- 4. 循环依赖：无
+- 5. 疑问/越界：6 项（①pending 表两型钩子统一口径；②**已自查关闭** pr-001 tasks §5 Q1 的承接项「本 PR 不引入 agent 侧 task 级计时/取消」；③档位判定点措辞差异；④SIGINT 清扫的投递竞争与判据降级方式；⑤`API.md §7` 无待补项；⑥不扩 harness 公共面）
+
+### 2026-09-13 15:20 · 收到报告 · progress-observer（pr-004 合并后自动触发）
+
+- 1. `progress.md` 路径：`docs/iterations/0021-confirmation-inbox-and-event-push/progress.md`（99 行，整体覆盖，六部分齐备）
+- 2. 六部分摘要：阶段 1~4/5/6 声称与核实**一致**（阶段 5 确在进行中：3 个 PR 已真实合并 `1f7eceb`/`c84233a`/`017961a`，仅 pr-002 未合并）；依赖核实 2 条**全部一致**（`pr-002→pr-001` fork 点 = `c84233a` 本体、`pr-004→pr-003` = `1f7eceb`）；PR 实现状态：pr-001/pr-003 一致、pr-002 部分一致（已认领未实现）、**pr-004 不一致**（`status.md` 滞后于已合并事实）；并发度：已解锁未完成 = {pr-002}，**完全闲置 PR = 0**；不一致 **6 条**、无法核实 **5 条**
+- 3. 最需关注：① **状态漂移**——`status.md`（HEAD 版）仍写 pr-004「复验中/未合并」，而 git 一手记录显示已合并（`017961a`）；② pr-004 的合并事实当时只在未提交的 `history.md` 改动里；③ `status.md` 的 `累计槛位释放次数 = 2` 与 git 可见的 3 次合并不符；④ `status.md` 称 pr-002「planner 派发中」而实际已交付 `70c8877`；⑤ doc commit `267bc21` 的提交消息与同提交内 `status.md` 内容不一致
+- 4. 疑问/越界：无越界；提示 `status.md` 的 worktree/分支列与已合并列依赖人工同步，本轮出现三项同时滞后（本角色不判断严重性）
+
+### 2026-09-13 15:21 · 调度决策 · 阶段推进核查
+
+- 决策内容：**pr-002 任务图的 4 项 `[model_inferred]` 验收标准真实阻塞式转呈用户**（宿主 `ask`，四问一次呈现）；用户逐项**全部确认**：MI-1 会话身份在 `ContextPool` 侧注入 / MI-2 审批门 `title` 透传 `message`（截断 120）/ MI-3 失效路径 = 轮次 settle 清扫 + SIGINT 前全量清扫 / MI-4 档位判定点取架构口径（`ContextPool`）
+- 其余裁定落 `clarifications/pr002-round-1-verdicts.md`：Q1 采 planner 口径（两型共用同一 pending 表与信封、统一 `resolve({optionId: option_id})`、**不得再造第二套去重**）；Q2 **采纳并关闭**「本 PR 不引入 agent 侧 task 级计时/取消」的承接项；Q4 判据按可稳定观测者择一（不可稳定时按 partial 报告，不得删断言）；Q5 `API.md` 零改动；Q6 不改 harness 公共面
+- 触发依据：workflow-pb「需要用户决策的情况」第 1 条（产物出现 `[model_inferred]` 未经确认项）；planner 报告（`70c8877`）
+- **progress-observer 发现的处置**：按事实修正 `status.md`（pr-004 标记为已合并/已清理、槛位释放次数 2→3、已派发总数、pr-002 状态）并随本次 docs 提交落盘；6 条不一致均属「文档滞后于 git」一类，无真实执行异常
+
+### 2026-09-13 15:22 · 派发 · dev（阶段 5 · 次波 pr-002）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：在 pr-002 专属 worktree 内按 `prs/pr-002-tasks.md` 的 T1~T6 落地最小实现（`ContextPool` 注入钩子 + `agent.js` pending 表与信封收发），使 PR 文件 7 条验收标准全部通过并提交到本 PR 分支
+- PR：prs/pr-002-agent-confirmation-wiring.md
+- 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
+- 工作区：`…/0021-pr-002-agent-confirmation-wiring`（分支 `feat/0021-pr-002-agent-confirmation-wiring`，HEAD `70c8877`，base = 迭代分支 `c84233a`）
+- 验收标准注入：PR 7 条 + T1~T6 + `clarifications/pr002-round-1-verdicts.md` 的 MI-1~MI-4（用户确认）与 Q1~Q6
