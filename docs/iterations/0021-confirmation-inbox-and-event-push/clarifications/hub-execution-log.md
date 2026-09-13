@@ -40,4 +40,4 @@
 - **本迭代的过渡例外（登记）**：第 4 次派发（prd 阶段 2）发生在该约束下达**之前**，落在 `chat-76db2a03-2832-4c08-8f21-19f6255f1262`（因当时按「一角色一对话」创建）。该次不重做；**其余一切派发（含 prd 的后续轮次）一律使用统一对话**，prd 后续轮如需延续上下文，由主 agent 在简报中重述所需背景（其产物在磁盘上，可自行读取）。
 | 4 | 2026-09-13 12:01 | 阶段 2 | prd（首轮） | pb-prd | `task-1bbae265-f8f1-44fb-8d96-bd5a473ab104` | background | **completed**（truncated） | 203743ms | 产出 `prd.md` + 12 卡（F01~F12）+ `clarifications/prd-round-1.md`；对话 `chat-76db2a03-…`（**过渡例外**） |
 | 5 | 2026-09-13 12:09 | 阶段 2 | prd（第 2 轮） | pb-prd | `task-95038b97-ee3a-47d2-9830-5dc4bc3bf06b` | background | **completed** | 129410ms | 对话 `chat-ad0d43df-…`（**统一对话**）；并 5 项 MI 裁决 |
-| 6 | 2026-09-13 12:16 | 阶段 3 | architect | pb-architect | （见下） | background | 进行中 | — | 对话 = 统一对话 |
+| 6 | 2026-09-13 12:16 | 阶段 3 | architect | pb-architect | `task-5d13d79c-fadf-4478-b6cb-f5cfd0f5907c` | background | 进行中 | — | 对话 = 统一对话（`chat-ad0d43df-…`） |
