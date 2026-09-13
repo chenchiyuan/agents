@@ -744,9 +744,9 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
     {
       method: 'GET',
       path: '/api/events',
-      summary: '全局事件订阅（SSE：agent_online / agent_offline）',
+      summary: '全局事件订阅（SSE：agent_online / agent_offline / confirmation / chat_state）',
       params: [],
-      response: 'SSE 事件流（text/event-stream）：agent_online / agent_offline',
+      response: 'SSE 事件流（text/event-stream）：agent_online / agent_offline / confirmation / chat_state',
       errors: [],
       kind: 'sse',
       docLink: 'API.md#310-get-apievents',
