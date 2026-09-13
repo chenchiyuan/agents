@@ -65,7 +65,7 @@ const CALL_SCHEMA_LINE = '请仅输出一个 JSON 对象，满足以下结构（
 const RECONCILE_DEFAULT_MS = 5000; // 快速对账首查与间隔同值（默认 5s）
 const RECONCILE_MAX_ATTEMPTS = 6; // 快速预算：快速频率下 6 次（默认约 30s）用尽后转低频续查
 const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，持续到终态或 shutdown）
-const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟，覆盖 agent 侧 300s 超时上限有余）
+const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟；2026-09-13 起 agent 侧 omp 超时上限亦为 30 分钟 ⇒ 覆盖关系由「有余」变为「持平」，待优化）
 // pr-002（F05 / architecture §4.2）：全局拓扑轮询间隔（仅存在全局订阅者时运行）；测试用 env 压缩时间轴。
 const TOPOLOGY_POLL_DEFAULT_MS = 2000;
 

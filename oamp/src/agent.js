@@ -25,8 +25,8 @@ import { randomUUID } from 'node:crypto';
 // 超时上限、cwd=agent 进程 cwd、stdout/stderr 逐行上报（行数上限防明细爆炸）。
 const MAX_STREAM_LINES = 200;
 const DEFAULT_TASK_TIMEOUT_MS = 30000; // shell 任务默认
-const DEFAULT_OMP_TIMEOUT_MS = 300000; // omp（LLM）任务默认：给足推理时间
-const MAX_TIMEOUT_MS = 600000;
+const DEFAULT_OMP_TIMEOUT_MS = 1800000; // omp（LLM）任务默认：给足推理时间
+const MAX_TIMEOUT_MS = 1800000;
 const OMP_BIN = () => process.env.OAMP_OMP_BIN || 'omp';
 // §7.2 模型标识校验（daemon 路径；风格同 0010 payload 校验）
 const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/;

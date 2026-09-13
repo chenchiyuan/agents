@@ -67,7 +67,7 @@ oamp task send dev-1 '{"command":"node","args":["-e","process.exit(3)"],"label":
 oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"],"timeout_ms":300}'
 ```
 
-任务 JSON 字段：`command`（必填）/ `args`（字符串数组）/ `timeout_ms`（默认 30000，上限 600000）/
+任务 JSON 字段：`command`（必填）/ `args`（字符串数组）/ `timeout_ms`（默认 30000，上限 1800000）/
 `label`（可选说明）。任务与明细存于 Router 内存（Router 重启即清空——迭代 0010 N2 无持久化边界）。
 安全边界（demo）：**任务命令来自 payload，任何能向 agent 发消息的注册节点均可驱动执行**——
 鉴权/白名单属后续迭代（迭代 0010 N6 已把鉴权划出范围）。
@@ -219,7 +219,7 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
   `openai/gpt-5.6-luna` 仍可在模型框显式指定，但它是 reasoning 模型，**首 token 可能长达数分钟**（实测 ≈242s）且本机存在间歇性无响应；
   Web 侧不注入默认值（未指定即回默认链）。对话详情里的 `model` 记录的是 **ACP 实报的生效模型**（不是请求回显）。
 - 默认 `--no-tools`（纯问答更安全/更快）；需要 agent 干活时 payload 传 `tools:true` 放开工具（仅一次性路径）。
-- omp 默认超时 300s（`timeout_ms` 可覆盖，上限 600s）；omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
+- omp 默认超时 1800s（30 分钟；`timeout_ms` 可覆盖，上限同为 1800s）；omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
 - 输出经 ANSI 清理后回流；回答在对话里以浅色可读排版展示（区别于 shell 的终端块）。
 
 > 安全边界（demo）：`tools:true` 时 omp 可调用工具操作本机；`--no-tools` 不放开。鉴权仍属后续迭代（N6 边界）。

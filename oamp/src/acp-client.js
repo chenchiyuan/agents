@@ -160,7 +160,7 @@ export class AcpClient {
    * @param {function|null} [opts.onChunk] 增量文本回调（逐块）
    * @returns {Promise<{text:string, model:string|null, stop_reason:*, usage:*, pid:number}>}
    */
-  async prompt(text, { model = null, timeoutMs = 300000, onChunk = null } = {}) {
+  async prompt(text, { model = null, timeoutMs = 1800000, onChunk = null } = {}) {
     if (this.dead) throw new AcpError('context_crashed', '子进程已退出');
     if (!this.sessionId) throw new AcpError('context_crashed', 'session 未建立');
     const target = model || this.modelArg || this.currentModel;
