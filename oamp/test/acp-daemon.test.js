@@ -529,7 +529,7 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   assert.equal(devArgv[devIdx + 1], ROLE_FILE_DEV, '注入值应为 <仓库根>/roles/dev/dev.md');
   assert.ok(path.isAbsolute(devArgv[devIdx + 1]), '注入值应为绝对路径');
   assert.ok(!devArgv.includes('--no-tools'), 'F04-2/AR-08：--tools on 不得传 --no-tools');
-  assert.equal(devArgv[devArgv.indexOf('--approval-mode') + 1], 'yolo', '§4.4/pr-007①：tools on + allow 的常驻 argv 应含 --approval-mode yolo');
+  assert.equal(devArgv[devArgv.indexOf('--approval-mode') + 1], 'always-ask', '§4.4/L1-2②（pr-001）：常驻路径 tools on + allow 的 argv 恒为 --approval-mode always-ask（yolo 档不发权限请求）');
 
   // ② 角色实例 + --tools off：必须传 --no-tools（注入机制仍在）
   const plannerArgv = readJsonl(plannerArgs).find((a) => a[0] === 'acp');

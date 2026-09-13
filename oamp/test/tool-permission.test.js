@@ -38,9 +38,25 @@ let promptSeq = 0;
 function emit(sessionId, toolCallId, patch) {
   send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId, update: Object.assign({ toolCallId }, patch) } });
 }
+/** 推一帧 form elicitation（第二道审批门：Approve|Deny select）——真实 omp 同型帧（M4 实测）。 */
+function elicit(sessionId, promptId) {
+  serverSeq += 1;
+  awaitingReply.set(serverSeq, { promptId, kind: 'elicitation' });
+  send({
+    jsonrpc: '2.0',
+    id: serverSeq,
+    method: 'elicitation/create',
+    params: {
+      mode: 'form',
+      sessionId,
+      message: 'Allow tool: edit',
+      requestedSchema: { type: 'object', properties: { value: { type: 'string', enum: ['Approve', 'Deny'] } }, required: ['value'] },
+    },
+  });
+}
 
 let serverSeq = 9000;
-const awaitingReply = new Map(); // 服务端请求 id -> 对应的 session/prompt id
+const awaitingReply = new Map(); // 服务端请求 id -> { promptId, kind }
 
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
@@ -68,6 +84,11 @@ rl.on('line', (line) => {
   if (msg.method === 'session/prompt') {
     promptSeq += 1;
     const sid = msg.params.sessionId;
+    if (MODE === 'elicit_only') {
+      // 无第一道 permission 的 elicitation（非受门禁工具的审批门）：客户端必须回落 Deny（不猜放行）
+      elicit(sid, msg.id);
+      return;
+    }
     if (MODE === 'toolcall') {
       // 同 id 三帧（pending → in_progress → completed）：终态首见落行 ⇒ 恰 1 行；title 超长以验截断
       emit(sid, 'tc-' + promptSeq, { sessionUpdate: 'tool_call', kind: 'edit', title: 'Create /tmp/role-smoke.txt ' + 'x'.repeat(130), status: 'pending', rawInput: { path: '/tmp/role-smoke.txt' } });
@@ -106,7 +127,7 @@ rl.on('line', (line) => {
       return;
     }
     serverSeq += 1;
-    awaitingReply.set(serverSeq, msg.id);
+    awaitingReply.set(serverSeq, { promptId: msg.id, kind: MODE === 'unknown' ? 'unknown_method' : 'permission' });
     if (MODE === 'unknown') {
       send({ jsonrpc: '2.0', id: serverSeq, method: 'fs/read_text_file', params: { sessionId: 'sess-1', path: '/tmp/x' } });
     } else {
@@ -137,15 +158,23 @@ rl.on('line', (line) => {
 
   // 客户端对我们服务端请求的应答（正常 result，或未知方法的 -32601 error）
   if (msg.id !== undefined && awaitingReply.has(msg.id)) {
-    const promptId = awaitingReply.get(msg.id);
+    const entry = awaitingReply.get(msg.id);
     awaitingReply.delete(msg.id);
     log('FAKE_ACP_FRAMES_LOG', {
       frame: 'server_request_reply',
+      kind: entry.kind,
+      at: Date.now(),
       server_request_id: msg.id,
       result: msg.result || null,
       error: msg.error || null,
     });
-    send({ jsonrpc: '2.0', id: promptId, result: { stopReason: 'end_turn', usage: {} } });
+    // M4：第一道门放行后才进第二道审批门（真实 omp 同序：放行 ⇒ 执行前 elicit；拒绝 ⇒ 不 elicit）
+    if (entry.kind === 'permission' && MODE === 'elicit' && msg.result && msg.result.outcome && String(msg.result.outcome.optionId).startsWith('allow')) {
+      elicit('sess-1', entry.promptId);
+      return;
+    }
+    if (MODE === 'hang') return; // 收到应答也不结算该轮（pr-001④ 对照：验证超时路径与「按剩余时间恢复」）
+    send({ jsonrpc: '2.0', id: entry.promptId, result: { stopReason: 'end_turn', usage: {} } });
   }
 });
 `;
@@ -189,6 +218,17 @@ function readJsonLines(file) {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line));
+}
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 轮询等待**进程外**事实成立（帧日志 / 子进程状态只能等，不能断言瞬时值）。 */
+async function waitFor(predicate, what, timeoutMs = 4000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await sleep(10);
+  }
+  throw new Error(`等待超时：${what}`);
 }
 
 async function startClient(clients, bin, opts = {}, logger = null) {
@@ -386,7 +426,7 @@ test('§12.2 契约 1：onPermissionRequest 优先于静态 permission', async (
 
 // ─────────── pr-007（阶段 6 返工）：argv 档位映射（§4.4 主机制）+ `tool_call` 通知 → TOOL_CALL（§4.5） ───────────
 
-test('§4.4/pr-007①：permission 档 → argv 追加 --approval-mode（仅 tools=true；tools=off/匿名不变）', async (t) => {
+test('§4.4/L1-2②/pr-001①：tools=true 时两档 argv 恒为 --approval-mode always-ask（tools=off/匿名不变）', async (t) => {
   const clients = withClients(t);
 
   const allow = writeFake('allow');
@@ -394,7 +434,7 @@ test('§4.4/pr-007①：permission 档 → argv 追加 --approval-mode（仅 too
   const allowArgv = readJsonLines(allow.argsLog)[0];
   const allowIdx = allowArgv.indexOf('--approval-mode');
   assert.ok(allowIdx >= 0, 'allow 档必须追加 --approval-mode');
-  assert.equal(allowArgv[allowIdx + 1], 'yolo');
+  assert.equal(allowArgv[allowIdx + 1], 'always-ask', 'yolo 档下 omp 不发权限请求（实测 M1）⇒ 上浮无来源');
   assert.ok(!allowArgv.includes('--no-tools'));
 
   const deny = writeFake('allow');
@@ -514,12 +554,175 @@ test('§4.5/NC-5：只读类 kind（read）同样落一行 TOOL_CALL（path 取 
   assert.equal(rows[0].fields.path, '/tmp/foo.txt');
 });
 
-test('§4.4/R-12：initialize 握手 clientCapabilities 恒为空对象（不得声明 fs.* / terminal）', async (t) => {
+test('§4.4/R-12：initialize 握手只声明 elicitation.form（fs.* / terminal 仍不声明）', async (t) => {
   const clients = withClients(t);
   const fake = writeFake('allow');
   await startClient(clients, fake.bin, { tools: true, permission: 'allow' });
 
   const init = readJsonLines(fake.framesLog).find((f) => f.frame === 'initialize');
   assert.ok(init, 'fake 应记录 initialize 帧');
-  assert.deepEqual(init.params.clientCapabilities, {}, 'V-10③：声明能力会把文件写入 / 终端委托给客户端 → 工具 failed');
+  assert.deepEqual(
+    init.params.clientCapabilities,
+    { elicitation: { form: {} } },
+    'M4：omp 的第二道审批门经 elicitation form select 询问；fs.* / terminal 仍不声明（V-10③：声明即把文件写入/终端委托给客户端）',
+  );
+});
+// ─────────── pr-001：挂起链路（L1-2② / L1-1） + M3 应答契约 + M4 第二道审批门 ───────────
+
+test('L1-2/pr-001②：未结算 Promise 期间不回包；结算后回显钩子选定 optionId（审计在裁决后写）', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('allow');
+  const rec = recorder();
+  let release = null;
+  const client = await startClient(
+    clients,
+    fake.bin,
+    { tools: true, permission: 'allow', onPermissionRequest: () => new Promise((resolve) => { release = resolve; }) },
+    rec.logger,
+  );
+
+  const inflight = client.prompt('创建 role-smoke.txt');
+  await waitFor(() => release !== null, '钩子被调用');
+  await sleep(150);
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply').length, 0, '挂起期不得回包');
+  assert.equal(
+    rec.events.filter((e) => e.name === 'TOOL_APPROVED' || e.name === 'TOOL_DENIED').length,
+    0,
+    '审计行在裁决到达后写',
+  );
+
+  const settledAt = Date.now();
+  release({ optionId: 'allow_always' });
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn');
+
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.equal(replies.length, 1);
+  assert.deepEqual(replies[0].result, { outcome: { outcome: 'selected', optionId: 'allow_always' } }, '回包 = 钩子选定值');
+  assert.ok(replies[0].at >= settledAt, '应答帧晚于 Promise 结算');
+  const approved = rec.events.filter((e) => e.name === 'TOOL_APPROVED');
+  assert.equal(approved.length, 1);
+  assert.equal(approved[0].fields.option, 'allow_always');
+});
+
+test('§5.4/pr-001③：optionId 不在该请求 options 集合内 ⇒ 回落默认项（应答值恒为合法 optionId）', async (t) => {
+  const clients = withClients(t);
+
+  const allowFake = writeFake('allow');
+  const recAllow = recorder();
+  const allowClient = await startClient(
+    clients,
+    allowFake.bin,
+    { tools: true, permission: 'allow', onPermissionRequest: () => ({ optionId: 'allow_everything_forever' }) },
+    recAllow.logger,
+  );
+  const result = await allowClient.prompt('创建 role-smoke.txt');
+  assert.equal(result.stop_reason, 'end_turn', '非法 optionId 不得让该轮崩在协议校验里');
+  const allowReply = readJsonLines(allowFake.framesLog).find((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(allowReply.result, { outcome: { outcome: 'selected', optionId: 'allow_once' } }, '放行侧回落 allow_once');
+  assert.equal(allowReply.error, null, 'fake 侧不得出现未知 option ID 类错误');
+  const approved = recAllow.events.filter((e) => e.name === 'TOOL_APPROVED');
+  assert.equal(approved.length, 1);
+  assert.equal(approved[0].fields.option, 'allow_once');
+
+  const denyFake = writeFake('allow');
+  const recDeny = recorder();
+  const denyClient = await startClient(
+    clients,
+    denyFake.bin,
+    { tools: true, permission: 'allow', onPermissionRequest: () => ({ optionId: 'reject_forever' }) },
+    recDeny.logger,
+  );
+  await assert.rejects(() => denyClient.prompt('创建 role-smoke.txt'), (err) => err.code === 'permission_denied');
+  const denyReply = readJsonLines(denyFake.framesLog).find((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(denyReply.result, { outcome: { outcome: 'selected', optionId: 'reject_once' } }, '拒绝侧回落 reject_once');
+  const denied = recDeny.events.filter((e) => e.name === 'TOOL_DENIED');
+  assert.equal(denied.length, 1);
+  assert.equal(denied[0].fields.option, 'reject_once');
+});
+
+test('L1-1/pr-001④：单次挂起 > timeoutMs 时轮次未被 cancel/kill；裁决后正常结算', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('allow');
+  let release = null;
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => new Promise((resolve) => { release = resolve; }),
+  });
+
+  const inflight = client.prompt('创建 role-smoke.txt', { timeoutMs: 150 });
+  await waitFor(() => release !== null, '钩子被调用');
+  await sleep(500); // > timeoutMs：冻结未生效则轮次早已被 cancel → 宽限 → kill
+  assert.equal(client.dead, false, '冻结期间不得 kill 子进程');
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length, 0, '冻结期间不得 cancel');
+
+  release('allow');
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn', '裁决到达后按剩余时间恢复并正常结算');
+  assert.equal(client.dead, false);
+});
+
+test('L1-1/pr-001④对照：超时语义不变（无挂起仍 cancel → kill）；挂起后按剩余时间恢复计时', async (t) => {
+  const clients = withClients(t);
+
+  // ① 无挂起（静态 allow）且轮次不结算 ⇒ 计时照常到点：session/cancel → 宽限 → kill
+  const hang = writeFake('hang');
+  const c1 = await startClient(clients, hang.bin, { tools: true, permission: 'allow' });
+  const startedAt1 = Date.now();
+  await assert.rejects(() => c1.prompt('创建 role-smoke.txt', { timeoutMs: 200 }), (err) => err.code === 'timeout');
+  assert.ok(Date.now() - startedAt1 < 1500, '同步路径不因冻结逻辑而延长超时');
+  await waitFor(() => readJsonLines(hang.framesLog).some((f) => f.frame === 'session/cancel'), '超时后 session/cancel 落帧');
+  await waitFor(() => c1.dead === true, '超时后 kill 子进程');
+
+  // ② 挂起 300ms 后裁决、轮次仍不结算 ⇒ 恢复后按剩余时间（200ms）续计：总耗时 ≈ 300 + 200
+  const hang2 = writeFake('hang');
+  let release = null;
+  const c2 = await startClient(clients, hang2.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => new Promise((resolve) => { release = resolve; }),
+  });
+  const startedAt2 = Date.now();
+  const inflight = c2.prompt('创建 role-smoke.txt', { timeoutMs: 200 });
+  await waitFor(() => release !== null, '钩子被调用');
+  await sleep(300);
+  release('allow');
+  await assert.rejects(() => inflight, (err) => err.code === 'timeout');
+  const elapsed = Date.now() - startedAt2;
+  assert.ok(elapsed >= 400, `等人拍板的时间不计入轮次预算（总耗时 ≥ 挂起 300 + 剩余 200；实测 ${elapsed}）`);
+});
+
+test('M4：第一道门放行 ⇒ 第二道审批门（elicitation）答 Approve；无放行凭据 ⇒ 回落 Deny', async (t) => {
+  const clients = withClients(t);
+
+  const allow = writeFake('elicit');
+  const c1 = await startClient(clients, allow.bin, { tools: true, permission: 'allow' });
+  await c1.prompt('创建 role-smoke.txt');
+  const allowReplies = readJsonLines(allow.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(allowReplies.find((f) => f.kind === 'permission').result, { outcome: { outcome: 'selected', optionId: 'allow_once' } });
+  assert.deepEqual(
+    allowReplies.find((f) => f.kind === 'elicitation').result,
+    { action: 'accept', content: { value: 'Approve' } },
+    '放行路径第二道门必须答 Approve（不答 ⇒ 模型侧得 Tool call denied by user——M4 根因）',
+  );
+
+  // 拒绝路径：第一道门即 cancel，不进入第二道门（真实 omp 同序：拒绝 ⇒ execute 不发起）
+  const deny = writeFake('elicit');
+  const c2 = await startClient(clients, deny.bin, {
+    tools: true,
+    permission: 'allow',
+    onPermissionRequest: () => ({ optionId: 'reject_once' }),
+  });
+  await assert.rejects(() => c2.prompt('创建 role-smoke.txt'), (err) => err.code === 'permission_denied');
+  const denyReplies = readJsonLines(deny.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.equal(denyReplies.length, 1, '拒绝路径不得进入第二道门');
+  assert.deepEqual(denyReplies[0].result, { outcome: { outcome: 'selected', optionId: 'reject_once' } });
+
+  // 无放行凭据的 elicitation（非受门禁工具的第二道门）：回落 Deny，绝不猜放行
+  const orphan = writeFake('elicit_only');
+  const c3 = await startClient(clients, orphan.bin, { tools: true, permission: 'allow' });
+  await c3.prompt('创建 role-smoke.txt');
+  const orphanReplies = readJsonLines(orphan.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(orphanReplies[0].result, { action: 'accept', content: { value: 'Deny' } });
 });
