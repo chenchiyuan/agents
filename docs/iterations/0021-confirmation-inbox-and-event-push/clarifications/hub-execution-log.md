@@ -4,7 +4,7 @@
 
 | # | 时间 | 阶段 | 角色 | 实例 | call_id | 模式 | 状态 | 耗时 | 证据 |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | 2026-09-13 | 阶段 1 | demand | pb-demand | `task-34713cc0-d0d9-4874-bbb4-41a08f0465e0` | background | 已派发 | — | 对话 `chat-ad0d43df-6d43-428e-bfc8-77e4308624ae`；简报 `/tmp/brief-demand-0021.txt`（22558 B） |
+| 1 | 2026-09-13 11:27 | 阶段 1 | demand | pb-demand | `task-34713cc0-d0d9-4874-bbb4-41a08f0465e0` | background | **completed**（truncated） | 129437ms | 对话 `chat-ad0d43df-6d43-428e-bfc8-77e4308624ae`；简报 `/tmp/brief-demand-0021.txt`（22558 B） |
 
 ## 派发机制说明（本迭代的固定做法）
 
@@ -20,3 +20,12 @@
 - **完整正文的取回方式（重要）**：`truncated=true` 时信封 `text` 不完整 ⇒ 从 `GET /api/calls/<id>/transcript` 的 `entries[]`（`detail.text` 流式增量 + `detail.event='result'` 终态体）重建全文（本次重建 7995 字符，entries=1001）
 - 产物：`clarifications/demand-round-1-proposals.md`（9 提案 + 5 方案雏形询问 + 12 待裁决项）
 - 纪律核验：① 本迭代工作区新增该文件；② 仓库主工作区 `git status --porcelain -uall` = **空**；③ 无其他工作区改动 ⇒ **工作目录纪律未被违反**
+| 2 | 2026-09-13 11:35 | 阶段 1 | demand（第 2 轮） | pb-demand | `task-f9177ca6-880c-433f-87b0-134e6ee2a829` | background | **completed**（truncated） | 79452ms | 产出 `demand.md` v1.0.0（21695 B） |
+| 3 | 2026-09-13 11:41 | 阶段 1 | demand（第 3 轮） | pb-demand | `task-f77851f3-3b4a-4888-8295-ff0707d9dbee` | background | **completed** | 112635ms | 就地更新 `demand.md` → v1.1.0（15 项裁决落定、`[待裁决]` 归零） |
+
+## 累计
+
+- 派发次数 3（阶段 1）／全部 `completed`（0 失败、0 挂起）
+- 累计执行时长 ≈ 321.5s（129.4 + 79.5 + 112.6）
+- 单轮最大 `truncated=true` 的处理：从 transcript `entries[].detail.text` 重建全文（见上）
+- **工作目录纪律**：3 轮全程仓库主工作区零改动（每轮派发后核验）
