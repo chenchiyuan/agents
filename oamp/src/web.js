@@ -11,7 +11,7 @@
 //   POST /api/chats/<chat_id>/activate → 激活归档 chat（清标记 + closed→completed + 置顶）+ 推送 chat_state
 //   POST /api/chats/<chat_id>/rename → 改名（只写 title 一列，不动 updated_at；只读对话 → 409；非法标题 → 400）
 //   GET  /api/stream?chat_id=<id>    → SSE（message / task_update / chat_state / notice 四类事件；chat_id 仍强制）
-//   GET  /api/events                 → 全局 SSE（agent_online / agent_offline 两类事件；无参数，不依赖对话）
+//   GET  /api/events                 → 全局 SSE（agent_online / agent_offline / confirmation / chat_state 四类事件；无参数，不依赖对话）
 //   GET  /api/docs                   → 接口元数据投影（文档页 / 调试台 / 索引文件的数据源；请求时从路由表生成）
 //   POST /api/calls                  → 发起一次或一批调用（阻塞取终态 / 后台执行）
 //   GET  /api/calls                  → 调用 roster（每次调用一行；无过滤 / 无分页 / 无编排）
@@ -19,6 +19,8 @@
 //   GET  /api/calls/<call_id>/stream → 按调用订阅事件流（SSE）
 //   GET  /api/calls/<call_id>/transcript → 按调用取转录（进程内，不持久；重启即丢）
 //   GET  /api/calls/<call_id>        → 按调用取终态（进行中给状态）
+//   GET  /api/confirmations          → 在途确认项列表（跨对话；进程内、不持久；空态为空数组）
+//   POST /api/confirmations/<id>/decision → 提交确认项裁决（选项 id 必填 + 可选文本；随即移出在途表并回传请求方）
 // 错误契约（0015 / F06，architecture §5）：全部 4xx/5xx 响应体 = {error: <人类可读字符串>, code: <ERR_CODE 之一>}，
 //   code 与状态码一一映射；成功响应不含 code；既有 error 文案逐字不变（既有前端 api() 零改动）。
 // 语义（0011 迭代，architecture §4/§5/§9.1）：一次提问 = 恰一条 in + 一条 out（过程不入库）；
@@ -36,6 +38,7 @@ import { RpcPeer } from './rpc.js';
 import { NodeClient } from './node-client.js';
 import { openDb } from './persist.js';
 import { createSseTransport } from './transport.js';
+import * as inbox from './inbox.js'; // 0021 确认面（architecture §6）：在途确认表（进程内、不持久）
 import { instanceIdForRole, roleFromInstanceId } from './role-binding.js';
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); // 包根（静态面白名单的基准：URL → 包根相对文件）
@@ -423,6 +426,8 @@ const STATIC_FILES = {
   // ★ 0018（F13 / architecture §6）：控制台调用面独立静态页（页面本体属 pr-004；本 PR 内 serveStatic 走 ENOENT → 404）
   '/calls': 'web/calls.html',
   '/calls.js': 'web/calls.js',
+  // ★ 0021 pr-003（architecture §5.5 / §7 T-12）：通知模块（页面本体属 pr-004；本 PR 内 serveStatic 走 ENOENT → 404）
+  '/notify.js': 'web/notify.js',
 };
 
 /** 路由表字段清单（0016 / F06）：登记、投影与三条漂移锁共用同一份，锁与实现不各抄一份。 */
@@ -1241,6 +1246,97 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
         return;
       },
     },
+    {
+      // ★ 0021 pr-003（architecture §5.1 R-1 / §7 T-07）：在途确认项列表（重建入口）——唯一数据源 = 进程内
+      //   inbox，不查 Router、不读库；空态 = []，不 404。**不发任何帧**（刷新 / 重连重建不重复通知，MI-01）。
+      method: 'GET',
+      path: '/api/confirmations',
+      summary: '待确认项列表（跨对话的在途确认项；进程内，不持久）',
+      params: [],
+      response: '对象 { confirmations: [{ confirmation_id, chat_id, agent_id, tool, title, options, created_at }] }（空 = []）',
+      errors: [],
+      kind: 'json',
+      docLink: 'API.md#320-get-apiconfirmations',
+      handler: async ({ res }) => {
+        sendJson(res, 200, { confirmations: inbox.list() });
+        return;
+      },
+    },
+    {
+      // ★ 0021 pr-003（architecture §5.1 R-2 / §5.3 信封 2）：提交一次裁决——`take()` 原子取出并移除（⇒ 第二次
+      //   提交同一 id 得 404；无历史台账由结构保证）+ 回传发出方（信封 2）+ 文本非空白时按既有原语追加一条 chat 输入。
+      //   路径参为**后缀段**（L2-10）：不做 `POST /api/confirmations/:id` 形态。
+      method: 'POST',
+      path: '/api/confirmations/:confirmation_id/decision',
+      summary: '提交确认项裁决（选项 id 必填 + 可选文本；条目随即移出在途表并回传请求方）',
+      params: [
+        { name: 'confirmation_id', in: 'path', type: 'string', required: true, desc: '目标确认项 id；不在在途表（已裁决 / 已失效 / 从未存在）→ 404 NOT_FOUND（同一码，不区分）' },
+        { name: 'option_id', in: 'body', type: 'string', required: true, desc: '用户选中的选项 id；缺失 / 非字符串 / 不在该条 options 内 → 400 INVALID_PARAM 且条目保留在途' },
+        { name: 'text', in: 'body', type: 'string', required: false, desc: '可选文本（拒绝理由 / 补充说明）；trim 后为空则不追加输入' },
+      ],
+      response: '对象 { confirmation_id, accepted: true }',
+      errors: ['INVALID_PARAM', 'NOT_FOUND'],
+      kind: 'json',
+      docLink: 'API.md#321-post-apiconfirmationsconfirmation_iddecision',
+      handler: async ({ req, res, params }) => {
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (err) {
+          const status = err.status || 400;
+          sendError(res, status, status === 413 ? ERR_CODE.PAYLOAD_TOO_LARGE : ERR_CODE.INVALID_PARAM, err.message, status === 413 ? { connection: 'close' } : null);
+          return;
+        }
+        const confirmationId = params.confirmation_id;
+        const entry = inbox.take(confirmationId); // 原子取出并移除：不存在 → 404（已裁决 / 已失效 / 从未存在同一码）
+        if (entry === null) {
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `确认项不存在: ${confirmationId}`);
+          return;
+        }
+        const optionId = typeof body.option_id === 'string' ? body.option_id : null;
+        // 服务端校验选项合法性（§5.1 R-2）：非法 ⇒ 400 且条目**保留在途**（take 后回填；中间无 await ⇒ 仍是原子）
+        if (optionId === null || !entry.options.some((o) => o && o.option_id === optionId)) {
+          inbox.add(entry);
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'option_id 缺失 / 非字符串 / 不在该条的选项集合内');
+          return;
+        }
+        const text = typeof body.text === 'string' ? body.text.trim() : '';
+        // 回传裁决（§5.3 信封 2）：best-effort（既有 sendControlNotice 同款）——agent 离线时静默忽略，
+        // 浏览器侧的裁决已受理，不把回传失败伪装成裁决失败。
+        sendControlNotice(entry.agent_id, { kind: 'confirmation_decision', confirmation_id: confirmationId, option_id: optionId, text, chat_id: entry.chat_id }).catch(() => {});
+        // 文本落地（§5.3「为什么 text 不参与 ACP 应答」）：非空白 ⇒ 追加一条 chat 输入并派发——复用既有原语
+        // （落库 / 落 message 帧 / chat_state / 派发 / 对账登记），不抽取既有 POST /api/messages 的内核。
+        // 对话不在库里（读不到项目行）⇒ 文本无处追加，跳过（裁决本身已受理，不因此变成失败）。
+        const projectRow = text !== '' && entry.chat_id !== null ? db.projectByChat(entry.chat_id) : null;
+        if (text !== '' && projectRow !== null) {
+          const taskId = `task-${randomUUID()}`;
+          const messageId = `msg-${randomUUID()}`;
+          const inAt = Date.now();
+          const input = db.insertInput({ chatId: entry.chat_id, projectId: projectRow.project_id, text, agentId: entry.agent_id, meta: { task_id: taskId }, nowMs: inAt });
+          publishMessage(entry.chat_id, { id: input.message_id, direction: 'in', agent_id: entry.agent_id, text, model: null, duration_ms: null, error: null, created_at: inAt });
+          publishState(entry.chat_id, 'working');
+          const project = { name: projectRow.name, repo_url: projectRow.repo_url, agreement: PROJECT_AGREEMENT };
+          const payloadBody = { executor: 'omp-daemon', chat_id: entry.chat_id, prompt: text, label: text.slice(0, LABEL_MAX), project };
+          const taskEntry = { chatId: entry.chat_id, agentId: entry.agent_id, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null };
+          tasks.set(taskId, taskEntry); // 登记先于派发（与 /api/messages 同口径：首个增量可能与 send 响应同 chunk 到达）
+          try {
+            await sendTask(entry.agent_id, messageId, taskId, payloadBody);
+            scheduleReconcile(taskId, taskEntry);
+          } catch (err) {
+            tasks.delete(taskId);
+            const reason = (err && err.dataCode) || (err && err.message) || String(err);
+            const outAt = Date.now();
+            const outText = `派发失败：${reason}`;
+            const out = db.insertOutput({ chatId: entry.chat_id, text: outText, agentId: entry.agent_id, error: 'dispatch_failed', nowMs: outAt });
+            publishMessage(entry.chat_id, { id: out.message_id, direction: 'out', agent_id: entry.agent_id, text: outText, model: null, duration_ms: null, error: 'dispatch_failed', created_at: outAt });
+            const chat = db.getChat(entry.chat_id);
+            if (chat) publishState(entry.chat_id, chat.chat.state);
+          }
+        }
+        sendJson(res, 200, { confirmation_id: confirmationId, accepted: true });
+        return;
+      },
+    },
   ];
   for (const route of routes) Object.assign(route, compileRouteMatcher(route.path));
   return routes;
@@ -1370,8 +1466,13 @@ export default async function startWeb(restArgs) {
 
   const publishMessage = (chatId, message) =>
     transport.publish(chatId, { type: 'message', data: { chat_id: chatId, message } });
-  const publishState = (chatId, state) =>
+  // ★ 0021 pr-003（architecture §3.2 L2-8 / §7 T-13、T-14）：状态发布点**追加**一次全局广播——帧形态与既有
+  //   chat:<id> 帧逐字相同，只多走全局键（既有订阅者行为零变化）；对话终态因此在全局链路上可观测（F07 / E3：
+  //   不停留在该对话也能收到）。「这算不算一类通知」由前端从 chat_state 派生，服务端零事件类型常量、不判通知。
+  const publishState = (chatId, state) => {
     transport.publish(chatId, { type: 'chat_state', data: { chat_id: chatId, state } });
+    transport.publishGlobal({ type: 'chat_state', data: { chat_id: chatId, state } });
+  };
 
   /** 调用面终态单一发布点（★ 0018，architecture §4.3）：投递路径与对账路径**共用**——① 解阻塞（释放等待句柄，
    *  阻塞中的 POST /api/calls 写 200 终态信封）② 按 call:<callId> 与 chat-calls:<chatId> 两键发布 call_result。
@@ -1473,13 +1574,38 @@ export default async function startWeb(restArgs) {
     }, entry.slow ? reconcileSlowMs : reconcileIntervalMs);
   };
 
-  /** agent 回传消费（§5.3 推送链）：task.update → SSE task_update（不入库）；task.result → 落盘 + 推送；notice → 转发。 */
+  /** agent 回传消费（§5.3 推送链）：task.update → SSE task_update（不入库）；task.result → 落盘 + 推送；
+   *  notice → 上下文提示转发（context_released / context_reset）／确认请求上浮（confirmation_request）／失效移出（confirmation_cancelled）。 */
   const handleDeliver = (message) => {
     if (message.type === 'notice') {
       // SSE 侧提示 kind（§5.2）：context_released = chat 关闭释放；context_reset = 崩溃/超时/淘汰。
       // agent 负责产出提示，web 只转发（不自行 publish，避免双条）。
       const body = parseMessageBody(message.payload);
-      const chatId = body && typeof body.chat_id === 'string' ? body.chat_id : null;
+      if (!body) return;
+      // ★ 0021 pr-003（architecture §5.2 / §5.3 信封 1）：确认请求上浮——**首次**登记成功才发一帧全局 `confirmation`
+      //   （重复投递同一 confirmation_id 不再入表、不再发帧：通知「恰一次」由单一发布点保证，不靠前端记忆）；
+      //   定向帧一发不发（该事件与对话无关，走全局键）。条目 = 信封 1 的 7 个字段（重建面与实时帧同形状）。
+      if (body.kind === 'confirmation_request') {
+        if (typeof body.confirmation_id !== 'string' || body.confirmation_id === '') return;
+        const entry = {
+          confirmation_id: body.confirmation_id,
+          chat_id: typeof body.chat_id === 'string' ? body.chat_id : null,
+          agent_id: typeof body.agent_id === 'string' ? body.agent_id : null,
+          tool: typeof body.tool === 'string' ? body.tool : null,
+          title: typeof body.title === 'string' ? body.title : null,
+          options: Array.isArray(body.options) ? body.options : [],
+          created_at: Number.isFinite(body.created_at) ? body.created_at : Date.now(),
+        };
+        if (inbox.add(entry)) transport.publishGlobal({ type: 'confirmation', data: entry });
+        return;
+      }
+      // ★ 0021 pr-003（architecture §5.3 信封 3）：失效路径（agent 侧轮次已死 / 上下文已淘汰）——只移出在途表，
+      //   **不发任何帧**（未裁决项的消失不是通知事件；栏内移除以 R-2 的 200 为依据）。
+      if (body.kind === 'confirmation_cancelled') {
+        if (typeof body.confirmation_id === 'string') inbox.remove(body.confirmation_id);
+        return;
+      }
+      const chatId = typeof body.chat_id === 'string' ? body.chat_id : null;
       if (!chatId || (body.kind !== 'context_released' && body.kind !== 'context_reset')) return;
       transport.publish(chatId, { type: 'notice', data: { chat_id: chatId, kind: body.kind, text: typeof body.text === 'string' ? body.text : '' } });
       return;

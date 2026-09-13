@@ -1499,8 +1499,8 @@ test('Web：全局事件流 /api/events——播种不发事件 / 起 agent 收 
   });
   assert.deepEqual(Object.keys(offline.data), ['instance_id'], '下线载荷只需 instance_id');
   assert.ok(
-    !stream.events.some((e) => ['message', 'task_update', 'chat_state', 'notice'].includes(e.type)),
-    '全局订阅不得收到对话类事件（键隔离）',
+    !stream.events.some((e) => ['message', 'task_update', 'notice'].includes(e.type)),
+    '全局订阅不得收到对话类事件（键隔离：message / task_update / notice 只走 chat:<id>；chat_state 另在全局链路追加一帧）',
   );
   assert.ok(agent.getExitInfo() !== null, 'agent 已退出（下线方向确实由真实注销触发）');
 });

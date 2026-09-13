@@ -154,7 +154,7 @@ data: <JSON>
 
 ---
 
-## 3. 接口清单（19 条）
+## 3. 接口清单（21 条）
 
 | # | 方法 + 路径 | 用途 |
 |---|---|---|
@@ -177,6 +177,8 @@ data: <JSON>
 | 17 | `GET /api/calls/<call_id>/stream` | 按调用订阅调用事件（SSE） |
 | 18 | `GET /api/calls/<call_id>/transcript` | 按调用取转录（进程内，不持久） |
 | 19 | `GET /api/calls/<call_id>` | 按调用取终态（进行中给状态） |
+| 20 | `GET /api/confirmations` | 在途确认项列表（跨对话；进程内，不持久） |
+| 21 | `POST /api/confirmations/<confirmation_id>/decision` | 提交确认项裁决（选项 + 可选文本；随即移出在途表并回传） |
 
 > 非 API 面的静态资源（`/`、`/app.js`、`/style.css`）不在错误契约范围内：静态面只按固定文件名提供（不做路径拼接），路径穿越类请求落 404 兜底（`{"error":"not found: …","code":"NOT_FOUND"}`）。
 
@@ -896,6 +898,90 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 
 ---
 
+### 3.20 `GET /api/confirmations`
+
+在途确认项列表（**重建入口**）：返回当前**全部未裁决**的确认请求。数据源 = web 进程内内存表（不落库、不持久，
+重启即清空），不查 Router、不读库 ⇒ **无错误面**（空态返回 `[]`，不 `404`）。**本接口不发任何帧**：
+刷新 / 断线重连后重建列表不会重复通知（通知只由「首次入库」那一刻的一帧承担）。
+
+**参数**
+
+无。
+
+**成功响应** `200`
+
+```json
+{
+  "confirmations": [
+    {
+      "confirmation_id": "cfm-8f14e45f-ceea-467e-9b1e-2a1b0a3f9d21",
+      "chat_id": "chat-6f1c0b4e-1f5f-4a2b-9f0e-6af0f1cf2c33",
+      "agent_id": "pb-dev",
+      "tool": "bash",
+      "title": "echo L1-2-PROBE",
+      "options": [
+        { "option_id": "allow_once", "label": "允许一次" },
+        { "option_id": "allow_always", "label": "总是允许" },
+        { "option_id": "reject_once", "label": "拒绝一次" },
+        { "option_id": "reject_always", "label": "总是拒绝" }
+      ],
+      "created_at": 1757750400000
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `confirmation_id` | string | 确认项 id（上游 agent 侧生成的关联 id；裁决回传的作用域锚点） |
+| `chat_id` | string \| null | 来源对话（可辨识来源；裁决文本非空时按此追加输入） |
+| `agent_id` | string \| null | 发起该确认请求的 agent 实例 id（裁决回传的收件方） |
+| `tool` | string \| null | 请求放行的工具名 |
+| `title` | string \| null | 该次工具调用的动作描述（上游已按 120 字符截断） |
+| `options` | array | 请求方给出的选项集合**原样**（不筛选、不增补、不翻译）：`[{ option_id, label? }]`；`option_id` 是裁决唯一可提交的值 |
+| `created_at` | number | 登记时刻（毫秒时间戳） |
+
+- 列表顺序**不作承诺**（无排序语义、无分页）：条目存在性与字段内容一致即满足「重建一致」口径。
+- 已裁决项**无任何读取入口**：本接口只返回在途项，且裁决即刻移出内存表 ⇒ 无历史台账、无查询参数、无导出。
+
+---
+
+### 3.21 `POST /api/confirmations/<confirmation_id>/decision`
+
+提交一次裁决：`option_id` 必填（**服务端校验它在该条的 `options` 内**），`text` 可选（拒绝理由 / 补充说明）。
+
+**语义**：条目在**第一次**提交时即被原子取出并移出在途表 ⇒ 第二次提交同一 id 得 `404`（**非幂等、不重放**）；
+随后向该条的发出方回传 `notice{kind:"confirmation_decision", confirmation_id, option_id, text, chat_id}`；
+`text` 去空白后非空时，另向该 `chat_id` 追加一条输入并派发。文本**不参与**上游 ACP 应答——应答包只接受请求方给出的合法 `option_id`。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `confirmation_id` | string | **是** | — | 路径参数：目标确认项 id；不在在途表（已裁决 / 已失效 / 从未存在）→ `404`（**同一码，不区分**） |
+| `option_id` | string | **是** | — | 用户选中的选项 id；缺失 / 非字符串 / **不在该条 `options` 内** → `400`，且条目**保留在途** |
+| `text` | string | 否 | `""` | 可选文本；去空白后为空则不追加输入（空白可提交，客户端不做必填校验） |
+
+**成功响应** `200`
+
+```json
+{
+  "confirmation_id": "cfm-8f14e45f-ceea-467e-9b1e-2a1b0a3f9d21",
+  "accepted": true
+}
+```
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | `option_id` 缺失 / 非字符串 / 不在该条的选项集合内 | `option_id 缺失 / 非字符串 / 不在该条的选项集合内` |
+| `NOT_FOUND` | 404 | `confirmation_id` 不在在途表 | `确认项不存在: cfm-…` |
+
+- 回传为 best-effort：请求方实例离线时不改变本接口的 `200`（裁决已受理；「回传是否送达」不伪装成「裁决是否成功」）。
+
+---
+
 ## 4. 事件流
 
 ### 4.1 按对话订阅：`GET /api/stream?chat_id=<id>`（4 类事件）
@@ -909,19 +995,21 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 
 > `task_update` 的载荷按 `kind` 二选一：行式输出带 `line`，流式分片带 `text`；`started` / `truncated` 等控制条目**不会**下发到订阅端。
 
-### 4.2 全局订阅：`GET /api/events`（2 类事件）
+### 4.2 全局订阅：`GET /api/events`（4 类事件）
 
 | 事件名 | `data` | 触发时机 |
 |---|---|---|
 | `agent_online` | `{instance_id, last_heartbeat}` | 一个实例从「不在线」变为 `online`（新注册 / 恢复） |
 | `agent_offline` | `{instance_id}` | 一个实例从「在线」变为不在线（优雅注销，或判活超时被判离线） |
+| `confirmation` | `{confirmation_id, chat_id, agent_id, tool, title, options, created_at}` | 一条确认请求**首次**进入 web 进程在途表时（**恰一帧**）；`data` 与 §3.20 的列表元素**同形状**。重建（§3.20）**不发帧** ⇒ 刷新 / 重连不重复通知 |
+| `chat_state` | `{chat_id, state}` | 对话状态变化（与 §4.1 的 `chat_state` **同源同形**；服务端**不判**它算不算一类通知，`completed` / `failed` 的派生由前端完成） |
 
 - **判定源**：`router.status` 的 `state === "online"` 集合（注册表是唯一真源，不是日志、不是另一条推送通道）。
   web 按 `OAMP_WEB_TOPOLOGY_POLL_MS`（默认 **2000ms**）拉取快照并做**集合差值**：新出现的实例发 `agent_online`，消失的发 `agent_offline`。
 - **时延**：**轮询腿 ≤ 2s** + 传输延迟（判定界 5s，余量 2.5×）。注意这只是「已判定离线**之后**」的推送时延：**优雅注销**（Ctrl-C / `agent.deregister`）时事件在 ≤2s 内到达；实例被**强杀**时还要先等租约判活（默认 `OAMP_HEARTBEAT_TIMEOUT_MS` = 30s，已通告间隔的实例按其 `2×` 抬升）判离线，故总时延默认约 30s。
 - **只在有全局订阅者时运行**：无人订阅时不轮询、不产生任何开销。
 - **首次订阅会「播种基线」**：订阅建立瞬间不会为**已在线**的实例补发 `agent_online`（避免虚报上线）。
-- **键隔离**：全局链路上**只**有这两类事件；`message` / `task_update` / `chat_state` / `notice` 永远只发往对应 `chat_id` 的订阅者 —— 两个方向互为隔离，不靠过滤实现。
+- **键隔离**：`message` / `task_update` / `notice` **永远只**发往对应 `chat_id` 的订阅者；`chat_state` **两处都发**——既有 `chat:<id>` 帧的形态与时机逐字不变，另在全局键上**追加**一帧（同一 `data` 形状，不新增事件类型）。调用面三类事件（§4.4）与上述两个面结构上不相交；隔离由键空间与发布点分离实现，不靠过滤。
 
 ### 4.3 连接保持、重连与基线
 
