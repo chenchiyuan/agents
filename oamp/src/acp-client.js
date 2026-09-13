@@ -16,6 +16,22 @@ const CANCEL_GRACE_MS = 2000; // §6.5：session/cancel 后等 stopReason 的宽
 const KILL_GRACE_MS = 500; // §6.5：SIGTERM → SIGKILL 宽限（沿用 0010 kill 模式）
 const TOOL_TITLE_MAX = 120; // §4.5：审计 title 截断 120 字符
 const PERMISSION_DENIED_TEXT = '工具调用被 permission 策略拒绝（permission=deny）'; // §4.4 拒绝档轮次错误文案
+const DEFAULT_ALLOW_OPTION = 'allow_once'; // §5.4：放行侧默认项（同步 'allow' 与非法 optionId 回落）
+const DEFAULT_DENY_OPTION = 'reject_once'; // §5.4：拒绝侧默认项（同步 'deny' 与非法 optionId 回落）
+const APPROVE_LABEL = 'Approve'; // M4：omp 第二道审批门（tool approval）的 elicitation 选项
+const DENY_LABEL = 'Deny';
+const APPROVAL_MESSAGE_PREFIX = 'Allow tool: '; // M4：审批门 elicitation message 首行前缀（omp dist `aZn()`）
+
+/**
+ * M4：从工具审批门的 elicitation message 取工具名。omp dist `aZn()` 产出
+ * `[`Allow tool: ${e.name}`, …Origin/Reason/工具自定义详情行].join('\n')` ⇒ 首个换行之前、前缀之后即工具名。
+ * 形状不符（非审批门）⇒ null（调用方不得据此放行任何东西）。
+ */
+function readApprovalToolName(message) {
+  if (typeof message !== 'string' || !message.startsWith(APPROVAL_MESSAGE_PREFIX)) return null;
+  const name = message.slice(APPROVAL_MESSAGE_PREFIX.length).split('\n')[0].trim();
+  return name === '' ? null : name;
+}
 
 /** 等待 ms 毫秒（超时宽限等场景）；计时器 unref，不阻滞进程退出。 */
 const delay = (ms) =>
@@ -70,7 +86,8 @@ export class AcpClient {
    * @param {object|null} [opts.auditContext] 审计身份字段（instance/role/chat_id/context_id，§4.5）
    * @param {object|null} [opts.logger]  createEventLog 实例（可选）
    * @param {function|null} [opts.onExit] 异常退出回调（主动 kill/dispose 不触发）
-   * @param {function|null} [opts.onPermissionRequest] 动态策略钩子 (info) ⇒ 'allow'|'deny'；给了则优先于 permission
+   * @param {function|null} [opts.onPermissionRequest] 动态策略钩子 (info) ⇒ 'allow'|'deny'|{optionId}|Promise<…>；给了则优先于 permission
+   *   钩子入参两种形态：ACP 权限门 `{sessionId, toolCall, options}`；M4 工具审批门 `{sessionId, kind:'tool_approval', toolCall:{toolName,title}, options}`（选项恒为 `['Approve','Deny']`）
    */
   constructor({
     bin,
@@ -110,6 +127,9 @@ export class AcpClient {
     this._killTimer = null;
     this._permissionDenied = false; // 轮次级：deny 档置位，prompt() 结算时抛 permission_denied
     this._inFlightTools = new Map(); // §4.5：在飞工具调用（toolCallId → {kind,title,status,path}），终态首见或轮末冲账落行
+    this._turnRequestId = null; // L1-1：当前 session/prompt 的请求 id（冻结计时的作用对象）
+    this._pausedTurns = 0; // L1-1：冻结深度（钩子返回未结算 Promise 期间 > 0）
+    this._approvalGrants = []; // M4/C2：已通过 ACP 权限门放行、尚未观测到终态的 toolCallId（FIFO）；一次放行只抵扣一个审批门
   }
 
   /** 启动子进程并完成初始化（initialize → session/new → 等静默）。失败即 kill 并抛 AcpError。 */
@@ -119,8 +139,9 @@ export class AcpClient {
     args.push('--no-session');
     if (this.modelArg) args.push('--model', this.modelArg);
     if (this.roleFile) args.push('--append-system-prompt', this.roleFile); // §3.2：角色注入（绝对路径）
-    // §4.4（pr-007 主机制）：档位由既有 permission 派生；仅工具可用时追加（tools=off 时档位无意义，argv 回到 0011 形状）
-    if (this.tools) args.push('--approval-mode', this.permission === 'deny' ? 'always-ask' : 'yolo');
+    // §4.4（L1-2②/pr-001）：工具可用时档位**恒为 always-ask**——`yolo` 档下 omp 不发权限请求（实测 M1），
+    // 「上浮给人裁决」就没有可上浮的请求；`deny` 档维持原值（本就是 always-ask），拒绝语义由钩子/档位决定。
+    if (this.tools) args.push('--approval-mode', 'always-ask');
     const child = spawn(this.bin, args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
     this.pid = child.pid;
@@ -135,7 +156,14 @@ export class AcpClient {
     child.on('close', (code, signal) => this._onProcessGone(`子进程退出 code=${code} signal=${signal || ''}`));
 
     try {
-      await this._request('initialize', { protocolVersion: PROTOCOL_VERSION, clientCapabilities: {} });
+      await this._request('initialize', {
+        protocolVersion: PROTOCOL_VERSION,
+        // §4.4/M4：必须声明 `elicitation.form`。omp 18.0.11 在 `--approval-mode always-ask` 下对 tier ≥ `write` 的工具
+        // 叠加**第二道审批门**（tool approval），该门经 `elicitation/create` 的 form select 询问 `Approve|Deny`；
+        // 客户端不声明此能力时 omp 不安装可交互 UI，select 直接返回 undefined ⇒ 模型侧恒得 `Tool call denied by user`
+        //（实测 M4 根因）。该能力只开放「向客户端提问」通道，不委托 fs.* / terminal（V-10③ 口径不变）。
+        clientCapabilities: { elicitation: { form: {} } },
+      });
       const created = await this._request('session/new', { cwd: this.cwd, mcpServers: [] });
       this.sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : null;
       if (!this.sessionId) throw new AcpError('context_crashed', 'session/new 未返回 sessionId');
@@ -210,6 +238,7 @@ export class AcpClient {
     } finally {
       this._chunkHandler = null;
       this._flushToolCalls(); // §4.5 轮次结算冲账：在飞表残留以最后观测 status 落行 ⇒ 一次调用恰一行
+      this._approvalGrants.length = 0; // M4/C2：轮次边界清空放行凭据（终态未观测到也不跨轮遗留）
     }
   }
 
@@ -269,18 +298,25 @@ export class AcpClient {
     if (this.dead) return Promise.reject(new AcpError('context_crashed', '子进程已退出'));
     return new Promise((resolve, reject) => {
       const id = ++this._nextId;
-      const timer = setTimeout(() => {
+      if (method === 'session/prompt') this._turnRequestId = id; // L1-1：轮次计时 = 本计时器（可冻结/恢复）
+      const expire = () => {
         if (!this._pending.has(id)) return;
         this._pending.delete(id);
         reject(new AcpError('timeout', `${method} 超时（${timeoutMs}ms）`));
         if (onTimeout) Promise.resolve(onTimeout()).catch(() => {});
-      }, timeoutMs);
-      timer.unref?.();
-      this._pending.set(id, { resolve, reject, timer, errorCode });
+      };
+      const entry = { resolve, reject, timer: null, errorCode, remainingMs: timeoutMs, startedAt: 0, paused: false, expire };
+      const arm = () => {
+        entry.startedAt = Date.now();
+        entry.timer = setTimeout(expire, entry.remainingMs);
+        entry.timer.unref?.();
+      };
+      arm();
+      this._pending.set(id, entry);
       try {
         this._write({ jsonrpc: '2.0', id, method, params });
       } catch (err) {
-        clearTimeout(timer);
+        clearTimeout(entry.timer);
         this._pending.delete(id);
         reject(err instanceof AcpError ? err : new AcpError('context_crashed', String(err && err.message ? err.message : err)));
       }
@@ -359,6 +395,7 @@ export class AcpClient {
     };
     if (entry.status === 'completed' || entry.status === 'failed') {
       this._inFlightTools.delete(id);
+      this._dropApprovalGrant(id); // M4/C2：该 toolCall 已终态 ⇒ 其放行凭据失效（不得跨终态残留）
       this._auditToolCall(id, entry);
       return;
     }
@@ -395,33 +432,178 @@ export class AcpClient {
   /** §4.4：服务端请求应答——已知方法按策略回结果，未知方法回 -32601（响亮失败，绝不静默丢弃）。 */
   _handleServerRequest(message) {
     if (message.method === 'session/request_permission') {
-      const toolCall = (message.params && message.params.toolCall) || {};
-      const allow = this._permissionDecision(message, toolCall) !== 'deny';
-      this._respond(message.id, { outcome: { outcome: 'selected', optionId: allow ? 'allow_once' : 'reject_once' } });
-      if (allow) {
-        this._audit('TOOL_APPROVED', toolCall, 'allow_once');
-      } else {
-        // §4.4 拒绝档三步：① 回 reject_once（上）→ ② 立即 session/cancel → ③ 置标记（prompt() 结算时抛）
-        this._permissionDenied = true;
-        this.cancel();
-        this._audit('TOOL_DENIED', toolCall, 'reject_once');
-      }
+      // L1-2（pr-001）：判定可挂起——钩子返回未结算 Promise 期间**不回包**，轮次自然阻塞在 ACP 层
+      void this._handlePermissionRequest(message);
+      return;
+    }
+    if (message.method === 'elicitation/create') {
+      void this._handleElicitationRequest(message);
       return;
     }
     this._respondError(message.id, -32601, 'Method not found');
   }
 
-  /** 策略判定：onPermissionRequest 优先（其返回 'allow'|'deny' 为准），否则取构造参数 permission（§4.4）。 */
-  _permissionDecision(message, toolCall) {
+  /**
+   * §4.4/§5.4（pr-001）：一次 permission 请求 = 一次裁决 → 一次回包 + 恰一行审计。
+   * 钩子抛错按「返回不可用值」同口径回落静态档位——绝不静默挂起（否则轮次永久停在等待态）。
+   */
+  async _handlePermissionRequest(message) {
+    const params = message.params || {};
+    const toolCall = params.toolCall || {};
+    const options = Array.isArray(params.options) ? params.options : [];
+    let decision;
+    try {
+      decision = await this._permissionDecision(message, toolCall, options);
+    } catch {
+      decision = { deny: this.permission === 'deny', optionId: null };
+    }
+    const optionId = decision.optionId || (decision.deny ? DEFAULT_DENY_OPTION : DEFAULT_ALLOW_OPTION);
+    this._respond(message.id, { outcome: { outcome: 'selected', optionId } });
+    if (decision.deny) {
+      // §4.4 拒绝档三步：① 回 reject_once（上）→ ② 立即 session/cancel → ③ 置标记（prompt() 结算时抛）
+      this._permissionDenied = true;
+      this.cancel();
+      this._approvalGrants.length = 0; // 一次拒绝即作废全部既有放行凭据（不得留到轮次收尾前被无关门抵扣）
+      this._audit('TOOL_DENIED', toolCall, optionId);
+      return;
+    }
+    // M4/C2：记下本次放行所属的 toolCall——其紧随的审批门据此免于重复上浮（一次放行恰好抵扣一次）。
+    // omp 分配给它自己的 approval-gate 请求**不带** toolCallId（见下），wire 上只有「放行 → 紧随其审批门」这一层
+    // 显式关联可用，故以「显式登记的放行次数 + 先到先抵扣 + 终态/轮末即失效」为凭据模型。
+    const toolCallId = typeof toolCall.toolCallId === 'string' && toolCall.toolCallId !== '' ? toolCall.toolCallId : null;
+    if (toolCallId !== null) this._approvalGrants.push(toolCallId);
+    this._audit('TOOL_APPROVED', toolCall, optionId);
+  }
+
+  /**
+   * 策略判定（§4.4/§5.4）：onPermissionRequest 优先，否则取构造参数 permission。
+   * 钩子返回域 = `'allow' | 'deny' | {optionId} | Promise<…>`；返回 Promise 期间冻结轮次计时（L1-1）。
+   * 返回值形态 = `{deny, optionId}`：`deny=true` 走拒绝三步（cancel + permission_denied），
+   * `optionId` 非空时原样回显（`allow*` / `reject*` 的侧别按 F04 架构落定判定）。
+   */
+  async _permissionDecision(message, toolCall, options) {
+    let verdict = null;
     if (this.onPermissionRequest) {
-      const verdict = this.onPermissionRequest({
+      verdict = await this._askHook({
         sessionId: (message.params && message.params.sessionId) || this.sessionId,
         toolCall,
         options: message.params && message.params.options,
       });
-      if (verdict === 'allow' || verdict === 'deny') return verdict;
     }
-    return this.permission;
+    if (verdict === 'deny') return { deny: true, optionId: null };
+    if (verdict === 'allow') return { deny: false, optionId: null };
+    if (verdict && typeof verdict === 'object' && typeof verdict.optionId === 'string' && verdict.optionId !== '') {
+      const known = options.some((option) => option && option.optionId === verdict.optionId);
+      // §5.4 M3 硬约束：omp 以 `optionId` 校验，未知值直接抛错 ⇒ 非集合内一律回落默认项（不把轮次崩在协议校验里）
+      const optionId = known ? verdict.optionId : verdict.optionId.startsWith('reject') ? DEFAULT_DENY_OPTION : DEFAULT_ALLOW_OPTION;
+      return { deny: optionId.startsWith('reject'), optionId };
+    }
+    return { deny: this.permission === 'deny', optionId: null };
+  }
+
+  /**
+   * L1-1：调用策略钩子；返回未结算 Promise 期间冻结轮次计时（ACP 权限门与工具审批门共用同一挂起语义）。
+   */
+  async _askHook(info) {
+    let verdict = this.onPermissionRequest(info);
+    if (verdict && typeof verdict.then === 'function') {
+      this._pauseTurnTimer(); // L1-1：等人拍板的时间不计入轮次预算
+      try {
+        verdict = await verdict;
+      } finally {
+        this._resumeTurnTimer();
+      }
+    }
+    return verdict;
+  }
+
+  /** M4/C2：消费一条放行凭据（FIFO）——一次放行只抵扣紧随其后的一个审批门，抵扣即失效。 */
+  _consumeApprovalGrant() {
+    if (this._approvalGrants.length === 0) return false;
+    this._approvalGrants.shift();
+    return true;
+  }
+
+  /** M4/C2：移除某 toolCall 的放行凭据（该 toolCall 已观测终态 ⇒ 凭据不得残留到后续轮次/后续门）。 */
+  _dropApprovalGrant(toolCallId) {
+    const index = this._approvalGrants.indexOf(toolCallId);
+    if (index >= 0) this._approvalGrants.splice(index, 1);
+  }
+
+  /**
+   * M4：omp 的第二道审批门（`approvalMode=always-ask` 下 tier ≥ `write` 的工具必经）经 `elicitation/create`
+   * 的 form select 询问 `Approve|Deny`（`message` 首行 = `Allow tool: <toolName>`）。两类裁决：
+   * ① 该 toolCall 刚在 ACP 权限门获用户放行（凭据未消费、未见终态）⇒ 抵扣后直接 `Approve`（C2：同一 toolCall 不重复提问）；
+   * ② 其余（`bEs` 之外的写类工具只有这一道门）⇒ 经钩子上浮给人裁决（C1），未配置钩子则保守 `Deny`（C3）。
+   * 非工具审批询问（如 `ask` 的 askDialog、boolean confirm）一律 `decline`：oamp 不代答产品外的提问（C5）。
+   */
+  async _handleElicitationRequest(message) {
+    const params = message.params || {};
+    const property = ((params.requestedSchema || {}).properties || {}).value;
+    const values = Array.isArray(property && property.enum) ? property.enum : [];
+    if (!values.includes(APPROVE_LABEL) || !values.includes(DENY_LABEL)) {
+      this._respond(message.id, { action: 'decline' });
+      return;
+    }
+    const value = this._consumeApprovalGrant() ? APPROVE_LABEL : await this._approvalGateDecision(message, values);
+    this._respond(message.id, { action: 'accept', content: { value } });
+  }
+
+  /**
+   * C1：工具审批门上浮——钩子入参携带工具名与请求方给的选项集合，供 pr-002 的 pending 表组装确认项。
+   * 返回域与 ACP 权限门判定一致（`'allow' | 'deny' | {optionId} | Promise<…>`，返回 Promise 期间同样冻结轮次计时）；
+   * 只有**显式放行**（`'allow'` / `{optionId:'Approve'}`）才回 `Approve`，其余（钩子未给值、抛错、未配置钩子）
+   * 一律 `Deny`——审批门上绝不默认放行（C3）。
+   */
+  async _approvalGateDecision(message, values) {
+    if (!this.onPermissionRequest) return DENY_LABEL;
+    const params = message.params || {};
+    let verdict;
+    try {
+      verdict = await this._askHook({
+        sessionId: params.sessionId || this.sessionId,
+        kind: 'tool_approval', // 与 ACP 权限门判定区分：本请求无 toolCallId，工具名取自 message 首行
+        toolCall: {
+          toolName: readApprovalToolName(params.message),
+          title: typeof params.message === 'string' ? params.message : null,
+        },
+        options: values.map((optionId) => ({ optionId })),
+      });
+    } catch {
+      return DENY_LABEL; // 钩子抛错 = 未裁决 ⇒ 保守拒绝（与 permission 判定同口径）
+    }
+    if (verdict === 'allow') return APPROVE_LABEL;
+    if (verdict && typeof verdict === 'object' && verdict.optionId === APPROVE_LABEL) return APPROVE_LABEL;
+    return DENY_LABEL;
+  }
+
+  /** L1-1：冻结轮次计时（只作用于 `session/prompt` 的计时器 `_request` 所建）；同一轮内可重叠挂起，按深度恢复。 */
+  _pauseTurnTimer() {
+    const entry = this._pending.get(this._turnRequestId);
+    if (!entry) return;
+    if (entry.paused) {
+      // 已冻结（重叠挂起）：「计时器未建立」与「已暂停」是两态——重叠只递增深度，绝不重建计时器
+      this._pausedTurns += 1;
+      return;
+    }
+    entry.remainingMs = Math.max(0, entry.remainingMs - (Date.now() - entry.startedAt));
+    clearTimeout(entry.timer);
+    entry.timer = null;
+    entry.paused = true;
+    this._pausedTurns += 1;
+  }
+
+  /** L1-1：裁决到达后按**剩余时间**恢复计时（仅最后一个未结算等待递减到 0 时恢复；未冻结则空操作）。 */
+  _resumeTurnTimer() {
+    if (this._pausedTurns === 0) return;
+    this._pausedTurns -= 1;
+    if (this._pausedTurns > 0) return;
+    const entry = this._pending.get(this._turnRequestId);
+    if (!entry || !entry.paused) return; // 跨轮残留的恢复不得给未冻结的轮次装上计时器
+    entry.paused = false;
+    entry.startedAt = Date.now();
+    entry.timer = setTimeout(entry.expire, entry.remainingMs);
+    entry.timer.unref?.();
   }
 
   /** §4.5/AR-11：一次 permission 请求恰一行审计事件，走永不节流的 event()。字段集合恒定（缺省为 null）。 */
