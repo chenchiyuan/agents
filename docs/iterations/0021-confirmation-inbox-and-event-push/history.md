@@ -661,3 +661,33 @@
 - 通道：宿主 `task` 工具（本地 sub agent）；dev 角色定义全文注入 + 该 PR 工作目录纪律
 - 工作区：`…/0021-pr-005-null-tool-name-fix`（分支 `feat/0021-pr-005-null-tool-name-fix`，HEAD `3a018a2`）
 - 验收标准注入：PR 8 条 + T1~T3 + 主 agent 裁决（只修消费侧 / 文档口径差按偏差处理 / 反证不得猜工具名）
+
+### 2026-09-13 16:38 · 收到报告 · dev（阶段 5 · pr-005）
+
+- 1. 改了什么文件：3 文件（PR 文件面）——`oamp/web/app.js`（+9/−2：新增顶层纯函数 `inboxRequest(entry)`（过滤 `null`/`undefined` → `map(escapeHtml)` → `join(' · ')`），行文本改用它；`<div class="inbox-request">` 包装仍留在 `renderInboxItem` 函数体内，既有 :285 断言不动）；`oamp/web/notify.js`（+1/−1：模板的 `<tool>：` 段改为 `${p.tool ? `${p.tool}：` : ''}`，仍处 service 段、未引入 `Notification` 字样、四字段形状未动）；`oamp/test/inbox-console.test.js`（+48/−0 纯新增：`loadInboxRequest()` + 一条三态用例）
+- 2. 测试结果：PR 8 条验收标准全 pass + T1~T3 全 pass；`inbox-console` 9/9、`confirmation-roundtrip` 20/20（**零改动**）、`confirmation-inbox` 6/6、**oamp 全量 333/333**（本轮未见 D-5 flake）
+- 3. 疑问/待办：① 浏览器端 E2E 未做（本 PR 验收面只列三条 node 测试命令；渲染产出已由沙箱执行真实函数体覆盖，浏览器面由阶段 6 门承接）；② 文档口径差按裁决登记，本 PR 未触碰 `docs/**`
+- 4. 违反边界：无
+- 交付证据：提交 `9e34e96`；**改前/改后对照**——栏内 `null · echo E2E-1` → `echo E2E-1`、无键 `undefined · …` → `echo E2E-1`、`{tool:null,title:null}` → `''`、`tool=bash` 逐字不变；通知正文 `请求执行 null：echo hi` → `请求执行 echo hi`、`bash` 档逐字不变
+
+### 2026-09-13 16:44 · 收到报告 · verifier（阶段 5 · pr-005 验收）
+
+- 报告路径：`clarifications/verify-pr-005-20260913-215436.md`（验证者身份：浏览器端消费侧渲染/通知面实现审查者）
+- 结论：**PASS**（38 项判定：**38 pass / 0 fail / 0 partial / 0 blocked**；A PR 8 + B T1~T3 17 + C 红线 4 + D 行为面 5 + E 回归 4）
+- fail：0；partial：0；blocked：0；偏差记录：**4**；下一迭代候选：**5**
+- **既有断言未被削弱：true**（`numstat 48/0` 纯新增；base 的 365 行在改后**逐行在场**、顺序一致）；**未引入猜测性派生：true**
+- 关键独立证据：**真实 headless Chromium** 加载 worktree 与 base 两版真实 `app.js`/`notify.js` 对比 DOM——栏内 `bash · echo E2E-1` 逐字节相同、`null`/缺键 ⇒ `echo E2E-1`、双 null ⇒ 空；通知正文 `null：`/`undefined：` 消失且 `bash` 档逐字不变；**变异敏感度证明**（把实现退回 base 或只退一个文件、以及值级变异 `.filter(() => true)` ⇒ 新用例均变红）⇒ 新断言是**行为断言**而非空断言；转义面不变
+- 红线：`oamp/src/**` 零改动、`oamp` 面恰 3 条路径、无 `import/export`、无新依赖、仓库根与两个 worktree 均干净
+- 回归：`inbox-console` 9/9、`confirmation-roundtrip` 20/20（零 diff）、`confirmation-inbox` 6/6、**全量 333/333**（D-5 本轮未复现）
+
+### 2026-09-13 16:45 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-005 合并进迭代分支** ⇒ merge commit `575c634`（5 文件 / +276 −3）；合并后全量测试复跑；pr-005 worktree/分支**已清理** ⇒ **迭代 0021 的 5 个 PR 全部合并**
+- 触发依据：`clarifications/verify-pr-005-20260913-215436.md` 结论 PASS；workflow-pb 规则 A/B（worktree 隔离 + PR 文件前置）
+
+### 2026-09-13 16:46 · 派发 · verifier（阶段 6 · 终态复验，合并进 main 前置）
+
+- 阶段：阶段 6（独立验证 · 复验）
+- 任务：在新终态 `575c634` 上复核阶段 6 的关键结论仍成立 + **偏差 D-1 闭合复核** + pr-005 集成无回归 + 终态完整性，产出 `clarifications/verify-stage6-r2-{timestamp}.md`
+- 触发依据：workflow-pb「迭代分支合并进 main」以「阶段 6 对**本迭代最终产物**判定 pass」为前置；pr-005 在首轮阶段 6 之后加入 ⇒ 最终产物变化，须复验
+- 通道：宿主 `task` 工具（本地 sub agent）；verifier 角色定义全文注入
