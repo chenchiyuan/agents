@@ -631,14 +631,21 @@ async function loadConfirmations() {
   }
 }
 
-/** 一条（T-02 三行 + T-03 控件）：① 来源对话 ② 工具名 + 动作描述 ③ 每个选项一个按钮 + 一个单行文本框。 */
+/** 栏内第二行文本（T-02）：逐段拼接、空段省略——`tool` 缺失（null / undefined）时不产伪值与悬空分隔符；
+ *  每段先 escapeHtml 再拼（可得时输出逐字同现状）。 */
+function inboxRequest(entry) {
+  const segs = [entry.tool, entry.title].filter((s) => s !== null && s !== undefined);
+  return segs.map(escapeHtml).join(' · ');
+}
+
+/** 一条（T-02 三行 + T-03 控件）：① 来源对话标识 ② 工具名 + 动作描述 ③ 每个选项一个按钮 + 一个单行文本框。 */
 function renderInboxItem(entry) {
   const options = (Array.isArray(entry.options) ? entry.options : [])
     .map((o) => `<button class="inbox-option" data-option="${escapeHtml(o.option_id)}">${escapeHtml(o.label || o.option_id)}</button>`)
     .join('');
   return `<div class="inbox-item" data-confirmation="${escapeHtml(entry.confirmation_id)}">
       <div class="inbox-source">${escapeHtml(inboxSource(entry))}</div>
-      <div class="inbox-request">${escapeHtml(entry.tool)} · ${escapeHtml(entry.title)}</div>
+      <div class="inbox-request">${inboxRequest(entry)}</div>
       <div class="inbox-actions">${options}</div>
       <input class="inbox-text" type="text" autocomplete="off" placeholder="拒绝理由 / 补充说明（可不填）" />
     </div>`;

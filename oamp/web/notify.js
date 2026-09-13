@@ -37,7 +37,7 @@ const TEMPLATES = Object.freeze({
   chat_failed: { title: '对话失败', body: lineOf, target: (p) => ({ chat_id: p.chat_id }) },
   confirmation_required: {
     title: '需要你确认',
-    body: (p) => `${p.agent_id} 请求执行 ${p.tool}：${clip(p.title)}`,
+    body: (p) => `${p.agent_id} 请求执行 ${p.tool ? `${p.tool}：` : ''}${clip(p.title)}`,
     target: (p) => ({ confirmation_id: p.confirmation_id }),
   },
 });
