@@ -1,0 +1,23 @@
+0.00s | >>> 第一轮 prompt（要求 write，必产门）
+0.74s | RESP | negotiate_protocol | success= | true | null
+0.91s | RESP | prompt | success= | true | null
+0.92s | agent_start
+0.95s | turn_start
+2.58s | ★ 门 #1 | "Allow tool: write\nPath: /tmp/probe-0023-"
+2.58s | turn_end
+2.58s | turn_start
+2.88s | >>> 发 {type:"abort"}（幂等无参）
+2.88s | turn_end
+2.88s | agent_end isTerminal= | true
+2.88s | RESP | abort | success= | true | null
+3.68s | >>> 第二轮 prompt（验证 abort 后会话是否仍可用）
+3.68s | RESP | prompt | success= | true | null
+3.68s | agent_start
+3.71s | turn_start
+4.87s | turn_end
+4.87s | agent_end isTerminal= | true
+4.87s | 第二轮也收到终态帧 ⇒ 会话仍可用
+5.41s | === 结论 ===
+5.41s | exit | 0 | 门数 = | 1 | 帧计数 = | {"ready":1,"extension_ui_request":5,"available_commands_update":2,"response":4,"agent_start":2,"turn_start":3,"message_start":6,"message_end":6,"message_update":44,"tool_execution_start":1,"tool_execution_end":1,"turn_end":3,"agent_end":2}
+5.41s | timeline = | ["firstEnd","secondEnd"]
+120.00s | 硬超时：kill

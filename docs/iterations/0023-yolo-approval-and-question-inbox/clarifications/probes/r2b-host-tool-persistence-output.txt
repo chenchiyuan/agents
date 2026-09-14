@@ -1,0 +1,12 @@
+1.20s | >>> set_host_tools（握手后注册一次）
+1.21s | RESP set_host_tools | {"toolNames":["ask_user"]}
+1.22s | >>> 第一轮 prompt
+5.39s | ★ 第 1 轮 host_tool_call | ask_user | {"question":"第一轮的优先级？"}
+6.73s | agent_end(第1轮) isTerminal= | true
+7.53s | >>> 第二轮 prompt（同一会话，未重新注册）
+8.53s | ★ 第 2 轮 host_tool_call | ask_user | {"question":"第二轮的优先级？"}
+9.88s | agent_end(第2轮) isTerminal= | true
+9.88s | 第二轮也已收尾 ⇒ 宿主工具跨轮存活
+10.40s | === 结论 ===
+10.40s | exit | 0 | | 第一轮 host_tool_call 次数 = | 1 | | 第二轮 host_tool_call 次数 = | 1
+90.00s | 硬超时：kill

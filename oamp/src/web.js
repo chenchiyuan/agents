@@ -20,7 +20,7 @@
 //   GET  /api/calls/<call_id>/transcript → 按调用取转录（进程内，不持久；重启即丢）
 //   GET  /api/calls/<call_id>        → 按调用取终态（进行中给状态）
 //   GET  /api/confirmations          → 在途确认项列表（跨对话；进程内、不持久；空态为空数组）
-//   POST /api/confirmations/<id>/decision → 提交确认项裁决（选项 id 必填 + 可选文本；随即移出在途表并回传请求方）
+//   POST /api/confirmations/<id>/decision → 提交确认项裁决（permission 类 option_id 必填；question 类 option_ids 与 text 至少一个非空；随即移出在途表并回传请求方）
 // 错误契约（0015 / F06，architecture §5）：全部 4xx/5xx 响应体 = {error: <人类可读字符串>, code: <ERR_CODE 之一>}，
 //   code 与状态码一一映射；成功响应不含 code；既有 error 文案逐字不变（既有前端 api() 零改动）。
 // 语义（0011 迭代，architecture §4/§5/§9.1）：一次提问 = 恰一条 in + 一条 out（过程不入库）；
@@ -1258,7 +1258,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
       path: '/api/confirmations',
       summary: '待确认项列表（跨对话的在途确认项；进程内，不持久）',
       params: [],
-      response: '对象 { confirmations: [{ confirmation_id, chat_id, agent_id, tool, title, options, created_at }] }（空 = []）',
+      response: '对象 { confirmations: [{ confirmation_id, request_kind, chat_id, agent_id, tool, title, options, multiple, created_at }] }（空 = []）',
       errors: [],
       kind: 'json',
       docLink: 'API.md#320-get-apiconfirmations',
@@ -1269,15 +1269,16 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
     },
     {
       // ★ 0021 pr-003（architecture §5.1 R-2 / §5.3 信封 2）：提交一次裁决——`take()` 原子取出并移除（⇒ 第二次
-      //   提交同一 id 得 404；无历史台账由结构保证）+ 回传发出方（信封 2）+ 文本非空白时按既有原语追加一条 chat 输入。
+      //   提交同一 id 得 404；无历史台账由结构保证）+ 回传发出方（信封 2）+ permission 类文本非空白时按既有原语追加一条 chat 输入（question 类不追加）。
       //   路径参为**后缀段**（L2-10）：不做 `POST /api/confirmations/:id` 形态。
       method: 'POST',
       path: '/api/confirmations/:confirmation_id/decision',
-      summary: '提交确认项裁决（选项 id 必填 + 可选文本；条目随即移出在途表并回传请求方）',
+      summary: '提交确认项裁决（permission 类 option_id 必填；question 类 option_ids 与 text 至少一个非空；条目随即移出在途表并回传请求方）',
       params: [
         { name: 'confirmation_id', in: 'path', type: 'string', required: true, desc: '目标确认项 id；不在在途表（已裁决 / 已失效 / 从未存在）→ 404 NOT_FOUND（同一码，不区分）' },
-        { name: 'option_id', in: 'body', type: 'string', required: true, desc: '用户选中的选项 id；缺失 / 非字符串 / 不在该条 options 内 → 400 INVALID_PARAM 且条目保留在途' },
-        { name: 'text', in: 'body', type: 'string', required: false, desc: '可选文本（拒绝理由 / 补充说明）；trim 后为空则不追加输入' },
+        { name: 'option_id', in: 'body', type: 'string', required: false, desc: 'permission 类必填：用户选中的选项 id；缺失 / 非字符串 / 不在该条 options 内 → 400 INVALID_PARAM 且条目保留在途' },
+        { name: 'option_ids', in: 'body', type: 'json', required: false, desc: 'question 类：用户选中的选项 id 数组；须为字符串数组且 ⊆ 该条 options，与 text 至少一个非空 → 否则 400 INVALID_PARAM 且条目保留在途' },
+        { name: 'text', in: 'body', type: 'string', required: false, desc: '可选文本（拒绝理由 / 补充说明）；trim 后为空则视为未填；permission 类下非空时另追加一条 chat 输入并派发' },
       ],
       response: '对象 { confirmation_id, accepted: true }',
       errors: ['INVALID_PARAM', 'NOT_FOUND'],
@@ -1298,22 +1299,39 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
           sendError(res, 404, ERR_CODE.NOT_FOUND, `确认项不存在: ${confirmationId}`);
           return;
         }
-        const optionId = typeof body.option_id === 'string' ? body.option_id : null;
-        // 服务端校验选项合法性（§5.1 R-2）：非法 ⇒ 400 且条目**保留在途**（take 后回填；中间无 await ⇒ 仍是原子）
-        if (optionId === null || !entry.options.some((o) => o && o.option_id === optionId)) {
-          inbox.add(entry);
-          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'option_id 缺失 / 非字符串 / 不在该条的选项集合内');
-          return;
-        }
         const text = typeof body.text === 'string' ? body.text.trim() : '';
+        // 服务端校验（§5.3，L2-7）：按 `request_kind` 分化——question 类提交 `option_ids`，permission 类提交 `option_id`。
+        // 两类都遵循同一体例：非法 ⇒ 400 且条目**保留在途**（take 后回填；中间无 await ⇒ 仍是原子）。
+        const inOptions = (id) => typeof id === 'string' && entry.options.some((o) => o && o.option_id === id);
+        const question = entry.request_kind === 'question';
+        let decision;
+        if (question) {
+          // MI-b：`option_ids` 缺失 ⇒ 空集；键出现但非字符串数组（含 null / 含非字符串元素）⇒ 非法。
+          // MI-a：成立条件 = `option_ids` 非空 **或** `text` 非空白（全空不构成作答）。
+          const optionIds = body.option_ids === undefined ? [] : body.option_ids;
+          if (!Array.isArray(optionIds) || !optionIds.every(inOptions) || (optionIds.length === 0 && text === '')) {
+            inbox.add(entry);
+            sendError(res, 400, ERR_CODE.INVALID_PARAM, 'option_ids 须为字符串数组、⊆ 该条的选项集合，且与 text 至少一个非空');
+            return;
+          }
+          decision = { kind: 'confirmation_decision', confirmation_id: confirmationId, option_ids: optionIds, text, chat_id: entry.chat_id };
+        } else {
+          const optionId = typeof body.option_id === 'string' ? body.option_id : null;
+          if (!inOptions(optionId)) {
+            inbox.add(entry);
+            sendError(res, 400, ERR_CODE.INVALID_PARAM, 'option_id 缺失 / 非字符串 / 不在该条的选项集合内');
+            return;
+          }
+          decision = { kind: 'confirmation_decision', confirmation_id: confirmationId, option_id: optionId, text, chat_id: entry.chat_id };
+        }
         // 回传裁决（§5.3 信封 2）：best-effort（既有 sendControlNotice 同款）——agent 离线时静默忽略，
         // 浏览器侧的裁决已受理，不把回传失败伪装成裁决失败。
-        sendControlNotice(entry.agent_id, { kind: 'confirmation_decision', confirmation_id: confirmationId, option_id: optionId, text, chat_id: entry.chat_id }).catch(() => {});
-        // 文本落地（§5.3「为什么 text 不参与 ACP 应答」）：非空白 ⇒ 追加一条 chat 输入并派发——复用既有原语
+        sendControlNotice(entry.agent_id, decision).catch(() => {});
+        // 文本落地（§5.3「为什么 text 不参与 ACP 应答」）：permission 类且非空白 ⇒ 追加一条 chat 输入并派发（question 类旁路停掉：提问的作答不落成对话消息）——复用既有原语
         // （落库 / 落 message 帧 / chat_state / 派发 / 对账登记），不抽取既有 POST /api/messages 的内核。
         // 对话不在库里（读不到项目行）⇒ 文本无处追加，跳过（裁决本身已受理，不因此变成失败）。
-        const projectRow = text !== '' && entry.chat_id !== null ? db.projectByChat(entry.chat_id) : null;
-        if (text !== '' && projectRow !== null) {
+        const projectRow = !question && text !== '' && entry.chat_id !== null ? db.projectByChat(entry.chat_id) : null;
+        if (projectRow !== null) {
           const taskId = `task-${randomUUID()}`;
           const messageId = `msg-${randomUUID()}`;
           const inAt = Date.now();
@@ -1593,16 +1611,18 @@ export default async function startWeb(restArgs) {
       if (!body) return;
       // ★ 0021 pr-003（architecture §5.2 / §5.3 信封 1）：确认请求上浮——**首次**登记成功才发一帧全局 `confirmation`
       //   （重复投递同一 confirmation_id 不再入表、不再发帧：通知「恰一次」由单一发布点保证，不靠前端记忆）；
-      //   定向帧一发不发（该事件与对话无关，走全局键）。条目 = 信封 1 的 7 个字段（重建面与实时帧同形状）。
+      //   定向帧一发不发（该事件与对话无关，走全局键）。条目 = 信封 1 的 9 个字段（重建面与实时帧同形状）。
       if (body.kind === 'confirmation_request') {
         if (typeof body.confirmation_id !== 'string' || body.confirmation_id === '') return;
         const entry = {
           confirmation_id: body.confirmation_id,
+          request_kind: body.request_kind === 'question' ? 'question' : 'permission', // 缺字段 / 非字符串 / 域外值 ⇒ 兜底 'permission'（§5.2.1）
           chat_id: typeof body.chat_id === 'string' ? body.chat_id : null,
           agent_id: typeof body.agent_id === 'string' ? body.agent_id : null,
           tool: typeof body.tool === 'string' ? body.tool : null,
           title: typeof body.title === 'string' ? body.title : null,
           options: Array.isArray(body.options) ? body.options : [],
+          multiple: body.multiple === true,
           created_at: Number.isFinite(body.created_at) ? body.created_at : Date.now(),
         };
         if (inbox.add(entry)) transport.publishGlobal({ type: 'confirmation', data: entry });

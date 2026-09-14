@@ -1,0 +1,37 @@
+
+========== Y1 yolo（无用户策略）· write + bash ==========
+0.00s | >>> prompt
+0.70s | ★ 门 #1 | setWidget |  | ""
+4.80s | tool_execution_start | write
+6.03s | tool_execution_start | bash
+7.61s | ★ 门 #2 | setWidget |  | ""
+7.61s | agent_end isTerminal= | true
+8.12s | ★ 门 #3 | setWidget |  | ""
+8.14s | 场景结束 exit= | 0 |  out.txt = | "hello-0023"
+
+========== Y2 yolo + tools.approval.bash=prompt（K10 例外） ==========
+0.00s | >>> prompt
+0.70s | ★ 门 #1 | setWidget |  | ""
+2.68s | ★ 门 #2 | select | ["Approve","Deny"] | "Allow tool: bash\nCommand: echo policy-prompt-probe"
+2.68s | tool_execution_start | bash
+4.62s | ★ 门 #3 | setWidget |  | ""
+4.62s | agent_end isTerminal= | true
+5.12s | ★ 门 #4 | setWidget |  | ""
+5.15s | 场景结束 exit= | 0 |  out.txt = | 
+
+========== Y3 yolo + tools.approval.bash=deny（K10 例外） ==========
+0.00s | >>> prompt
+0.69s | ★ 门 #1 | setWidget |  | ""
+2.58s | tool_execution_start | bash
+3.60s | ★ 门 #2 | setWidget |  | ""
+3.60s | agent_end isTerminal= | true
+4.10s | ★ 门 #3 | setWidget |  | ""
+4.13s | 场景结束 exit= | 0 |  out.txt = | 
+
+===== R4 汇总 =====
+Y1 yolo（无用户策略）· write + bash | 门数=3 ["setWidget:","setWidget:","setWidget:"] | 工具=["write","bash"] | agent_end=7.61s | out.txt="hello-0023"
+   末轮文本 = "① `/tmp/probe-0023-r4/out.txt` 已写入 `hello-0023`（10 字节）。\n② `echo done` 输出 `done`。"
+Y2 yolo + tools.approval.bash=prompt（K10 例外） | 门数=4 ["setWidget:","select:Allow tool: bash\nCommand: echo policy-pr","setWidget:","setWidget:"] | 工具=["bash"] | agent_end=4.62s | out.txt=null
+   末轮文本 = "`bash` 调用被拒绝，命令未执行。\n\n如需换个方式，请告知:改用 `eval`(非 bash 沙箱)或直接授权 bash。"
+Y3 yolo + tools.approval.bash=deny（K10 例外） | 门数=3 ["setWidget:","setWidget:","setWidget:"] | 工具=["bash"] | agent_end=3.60s | out.txt=null
+   末轮文本 = "bash 被用户策略阻止（`tools.approval.bash: deny`），命令未执行。\n\n输出（供判断策略拦截面）：\n```\nTool \"bash\" is blocked by user policy.\nTo allow: remove \"tools.approval.bash: deny\" from config.\n```\n\n按「只做这一件事」的要求，未改用其他工具绕过。"

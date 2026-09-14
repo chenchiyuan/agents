@@ -648,6 +648,16 @@ function inboxSource(entry) {
   return `${entry.agent_id} · ${(chat && chat.title) || entry.chat_id}`;
 }
 
+/** question 类的一个选项控件（0023 / MI-1）：多值 = 原生 checkbox；单值 = 同 `name` 的原生 radio、
+ *  同组至多单值（「单选即取舍」：第二次选择替换第一次）。勾选值 = 该选项的 `option_id`；文本先 escapeHtml。 */
+function renderInboxChoice(entry, o, multiple) {
+  const text = `<span class="inbox-choice-text">${escapeHtml(o.label || o.option_id)}</span>`;
+  const box = multiple
+    ? `<input type="checkbox" class="inbox-choice-box" data-option="${escapeHtml(o.option_id)}" />`
+    : `<input type="radio" class="inbox-choice-box" name="inbox-choice-${escapeHtml(entry.confirmation_id)}" data-option="${escapeHtml(o.option_id)}" />`;
+  return `<label class="inbox-choice">${box}${text}</label>`;
+}
+
 /** 在途项列表重建（T-07）：纯拉取、零缓存、整栏覆盖重绘，**零通知派发**（重建不算「进入」）。
  *  调用点 = boot 与全局 SSE 的每次 open（含首次与每次自动重连）⇒ 刷新 / 断线重连后仍在栏内（F06）。 */
 async function loadConfirmations() {
@@ -667,8 +677,25 @@ function inboxRequest(entry) {
   return segs.map(escapeHtml).join(' · ');
 }
 
-/** 一条（T-02 三行 + T-03 控件）：① 来源对话标识 ② 工具名 + 动作描述 ③ 每个选项一个按钮 + 一个单行文本框。 */
+/** 一条（T-02 三行 + T-03 控件）：① 来源对话标识 ② 工具名 + 动作描述 ③ 按 `request_kind` 分化——
+ *  question 类 = 每个选项一个可勾选控件（`multiple === true` 才多选）+ 自由文本 + 一个「提交」按钮；
+ *  permission 类 = 每个选项一个按钮 + 一个单行文本框。两类都在栏内整体 `innerHTML` 重绘（纯字符串产出，零 DOM 访问）。 */
 function renderInboxItem(entry) {
+  if (entry.request_kind === 'question') {
+    const multiple = entry.multiple === true; // A8 兜底：非 true（false / 缺失 / 非布尔）一律单选取舍
+    const choices = (Array.isArray(entry.options) ? entry.options : [])
+      .map((o) => renderInboxChoice(entry, o, multiple))
+      .join('');
+    return `<div class="inbox-item" data-confirmation="${escapeHtml(entry.confirmation_id)}">
+      <div class="inbox-source">${escapeHtml(inboxSource(entry))}</div>
+      <div class="inbox-request">${inboxRequest(entry)}</div>
+      ${choices === '' ? '' : `<div class="inbox-actions">${choices}</div>`}
+      <input class="inbox-text" type="text" autocomplete="off" placeholder="补充说明或作答（可不填）" />
+      <button class="inbox-submit">提交</button>
+    </div>`;
+  }
+
+  // permission 类（`request_kind` 非 'question' 一律走本支）：与 0021 逐字一致（N11）。
   const options = (Array.isArray(entry.options) ? entry.options : [])
     .map((o) => `<button class="inbox-option" data-option="${escapeHtml(o.option_id)}">${escapeHtml(o.label || o.option_id)}</button>`)
     .join('');
@@ -692,6 +719,11 @@ function renderInbox() {
   for (const el of list.querySelectorAll('.inbox-item')) {
     const entry = state.inbox.items.find((i) => i.confirmation_id === el.dataset.confirmation);
     const text = el.querySelector('.inbox-text');
+    // 按条目类型分派（T2 / 验收 6）：question 类 = 勾选取舍 + 一次提交；permission 类 = 点选即裁决（A8 口径）。
+    if (entry && entry.request_kind === 'question') {
+      el.querySelector('.inbox-submit').onclick = () => submitQuestion(entry, el);
+      continue;
+    }
     for (const btn of el.querySelectorAll('.inbox-option')) btn.onclick = () => decide(entry, btn, text);
   }
 }
@@ -728,6 +760,31 @@ async function decide(entry, button, textInput) {
   } catch (err) {
     if (err.status === 404) dropInboxItem(entry.confirmation_id);
     else renderInbox(); // 条目保留（重绘同时复位按钮 disabled / 文案）
+  }
+}
+
+/** question 类一次提交（T2 / §5.3）：勾选项与文本**一并**提交 `{option_ids, text}`——`option_ids` 与勾选集同值同序
+ *  （不排序 / 不去重 / 不筛选），未勾选 ⇒ 空数组，文本原样（前端不 trim / 不校验；Q3：空提交不短路 ⇒ 服务端 400 路径可达）。
+ *  提交中该条相关控件全 disabled；200 ⇒ 立即整条移出（不等 SSE）；404 ⇒ 同样移出、不重放；其余失败 ⇒ 保留条目并重绘。 */
+async function submitQuestion(entry, item) {
+  oampNotify.requestPermission(); // 手势入口（T-11）：至多一次
+  const textInput = item.querySelector('.inbox-text');
+  const optionIds = [...item.querySelectorAll('.inbox-choice-box:checked')].map((box) => box.dataset.option);
+  const text = textInput.value;
+  for (const box of item.querySelectorAll('.inbox-choice-box')) box.disabled = true;
+  textInput.disabled = true;
+  const submit = item.querySelector('.inbox-submit');
+  submit.disabled = true;
+  submit.textContent = '提交中…';
+  try {
+    await api(`/api/confirmations/${encodeURIComponent(entry.confirmation_id)}/decision`, {
+      method: 'POST',
+      body: { option_ids: optionIds, text },
+    });
+    dropInboxItem(entry.confirmation_id);
+  } catch (err) {
+    if (err.status === 404) dropInboxItem(entry.confirmation_id);
+    else renderInbox(); // 条目保留（重绘同时复位控件）
   }
 }
 

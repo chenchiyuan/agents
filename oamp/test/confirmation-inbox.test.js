@@ -1,4 +1,5 @@
 // test/confirmation-inbox.test.js — 0021 pr-003：确认面（在途表 / 两条新路由 / 信封消费 / 全局帧 / 静态面登记）
+//   + 0023 pr-002：信封类别字段（request_kind / multiple）与裁决分化（question 类：option_ids / 旁路停掉）
 // 载体：① 进程内直调 `src/inbox.js`（5 函数行为）与 `src/web.js` 的登记面（表项 / 投影 / 匹配器，纯构造不依赖）；
 //       ② harness 真实 Router + `oamp web start` 子进程（随机端口 + 临时 OAMP_DB）+ 脚本级假节点（收发 notice 信封）。
 // 覆盖：pr-003 验收 1~8、11 与任务图 T1~T4、T6 的判据。**M4 答复链路（pr-001 的成果）不在本 PR 范围内**，
@@ -189,14 +190,16 @@ const ENVELOPE = (over = {}) => ({
   ...over,
 });
 
-/** 信封 1 的 7 个字段（重建面元素与全局帧 data 共用的形状）。 */
+/** 信封 1 的 9 个字段（重建面元素与全局帧 data 共用的形状）；缺 request_kind / multiple 时按服务端兜底口径补全（0023 pr-002）。 */
 const entryOf = (env) => ({
   confirmation_id: env.confirmation_id,
+  request_kind: env.request_kind === 'question' ? 'question' : 'permission',
   chat_id: env.chat_id,
   agent_id: env.agent_id,
   tool: env.tool,
   title: env.title,
   options: env.options,
+  multiple: typeof env.multiple === 'boolean' ? env.multiple : false,
   created_at: env.created_at,
 });
 
@@ -278,8 +281,8 @@ test('T3：confirmation_request → 入表 + 全局恰一帧（同形状）+ 重
   assert.deepEqual(await listOf(web), { confirmations: [entryOf(env)] });
   const frames = global.events.filter((e) => e.type === 'confirmation');
   assert.equal(frames.length, 1, '首次入表恰一帧');
-  assert.deepEqual(frames[0].data, entryOf(env), '全局帧 data 与列表元素同形状（7 字段）');
-  assert.deepEqual(Object.keys(frames[0].data).sort(), ['agent_id', 'chat_id', 'confirmation_id', 'created_at', 'options', 'title', 'tool']);
+  assert.deepEqual(frames[0].data, entryOf(env), '全局帧 data 与列表元素同形状（9 字段）');
+  assert.deepEqual(Object.keys(frames[0].data).sort(), ['agent_id', 'chat_id', 'confirmation_id', 'created_at', 'multiple', 'options', 'request_kind', 'title', 'tool']);
 
   // ③ 幂等：重复投递同一 confirmation_id → 不再入表、不再发帧
   await sendNotice(node, env);
@@ -376,6 +379,7 @@ test('T2：R-2 合法裁决 200 + 立即移出 + 二次 404；错误契约 400 �
   assert.equal(decisions[0].option_id, 'allow_once');
   assert.equal(decisions[0].text, '需要理由', '回传文本为 trim 后的值');
   assert.equal(decisions[0].chat_id, chatId);
+  assert.deepEqual(decisions[0], { kind: 'confirmation_decision', confirmation_id: 'cfm-1', option_id: 'allow_once', text: '需要理由', chat_id: chatId }, 'permission 类回传体逐字不变（不含 option_ids 键）');
 
   // 文本落地：非空白 ⇒ 追加一条 direction='in' 输入 + 派发（假节点收到带该文本的 task.request）
   await waitFor(() => node.received.filter((m) => m.type === 'task.request').length > tasksBefore, { timeoutMs: 5000, what: '裁决文本派发' });
@@ -401,6 +405,99 @@ test('T2：R-2 合法裁决 200 + 立即移出 + 二次 404；错误契约 400 �
   assert.equal((await detailOf(web, chatId)).messages.filter((m) => m.direction === 'in').length, insBefore, '空白文本不追加输入');
   assert.equal(node.received.filter((m) => m.type === 'task.request').length, reqBefore, '空白文本不派发');
   assert.deepEqual((await listOf(web)).confirmations, [], '空白文本的裁决同样移出在途表');
+});
+
+// ────────────────────────── T1 / T2：question 类信封与裁决分化（0023 pr-002） ──────────────────────────
+
+test('T1/T2（0023 pr-002）：question 类入表（9 键深等 / 兜底 / 空选项态）+ 裁决分化（option_ids 回传 / 旁路停掉 / 错误契约）', async (t) => {
+  const { router, web, projectId } = await setup(t);
+  const node = await startFakeNode({ socketPath: router.socketPath, instanceId: 'pb-dev' });
+  t.after(() => node.stop());
+  const global = await openGlobal(web.base);
+  t.after(() => global.close());
+
+  // 真实对话（归属项目）——question 类提交后「零新增 in 消息 / 零派发」以此对话为观测面
+  const created = await jreq(web.base, 'POST', '/api/messages', json({ project_id: projectId, agent_id: 'pb-dev', text: '建对话' }));
+  assert.equal(created.status, 200, `建对话应成功：${created.text}`);
+  const chatId = created.body.chat_id;
+  const insBefore = (await detailOf(web, chatId)).messages.filter((m) => m.direction === 'in').length;
+  const reqBefore = node.received.filter((m) => m.type === 'task.request').length;
+  const decide = (id, payload) => jreq(web.base, 'POST', `/api/confirmations/${id}/decision`, json(payload));
+  const decisions = () => node.received.filter((m) => m.type === 'notice').map(parseBody).filter((b) => b.kind === 'confirmation_decision');
+  const idsOf = async () => (await listOf(web)).confirmations.map((e) => e.confirmation_id);
+
+  // ① question 类入表：9 键逐字段深等 + 首次入表恰一帧（data 同形状）+ 重复投递不发帧
+  const q1 = ENVELOPE({ confirmation_id: 'cfm-q1', chat_id: chatId, request_kind: 'question', multiple: true, title: '选哪个？', options: [{ option_id: 'A' }, { option_id: 'B' }] });
+  await sendNotice(node, q1);
+  await waitFor(async () => (await listOf(web)).confirmations.length === 1, { timeoutMs: 5000, what: 'question 类入表' });
+  const listed = (await listOf(web)).confirmations;
+  assert.deepEqual(listed, [entryOf(q1)], 'question 类条目逐字段深等（含 request_kind / multiple）');
+  assert.deepEqual(Object.keys(listed[0]).sort(), ['agent_id', 'chat_id', 'confirmation_id', 'created_at', 'multiple', 'options', 'request_kind', 'title', 'tool'], '条目键集合 = 9 键清单');
+  assert.equal(global.events.filter((e) => e.type === 'confirmation').length, 1, '首次入表恰一帧');
+  assert.deepEqual(global.events.filter((e) => e.type === 'confirmation')[0].data, entryOf(q1), '全局帧 data 与列表元素同形状（含 request_kind / multiple）');
+  await sendNotice(node, q1);
+  await delay(200);
+  assert.equal(global.events.filter((e) => e.type === 'confirmation').length, 1, '重复投递同一 confirmation_id 不再发帧');
+
+  // ② 缺字段 / 非字符串 / 域外串 ⇒ 兜底 permission；空选项态原样保留
+  const p1 = ENVELOPE({ confirmation_id: 'cfm-p1' });
+  const p2 = ENVELOPE({ confirmation_id: 'cfm-p2', request_kind: 42, multiple: 'yes' });
+  const p3 = ENVELOPE({ confirmation_id: 'cfm-p3', request_kind: 'nonsense' });
+  const qEmpty = ENVELOPE({ confirmation_id: 'cfm-q-empty', chat_id: chatId, request_kind: 'question', title: '自由回答？', options: [] });
+  const q3 = ENVELOPE({ confirmation_id: 'cfm-q3', chat_id: chatId, request_kind: 'question', title: '继续？', options: [{ option_id: 'A' }] });
+  const rest = [p1, p2, p3, qEmpty, q3];
+  for (const env of rest) await sendNotice(node, env);
+  await waitFor(async () => (await listOf(web)).confirmations.length === 6, { timeoutMs: 5000, what: '兜底组入表' });
+  const ORDER = ['cfm-q1', 'cfm-p1', 'cfm-p2', 'cfm-p3', 'cfm-q-empty', 'cfm-q3'];
+  const stacked = (await listOf(web)).confirmations;
+  assert.deepEqual(stacked, [q1, ...rest].map(entryOf), '6 条条目逐字段深等（顺序 = 登记顺序）');
+  assert.deepEqual(stacked.map((e) => e.confirmation_id), ORDER, '条目顺序 = 登记顺序');
+  assert.deepEqual(stacked.map((e) => e.request_kind), ['question', 'permission', 'permission', 'permission', 'question', 'question'], '缺字段 / 非字符串 / 域外串 ⇒ 兜底 permission');
+  assert.deepEqual(stacked.map((e) => e.multiple), [true, false, false, false, false, false], '缺字段 / 非布尔 ⇒ false');
+  assert.deepEqual(stacked[4].options, [], '空选项态不增不删不替换');
+
+  // ③ 错误契约：每次 400 INVALID_PARAM 且条目**保留在途**（含域外取值不因 text 非空而放行）
+  for (const bad of [{}, { text: '   ' }, { option_ids: [] }, { option_ids: ['C'] }, { option_ids: 'A' }, { option_ids: 42 }, { option_ids: {} }, { option_ids: null }, { option_ids: ['A', 42] }, { option_ids: ['C'], text: '理由' }]) {
+    const res = await decide('cfm-q1', bad);
+    assert.equal(res.status, 400, `question 类非法提交应 400：${JSON.stringify(bad)}`);
+    assert.equal(res.body.code, 'INVALID_PARAM');
+    assert.deepEqual(await idsOf(), ['cfm-p1', 'cfm-p2', 'cfm-p3', 'cfm-q-empty', 'cfm-q3', 'cfm-q1'], `400 后条目保留在途（回填追加末位）：${JSON.stringify(bad)}`);
+  }
+
+  // ④ 合法提交：200 + 立即移出 + 二次 404；回传 option_ids 同值同序 + text 逐字（不含 option_id）
+  const ok1 = await decide('cfm-q1', { option_ids: ['B', 'A'], text: '补充' });
+  assert.equal(ok1.status, 200);
+  assert.deepEqual(ok1.body, { confirmation_id: 'cfm-q1', accepted: true });
+  assert.equal((await idsOf()).includes('cfm-q1'), false, '裁决即刻移出在途表');
+  await waitFor(() => decisions().length === 1, { timeoutMs: 5000, what: 'question 类回传' });
+  assert.deepEqual(decisions()[0], { kind: 'confirmation_decision', confirmation_id: 'cfm-q1', option_ids: ['B', 'A'], text: '补充', chat_id: chatId }, 'question 类回传 = option_ids 同值同序 + text 逐字');
+  const again = await decide('cfm-q1', { option_ids: ['A'] });
+  assert.equal(again.status, 404);
+  assert.equal(again.body.code, 'NOT_FOUND', '已裁决项与从未存在项同一码');
+
+  // ⑤ 空选项态：任何非空 option_ids 均属域外 ⇒ 400；仅 text 非空白 ⇒ 可提交（回传空集）
+  const outOfDomain = await decide('cfm-q-empty', { option_ids: ['X'] });
+  assert.equal(outOfDomain.status, 400);
+  assert.equal(outOfDomain.body.code, 'INVALID_PARAM');
+  assert.equal((await idsOf()).includes('cfm-q-empty'), true, '空选项态的 400 后条目仍保留在途');
+  const ok2 = await decide('cfm-q-empty', { text: '自由作答' });
+  assert.equal(ok2.status, 200);
+  await waitFor(() => decisions().length === 2, { timeoutMs: 5000, what: '纯文本提问回传' });
+  assert.deepEqual(decisions()[1], { kind: 'confirmation_decision', confirmation_id: 'cfm-q-empty', option_ids: [], text: '自由作答', chat_id: chatId }, 'option_ids 键缺失 ⇒ 回传空集');
+
+  // ⑥ 仅 option_ids 非空（text 缺失）⇒ 可提交；回传 text = ''
+  const ok3 = await decide('cfm-q3', { option_ids: ['A'] });
+  assert.equal(ok3.status, 200);
+  await waitFor(() => decisions().length === 3, { timeoutMs: 5000, what: '仅选项作答回传' });
+  assert.deepEqual(decisions()[2], { kind: 'confirmation_decision', confirmation_id: 'cfm-q3', option_ids: ['A'], text: '', chat_id: chatId }, 'text 缺失 ⇒ 回传空串');
+
+  // ⑦ 旁路停掉：question 类提交后对话记录零新增 in 消息、假节点零新增 task.request
+  await delay(300);
+  assert.equal((await detailOf(web, chatId)).messages.filter((m) => m.direction === 'in').length, insBefore, 'question 类不追加 chat 输入');
+  assert.equal(node.received.filter((m) => m.type === 'task.request').length, reqBefore, 'question 类不派发');
+  assert.equal(decisions().length, 3, '三次合法提交恰三条回传');
+  assert.equal((await idsOf()).includes('cfm-q-empty'), false, '纯文本作答同样移出在途表');
+  assert.deepEqual(await idsOf(), ['cfm-p1', 'cfm-p2', 'cfm-p3'], '未经裁决的条目仍在途');
 });
 
 // ────────────────────────── T4：publishState 的全局广播与键隔离 ──────────────────────────

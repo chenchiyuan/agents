@@ -19,7 +19,7 @@ export const PROFILES = {
     skills: false,                    // false ⇒ 追加 --no-skills
     rules: false,                     // false ⇒ 追加 --no-rules
     tools: { mode: 'off' },           // 'off' ⇒ --no-tools；'allow' ⇒ 不传；'list' ⇒ --tools=<csv>
-    approval: { mode: 'always-ask', appliesWhen: 'tools-on' }, // 门的存在性由档位决定
+    approval: { appliesWhen: 'tools-on' }, // 档位取值不在此承载（§4.2 L2-1：唯一汇聚点解析）；此处只声明档位段生效条件
     thinking: null,                   // 恒 null = 不传 --thinking（传 off 会使思考增量消失）
     model: null,                      // null ⇒ 由调用方按既有解析链填入
     roleFile: null,
@@ -34,7 +34,7 @@ export const PROFILES = {
     skills: false,
     rules: false,
     tools: { mode: 'off' },
-    approval: { mode: 'always-ask', appliesWhen: 'tools-on' },
+    approval: { appliesWhen: 'tools-on' },
     thinking: null,
     model: null,
     roleFile: null,
@@ -49,7 +49,7 @@ export const PROFILES = {
     skills: true,                     // true ⇒ 不追加 --no-skills（复现既有一次性 argv）
     rules: true,                      // true ⇒ 不追加 --no-rules
     tools: { mode: 'off' },
-    approval: { mode: 'yolo', appliesWhen: 'always' }, // 既有一致（零行为变更）
+    approval: { appliesWhen: 'tools-on' }, // L2-2：与其余四行统一形态（一次性路径 argv 逐字不变）
     thinking: null,
     model: null,
     roleFile: null,
@@ -65,7 +65,7 @@ export const PROFILES = {
     skills: false,
     rules: false,
     tools: { mode: 'off' },
-    approval: { mode: 'always-ask', appliesWhen: 'tools-on' },
+    approval: { appliesWhen: 'tools-on' },
     thinking: null,
     model: null,
     roleFile: null,
@@ -80,7 +80,7 @@ export const PROFILES = {
     skills: false,
     rules: false,
     tools: { mode: 'off' },
-    approval: { mode: 'always-ask', appliesWhen: 'tools-on' },
+    approval: { appliesWhen: 'tools-on' },
     thinking: null,
     model: null,
     roleFile: null,
@@ -100,18 +100,23 @@ function requireProfile(profileKey) {
  * 唯一 argv 构造（L1 判据：`-p` 与 `--mode rpc` 的 argv 均出自本模块）。
  * 签名：buildArgv(profileKey, { model, roleFile, tools, prompt, approval })——未传的 model / roleFile 取 profile 值
  * （null ⇒ 不追加对应 flag）；tools 覆写与 profile.tools 同形（未传即取 profile.tools）。
- * approval = 调用层的档位决策（一次性路径的 caller 覆写面，W2-A）：`undefined` ⇒ 取 `profile.approval`（既有调用方
- * 零行为变更）；`null` ⇒ 不追加 `--approval-mode`；否则按传入值（与 `profile.approval` 同形）。
+ * approval = **已解析档位**（§4.2 L2-1：唯一汇聚点在装配前求值一次，三实现只消费）：`'always-ask' | 'yolo'` ⇒
+ * 工具开时追加 `--approval-mode <值>`；`null` ⇒ 不追加该段（工具关 / 匿名实例）；**`undefined`（未给）⇒ 响亮失败**
+ * ——profile 不再承载档位取值，「某条链路忘记覆写」不得静默失效。取值域校验不在本模块（= config.js / agent.js 的
+ * 输入面）：本模块只做「给值即落段」。
  * 返回值 = args 数组（不含可执行名，bin 由 spawn 侧按解析链注入）。
  * 次序：modeArgs → skills → rules → tools → session → model → roleFile → approval → positional prompt。
  * 位置参数只在 `input:'positional'` 且提示词非空时追加（D-7′ 防护：未提供 ⇒ 跳过，不落字面 `undefined`）。
  */
 export function buildArgv(profileKey, { model, roleFile, tools, prompt, approval } = {}) {
   const profile = requireProfile(profileKey);
+  if (approval === undefined) {
+    throw new Error(`OAMP 配置错误: buildArgv 需要已解析档位（profile "${profileKey}" 的 approval 未提供）`);
+  }
   const toolsSpec = tools === undefined ? profile.tools : tools;
   const modelValue = model === undefined ? profile.model : model;
   const roleFileValue = roleFile === undefined ? profile.roleFile : roleFile;
-  const approvalSpec = approval === undefined ? profile.approval : approval;
+  const approvalSpec = approval;
   const toolsOn = toolsSpec.mode !== 'off';
 
   const args = [...profile.modeArgs];
@@ -126,9 +131,9 @@ export function buildArgv(profileKey, { model, roleFile, tools, prompt, approval
   if (profile.session === false) args.push('--no-session');
   if (modelValue !== null) args.push('--model', modelValue);
   if (roleFileValue !== null) args.push('--append-system-prompt', roleFileValue);
-  // appliesWhen='tools-on' ⇒ 仅当工具开时追加；'always' ⇒ 恒追加。null ⇒ 不追加（调用层显式关闭档位段）。
-  if (approvalSpec !== null && (approvalSpec.appliesWhen === 'always' || toolsOn)) {
-    args.push('--approval-mode', approvalSpec.mode);
+  // §5.1 argv 面：五行的 `appliesWhen` 统一为 `'tools-on'` ⇒ 追加条件 = 工具开；`null`（工具关 / 匿名实例）⇒ 不追加。
+  if (approvalSpec !== null && toolsOn) {
+    args.push('--approval-mode', approvalSpec);
   }
   // D-7′ 防护：`input:'positional'` 且提示词未提供（undefined / null / 空串，体例同「空即未设」）⇒ 不追加位置参数
   // （否则子进程会收到字面量 "undefined"，即 pr-001 验收遗留偏差 D-7）。

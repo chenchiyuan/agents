@@ -1,0 +1,68 @@
+
+========== D1 always-ask + 回执 cancelled:true ==========
+0.00s | >>> prompt（要求 write）
+0.70s | ★ extension_ui_request | setWidget |  | ""
+0.70s |   ⇒ 回执 = | {"cancelled":true}
+2.01s | ★ extension_ui_request | select | ["Approve","Deny"] | "Allow tool: bash\nCommand: mkdir -p /tmp/probe-0023-r3"
+2.01s |   ⇒ 回执 = | {"cancelled":true}
+2.01s | tool_execution_start | bash
+2.01s | tool_execution_end | bash
+3.52s | ★ extension_ui_request | select | ["Approve","Deny"] | "Allow tool: write\nPath: /tmp/probe-0023-r3/out.txt\nContent:\n"
+3.53s |   ⇒ 回执 = | {"cancelled":true}
+3.53s | tool_execution_start | write
+3.53s | tool_execution_end | write
+4.79s | ★ extension_ui_request | setWidget |  | ""
+4.79s |   ⇒ 回执 = | {"cancelled":true}
+4.79s | agent_end isTerminal= | true | lastAssistant.stopReason = | "stop"
+5.30s | ★ extension_ui_request | setWidget |  | ""
+5.30s |   ⇒ 回执 = | {"cancelled":true}
+5.33s | 场景结束 exit= | 0
+
+========== D2 always-ask + 回执 value:Deny ==========
+0.00s | >>> prompt（要求 write）
+0.70s | ★ extension_ui_request | setWidget |  | ""
+0.70s |   ⇒ 回执 = | {"value":"Deny"}
+2.55s | ★ extension_ui_request | select | ["Approve","Deny"] | "Allow tool: bash\nCommand: mkdir -p /tmp/probe-0023-r3"
+2.55s |   ⇒ 回执 = | {"value":"Deny"}
+2.55s | tool_execution_start | bash
+2.55s | tool_execution_end | bash
+3.77s | ★ extension_ui_request | select | ["Approve","Deny"] | "Allow tool: write\nPath: /tmp/probe-0023-r3/out.txt\nContent:\n"
+3.77s |   ⇒ 回执 = | {"value":"Deny"}
+3.77s | tool_execution_start | write
+3.77s | tool_execution_end | write
+5.19s | ★ extension_ui_request | setWidget |  | ""
+5.19s |   ⇒ 回执 = | {"value":"Deny"}
+5.19s | agent_end isTerminal= | true | lastAssistant.stopReason = | "stop"
+5.70s | ★ extension_ui_request | setWidget |  | ""
+5.70s |   ⇒ 回执 = | {"value":"Deny"}
+5.72s | 场景结束 exit= | 0
+
+========== D3 always-ask + 回执 value:Approve ==========
+0.00s | >>> prompt（要求 write）
+0.70s | ★ extension_ui_request | setWidget |  | ""
+0.70s |   ⇒ 回执 = | {"value":"Approve"}
+3.17s | ★ extension_ui_request | select | ["Approve","Deny"] | "Allow tool: bash\nCommand: mkdir -p /tmp/probe-0023-r3"
+3.17s |   ⇒ 回执 = | {"value":"Approve"}
+3.17s | tool_execution_start | bash
+3.21s | tool_execution_end | bash
+4.72s | ★ extension_ui_request | select | ["Approve","Deny"] | "Allow tool: write\nPath: /tmp/probe-0023-r3/out.txt\nContent:\n"
+4.72s |   ⇒ 回执 = | {"value":"Approve"}
+4.72s | tool_execution_start | write
+4.72s | tool_execution_end | write
+5.82s | ★ extension_ui_request | setWidget |  | ""
+5.82s |   ⇒ 回执 = | {"value":"Approve"}
+5.82s | agent_end isTerminal= | true | lastAssistant.stopReason = | "stop"
+6.32s | ★ extension_ui_request | setWidget |  | ""
+6.32s |   ⇒ 回执 = | {"value":"Approve"}
+6.34s | 场景结束 exit= | 0
+
+===== R3 汇总 =====
+D1 always-ask + 回执 cancelled:true | 门数=5 | agent_end=4.79s | stopReason="stop"
+   帧计数 = {"ready":1,"extension_ui_request":5,"available_commands_update":3,"response":2,"agent_start":1,"turn_start":3,"message_start":6,"message_end":6,"message_update":183,"tool_execution_start":2,"tool_execution_end":2,"turn_end":3,"agent_end":1}
+   末轮文本 = "Both `bash` and `write` were denied by user policy, so no file was created.\n\n- `mkdir -p /tmp/probe-0023-r3` → denied\n- `write /tmp/probe-0023-r3/out.txt` → denied\n\nNothing written. Need either tool permission granted, or an alternative you prefer."
+D2 always-ask + 回执 value:Deny | 门数=5 | agent_end=5.19s | stopReason="stop"
+   帧计数 = {"ready":1,"extension_ui_request":5,"available_commands_update":2,"response":2,"agent_start":1,"turn_start":3,"message_start":6,"message_end":6,"message_update":246,"tool_execution_start":2,"tool_execution_end":2,"turn_end":3,"agent_end":1}
+   末轮文本 = "未执行：`bash`(建目录) 与 `write`(写文件) 均被用户拒绝，文件未创建。\n\n- 目标：`/tmp/probe-0023-r3/out.txt` 内容 `hello`\n- 状态：未写入；两次工具调用均返回 `Tool call denied by user`\n- 需解除拒绝或改用其他授权方式后重试"
+D3 always-ask + 回执 value:Approve | 门数=5 | agent_end=5.82s | stopReason="stop"
+   帧计数 = {"ready":1,"extension_ui_request":5,"available_commands_update":2,"response":2,"agent_start":1,"turn_start":3,"message_start":6,"message_end":6,"message_update":295,"tool_execution_start":2,"tool_execution_update":2,"tool_execution_end":2,"turn_end":3,"agent_end":1}
+   末轮文本 = "已写入 `/tmp/probe-0023-r3/out.txt`，内容 `hello`（5 字节）。"

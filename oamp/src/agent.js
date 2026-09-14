@@ -1,7 +1,8 @@
 // src/agent.js — `oamp agent start <instance-id>` 生命周期编排（architecture §6.2/§6.3 / D6/D16/D17 + F03）
 // 入口 = default 导出函数（cli.js 调用约定）：restArgs[0] = instance-id（O-1 收敛，2026-09-09 主 agent 裁决 A）。
 //   其后为可选 flag：--role <role> / --model <model> / --tools on|off / --permission allow|deny /
-//   --protocol rpc|acp（§3.4/§5.3；未知参数 / 非法取值 → 退出码 2）。角色绑定优先级：flag > instance_id 推断
+//   --protocol rpc|acp / --approval-mode always-ask|yolo（§3.4/§5.3/§5.1；未知参数 / 非法取值 → 退出码 2）。
+//   角色绑定优先级：flag > instance_id 推断
 //   （pb-<role>，公式唯一位于
 //   role-binding.js）> 无绑定。
 // 流程：AGENT_START → connect（失败 stderr 报错含 socket 路径 + router 未运行提示，退出 1）
@@ -267,23 +268,30 @@ function readConfirmationOptions(options) {
 }
 
 /**
- * §5.3 信封 1（pr-002 / MI-1~MI-2）：把一次门请求上浮为 `notice{kind:'confirmation_request'}`，返回**未结算 Promise**——
- * 该 Promise 即挂起的唯一载体（L2 的会话实现在钩子返回 Promise 期间冻结轮次计时：轮次既不推进也不超时）。
- * 两型钩子入参（ACP 权限门 / 工具审批门）共用本函数与同一条 pending 表，差异只在字段来源（Q1）。
+ * §5.3 信封 1（pr-002 / MI-1~MI-2）：把一次门请求或提问上浮为 `notice{kind:'confirmation_request'}`，返回**未结算
+ * Promise**——该 Promise 即挂起的唯一载体（L2 的会话实现在钩子返回 Promise 期间冻结轮次计时：既不推进也不超时）。
+ * 两型钩子入参（门 / 提问）共用本函数与同一条 pending 表，差异只在字段来源（Q1）：
+ * 门 ⇒ `toolCall.toolName` / `toolCall.title`；提问 ⇒ `question`（一对一落入既有展示位 `title`）与 `multiple`。
+ * 信封恒 9 字段（既有 7 + `request_kind` + `multiple`）；通知判别键 `kind` 恒为 `'confirmation_request'`，不被覆盖。
  * 钩子体内绝不抛错：无收件人（连接不可用 / 无 origin）⇒ 返回 null 交回落静态档位，绝不把轮次永久吊起。
  */
 function raiseConfirmation(client, logger, pending, info) {
   const origin = info.origin;
   if (!client || !client.peer || !origin) return null;
   const toolCall = info.toolCall || {};
+  const isQuestion = info.requestKind === 'question';
   const confirmationId = `cfm-${randomUUID()}`;
+  const title = isQuestion ? info.question : toolCall.title;
   const fields = {
     confirmation_id: confirmationId,
+    // M3 类别字段（第 3 轮改名：不与通知判别键 `kind` 同 key；缺省 ⇒ 'permission'，兼容既有投递）
+    request_kind: isQuestion ? 'question' : 'permission',
     chat_id: info.chatId ?? null,
     agent_id: info.agentId ?? null,
     tool: typeof toolCall.toolName === 'string' && toolCall.toolName !== '' ? toolCall.toolName : null,
-    title: typeof toolCall.title === 'string' ? toolCall.title.slice(0, CONFIRMATION_TITLE_MAX) : null,
+    title: typeof title === 'string' ? title.slice(0, CONFIRMATION_TITLE_MAX) : null,
     options: readConfirmationOptions(info.options),
+    multiple: isQuestion ? info.multiple === true : false,
     created_at: Date.now(),
   };
   return new Promise((resolve) => {
@@ -293,17 +301,23 @@ function raiseConfirmation(client, logger, pending, info) {
 }
 
 /**
- * §5.3 信封 2（pr-002 / Q1）：裁决命中 ⇒ 以 `{optionId}` 结算该挂起（两型的 `option_id` 都可原样回显给 ACP）；
- * 未命中（未知 id / 缺合法 `option_id`）⇒ 静默丢弃，且**恰一行**审计（`matched` 可区分命中与否）——
- * 不影响其它挂起项、不向发起方回错误。
+ * §5.3 信封 2（pr-002 / Q1 + §5.4 回传载荷）：裁决命中 ⇒ 按类别结算该挂起——question 类载荷 `{option_ids, text}` ⇒
+ * `{optionIds, text}`（提问侧据此渲染回包）；permission 类 `{option_id}` ⇒ `{optionId}`（**逐字不变**）。
+ * 未命中（未知 id / 缺合法载荷）⇒ 静默丢弃，且**恰一行**审计（`matched` 可区分命中与否）——不影响其它挂起项、
+ * 不向发起方回错误。两类不并存：`option_ids` 在场即按 question 类处理（服务端已保证两键不同时出现）。
  */
 function settleConfirmation(logger, pending, body, from) {
   const confirmationId = typeof body.confirmation_id === 'string' ? body.confirmation_id : '';
+  const optionIds = Array.isArray(body.option_ids) ? body.option_ids.filter((id) => typeof id === 'string' && id !== '') : null;
   const optionId = typeof body.option_id === 'string' && body.option_id !== '' ? body.option_id : null;
-  const entry = optionId === null ? undefined : pending.get(confirmationId);
+  const entry = optionIds === null && optionId === null ? undefined : pending.get(confirmationId);
   logger.event('CONFIRMATION_DECISION', { confirmation_id: confirmationId, option_id: optionId, matched: entry !== undefined, from });
   if (entry === undefined) return;
   pending.delete(confirmationId);
+  if (optionIds !== null) {
+    entry.resolve({ optionIds, text: typeof body.text === 'string' ? body.text : '' });
+    return;
+  }
   entry.resolve({ optionId });
 }
 
@@ -545,8 +559,8 @@ function handleNotice(logger, message, ctx) {
 // §4.6 instance_id 校验（非空、≤64、可打印 ASCII）
 const INSTANCE_ID_RE = /^[\x21-\x7E]{1,64}$/;
 
-// §3.4 单起参数面：instance-id 之后的 5 个可选 flag（未知参数 / 非法取值 → 退出码 2，绝不静默忽略）。
-const AGENT_FLAGS = new Set(['--role', '--model', '--tools', '--permission', '--protocol']);
+// §3.4 单起参数面：instance-id 之后的 6 个可选 flag（未知参数 / 非法取值 → 退出码 2，绝不静默忽略）。
+const AGENT_FLAGS = new Set(['--role', '--model', '--tools', '--permission', '--protocol', '--approval-mode']);
 
 /**
  * §5.3 选择域校验：真源 = 唯一注入点（`protocol.js` 的解析链）——越界值令门面响亮失败。
@@ -561,10 +575,10 @@ function isSelectableProtocol(value) {
   }
 }
 
-/** 解析 `agent start <instance-id> [--role r] [--model m] [--tools on|off] [--permission allow|deny] [--protocol rpc|acp]`。 */
+/** 解析 `agent start <instance-id> [--role r] [--model m] [--tools on|off] [--permission allow|deny] [--protocol rpc|acp] [--approval-mode always-ask|yolo]`。 */
 function parseAgentArgs(restArgs) {
   const args = Array.isArray(restArgs) ? restArgs : [];
-  const parsed = { role: null, model: null, tools: null, permission: 'allow', protocol: null };
+  const parsed = { role: null, model: null, tools: null, permission: 'allow', protocol: null, approvalMode: null };
   for (let i = 1; i < args.length; i += 1) {
     const flag = args[i];
     const value = args[i + 1];
@@ -592,6 +606,13 @@ function parseAgentArgs(restArgs) {
         return { ok: false, reason: `--permission 仅支持 allow|deny: ${JSON.stringify(value)}` };
       }
       parsed.permission = value;
+    } else if (flag === '--approval-mode') {
+      // §5.1 取值域（两值；`write` / `tier` 不入域）：非法 ⇒ 退出 2 并点名该值，**不静默回落**（F02 验收 4 / MI-01）；
+      // 未给该 flag ⇒ `null`（交解析链，不在本层注入默认值 —— 默认档的真源是唯一汇聚点）
+      if (value !== 'always-ask' && value !== 'yolo') {
+        return { ok: false, reason: `--approval-mode 仅支持 always-ask|yolo: ${JSON.stringify(value)}` };
+      }
+      parsed.approvalMode = value;
     } else {
       // 取值域由唯一注入点给出（本层零字面）；未指定 ⇒ null，交解析链，不自行落默认
       if (value === '' || !isSelectableProtocol(value)) {
@@ -627,7 +648,15 @@ export default async function startAgent(restArgs) {
     process.stderr.write(`oamp: agent start: ${args.reason}\n`);
     return 2;
   }
-  const { instanceId, role: explicitRole, model: modelOverride, tools: cliTools, permission, protocol: protocolOverride } = args;
+  const {
+    instanceId,
+    role: explicitRole,
+    model: modelOverride,
+    tools: cliTools,
+    permission,
+    protocol: protocolOverride,
+    approvalMode: approvalOverride, // 唯一汇聚点的第 2 档输入
+  } = args;
 
   let config;
   try {
@@ -657,12 +686,32 @@ export default async function startAgent(restArgs) {
   const envModel = readEnvModel();
 
   const logger = createEventLog({ role: 'agent' });
+  // §5.3 唯一注入点（L2）：常驻 resident 的解析结果。`model` 按**建键轮**解析——池在该 chat 首轮懒建会话
+  // ⇒ 该轮模型随进程启动（既有行为：首轮模型的 --model 落进 spawn argv）；`tools` / `roleFile` / `permission` /
+  // 档位输入随实例固化（§4.3/§4.4/§3.2/§5.1）。装配器不含 argv / 协议取值知识（argv 真源 = L1，选择真源 = L2）。
+  let residentModel = envModel || modelOverride || config.defaultModel; // 建键轮之前 = 启动解析值
+  const makeLayer = (spec) => createProtocolLayer({ resident: spec, bin: OMP_BIN(), cwd: process.cwd(), logger });
+  const residentSpec = {
+    protocol: protocolOverride, // 角色级档位（--protocol）；未指定 = null ⇒ 交解析链（env > config.json > 内置）
+    configProtocol: config.protocol,
+    approval: approvalOverride, // 显式档位（--approval-mode）；未指定 = null ⇒ 交解析链（S5.1 第 2 档）
+    configApproval: config.approval, // 解析链第 3 档（config.json 第 5 键）
+    get model() {
+      return residentModel;
+    },
+    roleFile,
+    tools: effectiveTools,
+    permission,
+  };
+  // 档位在门面内求值一次并写回 `residentSpec.approval` ⇒ AGENT_START 的声明与 argv 面的取值同源（F11 验收 2）
+  const layer = makeLayer(residentSpec);
   logger.event('AGENT_START', {
     instance: instanceId,
     role,
     model: envModel || modelOverride || config.defaultModel, // §4.2：该实例的解析结果（payload 层不参与启动行）
     tools: effectiveTools ? 'on' : 'off',
     permission,
+    approval: residentSpec.approval, // §5.3 档位声明的可读面（与 argv 的 --approval-mode 值同源）
     role_file: roleFile,
   });
   if (role !== null) logger.event('ROLE_BOUND', { role, file: roleFile, source: roleSource });
@@ -674,21 +723,6 @@ export default async function startAgent(restArgs) {
   // §5.3（pr-002）：确认项 pending 表（confirmation_id → {chatId, origin, resolve}）——进程级；挂起的唯一载体是
   // 钩子返回的未结算 Promise，本表只负责「裁决（信封 2）/ 失效（信封 3）时找到它」。
   const pending = new Map();
-  // §5.3 唯一注入点（L2）：常驻 resident 的解析结果。`model` 按**建键轮**解析——池在该 chat 首轮懒建会话
-  // ⇒ 该轮模型随进程启动（既有行为：首轮模型的 --model 落进 spawn argv）；`tools` / `roleFile` / `permission`
-  // 随实例固化（§4.3/§4.4/§3.2）。装配器不含 argv / 协议取值知识（argv 真源 = L1，选择真源 = L2）。
-  let residentModel = envModel || modelOverride || config.defaultModel; // 建键轮之前 = 启动解析值
-  const makeLayer = (spec) => createProtocolLayer({ resident: spec, bin: OMP_BIN(), cwd: process.cwd(), logger });
-  const layer = makeLayer({
-    protocol: protocolOverride, // 角色级档位（--protocol）；未指定 = null ⇒ 交解析链（env > config.json > 内置）
-    configProtocol: config.protocol,
-    get model() {
-      return residentModel;
-    },
-    roleFile,
-    tools: effectiveTools,
-    permission,
-  });
   // §6.1~§6.4：chat 维度常驻上下文池（omp-daemon 路径）；提示出口 = 当前连接（重连后自动指向新 client）
   const pool = new ContextPool({
     max: config.contextMax,
@@ -697,6 +731,9 @@ export default async function startAgent(restArgs) {
     onNotice: (notice) => sendNotice(activeClient, logger, notice),
     // §5.3 信封 1（pr-002）：上浮钩子——**是否注入由 ContextPool 按 permission 档单点判定**（deny 档恒不注入）
     onPermissionRequest: (info) => raiseConfirmation(activeClient, logger, pending, info),
+    // §5.1 提问钩子（T-03）：**恒注入**（与 permission 解耦——deny 实例的提问同样上浮）；与门钩子共用同一
+    // `raiseConfirmation` 与同一条 pending 表（差异只在信封字段来源：`requestKind`）
+    onQuestionRequest: (info) => raiseConfirmation(activeClient, logger, pending, info),
     // §4.5：会话身份随实例固化，经池的建会话调用交给实现（审计面 instance/role）
     role,
     permission,
@@ -715,7 +752,16 @@ export default async function startAgent(restArgs) {
     instanceId,
     // §5.3：一次性实现（L2 的无会话语义面）逐任务装配——模型与工具开关都是该轮解析值
     oneshotSession: ({ model, tools }) =>
-      makeLayer({ protocol: protocolOverride, configProtocol: config.protocol, model, roleFile, tools, permission }).createEphemeral(),
+      makeLayer({
+        protocol: protocolOverride,
+        configProtocol: config.protocol,
+        approval: approvalOverride,
+        configApproval: config.approval,
+        model,
+        roleFile,
+        tools,
+        permission,
+      }).createEphemeral(),
     // 建键轮解析位：池在首轮懒建常驻会话 ⇒ 该轮模型即常驻进程的启动模型
     resolveResidentModel: (model) => {
       residentModel = model;

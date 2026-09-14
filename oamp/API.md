@@ -915,6 +915,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
   "confirmations": [
     {
       "confirmation_id": "cfm-8f14e45f-ceea-467e-9b1e-2a1b0a3f9d21",
+      "request_kind": "permission",
       "chat_id": "chat-6f1c0b4e-1f5f-4a2b-9f0e-6af0f1cf2c33",
       "agent_id": "pb-dev",
       "tool": "bash",
@@ -925,6 +926,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
         { "option_id": "reject_once", "label": "拒绝一次" },
         { "option_id": "reject_always", "label": "总是拒绝" }
       ],
+      "multiple": false,
       "created_at": 1757750400000
     }
   ]
@@ -934,11 +936,13 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `confirmation_id` | string | 确认项 id（上游 agent 侧生成的关联 id；裁决回传的作用域锚点） |
-| `chat_id` | string \| null | 来源对话（可辨识来源；裁决文本非空时按此追加输入） |
+| `request_kind` | `"permission"` \| `"question"` | 确认项类别：`"question"` = 提问（作答走 `option_ids` + 自由文本）；缺字段 / 非字符串 / 域外值一律兜底 `"permission"`（既有审批面） |
+| `chat_id` | string \| null | 来源对话（可辨识来源；`permission` 类裁决文本非空时按此追加输入） |
 | `agent_id` | string \| null | 发起该确认请求的 agent 实例 id（裁决回传的收件方） |
-| `tool` | string \| null | 请求放行的工具名 |
-| `title` | string \| null | 该次工具调用的动作描述（上游已按 120 字符截断） |
+| `tool` | string \| null | 承载名：`permission` 类 = 请求放行的工具名；`question` 类 = 提问承载（`ask_user` / `ask`，未知为 `null`） |
+| `title` | string \| null | 展示正文：`permission` 类 = 该次工具调用的动作描述；`question` 类 = 问题文本（上游已按 120 字符截断） |
 | `options` | array | 请求方给出的选项集合**原样**（不筛选、不增补、不翻译）：`[{ option_id, label? }]`；`option_id` 是裁决唯一可提交的值 |
+| `multiple` | boolean | 是否多选（**仅 `request_kind:"question"` 的条目有意义**；`permission` 类不携带该键 ⇒ 读作 `false`）。取值 = 请求方给出的布尔值，缺失 / 非布尔 ⇒ `false`（不按类别改写） |
 | `created_at` | number | 登记时刻（毫秒时间戳） |
 
 - 列表顺序**不作承诺**（无排序语义、无分页）：条目存在性与字段内容一致即满足「重建一致」口径。
@@ -948,19 +952,22 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 
 ### 3.21 `POST /api/confirmations/<confirmation_id>/decision`
 
-提交一次裁决：`option_id` 必填（**服务端校验它在该条的 `options` 内**），`text` 可选（拒绝理由 / 补充说明）。
+提交一次裁决：`permission` 类提交 `option_id`（必填，**服务端校验它在该条的 `options` 内**）；`question` 类提交 `option_ids` 与 / 或 `text`（两者**至少一个非空**）。`text` 两类均可选（拒绝理由 / 补充说明）。
 
 **语义**：条目在**第一次**提交时即被原子取出并移出在途表 ⇒ 第二次提交同一 id 得 `404`（**非幂等、不重放**）；
-随后向该条的发出方回传 `notice{kind:"confirmation_decision", confirmation_id, option_id, text, chat_id}`；
-`text` 去空白后非空时，另向该 `chat_id` 追加一条输入并派发。文本**不参与**上游 ACP 应答——应答包只接受请求方给出的合法 `option_id`。
+随后向该条的发出方回传 `notice{kind:"confirmation_decision", confirmation_id, …, text, chat_id}`——载荷按 `request_kind` 分化：
+`permission` 类携 `option_id`（**不含** `option_ids`），`question` 类携 `option_ids`（与提交值**同值同序**；**不含** `option_id`）。
+`permission` 类下 `text` 去空白后非空时，另向该 `chat_id` 追加一条输入并派发（`question` 类**不**追加：提问的作答不落成对话消息）。
+`text` 两类均按去空白后的值回传。文本**不参与**上游 ACP 应答——应答包只接受请求方给出的合法选项。
 
 **参数**
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
 | `confirmation_id` | string | **是** | — | 路径参数：目标确认项 id；不在在途表（已裁决 / 已失效 / 从未存在）→ `404`（**同一码，不区分**） |
-| `option_id` | string | **是** | — | 用户选中的选项 id；缺失 / 非字符串 / **不在该条 `options` 内** → `400`，且条目**保留在途** |
-| `text` | string | 否 | `""` | 可选文本；去空白后为空则不追加输入（空白可提交，客户端不做必填校验） |
+| `option_id` | string | 按类 | — | `permission` 类**必填**：用户选中的选项 id；缺失 / 非字符串 / **不在该条 `options` 内** → `400`，且条目**保留在途**（`question` 类不读该键） |
+| `option_ids` | array | 按类 | `[]` | `question` 类：用户选中的选项 id **数组**；须为字符串数组、**⊆ 该条 `options`** 且与 `text` **至少一个非空**，否则 → `400`，且条目**保留在途**（键缺失 = 空数组；键出现但非字符串数组同样 `400`） |
+| `text` | string | 否 | `""` | 可选文本；去空白后为空 = 未填（`question` 类下不可与 `option_ids` 同时为空；`permission` 类下为空则不追加输入）。两类均按去空白后的值回传 |
 
 **成功响应** `200`
 
@@ -975,7 +982,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 
 | `code` | HTTP | 触发条件 | `error` 形态 |
 |---|---|---|---|
-| `INVALID_PARAM` | 400 | `option_id` 缺失 / 非字符串 / 不在该条的选项集合内 | `option_id 缺失 / 非字符串 / 不在该条的选项集合内` |
+| `INVALID_PARAM` | 400 | `permission` 类：`option_id` 缺失 / 非字符串 / 不在该条 `options` 内；`question` 类：`option_ids` 非字符串数组 / 含该条 `options` 之外的取值 / 与 `text` 同时为空 | `option_id 缺失 / 非字符串 / 不在该条的选项集合内`；`option_ids` 须为字符串数组、⊆ 该条的选项集合，且与 text 至少一个非空 |
 | `NOT_FOUND` | 404 | `confirmation_id` 不在在途表 | `确认项不存在: cfm-…` |
 
 - 回传为 best-effort：请求方实例离线时不改变本接口的 `200`（裁决已受理；「回传是否送达」不伪装成「裁决是否成功」）。
@@ -1001,7 +1008,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 |---|---|---|
 | `agent_online` | `{instance_id, last_heartbeat}` | 一个实例从「不在线」变为 `online`（新注册 / 恢复） |
 | `agent_offline` | `{instance_id}` | 一个实例从「在线」变为不在线（优雅注销，或判活超时被判离线） |
-| `confirmation` | `{confirmation_id, chat_id, agent_id, tool, title, options, created_at}` | 一条确认请求**首次**进入 web 进程在途表时（**恰一帧**）；`data` 与 §3.20 的列表元素**同形状**。重建（§3.20）**不发帧** ⇒ 刷新 / 重连不重复通知 |
+| `confirmation` | `{confirmation_id, request_kind, chat_id, agent_id, tool, title, options, multiple, created_at}` | 一条确认请求**首次**进入 web 进程在途表时（**恰一帧**）；`data` 与 §3.20 的列表元素**同形状**。重建（§3.20）**不发帧** ⇒ 刷新 / 重连不重复通知 |
 | `chat_state` | `{chat_id, state}` | 对话状态变化（与 §4.1 的 `chat_state` **同源同形**；服务端**不判**它算不算一类通知，`completed` / `failed` 的派生由前端完成） |
 
 - **判定源**：`router.status` 的 `state === "online"` 集合（注册表是唯一真源，不是日志、不是另一条推送通道）。

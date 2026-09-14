@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { AcpClient } from '../src/acp-client.js';
-import { buildArgv, PROFILES } from '../src/launcher.js';
+import { buildArgv } from '../src/launcher.js'; // 期望值真源 = L1（argv 全序；档位值由构造面入参给出）
 import { CAPABILITY_KEYS, ProtocolError } from '../src/protocol.js';
 
 // —— fake omp（acp 形态）：initialize / session/new（真实数组形态 configOptions）——
@@ -61,6 +61,20 @@ function elicit(sessionId, promptId, message, label, schema) {
 
 let serverSeq = 9000;
 const awaitingReply = new Map(); // 服务端请求 id -> { promptId, kind }
+let formsReplied = 0; // elicit_forms：已回包的形状数（全部回包后才结算该轮）
+// §5.5 提问面多问形状（逐字取自 A2 探针的 requestedSchema）：3 问 —— 单选 / 数组（多选）/ 单选 + 每题一个自由文本
+const ASK_DIALOG_SCHEMA = {
+  type: 'object',
+  properties: {
+    q0: { type: 'string', title: '优先保证哪一点？', oneOf: [{ const: '思考过程可见', title: '思考过程可见' }, { const: '工具调用可审批', title: '工具调用可审批' }] },
+    q0__other: { type: 'string', title: 'Other (type your own)' },
+    q1: { type: 'array', title: '要改哪些文件？', items: { anyOf: [{ const: 'web.js', title: 'web.js' }, { const: 'agent.js', title: 'agent.js' }] } },
+    q1__other: { type: 'string', title: 'Other (type your own)' },
+    q2: { type: 'string', title: '备注写什么？', oneOf: [{ const: '无', title: '无' }, { const: '有', title: '有' }] },
+    q2__other: { type: 'string', title: 'Other (type your own)' },
+  },
+  required: ['q0'],
+};
 
 const rl = readline.createInterface({ input: process.stdin });
 rl.on('line', (line) => {
@@ -113,6 +127,20 @@ rl.on('line', (line) => {
           ],
         },
       });
+      return;
+    }
+    if (MODE === 'elicit_forms') {
+      // §5.5 提问面四形状 + 未知形状：多问 askDialog / select / confirm / input / 未知（value.type=number）
+      elicit(sid, msg.id, 'Answer 3 questions', 'ask_dialog', ASK_DIALOG_SCHEMA);
+      elicit(sid, msg.id, '选一个', 'select_form', { type: 'object', properties: { value: { type: 'string', enum: ['单选A', '单选B'] } }, required: ['value'] });
+      elicit(sid, msg.id, '确认吗', 'confirm_form', { type: 'object', properties: { value: { type: 'boolean' } }, required: ['value'] });
+      elicit(sid, msg.id, '写点什么', 'input_form', { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] });
+      elicit(sid, msg.id, '未知形状', 'unknown_form', { type: 'object', properties: { value: { type: 'number' } }, required: ['value'] });
+      return;
+    }
+    if (MODE === 'elicit_dialog') {
+      // 仅多问形状（组内暂存 / 齐答判据的观测面）
+      elicit(sid, msg.id, 'Answer 3 questions', 'ask_dialog', ASK_DIALOG_SCHEMA);
       return;
     }
     if (MODE === 'elicit_other') {
@@ -253,6 +281,16 @@ rl.on('line', (line) => {
       elicit('sess-1', entry.promptId, 'Allow tool: bash', 'gate_3_after_terminal');
       return;
     }
+    if (MODE === 'elicit_dialog') {
+      // 多问形状：回包即结算该轮（“齐答后恰一次回包”由用例侧统计应答帧数判定）
+      send({ jsonrpc: '2.0', id: entry.promptId, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
+    if (MODE === 'elicit_forms') {
+      formsReplied += 1;
+      if (formsReplied >= 5) send({ jsonrpc: '2.0', id: entry.promptId, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
     if (entry.label === 'ask_dialog') return; // 等第二道非审批询问答完再结算
     if (MODE === 'suspend_pair' || MODE === 'suspend_pair_hang') {
       pairReplies += 1;
@@ -340,7 +378,8 @@ test('F04/AR-08/AR-09：tools=true → argv 不含 --no-tools；缺省/false →
   await startClient(clients, on.bin, { tools: true });
   const onArgv = readJsonLines(on.argsLog)[0];
   // 期望值真源 = L1 的 omp:acp profile（argv 全序逐位比对；本文件不复写 profile 形态的期望数组）
-  assert.deepEqual(onArgv, buildArgv('omp:acp', { tools: { mode: 'allow' } }));
+  // 档位段 = 已解析档位（构造面入参；本用例未给 ⇒ 不追加，§0.4 契约 1）
+  assert.deepEqual(onArgv, buildArgv('omp:acp', { tools: { mode: 'allow' }, approval: null }));
   assert.ok(!onArgv.includes('--no-tools'), 'tools=true 不得传 --no-tools');
   for (const flag of ['--no-skills', '--no-rules', '--no-session']) {
     assert.ok(onArgv.includes(flag), `argv 应恒含 ${flag}`);
@@ -349,14 +388,14 @@ test('F04/AR-08/AR-09：tools=true → argv 不含 --no-tools；缺省/false →
   const dflt = writeFake('allow');
   await startClient(clients, dflt.bin, {});
   const dfltArgv = readJsonLines(dflt.argsLog)[0];
-  assert.deepEqual(dfltArgv, buildArgv('omp:acp'), '缺省档 argv 全序 = omp:acp profile 期望值');
+  assert.deepEqual(dfltArgv, buildArgv('omp:acp', { approval: null }), '缺省档 argv 全序 = omp:acp profile 期望值');
   assert.ok(dfltArgv.includes('--no-tools'), '缺省（既有 5 键调用方）必须沿用 --no-tools');
   assert.ok(!dfltArgv.includes('--append-system-prompt'), '未传 roleFile 不得出现注入参数');
 
   const off = writeFake('allow');
   await startClient(clients, off.bin, { tools: false });
   const offArgv = readJsonLines(off.argsLog)[0];
-  assert.deepEqual(offArgv, buildArgv('omp:acp', { tools: { mode: 'off' } }));
+  assert.deepEqual(offArgv, buildArgv('omp:acp', { tools: { mode: 'off' }, approval: null }));
   assert.ok(offArgv.includes('--no-tools'), 'tools=false 必须传 --no-tools');
 });
 
@@ -371,7 +410,7 @@ test('F02/AR-04：roleFile → argv 含 --append-system-prompt <绝对路径>', 
 
   await startClient(clients, fake.bin, { tools: true, roleFile });
   const argv = readJsonLines(fake.argsLog)[0];
-  assert.deepEqual(argv, buildArgv('omp:acp', { roleFile, tools: { mode: 'allow' } }), 'argv 全序 = omp:acp profile 期望值');
+  assert.deepEqual(argv, buildArgv('omp:acp', { roleFile, tools: { mode: 'allow' }, approval: null }), 'argv 全序 = omp:acp profile 期望值');
   const idx = argv.indexOf('--append-system-prompt');
   assert.ok(idx >= 0, 'argv 应含 --append-system-prompt');
   assert.equal(argv[idx + 1], roleFile);
@@ -566,33 +605,29 @@ test('§12.2 契约 1：onPermissionRequest 优先于静态 permission', async (
 
 // ─────────── pr-007（阶段 6 返工）：argv 档位映射（§4.4 主机制）+ `tool_call` 通知 → TOOL_CALL（§4.5） ───────────
 
-test('§4.4/L1-2②/pr-001①：tools=true 时两档 argv 恒为 --approval-mode always-ask（tools=off/匿名不变）', async (t) => {
+test('§5.1/T-05：档位段 = 构造面传入的**已解析档位**（两档跟随；tools 关 / 缺省不追加）', async (t) => {
   const clients = withClients(t);
-
-  const allow = writeFake('allow');
-  await startClient(clients, allow.bin, { tools: true, permission: 'allow' });
-  const allowArgv = readJsonLines(allow.argsLog)[0];
-  const allowIdx = allowArgv.indexOf('--approval-mode');
-  assert.ok(allowIdx >= 0, 'allow 档必须追加 --approval-mode');
-  assert.equal(allowArgv[allowIdx + 1], PROFILES['omp:acp'].approval.mode, 'yolo 档下 omp 不发权限请求（实测 M1）⇒ 上浮无来源');
-  assert.ok(!allowArgv.includes('--no-tools'));
-
-  const deny = writeFake('allow');
-  await startClient(clients, deny.bin, { tools: true, permission: 'deny' });
-  const denyArgv = readJsonLines(deny.argsLog)[0];
-  assert.equal(denyArgv[denyArgv.indexOf('--approval-mode') + 1], PROFILES['omp:acp'].approval.mode);
-
-  const off = writeFake('allow');
-  await startClient(clients, off.bin, { tools: false, permission: 'deny' });
-  const offArgv = readJsonLines(off.argsLog)[0];
-  assert.ok(!offArgv.includes('--approval-mode'), 'tools=false ⇒ 档位无意义，不得追加');
-  assert.ok(offArgv.includes('--no-tools'));
-
-  const anon = writeFake('allow');
-  await startClient(clients, anon.bin, {});
-  const anonArgv = readJsonLines(anon.argsLog)[0];
-  assert.ok(!anonArgv.includes('--approval-mode'), '缺省（匿名实例）⇒ 不追加');
-  assert.ok(anonArgv.includes('--no-tools'));
+  // 档位值由唯一汇聚点解析（本文件只判「消费面」：给什么落什么，不给不落）——tools 开时随入参变，不再是恒值
+  const cases = [
+    { name: 'tools 开 + always-ask', opts: { tools: true, approval: 'always-ask' }, expect: 'always-ask' },
+    { name: 'tools 开 + yolo', opts: { tools: true, approval: 'yolo' }, expect: 'yolo' },
+    { name: 'tools 开 + deny 档的解析结果', opts: { tools: true, permission: 'deny', approval: 'always-ask' }, expect: 'always-ask' },
+    { name: 'tools 关（档位无意义）', opts: { tools: false, approval: 'always-ask' }, expect: null },
+    { name: '缺省（匿名实例）', opts: {}, expect: null },
+  ];
+  for (const item of cases) {
+    const fake = writeFake('allow');
+    await startClient(clients, fake.bin, item.opts);
+    const argv = readJsonLines(fake.argsLog)[0];
+    const at = argv.indexOf('--approval-mode');
+    assert.equal(at === -1 ? null : argv[at + 1], item.expect, `${item.name}: 档位段`);
+    assert.deepEqual(
+      argv,
+      buildArgv('omp:acp', { tools: { mode: item.opts.tools ? 'allow' : 'off' }, approval: item.opts.tools ? item.opts.approval ?? null : null }),
+      `${item.name}: argv 全序 = omp:acp profile + 已解析档位`,
+    );
+    assert.equal(argv.includes('--no-tools'), !item.opts.tools, `${item.name}: 工具开关与 --no-tools 同向`);
+  }
 });
 
 test('§4.5/pr-007③：同 id 多帧（pending→in_progress→completed）⇒ 恰 1 行；两次调用 ⇒ 恰 2 行（字段齐全）', async (t) => {
@@ -1045,19 +1080,104 @@ test('M4/C2+C4：放行凭据只抵扣紧随其后的一个审批门——窗口
   assert.deepEqual(gateCalls, ['write', 'bash'], 'C2/C4：只有无关门与终态后的门走上浮（自己的门被凭据抵扣 ⇒ 钩子零调用）');
 });
 
-test('M4/C5：非审批形状的 elicitation（ask 型 askDialog / boolean confirm）仍一律 decline', async (t) => {
+// ─────────── §5.5（pr-001 T-06）：提问面 elicitation 的形状映射与组内暂存 ───────────
+
+test('§5.5/pr-001②：四形状拆问（一问一条）+ 单值回包承载；未知形状仍 decline（L2-6）', async (t) => {
   const clients = withClients(t);
-  const fake = writeFake('elicit_other');
+  const fake = writeFake('elicit_forms');
+  // 逐问的作答序列（顺序 = 上浮顺序）：q0 单选 / q1 多选 / q2 仅文本 / select（选项优先）/ confirm / input
+  const answers = [
+    { optionIds: ['思考过程可见'], text: 'q0 的补充' },
+    { optionIds: ['web.js', 'agent.js'], text: 'q1 的补充' },
+    { optionIds: [], text: 'q2 的备注' },
+    { optionIds: ['单选A'], text: '这段文本应被选项优先顶掉' },
+    { optionIds: ['是'], text: '' },
+    { optionIds: [], text: '自由文本' },
+  ];
+  const calls = [];
   const client = await startClient(clients, fake.bin, {
     tools: true,
     permission: 'allow',
-    onPermissionRequest: () => 'allow', // 钩子恒放行：以此证明 decline 由「非审批形状」决定，而非钩子没给值
+    approval: 'always-ask',
+    onQuestionRequest: (info) => {
+      calls.push(info);
+      return Promise.resolve(answers[calls.length - 1]);
+    },
   });
   const result = await client.prompt('向用户提问');
   assert.equal(result.stop_reason, 'end_turn');
+
+  // 一问一条：多问帧 ⇒ 3 次上浮（各自一条目）；单值形状各 1 次 ⇒ 共 6 次
+  assert.deepEqual(
+    calls,
+    [
+      { requestKind: 'question', question: '优先保证哪一点？', options: [{ optionId: '思考过程可见', label: '思考过程可见' }, { optionId: '工具调用可审批', label: '工具调用可审批' }], multiple: false },
+      { requestKind: 'question', question: '要改哪些文件？', options: [{ optionId: 'web.js', label: 'web.js' }, { optionId: 'agent.js', label: 'agent.js' }], multiple: true },
+      { requestKind: 'question', question: '备注写什么？', options: [{ optionId: '无', label: '无' }, { optionId: '有', label: '有' }], multiple: false },
+      { requestKind: 'question', question: '选一个', options: [{ optionId: '单选A' }, { optionId: '单选B' }], multiple: false },
+      { requestKind: 'question', question: '确认吗', options: [{ optionId: '是', label: '是' }, { optionId: '否', label: '否' }], multiple: false },
+      { requestKind: 'question', question: '写点什么', options: [], multiple: false },
+    ],
+    '拆问结果逐条：问题文本取自 q{i}.title / message；选项取自 oneOf.const 或 items.anyOf',
+  );
+
   const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
-  assert.deepEqual(replies.map((f) => f.label), ['ask_dialog', 'confirm_boolean']);
-  for (const reply of replies) {
-    assert.deepEqual(reply.result, { action: 'decline' }, `非审批 elicitation（${reply.label}）不得被本轮改动误答 Approve`);
-  }
+  const byLabel = new Map(replies.map((reply) => [reply.label, reply.result]));
+  assert.deepEqual([...byLabel.keys()].sort(), ['ask_dialog', 'confirm_form', 'input_form', 'select_form', 'unknown_form'], '五帧各回包恰一次（按形状归位）');
+  // 多问形状：齐答后**恰一次**回包，content 逐问承载（q{i} + q{i}__other；单选未选 ⇒ 空串）
+  assert.deepEqual(byLabel.get('ask_dialog'), {
+    action: 'accept',
+    content: { q0: '思考过程可见', q0__other: 'q0 的补充', q1: ['web.js', 'agent.js'], q1__other: 'q1 的补充', q2: '', q2__other: 'q2 的备注' },
+  });
+  // 单值形状：选项优先（select 的文本被顶掉）/ confirm ⇒ boolean / input ⇒ 文本
+  assert.deepEqual(byLabel.get('select_form'), { action: 'accept', content: { value: '单选A' } });
+  assert.deepEqual(byLabel.get('confirm_form'), { action: 'accept', content: { value: true } });
+  assert.deepEqual(byLabel.get('input_form'), { action: 'accept', content: { value: '自由文本' } });
+  // 未知形状：沿用既有保守口径（不代答产品外的提问）
+  assert.deepEqual(byLabel.get('unknown_form'), { action: 'decline' });
+});
+
+test('§5.5/pr-001②（L1-5）：多问帧组内暂存——齐答前不回包、该轮不推进；挂起无超时', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_dialog');
+  const releases = [];
+  const client = await startClient(clients, fake.bin, {
+    tools: true,
+    permission: 'allow',
+    approval: 'always-ask',
+    onQuestionRequest: () => new Promise((resolve) => releases.push(resolve)),
+  });
+  const replies = () => readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+
+  const inflight = client.prompt('一次三问', { timeoutMs: 200 });
+  await waitFor(() => releases.length === 3, '多问帧的三次上浮均已发起');
+  await sleep(500); // 远超轮次预算：挂起期冻结计时 ⇒ 不 cancel、不 kill
+  assert.equal(client.dead, false, '挂起期不得 kill 子进程');
+  assert.equal(readJsonLines(fake.framesLog).filter((f) => f.frame === 'session/cancel').length, 0, '挂起期不得 cancel');
+  assert.equal(replies().length, 0, '齐答前不得回包（该轮不推进）');
+
+  // 逐问作答：仍未齐答 ⇒ 依旧不回包
+  releases[0]({ optionIds: ['思考过程可见'], text: '' });
+  releases[1]({ optionIds: [], text: 'q1' });
+  await sleep(120);
+  assert.equal(replies().length, 0, '未齐答 ⇒ 不回包、该轮不推进');
+
+  releases[2]({ optionIds: ['有'], text: '' });
+  const result = await inflight;
+  assert.equal(result.stop_reason, 'end_turn', '齐答后该轮继续');
+  assert.equal(replies().length, 1, '齐答后恰一次回包');
+  assert.deepEqual(replies()[0].result, {
+    action: 'accept',
+    content: { q0: '思考过程可见', q0__other: '', q1: [], q1__other: 'q1', q2: '有', q2__other: '' },
+  });
+});
+
+test('§5.5/pr-001②（离线边界）：无提问收件人 ⇒ 既有 decline，不吊死该轮', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('elicit_dialog');
+  const client = await startClient(clients, fake.bin, { tools: true, permission: 'allow', approval: 'always-ask' });
+  const result = await client.prompt('一次三问');
+  assert.equal(result.stop_reason, 'end_turn');
+  const replies = readJsonLines(fake.framesLog).filter((f) => f.frame === 'server_request_reply');
+  assert.deepEqual(replies.map((f) => f.result), [{ action: 'decline' }], '未配置提问钩子 ⇒ 保守拒绝（不代答）');
 });

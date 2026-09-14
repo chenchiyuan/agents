@@ -21,15 +21,18 @@ export class ContextPool {
    * @param {function|null} [opts.onNotice] ({chatId, kind, text, origin}) => void；上下文事件提示出口
    * @param {function|null} [opts.onPermissionRequest] (info) => 'allow'|'deny'|{optionId}|Promise<…>；确认面上浮钩子
    *   （§5.3 信封 1，pr-002）；**仅 `permission === 'allow'` 档**注入（`deny` 档恒不注入）
+   * @param {function|null} [opts.onQuestionRequest] (info) => Promise<{optionIds, text}>；**提问**面上浮钩子（§5.1 / T-03）——
+   *   **恒注入**（与 `permission` 解耦：`deny` 实例的提问同样上浮，工具门仍零注入）；入参附加会话身份后透传
    * @param {string|null} [opts.role]      绑定角色（会话身份字段，§4.5）；null = 匿名实例
    * @param {'allow'|'deny'} [opts.permission] permission 档（§4.4）；缺省 allow
    */
-  constructor({ max = 8, createResident, logger = null, onNotice = null, onPermissionRequest = null, role = null, permission = 'allow' }) {
+  constructor({ max = 8, createResident, logger = null, onNotice = null, onPermissionRequest = null, onQuestionRequest = null, role = null, permission = 'allow' }) {
     this.max = max;
     this.createResident = createResident;
     this.logger = logger;
     this.onNotice = onNotice;
     this.onPermissionRequest = onPermissionRequest;
+    this.onQuestionRequest = onQuestionRequest;
     this.role = role;
     this.permission = permission;
     this.sessions = new Map(); // key -> ContextSession；Map 迭代序 = LRU 序（取用后重新 set 置尾）
@@ -194,6 +197,12 @@ class ContextSession {
       this.pool.permission === 'allow' && typeof this.pool.onPermissionRequest === 'function'
         ? (info) => this.pool.onPermissionRequest({ ...info, chatId: this.chatId, agentId: this.agentId, origin: this.lastOrigin })
         : null;
+    // §5.1 提问钩子（T-03）：**恒注入**（与 permission 档解耦——`deny` 实例的提问仍须上浮；工具门零注入的判定在上方，
+    // 逐字保留）；会话身份（chatId / agentId / 该轮 origin）与门钩子同法附加后透传。
+    const onQuestion =
+      typeof this.pool.onQuestionRequest === 'function'
+        ? (info) => this.pool.onQuestionRequest({ ...info, chatId: this.chatId, agentId: this.agentId, origin: this.lastOrigin })
+        : null;
     const client = await this.pool.createResident({
       chatId: this.chatId,
       agentId: this.agentId,
@@ -201,6 +210,7 @@ class ContextSession {
       hooks: {
         onPermissionRequest: onRequest,
         onApproval: onRequest,
+        onQuestionRequest: onQuestion,
         onExit: () => this._onClientExit(),
         // §4.5/§12.2 契约 1：context_id = ctx-<pid>-<generation> 依赖 spawn 后的 pid ⇒ 取值器惰性解析
         get contextId() {
