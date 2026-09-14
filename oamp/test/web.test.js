@@ -589,7 +589,11 @@ test('Web：model 透传与审计（payload 含该值 / out.model = ACP 实报�
   assert.equal(first.detail.messages[1].model, 'alpha/model-a');
   const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const acpArgv = argvs.find((a) => a[0] === 'acp');
-  assert.deepEqual(acpArgv, buildArgv('omp:acp', { model: 'alpha/model-a' }), 'argv = omp:acp profile 期望值：进程启动模型 = resident 的模型解析值（该建键轮的请求 model）');
+  assert.deepEqual(
+    acpArgv,
+    buildArgv('omp:acp', { model: 'alpha/model-a', approval: null }), // 该实例 tools off ⇒ 无档位段
+    'argv 全序 = omp:acp profile 期望值：进程启动模型 = resident 的模型解析值（该建键轮的请求 model）',
+  );
 
   // ② 同 chat 未带 model → 默认链在 agent 侧解析（web 不注入默认值）；切换不重建进程
   const second = await sendAndWait(web, { chat_id: first.chatId, agent_id: 'dev-1', text: '第二轮' }, { rounds: 2 });

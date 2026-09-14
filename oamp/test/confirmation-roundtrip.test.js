@@ -18,8 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { startRouter, waitFor, stopAll, buildEnv } from './helpers/harness.js';
 import { startFakeNode } from './helpers/fake-node.js';
 import { ContextPool } from '../src/context-pool.js';
-import { createProtocolLayer } from '../src/protocol.js';
-import { PROFILES } from '../src/launcher.js';
+import { createProtocolLayer, resolveApproval } from '../src/protocol.js'; // 档位期望值真源 = 唯一汇聚点（§5.1）
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'oamp.js');
@@ -134,6 +133,27 @@ rl.on('line', (line) => {
   if (msg.method === 'session/prompt') {
     promptSeq += 1;
     if (CRASH_ON_PROMPT && promptSeq === CRASH_ON_PROMPT) { setTimeout(() => process.exit(3), 30); return; }
+    if (MODE === 'ask_dialog') {
+      // §5.5 多问形状（一帧 N 问；逐字取自 A2 探针 requestedSchema）：q0 单选（带 __other）/ q1 纯自由文本
+      const id = ++serverSeq;
+      awaiting.set(id, { promptId: msg.id, gatesLeft: 0, kind: 'question_form', index: ++gateSeq });
+      send({ jsonrpc: '2.0', id, method: 'elicitation/create', params: {
+        mode: 'form',
+        sessionId: lastSession,
+        message: 'Answer 2 questions',
+        requestedSchema: {
+          type: 'object',
+          properties: {
+            q0: { type: 'string', title: '先保证哪一点？', oneOf: [{ const: '选项一', title: '选项一' }, { const: '选项二', title: '选项二' }] },
+            q0__other: { type: 'string', title: 'Other (type your own)' },
+            q1: { type: 'string', title: '还有别的吗？', oneOf: [{ const: '有', title: '有' }, { const: '无', title: '无' }] },
+            q1__other: { type: 'string', title: 'Other (type your own)' },
+          },
+          required: ['q0'],
+        },
+      } });
+      return;
+    }
     if (MODE === 'plain') {
       chunk('done');
       reply(msg.id, { stopReason: 'end_turn', usage: {} });
@@ -165,6 +185,73 @@ process.on('exit', () => {
     /* 忽略 */
   }
 });
+
+/**
+ * fake omp（rpc 形态，默认链路）：ready → negotiate_protocol → set_host_tools 回执 → prompt 后一次
+ * `host_tool_call{ask_user}` → 等 `host_tool_result` → 终态帧。提问回路的端到端观测面（§5.4 / T-05）。
+ * 帧日志与 acp fake 共用同一 env 键（每轮只有一种形态在跑）：`frame` = 客户端→本进程帧；
+ * `rpc_host_tool_result` = 本进程收到的宿主工具回包（回包文本的逐字判据）。
+ */
+const FAKE_RPC_SOURCE = `#!/usr/bin/env node
+const readline = require('node:readline');
+const fs = require('node:fs');
+
+const argv = process.argv.slice(2);
+const send = (frame) => process.stdout.write(JSON.stringify(frame) + '\\n');
+const log = (entry) => {
+  if (!process.env.FAKE_ACP_FRAMES_LOG) return;
+  try { fs.appendFileSync(process.env.FAKE_ACP_FRAMES_LOG, JSON.stringify(entry) + '\\n'); } catch {}
+};
+try {
+  if (process.env.FAKE_ACP_ARGS_LOG) fs.appendFileSync(process.env.FAKE_ACP_ARGS_LOG, JSON.stringify(argv) + '\\n');
+} catch {}
+const QUESTION = process.env.FAKE_RPC_QUESTION || '优先级？';
+const terminal = () => send({
+  type: 'agent_end',
+  isTerminal: true,
+  messages: [{ role: 'user', content: 'q' }, { role: 'assistant', content: 'done', stopReason: 'stop', usage: {} }],
+});
+const rl = readline.createInterface({ input: process.stdin });
+rl.on('line', (line) => {
+  const raw = line.trim();
+  if (!raw) return;
+  let frame;
+  try { frame = JSON.parse(raw); } catch { return; }
+  log({ event: 'frame', frame });
+  if (frame.type === 'negotiate_protocol') {
+    send({ type: 'response', command: 'negotiate_protocol', success: true, data: { protocolVersion: frame.protocolVersion } });
+    return;
+  }
+  if (frame.type === 'set_host_tools') {
+    send({ type: 'response', command: 'set_host_tools', success: true, data: { toolNames: frame.tools.map((tool) => tool.name) } });
+    return;
+  }
+  if (frame.type === 'prompt') {
+    send({ type: 'response', command: 'prompt', success: true, id: frame.id });
+    setTimeout(() => send({
+      type: 'host_tool_call',
+      id: 'h-1',
+      toolCallId: 'tc-1',
+      toolName: 'ask_user',
+      arguments: { question: QUESTION, options: ['高', '低'], multiple: true },
+    }), 20);
+    return;
+  }
+  if (frame.type === 'host_tool_result') {
+    log({ event: 'rpc_host_tool_result', frame });
+    setTimeout(terminal, 10);
+    return;
+  }
+  if (frame.type === 'abort') {
+    log({ event: 'abort', frame });
+    setTimeout(terminal, 10);
+  }
+});
+setTimeout(() => send({ type: 'ready', protocolVersion: 1, supportedProtocolVersions: [1, 2], maxReassembledFrameBytes: 67108864 }), 5);
+`;
+
+const FAKE_RPC_BIN = path.join(FAKE_DIR, 'fake-rpc.cjs');
+fs.writeFileSync(FAKE_RPC_BIN, FAKE_RPC_SOURCE, { mode: 0o755 });
 
 /** 读 JSONL 观测面（容忍并发写入的半行）。 */
 function readJsonl(file) {
@@ -247,14 +334,20 @@ async function startWeb(socketPath, instanceId = 'web-1') {
     /** §5.3 信封 2：裁决回传（option_id 由 web 侧校验必属该条 options）。 */
     decide: (to, confirmationId, optionId) =>
       node.send(to, envelope('notice', { kind: 'confirmation_decision', confirmation_id: confirmationId, option_id: optionId })),
+    /** §5.4 提问类回传（pr-001 侧）：`{option_ids, text}`（服务端校验归 pr-002）。 */
+    answerQuestion: (to, confirmationId, optionIds, text) =>
+      node.send(to, envelope('notice', { kind: 'confirmation_decision', confirmation_id: confirmationId, option_ids: optionIds, text })),
     results: (taskId) => node.received.filter((m) => m.type === 'task.result' && m.task_id === taskId).map(body),
     notices: (kind) => node.received.filter((m) => m.type === 'notice').map(body).filter((b) => !kind || b.kind === kind),
     stop: () => node.stop(),
   };
 }
 
-/** 每个端到端用例：独立 Router + 带 flag 的 agent 子进程（fake ACP 注入）+ 假 web 节点 + 临时观测目录。 */
-async function setup(t, { instanceId = 'pb-dev', flags = ['--tools', 'on', '--permission', 'allow'], env = {} } = {}) {
+/**
+ * 每个端到端用例：独立 Router + 带 flag 的 agent 子进程（按 `protocol` 注入对应 fake bin）+ 假 web 节点 + 临时观测目录。
+ * `protocol` 缺省 'acp'（本文件既有面的 fake）；'rpc' ⇒ 换 rpc 形态 fake（默认链路的提问回路观测面）。
+ */
+async function setup(t, { instanceId = 'pb-dev', protocol = 'acp', flags = ['--tools', 'on', '--permission', 'allow'], env = {} } = {}) {
   const dir = tmpDir(t, 'oamp-cfm-');
   const frames = path.join(dir, 'frames.jsonl');
   const argsLog = path.join(dir, 'args.jsonl');
@@ -262,7 +355,13 @@ async function setup(t, { instanceId = 'pb-dev', flags = ['--tools', 'on', '--pe
   t.after(() => stopAll([router]));
   const agent = startFlaggedAgent(instanceId, flags, {
     socketPath: router.socketPath,
-    envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_FRAMES_LOG: frames, FAKE_ACP_ARGS_LOG: argsLog, ...env },
+    envExtra: {
+      OAMP_PROTOCOL: protocol,
+      OAMP_OMP_BIN: protocol === 'rpc' ? FAKE_RPC_BIN : FAKE_BIN,
+      FAKE_ACP_FRAMES_LOG: frames,
+      FAKE_ACP_ARGS_LOG: argsLog,
+      ...env,
+    },
   });
   t.after(() => agent.stop());
   await agent.waitLine(new RegExp(`REGISTERED instance=${instanceId}`));
@@ -279,6 +378,8 @@ async function setup(t, { instanceId = 'pb-dev', flags = ['--tools', 'on', '--pe
     readArgs: () => readJsonl(argsLog),
     /** 本子进程收到的客户端应答帧（挂起/结算的帧级判据）。 */
     replyFrames: () => readFrames().filter((f) => f.frame === 'server_request_reply'),
+    /** rpc 形态：本子进程收到的宿主工具回包（`host_tool_result`）。 */
+    rpcResults: () => readFrames().filter((f) => f.event === 'rpc_host_tool_result').map((f) => f.frame),
     cancels: () => readFrames().filter((f) => f.frame === 'session/cancel'),
     /** 第 n 条信封 1（`confirmation_request`）。 */
     waitRequest: (n = 1) =>
@@ -410,7 +511,7 @@ test('T1③/PR-2：钩子返回未结算 Promise ⇒ 无应答帧（挂起）且
 
 // ────────────────────────── T2：上浮信封 1 ──────────────────────────
 
-test('T2①/PR-1：权限门上浮信封 1（8 字段齐备 + options 逐字）+ 挂起期无应答帧/无终态', async (t) => {
+test('T2①/PR-1：权限门上浮信封 1（9 字段齐备 + request_kind 兜底 + options 逐字）+ 挂起期无应答帧/无终态', async (t) => {
   const s = await setup(t, { env: { FAKE_ACP_MODE: 'permission' } });
   const task = await s.web.sendTask('pb-dev', { executor: 'omp-daemon', chat_id: 'chat-1', prompt: '跑一个受门禁工具' });
   const env1 = await s.waitRequest(1);
@@ -421,7 +522,14 @@ test('T2①/PR-1：权限门上浮信封 1（8 字段齐备 + options 逐字）+
   assert.equal(env1.tool, 'edit');
   assert.equal(env1.title, 'Edit /tmp/x-1');
   assert.equal(Number.isFinite(env1.created_at), true, 'created_at 必须是数字，不得依赖 web 侧兜底');
-  assert.deepEqual(Object.keys(env1).sort(), ['agent_id', 'chat_id', 'confirmation_id', 'created_at', 'kind', 'options', 'title', 'tool']);
+  // §5.2（pr-001）：信封恒 9 字段（既有 7 + 类别字段 `request_kind` + `multiple`）；门类条目按 `'permission'` 兜底
+  assert.deepEqual(
+    Object.keys(env1).sort(),
+    ['agent_id', 'chat_id', 'confirmation_id', 'created_at', 'kind', 'multiple', 'options', 'request_kind', 'title', 'tool'],
+  );
+  assert.equal(env1.request_kind, 'permission', '门类条目的类别字段（既有投递兼容）');
+  assert.equal(env1.multiple, false, '门类恒不多选');
+  assert.equal(env1.kind, 'confirmation_request', '通知判别键不得被信封字段覆盖');
   // options 逐字等于 ACP 请求帧（同顺序、同数量、option_id 逐字；label 取自 ACP 的 name）
   const frame = s.readFrames().find((f) => f.frame === 'permission_request');
   assert.deepEqual(
@@ -713,7 +821,7 @@ test('T5②/PR-7：一次性路径零改动（argv 仍含 --approval-mode yolo�
   const oneShot = s.readArgs().find((a) => a.includes('-p'));
   assert.ok(oneShot, '一次性路径应 spawn `omp -p`');
   assert.ok(!oneShot.includes('acp'));
-  assert.equal(oneShot[oneShot.indexOf('--approval-mode') + 1], PROFILES['omp:oneshot'].approval.mode, '§4.4/W2-A：档位值取自 omp:oneshot profile 的 approval.mode（逐字 yolo）');
+  assert.equal(oneShot[oneShot.indexOf('--approval-mode') + 1], 'yolo', '§5.1 解析链④：无档位配置 ⇒ 一次性 argv 的档位段 = 内置默认 yolo');
   assert.equal(s.web.notices('confirmation_request').length, 0);
 });
 
@@ -743,4 +851,79 @@ test('T5⑤/PR-6：挂起时长超过轮次预算（timeout_ms=300）不被 canc
   await s.web.decide('pb-dev', env1.confirmation_id, 'allow_once');
   assert.equal((await s.waitResult(task.task_id)).state, 'completed', '裁决到达后按剩余预算续跑并结算');
   assert.equal(s.web.notices('confirmation_cancelled').length, 0);
+});
+
+// ────────── T6：提问回路端到端（pr-001 的文件范围 = 生产面；栏内可见 / 控件面归 pr-003） ──────────
+
+test('T6①/PR-8（rpc）：宿主工具提问上浮为 request_kind:question 信封；作答 ⇒ host_tool_result 回传 ⇒ 该轮继续', async (t) => {
+  const s = await setup(t, { protocol: 'rpc', env: { FAKE_RPC_QUESTION: '优先级？' } });
+  const task = await s.web.sendTask('pb-dev', { executor: 'omp-daemon', chat_id: 'chat-q', prompt: '问我一个问题' });
+  const env1 = await s.waitRequest(1);
+
+  // 信封形状：类别字段 + 问题文本 + 选项 + 是否多选（F04 验收 1 / F05 验收 1~4）
+  assert.equal(env1.kind, 'confirmation_request', '通知事件类型恒为 confirmation_request（零新类型 — F04 验收 3）');
+  assert.equal(env1.request_kind, 'question');
+  assert.equal(env1.title, '优先级？', 'title = 提问文本（逐字）');
+  assert.deepEqual(env1.options, [{ option_id: '高' }, { option_id: '低' }], '选项集合不增不减（option_id = label）');
+  assert.equal(env1.multiple, true, 'multiple 来自请求方');
+  assert.equal(env1.chat_id, 'chat-q');
+  assert.equal(env1.agent_id, 'pb-dev');
+  assert.ok(!('option_id' in env1), 'question 类信封不含 permission 侧键（两型不并存）');
+
+  // 挂起：未作答 ⇒ 该轮不推进、不回包（F08 验收 1/3）
+  await delay(250);
+  assert.equal(s.rpcResults().length, 0, '未作答 ⇒ 无宿主工具回包');
+  assert.equal(s.web.results(task.task_id).length, 0, '未作答 ⇒ 该轮无终态');
+
+  // 作答 ⇒ 回包文本按 L2-5 模板（选项 + 文本）⇒ 该轮继续并终态（F07 验收 1/2）
+  await s.web.answerQuestion('pb-dev', env1.confirmation_id, ['高'], '尽快');
+  const reply = await waitFor(() => s.rpcResults()[0] || null, { timeoutMs: 8000, what: 'host_tool_result 帧' });
+  assert.equal(reply.type, 'host_tool_result');
+  assert.equal(reply.id, 'h-1');
+  assert.deepEqual(
+    reply.result.content,
+    [{ type: 'text', text: '选项：高\n文本：尽快' }],
+    '选项与自由文本一并回传（question 类结算值走 {optionIds, text}；误走 permission 分支则文本必为空）',
+  );
+  assert.equal((await s.waitResult(task.task_id)).state, 'completed', '作答后该轮继续并正常终态');
+  assert.equal(s.web.notices('confirmation_cancelled').length, 0);
+});
+
+test('T6②/PR-8（acp）：一帧 N 问 ⇒ N 条独立条目；齐答前不推进、齐答后恰一次回包；未作答保持挂起且无超时', async (t) => {
+  const s = await setup(t, { env: { FAKE_ACP_MODE: 'ask_dialog' } });
+  const task = await s.web.sendTask('pb-dev', { executor: 'omp-daemon', chat_id: 'chat-2q', prompt: '一次问两件事', timeout_ms: 300 });
+  const first = await s.waitRequest(1);
+  const second = await s.waitRequest(2);
+
+  // 一问一条（F06 验收 1/4）：同帧两问 ⇒ 两个不同 id 的独立条目，各带自己的问题文本
+  assert.notEqual(first.confirmation_id, second.confirmation_id);
+  assert.deepEqual([first.title, second.title], ['先保证哪一点？', '还有别的吗？'], 'q{i}.title 逐问进条目');
+  assert.deepEqual([first.request_kind, second.request_kind], ['question', 'question']);
+  assert.deepEqual([first.multiple, second.multiple], [false, false]);
+  assert.deepEqual(second.options, [{ option_id: '有', label: '有' }, { option_id: '无', label: '无' }]);
+  assert.equal(s.web.notices('confirmation_request').length, 2, '恰 N 条（不是 1 条表单）');
+
+  // 未作答：挂起时长 > 轮次预算（300ms）⇒ 不超时、不 cancel、不 kill、不回包（F08 验收 1/2）
+  await delay(700);
+  assert.equal(s.cancels().length, 0, '挂起期不得 session/cancel');
+  assert.equal(s.replyFrames().length, 0, '未齐答 ⇒ 不回包');
+  assert.equal(s.web.results(task.task_id).length, 0, '未齐答 ⇒ 该轮不推进');
+
+  // 只答其一 ⇒ 仍未齐答 ⇒ 依旧不回包
+  await s.web.answerQuestion('pb-dev', first.confirmation_id, ['选项一'], '');
+  await delay(200);
+  assert.equal(s.replyFrames().length, 0, '未齐答 ⇒ 不回包、该轮不推进');
+  assert.equal(s.web.results(task.task_id).length, 0);
+
+  // 齐答 ⇒ 恰一次回包（content 按 q{i} / q{i}__other 承载）⇒ 该轮继续
+  await s.web.answerQuestion('pb-dev', second.confirmation_id, [], '自由文本');
+  const result = await s.waitResult(task.task_id);
+  assert.equal(result.state, 'completed', '齐答后该轮继续');
+  const replies = await waitFor(() => (s.replyFrames().length > 0 ? s.replyFrames() : null), { timeoutMs: 8000, what: '齐答后回包' });
+  assert.equal(replies.length, 1, '齐答后恰一次回包（组内暂存一次性收口）');
+  assert.deepEqual(
+    replies[0].reply,
+    { action: 'accept', content: { q0: '选项一', q0__other: '', q1: '', q1__other: '自由文本' } },
+    '逐问答案与自由文本一并承载（question 类结算值；误走 permission 分支则 q0 必为空）',
+  );
 });

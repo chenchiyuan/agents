@@ -556,7 +556,8 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   assert.equal(devArgv[devIdx + 1], ROLE_FILE_DEV, '注入值应为 <仓库根>/roles/dev/dev.md');
   assert.ok(path.isAbsolute(devArgv[devIdx + 1]), '注入值应为绝对路径');
   assert.ok(!devArgv.includes('--no-tools'), 'F04-2/AR-08：--tools on 不得传 --no-tools');
-  assert.equal(devArgv[devArgv.indexOf('--approval-mode') + 1], PROFILES['omp:acp'].approval.mode, '§4.4/L1-2②（pr-001）：常驻路径 tools on + allow 的 argv 恒为 --approval-mode always-ask（yolo 档不发权限请求）');
+  // §5.1 解析链（唯一汇聚点）：无显式档位、无 config 档 ⇒ 内置默认 yolo（既有 profile 取值不再承载档位）
+  assert.equal(devArgv[devArgv.indexOf('--approval-mode') + 1], 'yolo', '常驻路径 tools on + allow ⇒ argv 的档位段 = 解析值 yolo');
 
   // ② 角色实例 + --tools off：必须传 --no-tools（注入机制仍在）
   const plannerArgv = readJsonl(plannerArgs).find((a) => a[0] === ACP_MODE);
@@ -567,7 +568,7 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   const anonArgv = readJsonl(anonArgs).find((a) => a[0] === ACP_MODE);
   assert.deepEqual(
     anonArgv,
-    buildArgv('omp:acp', { model: 'deepseek/deepseek-v4-flash' }),
+    buildArgv('omp:acp', { model: 'deepseek/deepseek-v4-flash', approval: null }), // tools off ⇒ 无档位段（§0.4 契约 1）
     '§2.3 回归：无绑定实例 acp argv 逐字节不变（含 --no-tools，无角色注入；期望值由 omp:acp profile 产出）',
   );
 
@@ -578,21 +579,25 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   assert.ok(!devOneShot.includes(ACP_MODE), '一次性路径不应含 acp');
   assert.equal(devOneShot[devOneShot.indexOf('--append-system-prompt') + 1], ROLE_FILE_DEV, '一次性 argv 应注入同一角色文件');
   assert.ok(!devOneShot.includes('--no-tools'), '角色实例（tools on）一次性 argv 不传 --no-tools');
-  assert.equal(devOneShot[devOneShot.indexOf('--approval-mode') + 1], PROFILES['omp:oneshot'].approval.mode, '§4.4/pr-007②：allow 档一次性 argv 应含 --approval-mode yolo');
+  assert.equal(devOneShot[devOneShot.indexOf('--approval-mode') + 1], 'yolo', 'allow 档一次性 argv 的档位段 = 解析值 yolo（无显式档位 / 无 config 档）');
 
   // ⑤ 匿名实例一次性路径回归：仍传 --no-tools、无注入
   await sendAndWait(web, { chat_id: anonTurn.chatId, agent_id: 'dev-1', text: '请记住数字 7', one_shot: true }, { rounds: 2 });
   await waitFor(() => readJsonl(anonArgs).some((a) => a.includes(ONESHOT_MODE)), { what: 'dev-1 -p argv' });
   const anonOneShot = readJsonl(anonArgs).find((a) => a.includes(ONESHOT_MODE));
   assert.ok(anonOneShot.includes('--no-tools'), '§2.3 回归：匿名实例一次性 argv 仍含 --no-tools');
-  assert.ok(!anonOneShot.includes('--approval-mode'), '§2.3 回归：匿名实例（tools off）一次性 argv 无档位（档位由调用层按 permission × 工具开关合成，见 src/agent.js 一次性路径）');
+  assert.ok(!anonOneShot.includes('--approval-mode'), '§2.3 回归：匿名实例（tools off）一次性 argv 无档位段（档位只在工具开时落 argv）');
   assert.ok(!anonOneShot.includes('--append-system-prompt'), '§2.3 回归：匿名实例一次性 argv 无注入');
 
   // ⑥ 一次性路径 deny 档（§4.4/pr-007②）：--permission deny ⇒ --approval-mode always-ask
   await sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev-deny', text: '请记住数字 8', one_shot: true });
   await waitFor(() => readJsonl(denyArgs).some((a) => a.includes(ONESHOT_MODE)), { what: 'pb-dev-deny -p argv' });
   const denyOneShot = readJsonl(denyArgs).find((a) => a.includes(ONESHOT_MODE));
-  assert.equal(denyOneShot[denyOneShot.indexOf('--approval-mode') + 1], 'always-ask', '§4.4/pr-002 裁决（W2-A）：一次性档位由调用层合成（tools on + permission=deny ⇒ always-ask），不取 profile 值');
+  assert.equal(
+    denyOneShot[denyOneShot.indexOf('--approval-mode') + 1],
+    'always-ask',
+    '§5.1 解析链①：tools on + permission=deny ⇒ 解析值 always-ask（优先于显式档位；不取 profile 值）',
+  );
   assert.ok(!denyOneShot.includes('--no-tools'), 'tools on 的一次性 argv 不传 --no-tools');
 });
 

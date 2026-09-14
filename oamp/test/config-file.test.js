@@ -45,6 +45,8 @@ test('无配置文件：新增三键取内置默认，既有六键取值逐字�
     contextMax: 8,
     // §5.3 解析链（T-03）：无配置文件 + 无 env ⇒ 内置默认 rpc
     protocol: 'rpc',
+    // §5.1 第 5 键（T-07）：无配置文件 ⇒ 内置默认 yolo
+    approval: 'yolo',
   });
   assert.ok(path.isAbsolute(config.dbPath), 'dbPath 应为绝对路径（与 cwd 无关）');
 });
@@ -145,4 +147,19 @@ test('protocol 越界值 → 抛「OAMP 配置错误」（验收 9 / §5.3）', 
   assert.throws(() => loadConfig({ OAMP_CONFIG: missingConfig(), OAMP_PROTOCOL: 'bogus' }), /OAMP 配置错误/);
   const file = writeConfig(JSON.stringify({ protocol: 'bogus' }));
   assert.throws(() => loadConfig({ OAMP_CONFIG: file }), /OAMP 配置错误/);
+});
+
+test('approval 第 5 键：缺省 yolo / 显式 always-ask / 非法值响亮失败且点名该值（验收 4 / F02-1~4 / §5.1）', () => {
+  assert.equal(loadConfig({ OAMP_CONFIG: missingConfig() }).approval, 'yolo', '缺该键 ⇒ 内置默认 yolo');
+  assert.equal(loadConfig({ OAMP_CONFIG: writeConfig(JSON.stringify({ approval: 'yolo' })) }).approval, 'yolo');
+  assert.equal(loadConfig({ OAMP_CONFIG: writeConfig(JSON.stringify({ approval: 'always-ask' })) }).approval, 'always-ask');
+  // 域外值（含 `write` / `tier` 两个不存在的档）⇒ 拒绝启动并点名该值，绝不静默回落 yolo
+  for (const bogus of ['bogus', 'write', 'tier', '', 1]) {
+    const file = writeConfig(JSON.stringify({ approval: bogus }));
+    assert.throws(
+      () => loadConfig({ OAMP_CONFIG: file }),
+      new RegExp(`OAMP 配置错误: approval 仅支持 always-ask/yolo（当前值 ${JSON.stringify(bogus).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}）`),
+      `非法取值须点名: ${JSON.stringify(bogus)}`,
+    );
+  }
 });

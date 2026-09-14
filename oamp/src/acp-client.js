@@ -23,6 +23,9 @@ const DEFAULT_ALLOW_OPTION = 'allow_once'; // §5.4：放行侧默认项（同�
 const DEFAULT_DENY_OPTION = 'reject_once'; // §5.4：拒绝侧默认项（同步 'deny' 与非法 optionId 回落）
 const APPROVE_LABEL = 'Approve'; // M4：omp 第二道审批门（tool approval）的 elicitation 选项
 const DENY_LABEL = 'Deny';
+// §5.5/§12.1-Q-2（[user_confirmed MI-3]）：confirm 形状的条目选项恒为 是 / 否，回包承载为 boolean
+const CONFIRM_TRUE = '是';
+const CONFIRM_FALSE = '否';
 
 // 能力位（§5.7 的 acp 列逐字）：thinking 无（只接受 agent_message_chunk）、hostTools / queueControl 无。
 const ACP_CAPABILITY_VALUES = {
@@ -77,6 +80,98 @@ function readCurrentModel(result) {
 }
 
 /**
+ * §5.5 选项映射：`{const,title}` → `{optionId,label?}`（L2-4：`optionId` 取 `const`、`label` 取 `title`；
+ * 字段缺失时按「取不到即省略 / null」处理，不猜语义）。
+ */
+function readChoiceOption(choice) {
+  const raw = choice && typeof choice === 'object' ? choice : {};
+  const optionId = typeof raw.const === 'string' ? raw.const : null;
+  const label = typeof raw.title === 'string' && raw.title !== '' ? raw.title : undefined;
+  return label === undefined ? { optionId } : { optionId, label };
+}
+
+/**
+ * §5.5 映射表：`elicitation/create` 的**提问面**表单形状 → 拆问（每问一条）。
+ * 返回 `{group, items}`，`items[] = {key, title, options:[{optionId,label?}], multiple, otherKey, boolean}`；
+ * 未知形状 ⇒ null（调用方沿用既有 `decline`）。审批门（`properties.value.enum ⊇ {Approve,Deny}`）由调用方先行分流。
+ */
+function readQuestionForm(schema, message) {
+  const properties = schema && typeof schema.properties === 'object' && schema.properties !== null ? schema.properties : {};
+  const keys = Object.keys(properties).filter((key) => /^q\d+$/.test(key));
+  const text = typeof message === 'string' ? message : null;
+  if (keys.length > 0 && properties.value === undefined) {
+    // askDialog（多问）：`q0..q{N-1}` 每问一条；`message`（"Answer N questions"）不是问题正文 ⇒ 不进条目
+    keys.sort((left, right) => Number(left.slice(1)) - Number(right.slice(1)));
+    return {
+      group: true,
+      items: keys.map((key) => {
+        const question = properties[key] && typeof properties[key] === 'object' ? properties[key] : {};
+        const oneOf = Array.isArray(question.oneOf) ? question.oneOf : null;
+        const anyOf = question.items && Array.isArray(question.items.anyOf) ? question.items.anyOf : null;
+        return {
+          key,
+          title: typeof question.title === 'string' ? question.title : null,
+          options: (oneOf || anyOf || []).map((choice) => readChoiceOption(choice)),
+          multiple: anyOf !== null,
+          otherKey: `${key}__other`,
+          boolean: false,
+        };
+      }),
+    };
+  }
+  const value = properties.value && typeof properties.value === 'object' ? properties.value : null;
+  if (value === null) return null;
+  // 单值形状（select / confirm / input）：`message` 即问题正文
+  const single = { key: 'value', title: text, multiple: false, otherKey: null, boolean: false };
+  if (Array.isArray(value.enum)) {
+    return { group: false, items: [{ ...single, options: value.enum.map((optionId) => ({ optionId })) }] };
+  }
+  if (value.type === 'boolean') {
+    return {
+      group: false,
+      items: [
+        {
+          ...single,
+          options: [{ optionId: CONFIRM_TRUE, label: CONFIRM_TRUE }, { optionId: CONFIRM_FALSE, label: CONFIRM_FALSE }],
+          boolean: true,
+        },
+      ],
+    };
+  }
+  if (value.type === 'string') {
+    return { group: false, items: [{ ...single, options: [] }] };
+  }
+  return null;
+}
+
+/** 钩子结算值 → 选中项集合（缺键 / 非字符串数组 ⇒ 空集，不造值）。 */
+function readAnswerOptionIds(answer) {
+  return Array.isArray(answer.optionIds) ? answer.optionIds.filter((id) => typeof id === 'string' && id !== '') : [];
+}
+
+/** 钩子结算值 → 自由文本（缺键 ⇒ 空串；逐字保留，不 trim）。 */
+function readAnswerText(answer) {
+  return typeof answer.text === 'string' ? answer.text : '';
+}
+
+/** §5.5 线上回包 content：多问形状 ⇒ 逐问 `q{i}` + `q{i}__other`；单值形状 ⇒ `{value: 选项 ?? 文本}`（选项优先）。 */
+function readQuestionContent(form, answers) {
+  if (form.group) {
+    const content = {};
+    form.items.forEach((item, index) => {
+      const optionIds = readAnswerOptionIds(answers[index]);
+      // 数组型（multiple）⇒ 恒数组；单选型 ⇒ 单值（未选 ⇒ 空串，自由文本另由 `__other` 承载）
+      content[item.key] = item.multiple ? optionIds : optionIds.length > 0 ? optionIds[0] : '';
+      content[item.otherKey] = readAnswerText(answers[index]);
+    });
+    return content;
+  }
+  const optionIds = readAnswerOptionIds(answers[0]);
+  const chosen = optionIds.length > 0 ? optionIds[0] : readAnswerText(answers[0]);
+  return { value: form.items[0].boolean ? chosen === CONFIRM_TRUE : chosen };
+}
+
+/**
  * §4.5：`TOOL_CALL` 的 path 取值——`rawInput.path`，否则 `locations[0]` 的路径（对象 `{path}` 或字符串）。
  * 取不到 → null（调用方省略该键）。
  */
@@ -98,11 +193,14 @@ export class AcpClient {
    * @param {boolean} [opts.tools]       true = 不传 --no-tools（工具可用，§4.3）；缺省 false = 沿用 0011 argv
    * @param {string|null} [opts.roleFile] 角色定义绝对路径；非空 ⇒ argv 追加 --append-system-prompt（§3.2）
    * @param {'allow'|'deny'} [opts.permission] permission 策略（§4.4）；缺省 allow
+   * @param {string|null} [opts.approval] 已解析档位（唯一汇聚点输出，§5.1）；工具可用时落 argv，缺省 null
    * @param {object|null} [opts.auditContext] 审计身份字段（instance/role/chat_id/context_id，§4.5）
    * @param {object|null} [opts.logger]  createEventLog 实例（可选）
    * @param {function|null} [opts.onExit] 异常退出回调（主动 kill/close 不触发）
    * @param {function|null} [opts.onPermissionRequest] 动态策略钩子 (info) ⇒ 'allow'|'deny'|{optionId}|Promise<…>；给了则优先于 permission
    *   钩子入参两种形态：ACP 权限门 `{sessionId, toolCall, options}`；M4 工具审批门 `{sessionId, kind:'tool_approval', toolCall:{toolName,title}, options}`（选项恒为 `['Approve','Deny']`）
+   * @param {function|null} [opts.onQuestionRequest] 提问钩子 (info) ⇒ Promise<{optionIds, text}>（§5.1 / T-03）；
+   *   入参 `{requestKind:'question', question, options, multiple}`；返回未结算 Promise 期间同样冻结轮次计时
    */
   constructor({
     bin,
@@ -111,10 +209,12 @@ export class AcpClient {
     tools = false,
     roleFile = null,
     permission = 'allow',
+    approval = null,
     auditContext = null,
     logger = null,
     onExit = null,
     onPermissionRequest = null,
+    onQuestionRequest = null,
   }) {
     this.bin = bin;
     this.modelArg = model;
@@ -122,10 +222,12 @@ export class AcpClient {
     this.tools = tools === true;
     this.roleFile = typeof roleFile === 'string' && roleFile !== '' ? roleFile : null;
     this.permission = permission === 'deny' ? 'deny' : 'allow';
+    this.approvalArg = approval === undefined ? null : approval; // 已解析档位的 argv 位（与 modelArg 同法）
     this.auditContext = auditContext && typeof auditContext === 'object' ? auditContext : null;
     this.logger = logger;
     this.onExit = onExit;
     this.onPermissionRequest = typeof onPermissionRequest === 'function' ? onPermissionRequest : null;
+    this.onQuestionRequest = typeof onQuestionRequest === 'function' ? onQuestionRequest : null;
 
     this.child = null;
     this.pid = null;
@@ -159,13 +261,14 @@ export class AcpClient {
   /** 启动子进程并完成初始化（initialize → session/new → 等静默）。失败即 kill 并抛 ProtocolError。 */
   async start() {
     // argv 真源 = L1 的 omp:acp profile（§3.3：本层不持 argv 知识）；逐位等价于既有手工拼装：
-    // `acp --no-skills --no-rules [--no-tools] --no-session [--model m] [--append-system-prompt r]
-    //  [--approval-mode always-ask]`。档位（§4.4/L1-2②/pr-001）：工具可用时**恒为 always-ask**——`yolo` 档下
-    // omp 不发权限请求（实测 M1），「上浮给人裁决」就没有可上浮的请求；工具关时不追加档位段。
+    //  `acp --no-skills --no-rules [--no-tools] --no-session [--model m] [--append-system-prompt r]
+    //  [--approval-mode <已解析档位>]`。档位（§5.1 argv 面）：值取自唯一汇聚点（本层零判定、零取值字面）；
+    //  工具可用时按该值落段，工具关时不追加档位段（既有口径逐字保留）。
     const args = buildArgv('omp:acp', {
       model: this.modelArg,
       roleFile: this.roleFile,
       tools: { mode: this.tools ? 'allow' : 'off' },
+      approval: this.tools ? this.approvalArg : null,
     });
     const child = spawn(this.bin, args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
@@ -183,7 +286,7 @@ export class AcpClient {
     try {
       await this._request('initialize', {
         protocolVersion: PROTOCOL_VERSION,
-        // §4.4/M4：必须声明 `elicitation.form`。omp 18.0.11 在 `--approval-mode always-ask` 下对 tier ≥ `write` 的工具
+        // §4.4/M4：必须声明 `elicitation.form`。omp 18.0.11 在「逐次询问」档下对 tier ≥ `write` 的工具
         // 叠加**第二道审批门**（tool approval），该门经 `elicitation/create` 的 form select 询问 `Approve|Deny`；
         // 客户端不声明此能力时 omp 不安装可交互 UI，select 直接返回 undefined ⇒ 模型侧恒得 `Tool call denied by user`
         //（实测 M4 根因）。该能力只开放「向客户端提问」通道，不委托 fs.* / terminal（V-10③ 口径不变）。
@@ -556,22 +659,70 @@ export class AcpClient {
   }
 
   /**
-   * M4：omp 的第二道审批门（`approvalMode=always-ask` 下 tier ≥ `write` 的工具必经）经 `elicitation/create`
+   * M4：omp 的第二道审批门（「逐次询问」档下 tier ≥ `write` 的工具必经）经 `elicitation/create`
    * 的 form select 询问 `Approve|Deny`（`message` 首行 = `Allow tool: <toolName>`）。两类裁决：
    * ① 该 toolCall 刚在 ACP 权限门获用户放行（凭据未消费、未见终态）⇒ 抵扣后直接 `Approve`（C2：同一 toolCall 不重复提问）；
    * ② 其余（`bEs` 之外的写类工具只有这一道门）⇒ 经钩子上浮给人裁决（C1），未配置钩子则保守 `Deny`（C3）。
-   * 非工具审批询问（如 `ask` 的 askDialog、boolean confirm）一律 `decline`：oamp 不代答产品外的提问（C5）。
+   * **非门**分支（§5.5 / T-03）：提问面表单按形状拆问后经提问钩子上浮（见 `_handleQuestionForm`）——不再自动
+   * `decline`（F04 验收 2 / N12）；仅「其余未知形状」保留既有 `decline`（L2-6：不代答产品外的提问，C5）。
    */
   async _handleElicitationRequest(message) {
     const params = message.params || {};
     const property = ((params.requestedSchema || {}).properties || {}).value;
     const values = Array.isArray(property && property.enum) ? property.enum : [];
     if (!values.includes(APPROVE_LABEL) || !values.includes(DENY_LABEL)) {
-      this._respond(message.id, { action: 'decline' });
+      await this._handleQuestionForm(message);
       return;
     }
     const value = this._consumeApprovalGrant() ? APPROVE_LABEL : await this._approvalGateDecision(message, values);
     this._respond(message.id, { action: 'accept', content: { value } });
+  }
+
+  /**
+   * §5.5（T-03 / L1-5）：提问面表单 → **拆问**（每问恰一次 `hooks.onQuestionRequest`，一问一条）⇒ 组内暂存
+   * （= 本帧处理函数内的局部状态：每题一个未结算 Promise + 答案聚合）⇒ 齐答后**恰一次**回包。
+   * 组内暂存不跨帧、不新增模块、不新增清理定时器：该帧若无终局，随轮次死亡经既有信封 3 撤条目。
+   * 未知形状 / 无提问收件人（离线边界）⇒ 既有 `decline`（不代答、不把轮次永久吊起）。
+   */
+  async _handleQuestionForm(message) {
+    const params = message.params || {};
+    const form = readQuestionForm(params.requestedSchema || {}, params.message);
+    if (form === null || !this.onQuestionRequest) {
+      this._respond(message.id, { action: 'decline' });
+      return;
+    }
+    const answers = await Promise.all(
+      form.items.map((item) =>
+        this._askQuestion({
+          requestKind: 'question',
+          question: item.title,
+          options: item.options,
+          multiple: item.multiple,
+        }),
+      ),
+    );
+    if (answers.some((answer) => answer === null)) {
+      this._respond(message.id, { action: 'decline' }); // 无收件人 ⇒ 不吊死该轮
+      return;
+    }
+    this._respond(message.id, { action: 'accept', content: readQuestionContent(form, answers) });
+  }
+
+  /**
+   * §5.1 提问钩子：入参为提问面，返回未结算 Promise 期间冻结轮次计时（与门钩子同一挂起语义）；
+   * 钩子抛错 / 未给值（`null` / 非对象）⇒ `null`（调用方按「无收件人」保守回落，绝不代答）。
+   */
+  async _askQuestion(info) {
+    let verdict = this.onQuestionRequest(info);
+    if (verdict && typeof verdict.then === 'function') {
+      this._pauseTurnTimer();
+      try {
+        verdict = await verdict;
+      } finally {
+        this._resumeTurnTimer();
+      }
+    }
+    return verdict && typeof verdict === 'object' ? verdict : null;
   }
 
   /**
