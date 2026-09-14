@@ -2,11 +2,14 @@
 // 职责：spawn/初始化序列（initialize → session/new → 等静默）/多轮 session/prompt 流式/model 切换/cancel/kill。
 // 不持有键与队列（那是 context-pool 的职责）；上下文真源 = 该子进程内存中的 ACP session（V-1/V-8）：
 // 同 session 多轮累积，进程消亡即上下文消失。
-// 错误码（AcpError.code，供池层/agent 映射为 task.result.error）：
+// 错误码（ProtocolError.code，供池层/agent 映射为 task.result.error）：
 //   context_crashed（spawn/初始化失败、子进程异常退出、被主动 kill）、model_unavailable（set_config_option 被拒）、
 //   timeout（prompt 超时：cancel → 宽限 → kill）、permission_denied（deny 档拒绝工具调用，轮次级：会话保留）。
+// argv 真源 = L1（launcher.js 的 omp:acp profile + 唯一 argv 构造）：本模块不持 flag 字面量。
 
 import { spawn } from 'node:child_process';
+import { CAPABILITY_KEYS, ProtocolError, readApprovalToolName } from './protocol.js';
+import { buildArgv } from './launcher.js';
 
 const PROTOCOL_VERSION = 1;
 const INIT_QUIET_MS = 300; // §6.6：初始化等待静默窗口（无通知 ≥300ms 视为稳定）
@@ -20,17 +23,37 @@ const DEFAULT_ALLOW_OPTION = 'allow_once'; // §5.4：放行侧默认项（同�
 const DEFAULT_DENY_OPTION = 'reject_once'; // §5.4：拒绝侧默认项（同步 'deny' 与非法 optionId 回落）
 const APPROVE_LABEL = 'Approve'; // M4：omp 第二道审批门（tool approval）的 elicitation 选项
 const DENY_LABEL = 'Deny';
-const APPROVAL_MESSAGE_PREFIX = 'Allow tool: '; // M4：审批门 elicitation message 首行前缀（omp dist `aZn()`）
 
-/**
- * M4：从工具审批门的 elicitation message 取工具名。omp dist `aZn()` 产出
- * `[`Allow tool: ${e.name}`, …Origin/Reason/工具自定义详情行].join('\n')` ⇒ 首个换行之前、前缀之后即工具名。
- * 形状不符（非审批门）⇒ null（调用方不得据此放行任何东西）。
- */
-function readApprovalToolName(message) {
-  if (typeof message !== 'string' || !message.startsWith(APPROVAL_MESSAGE_PREFIX)) return null;
-  const name = message.slice(APPROVAL_MESSAGE_PREFIX.length).split('\n')[0].trim();
-  return name === '' ? null : name;
+// 能力位（§5.7 的 acp 列逐字）：thinking 无（只接受 agent_message_chunk）、hostTools / queueControl 无。
+const ACP_CAPABILITY_VALUES = {
+  streaming: 'yes',
+  thinking: 'no',
+  approvalGate: 'yes',
+  hostTools: 'no',
+  introspection: 'yes',
+  queueControl: 'no',
+};
+/** 非 yes 键的理由（§5.1：任一非 'yes' 键恒有非空字符串）。 */
+const ACP_CAPABILITY_NOTES = {
+  thinking: '只接受 agent_message_chunk（文本块）⇒ 本实现不产生思考增量',
+  hostTools: '本迭代不接线宿主工具面（omp 默认不注册即不触发）',
+  queueControl: '无插话 / 排队控制（同 session 同键串行由消费层承担）',
+};
+
+/** 会话级能力位（§5.1 `capabilities`）：键集取自 CAPABILITY_KEYS（不增不减）、取值 ∈ {yes, no, degraded}。 */
+function acpCapabilities() {
+  const table = {};
+  for (const key of CAPABILITY_KEYS) table[key] = ACP_CAPABILITY_VALUES[key];
+  return table;
+}
+
+/** 会话级能力位说明（§5.1 `capabilityNotes`）。 */
+function acpCapabilityNotes() {
+  const notes = {};
+  for (const key of CAPABILITY_KEYS) {
+    if (ACP_CAPABILITY_VALUES[key] !== 'yes') notes[key] = ACP_CAPABILITY_NOTES[key];
+  }
+  return notes;
 }
 
 /** 等待 ms 毫秒（超时宽限等场景）；计时器 unref，不阻滞进程退出。 */
@@ -39,14 +62,6 @@ const delay = (ms) =>
     const timer = setTimeout(resolve, ms);
     timer.unref?.();
   });
-export class AcpError extends Error {
-  constructor(code, message) {
-    super(message);
-    this.name = 'AcpError';
-    this.code = code;
-  }
-}
-
 /**
  * 读 ACP session 配置里的模型生效值（§7.4 审计面：model 取自 `currentValue`，不是请求回显）。
  * 实测 omp 18.0.11 的 `session/new` / `session/set_config_option` 返回 **数组**形态
@@ -85,7 +100,7 @@ export class AcpClient {
    * @param {'allow'|'deny'} [opts.permission] permission 策略（§4.4）；缺省 allow
    * @param {object|null} [opts.auditContext] 审计身份字段（instance/role/chat_id/context_id，§4.5）
    * @param {object|null} [opts.logger]  createEventLog 实例（可选）
-   * @param {function|null} [opts.onExit] 异常退出回调（主动 kill/dispose 不触发）
+   * @param {function|null} [opts.onExit] 异常退出回调（主动 kill/close 不触发）
    * @param {function|null} [opts.onPermissionRequest] 动态策略钩子 (info) ⇒ 'allow'|'deny'|{optionId}|Promise<…>；给了则优先于 permission
    *   钩子入参两种形态：ACP 权限门 `{sessionId, toolCall, options}`；M4 工具审批门 `{sessionId, kind:'tool_approval', toolCall:{toolName,title}, options}`（选项恒为 `['Approve','Deny']`）
    */
@@ -132,16 +147,26 @@ export class AcpClient {
     this._approvalGrants = []; // M4/C2：已通过 ACP 权限门放行、尚未观测到终态的 toolCallId（FIFO）；一次放行只抵扣一个审批门
   }
 
-  /** 启动子进程并完成初始化（initialize → session/new → 等静默）。失败即 kill 并抛 AcpError。 */
+  /** 会话级能力位（§5.7 的 acp 列）：键集 = CAPABILITY_KEYS，非 yes 键的 note 恒非空（§5.1）。 */
+  get capabilities() {
+    return acpCapabilities();
+  }
+
+  get capabilityNotes() {
+    return acpCapabilityNotes();
+  }
+
+  /** 启动子进程并完成初始化（initialize → session/new → 等静默）。失败即 kill 并抛 ProtocolError。 */
   async start() {
-    const args = ['acp', '--no-skills', '--no-rules'];
-    if (!this.tools) args.push('--no-tools'); // §4.3：工具开关只在 argv 决定
-    args.push('--no-session');
-    if (this.modelArg) args.push('--model', this.modelArg);
-    if (this.roleFile) args.push('--append-system-prompt', this.roleFile); // §3.2：角色注入（绝对路径）
-    // §4.4（L1-2②/pr-001）：工具可用时档位**恒为 always-ask**——`yolo` 档下 omp 不发权限请求（实测 M1），
-    // 「上浮给人裁决」就没有可上浮的请求；`deny` 档维持原值（本就是 always-ask），拒绝语义由钩子/档位决定。
-    if (this.tools) args.push('--approval-mode', 'always-ask');
+    // argv 真源 = L1 的 omp:acp profile（§3.3：本层不持 argv 知识）；逐位等价于既有手工拼装：
+    // `acp --no-skills --no-rules [--no-tools] --no-session [--model m] [--append-system-prompt r]
+    //  [--approval-mode always-ask]`。档位（§4.4/L1-2②/pr-001）：工具可用时**恒为 always-ask**——`yolo` 档下
+    // omp 不发权限请求（实测 M1），「上浮给人裁决」就没有可上浮的请求；工具关时不追加档位段。
+    const args = buildArgv('omp:acp', {
+      model: this.modelArg,
+      roleFile: this.roleFile,
+      tools: { mode: this.tools ? 'allow' : 'off' },
+    });
     const child = spawn(this.bin, args, { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'] });
     this.child = child;
     this.pid = child.pid;
@@ -166,14 +191,14 @@ export class AcpClient {
       });
       const created = await this._request('session/new', { cwd: this.cwd, mcpServers: [] });
       this.sessionId = created && typeof created.sessionId === 'string' ? created.sessionId : null;
-      if (!this.sessionId) throw new AcpError('context_crashed', 'session/new 未返回 sessionId');
+      if (!this.sessionId) throw new ProtocolError('context_crashed', 'session/new 未返回 sessionId');
       this.currentModel = readCurrentModel(created);
       await this._waitQuiescence();
     } catch (err) {
       this.kill();
-      throw err instanceof AcpError
-        ? new AcpError('context_crashed', `ACP 初始化失败: ${err.message}`)
-        : new AcpError('context_crashed', `ACP 初始化失败: ${err && err.message ? err.message : err}`);
+      throw err instanceof ProtocolError
+        ? new ProtocolError('context_crashed', `ACP 初始化失败: ${err.message}`)
+        : new ProtocolError('context_crashed', `ACP 初始化失败: ${err && err.message ? err.message : err}`);
     }
     if (this.logger) this.logger.event('ACP_READY', { pid: this.pid, session: this.sessionId, model: this.currentModel || '' });
     return this;
@@ -185,12 +210,12 @@ export class AcpClient {
    * @param {object} opts
    * @param {string|null} [opts.model]     本轮目标模型（未给则沿用启动/当前模型）
    * @param {number} [opts.timeoutMs]      本轮上限，超时即 cancel → 宽限 → kill
-   * @param {function|null} [opts.onChunk] 增量文本回调（逐块）
+   * @param {function|null} [opts.onDelta] 增量回调（逐块、原样、不聚合；本实现只产 `kind:'chunk'`）
    * @returns {Promise<{text:string, model:string|null, stop_reason:*, usage:*, pid:number}>}
    */
-  async prompt(text, { model = null, timeoutMs = 1800000, onChunk = null } = {}) {
-    if (this.dead) throw new AcpError('context_crashed', '子进程已退出');
-    if (!this.sessionId) throw new AcpError('context_crashed', 'session 未建立');
+  async prompt(text, { model = null, timeoutMs = 1800000, onDelta = null } = {}) {
+    if (this.dead) throw new ProtocolError('context_crashed', '子进程已退出');
+    if (!this.sessionId) throw new ProtocolError('context_crashed', 'session 未建立');
     const target = model || this.modelArg || this.currentModel;
     if (target && this.currentModel !== target) {
       await this.setModel(target); // 失败 → model_unavailable（§7.3，绝不静默回退）
@@ -204,7 +229,7 @@ export class AcpClient {
       const content = update.content;
       if (!content || content.type !== 'text' || typeof content.text !== 'string') return;
       acc += content.text;
-      if (onChunk) onChunk(content.text);
+      if (onDelta) onDelta({ kind: 'chunk', text: content.text });
     };
     try {
       let result;
@@ -223,11 +248,11 @@ export class AcpClient {
           },
         );
       } catch (err) {
-        if (this._permissionDenied) throw new AcpError('permission_denied', PERMISSION_DENIED_TEXT); // §4.4 ③
+        if (this._permissionDenied) throw new ProtocolError('permission_denied', PERMISSION_DENIED_TEXT); // §4.4 ③
         throw err;
       }
       // §4.4 ③：结算时抛——终态确定，不依赖模型是否自行收敛
-      if (this._permissionDenied) throw new AcpError('permission_denied', PERMISSION_DENIED_TEXT);
+      if (this._permissionDenied) throw new ProtocolError('permission_denied', PERMISSION_DENIED_TEXT);
       return {
         text: acc,
         model: this.currentModel,
@@ -288,21 +313,21 @@ export class AcpClient {
     this._killTimer.unref?.();
   }
 
-  /** 池层释放语义别名（§6.4 SIGINT → pool.dispose()）。 */
-  dispose() {
+  /** 关闭并回收（§5.1 会话四动作之四）：语义 = 既有主动终止（幂等、不触发 onExit）。 */
+  close() {
     this.kill();
   }
 
   /** 发一行 JSON-RPC 请求；超时（可选 onTimeout 收尾）或以 errorCode 回绝。 */
   _request(method, params, { timeoutMs = REQUEST_TIMEOUT_MS, onTimeout = null, errorCode = 'context_crashed' } = {}) {
-    if (this.dead) return Promise.reject(new AcpError('context_crashed', '子进程已退出'));
+    if (this.dead) return Promise.reject(new ProtocolError('context_crashed', '子进程已退出'));
     return new Promise((resolve, reject) => {
       const id = ++this._nextId;
       if (method === 'session/prompt') this._turnRequestId = id; // L1-1：轮次计时 = 本计时器（可冻结/恢复）
       const expire = () => {
         if (!this._pending.has(id)) return;
         this._pending.delete(id);
-        reject(new AcpError('timeout', `${method} 超时（${timeoutMs}ms）`));
+        reject(new ProtocolError('timeout', `${method} 超时（${timeoutMs}ms）`));
         if (onTimeout) Promise.resolve(onTimeout()).catch(() => {});
       };
       const entry = { resolve, reject, timer: null, errorCode, remainingMs: timeoutMs, startedAt: 0, paused: false, expire };
@@ -318,14 +343,14 @@ export class AcpClient {
       } catch (err) {
         clearTimeout(entry.timer);
         this._pending.delete(id);
-        reject(err instanceof AcpError ? err : new AcpError('context_crashed', String(err && err.message ? err.message : err)));
+        reject(err instanceof ProtocolError ? err : new ProtocolError('context_crashed', String(err && err.message ? err.message : err)));
       }
     });
   }
 
   _write(message) {
     if (!this.child || this.dead || !this.child.stdin || this.child.stdin.destroyed) {
-      throw new AcpError('context_crashed', 'ACP stdin 不可写');
+      throw new ProtocolError('context_crashed', 'ACP stdin 不可写');
     }
     this.child.stdin.write(`${JSON.stringify(message)}\n`);
   }
@@ -363,7 +388,7 @@ export class AcpClient {
       clearTimeout(entry.timer);
       if (message.error) {
         const detail = message.error.message || JSON.stringify(message.error);
-        entry.reject(new AcpError(entry.errorCode, `ACP error: ${detail}`));
+        entry.reject(new ProtocolError(entry.errorCode, `ACP error: ${detail}`));
       } else {
         entry.resolve(message.result);
       }
@@ -671,7 +696,7 @@ export class AcpClient {
     if (this.dead) return;
     this.dead = true;
     clearTimeout(this._killTimer);
-    const err = new AcpError('context_crashed', reason);
+    const err = new ProtocolError('context_crashed', reason);
     for (const [, entry] of this._pending) {
       clearTimeout(entry.timer);
       entry.reject(err);

@@ -1,7 +1,8 @@
 // src/agent.js — `oamp agent start <instance-id>` 生命周期编排（architecture §6.2/§6.3 / D6/D16/D17 + F03）
 // 入口 = default 导出函数（cli.js 调用约定）：restArgs[0] = instance-id（O-1 收敛，2026-09-09 主 agent 裁决 A）。
-//   其后为可选 flag：--role <role> / --model <model> / --tools on|off / --permission allow|deny（§3.4；
-//   未知参数 / 非法取值 → 退出码 2）。角色绑定优先级：flag > instance_id 推断（pb-<role>，公式唯一位于
+//   其后为可选 flag：--role <role> / --model <model> / --tools on|off / --permission allow|deny /
+//   --protocol rpc|acp（§3.4/§5.3；未知参数 / 非法取值 → 退出码 2）。角色绑定优先级：flag > instance_id 推断
+//   （pb-<role>，公式唯一位于
 //   role-binding.js）> 无绑定。
 // 流程：AGENT_START → connect（失败 stderr 报错含 socket 路径 + router 未运行提示，退出 1）
 //   → register（请求，2s 上限；失败退出 1）→ REGISTERED（含授予 lease_timeout_ms）
@@ -14,6 +15,7 @@ import { loadConfig } from './config.js';
 import { NodeClient } from './node-client.js';
 import { createEventLog } from './log.js';
 import { ContextPool } from './context-pool.js';
+import { createProtocolLayer } from './protocol.js';
 import { resolveRoleFile, resolveRoleRoot, roleFromInstanceId } from './role-binding.js';
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -27,7 +29,7 @@ const MAX_STREAM_LINES = 200;
 const DEFAULT_TASK_TIMEOUT_MS = 30000; // shell 任务默认
 const DEFAULT_OMP_TIMEOUT_MS = 1800000; // omp（LLM）任务默认：给足推理时间
 const MAX_TIMEOUT_MS = 1800000;
-const CONFIRMATION_TITLE_MAX = 120; // §5.3 信封 1（pr-002）：title 截断 120 字符（沿用 acp-client 的 TOOL_TITLE_MAX 口径）
+const CONFIRMATION_TITLE_MAX = 120; // §5.3 信封 1（pr-002）：title 截断 120 字符（沿用会话实现的 TOOL_TITLE_MAX 口径）
 const OMP_BIN = () => process.env.OAMP_OMP_BIN || 'omp';
 // §7.2 模型标识校验（daemon 路径；风格同 0010 payload 校验）
 const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/;
@@ -173,8 +175,8 @@ async function sendTaskMessage(client, origin, messageId, type, taskId, body) {
 }
 
 /**
- * 执行一条 omp（真实 LLM）任务：spawn `omp -p --no-session [--no-tools] [--model X]
- * [--append-system-prompt <role.md>] <prompt>`，输出逐行回流为 task.update（stdout），结束发 task.result。
+ * 执行一条 omp（真实 LLM）任务：取标准面的一次性实现（无会话语义，§4.2 L2-7）执行本轮，输出逐行回流为
+ * task.update，结束发 task.result。argv / 子进程 / 超时 / 行流回收全部归 L2 的一次性实现（§3.4 流 3）。
  * 工具开关（§4.3）：payload.tools 显式布尔 > CLI --tools / 内置缺省（ctx.tools）；模型（§4.1）：
  * payload.model > OAMP_OMP_MODEL > --model（角色级），皆未给则不传（config 默认与内置交由 omp 自身解析）。
  */
@@ -185,98 +187,52 @@ function runOmpTask(client, logger, message, task, ctx) {
   const sendUpdate = (state, detail) =>
     sendTaskMessage(client, origin, `tup-${randomUUID()}`, 'task.update', taskId, { state, ...detail });
 
-  const bin = OMP_BIN();
   const toolsOn = task.tools === null ? ctx.tools : task.tools; // §4.3 三分支：显式布尔 > CLI --tools / 内置缺省
-  // §4.2：一次性路径无累积状态（--no-session）⇒ 每次派发都注入；未携带 project ⇒ 末位逐字等于原文
+  const model = task.model || ctx.envModel || ctx.modelOverride; // 皆未给 ⇒ 不传 --model（既有链的前三档）
+  // §4.2：一次性路径无累积状态（不建会话）⇒ 每次派发都注入；未携带 project ⇒ 末位逐字等于原文
   const projectContext = task.project ? renderProjectContext(task.project) : null;
-  const args = ['-p', '--no-session'];
-  if (!toolsOn) args.push('--no-tools');
-  const model = task.model || ctx.envModel || ctx.modelOverride;
-  if (model) args.push('--model', model);
-  if (ctx.roleFile) args.push('--append-system-prompt', ctx.roleFile); // §3.3：一次性路径同样注入角色规则
-  // §4.4（pr-007）：一次性路径同理——仅工具可用时按 permission 档追加 --approval-mode
-  if (toolsOn) args.push('--approval-mode', ctx.permission === 'deny' ? 'always-ask' : 'yolo');
-  args.push(projectContext ? `${projectContext}\n\n${task.prompt}` : task.prompt);
 
   logger.event('TASK_STARTED', { task_id: taskId, executor: 'omp', from: origin, label: task.label || '' });
   sendUpdate('working', { event: 'started', executor: 'omp', prompt: task.prompt.slice(0, 500) }).catch(() => {});
 
-  return new Promise((resolve) => {
-    let child;
-    try {
-      child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    } catch (err) {
-      const body = { state: 'failed', error: `spawn_failed: ${err && err.message ? err.message : String(err)}`, duration_ms: Date.now() - startedAt };
-      sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
-      logger.event('TASK_RESULT', { task_id: taskId, state: 'failed', error: 'spawn_failed' });
-      resolve();
-      return;
-    }
-
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      try {
-        child.kill('SIGTERM');
-      } catch {
-        /* 已退出 */
-      }
-      setTimeout(() => {
-        try {
-          child.kill('SIGKILL');
-        } catch {
-          /* 已退出 */
-        }
-      }, 500).unref();
-    }, task.timeoutMs);
-    timer.unref?.();
-
-    let linesSent = 0;
-    let truncated = false;
-    const sendLine = (kind) => (rawLine) => {
-      const line = stripAnsi(rawLine);
-      if (line === '') return;
-      if (linesSent >= MAX_STREAM_LINES) {
-        if (!truncated) {
-          truncated = true;
-          sendUpdate('working', { event: 'truncated', note: `明细行数超上限（${MAX_STREAM_LINES}），后续行不再逐条上报` }).catch(() => {});
-        }
-        return;
-      }
-      linesSent += 1;
-      sendUpdate('working', { kind, line }).catch(() => {});
-    };
-    makeLineReader(child.stdout, sendLine('stdout'));
-    makeLineReader(child.stderr, sendLine('stderr'));
-
-    child.on('error', (err) => {
-      const body = { state: 'failed', error: `spawn_error: ${err && err.message ? err.message : String(err)}`, duration_ms: Date.now() - startedAt };
-      sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
-      logger.event('TASK_RESULT', { task_id: taskId, state: 'failed', error: 'spawn_error' });
-      resolve();
-    });
-
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
-      if (timedOut) {
-        const body = { state: 'failed', error: `timeout_after_${task.timeoutMs}ms`, timed_out: true, executor: 'omp', duration_ms: Date.now() - startedAt };
+  // §5.3：经唯一注入点取一次性实现（resident 逐任务装配：工具开关与模型都是该轮解析值）。
+  const session = ctx.oneshotSession({ model, tools: toolsOn });
+  return session
+    .prompt(projectContext ? `${projectContext}\n\n${task.prompt}` : task.prompt, {
+      model,
+      timeoutMs: task.timeoutMs,
+      // §5.5 增量面 → 既有 task.update 形状：行流 `{kind: 'stdout'|'stderr', line}`；截断事件原样上送（文案由 L2 给）
+      onDelta: (delta) => {
+        if (delta.event === 'truncated') sendUpdate('working', { event: 'truncated', note: delta.note }).catch(() => {});
+        else sendUpdate('working', { kind: delta.stream, line: delta.text }).catch(() => {});
+      },
+    })
+    .then(
+      () => {
+        const body = { state: 'completed', executor: 'omp', exit_code: 0, duration_ms: Date.now() - startedAt };
         sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
-        logger.event('TASK_RESULT', { task_id: taskId, state: 'failed', error: 'timeout' });
-        resolve();
-        return;
-      }
-      const state = code === 0 ? 'completed' : 'failed';
-      const body = {
-        state,
-        executor: 'omp',
-        exit_code: code === null ? (signal || 'killed') : code,
-        duration_ms: Date.now() - startedAt,
-      };
-      sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
-      logger.event('TASK_RESULT', { task_id: taskId, state, exit_code: code });
-      resolve();
-    });
-  });
+        logger.event('TASK_RESULT', { task_id: taskId, state: 'completed', exit_code: 0 });
+      },
+      (err) => {
+        // 超时档沿用既有文案与 timed_out 标记；其余失败报错误文案（真实退出码在 L2 面不可得 ⇒ 取不到即 null）
+        const timedOut = err && err.code === 'timeout';
+        const body = timedOut
+          ? { state: 'failed', error: `timeout_after_${task.timeoutMs}ms`, timed_out: true, executor: 'omp', duration_ms: Date.now() - startedAt }
+          : {
+              state: 'failed',
+              error: err && err.message ? err.message : '一次性执行失败',
+              executor: 'omp',
+              exit_code: null,
+              duration_ms: Date.now() - startedAt,
+            };
+        sendTaskMessage(client, origin, `trs-${randomUUID()}`, 'task.result', taskId, body).catch(() => {});
+        logger.event('TASK_RESULT', {
+          task_id: taskId,
+          state: 'failed',
+          error: timedOut ? 'timeout' : err && err.code ? err.code : 'context_crashed',
+        });
+      },
+    );
 }
 
 /**
@@ -312,7 +268,7 @@ function readConfirmationOptions(options) {
 
 /**
  * §5.3 信封 1（pr-002 / MI-1~MI-2）：把一次门请求上浮为 `notice{kind:'confirmation_request'}`，返回**未结算 Promise**——
- * 该 Promise 即挂起的唯一载体（AcpClient 在钩子返回 Promise 期间冻结轮次计时：轮次既不推进也不超时）。
+ * 该 Promise 即挂起的唯一载体（L2 的会话实现在钩子返回 Promise 期间冻结轮次计时：轮次既不推进也不超时）。
  * 两型钩子入参（ACP 权限门 / 工具审批门）共用本函数与同一条 pending 表，差异只在字段来源（Q1）。
  * 钩子体内绝不抛错：无收件人（连接不可用 / 无 origin）⇒ 返回 null 交回落静态档位，绝不把轮次永久吊起。
  */
@@ -387,13 +343,17 @@ function runDaemonTask(client, logger, message, task, ctx) {
   });
   sendUpdate('working', { event: 'started', executor: 'omp-daemon', chat_id: task.chatId, model }).catch(() => {});
 
+  // §5.2：常驻 resident 的模型按**建键轮**解析（池在该 chat 首轮懒建会话 ⇒ 该轮模型即进程启动的 --model；
+  // 已建键时无副作用——常驻模型只在建会话时读取，后续轮仍经 set_config_option 切换）。
+  ctx.resolveResidentModel(model);
   const session = ctx.pool.getOrCreate(task.chatId, ctx.instanceId, { origin });
   return session
     .prompt(task.prompt, {
       model,
       timeoutMs: task.timeoutMs,
       origin,
-      onChunk: (text) => sendUpdate('working', { kind: 'chunk', text }).catch(() => {}),
+      // §5.5 增量面：按 kind 原样上送（chunk / thinking / tool_call / tool_output 四类逐类可达；不聚合、不落库）
+      onDelta: (delta) => sendUpdate('working', { kind: delta.kind, text: delta.text }).catch(() => {}),
       // §4.2：常驻路径的「首轮一次性」施加在 ContextSession；此处只渲染，首参始终是用户原文
       projectContext: task.project ? renderProjectContext(task.project) : null,
     })
@@ -585,13 +545,26 @@ function handleNotice(logger, message, ctx) {
 // §4.6 instance_id 校验（非空、≤64、可打印 ASCII）
 const INSTANCE_ID_RE = /^[\x21-\x7E]{1,64}$/;
 
-// §3.4 单起参数面：instance-id 之后的 4 个可选 flag（未知参数 / 非法取值 → 退出码 2，绝不静默忽略）。
-const AGENT_FLAGS = new Set(['--role', '--model', '--tools', '--permission']);
+// §3.4 单起参数面：instance-id 之后的 5 个可选 flag（未知参数 / 非法取值 → 退出码 2，绝不静默忽略）。
+const AGENT_FLAGS = new Set(['--role', '--model', '--tools', '--permission', '--protocol']);
 
-/** 解析 `agent start <instance-id> [--role r] [--model m] [--tools on|off] [--permission allow|deny]`。 */
+/**
+ * §5.3 选择域校验：真源 = 唯一注入点（`protocol.js` 的解析链）——越界值令门面响亮失败。
+ * 本层不复制取值域字面（D-2 判据 2：生产消费层不出现按协议取值的字面/分支）。
+ */
+function isSelectableProtocol(value) {
+  try {
+    createProtocolLayer({ resident: { protocol: value } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 解析 `agent start <instance-id> [--role r] [--model m] [--tools on|off] [--permission allow|deny] [--protocol rpc|acp]`。 */
 function parseAgentArgs(restArgs) {
   const args = Array.isArray(restArgs) ? restArgs : [];
-  const parsed = { role: null, model: null, tools: null, permission: 'allow' };
+  const parsed = { role: null, model: null, tools: null, permission: 'allow', protocol: null };
   for (let i = 1; i < args.length; i += 1) {
     const flag = args[i];
     const value = args[i + 1];
@@ -614,10 +587,17 @@ function parseAgentArgs(restArgs) {
         return { ok: false, reason: `--tools 仅支持 on|off: ${JSON.stringify(value)}` };
       }
       parsed.tools = value === 'on';
-    } else if (value !== 'allow' && value !== 'deny') {
-      return { ok: false, reason: `--permission 仅支持 allow|deny: ${JSON.stringify(value)}` };
-    } else {
+    } else if (flag === '--permission') {
+      if (value !== 'allow' && value !== 'deny') {
+        return { ok: false, reason: `--permission 仅支持 allow|deny: ${JSON.stringify(value)}` };
+      }
       parsed.permission = value;
+    } else {
+      // 取值域由唯一注入点给出（本层零字面）；未指定 ⇒ null，交解析链，不自行落默认
+      if (value === '' || !isSelectableProtocol(value)) {
+        return { ok: false, reason: `--protocol 取值非法: ${JSON.stringify(value)}` };
+      }
+      parsed.protocol = value;
     }
   }
   return { ok: true, instanceId: args[0], ...parsed };
@@ -647,7 +627,7 @@ export default async function startAgent(restArgs) {
     process.stderr.write(`oamp: agent start: ${args.reason}\n`);
     return 2;
   }
-  const { instanceId, role: explicitRole, model: modelOverride, tools: cliTools, permission } = args;
+  const { instanceId, role: explicitRole, model: modelOverride, tools: cliTools, permission, protocol: protocolOverride } = args;
 
   let config;
   try {
@@ -694,19 +674,31 @@ export default async function startAgent(restArgs) {
   // §5.3（pr-002）：确认项 pending 表（confirmation_id → {chatId, origin, resolve}）——进程级；挂起的唯一载体是
   // 钩子返回的未结算 Promise，本表只负责「裁决（信封 2）/ 失效（信封 3）时找到它」。
   const pending = new Map();
+  // §5.3 唯一注入点（L2）：常驻 resident 的解析结果。`model` 按**建键轮**解析——池在该 chat 首轮懒建会话
+  // ⇒ 该轮模型随进程启动（既有行为：首轮模型的 --model 落进 spawn argv）；`tools` / `roleFile` / `permission`
+  // 随实例固化（§4.3/§4.4/§3.2）。装配器不含 argv / 协议取值知识（argv 真源 = L1，选择真源 = L2）。
+  let residentModel = envModel || modelOverride || config.defaultModel; // 建键轮之前 = 启动解析值
+  const makeLayer = (spec) => createProtocolLayer({ resident: spec, bin: OMP_BIN(), cwd: process.cwd(), logger });
+  const layer = makeLayer({
+    protocol: protocolOverride, // 角色级档位（--protocol）；未指定 = null ⇒ 交解析链（env > config.json > 内置）
+    configProtocol: config.protocol,
+    get model() {
+      return residentModel;
+    },
+    roleFile,
+    tools: effectiveTools,
+    permission,
+  });
   // §6.1~§6.4：chat 维度常驻上下文池（omp-daemon 路径）；提示出口 = 当前连接（重连后自动指向新 client）
   const pool = new ContextPool({
     max: config.contextMax,
-    bin: OMP_BIN(),
-    cwd: process.cwd(),
     logger,
+    createResident: layer.createResident, // 会话工厂（唯一注入点的产物）；池不持有任何协议实现知识
     onNotice: (notice) => sendNotice(activeClient, logger, notice),
     // §5.3 信封 1（pr-002）：上浮钩子——**是否注入由 ContextPool 按 permission 档单点判定**（deny 档恒不注入）
     onPermissionRequest: (info) => raiseConfirmation(activeClient, logger, pending, info),
-    // §4.3/§4.4/§3.2：会话能力随实例固化，经 _ensureClient() 透传给 AcpClient
+    // §4.5：会话身份随实例固化，经池的建会话调用交给实现（审计面 instance/role）
     role,
-    roleFile,
-    tools: effectiveTools,
     permission,
   });
   // —— 心跳活动面（F03/§3.4）：lastActivityAt 由「投递首行」与「runTask settle」两个钩子刷新；
@@ -721,12 +713,17 @@ export default async function startAgent(restArgs) {
     pool,
     pending,
     instanceId,
+    // §5.3：一次性实现（L2 的无会话语义面）逐任务装配——模型与工具开关都是该轮解析值
+    oneshotSession: ({ model, tools }) =>
+      makeLayer({ protocol: protocolOverride, configProtocol: config.protocol, model, roleFile, tools, permission }).createEphemeral(),
+    // 建键轮解析位：池在首轮懒建常驻会话 ⇒ 该轮模型即常驻进程的启动模型
+    resolveResidentModel: (model) => {
+      residentModel = model;
+    },
     defaultModel: config.defaultModel,
     envModel,
     modelOverride,
     tools: effectiveTools,
-    roleFile,
-    permission,
     markActivity,
     idleForMs: () => (activity.inflight > 0 ? 0 : Date.now() - activity.lastActivityAt),
     beginTask: () => {

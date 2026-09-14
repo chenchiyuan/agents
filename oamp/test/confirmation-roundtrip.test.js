@@ -18,6 +18,8 @@ import { fileURLToPath } from 'node:url';
 import { startRouter, waitFor, stopAll, buildEnv } from './helpers/harness.js';
 import { startFakeNode } from './helpers/fake-node.js';
 import { ContextPool } from '../src/context-pool.js';
+import { createProtocolLayer } from '../src/protocol.js';
+import { PROFILES } from '../src/launcher.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'oamp.js');
@@ -260,7 +262,7 @@ async function setup(t, { instanceId = 'pb-dev', flags = ['--tools', 'on', '--pe
   t.after(() => stopAll([router]));
   const agent = startFlaggedAgent(instanceId, flags, {
     socketPath: router.socketPath,
-    envExtra: { OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_FRAMES_LOG: frames, FAKE_ACP_ARGS_LOG: argsLog, ...env },
+    envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_FRAMES_LOG: frames, FAKE_ACP_ARGS_LOG: argsLog, ...env },
   });
   t.after(() => agent.stop());
   await agent.waitLine(new RegExp(`REGISTERED instance=${instanceId}`));
@@ -316,10 +318,11 @@ test('T1①/PR-6：allow 档透传钩子并附加会话身份；toolCall/options
   withFakeEnv(t, { FAKE_ACP_MODE: 'permission', FAKE_ACP_FRAMES_LOG: frames });
 
   const calls = [];
+  // §5.3：池只消费**注入的会话工厂**（门面按 resident 装配）；本文件的 fake 是 ACP-only ⇒ 显式指定 acp 档
+  const layer = createProtocolLayer({ resident: { protocol: 'acp', permission: 'allow' }, bin: FAKE_BIN, cwd: ROOT });
   const pool = new ContextPool({
-    bin: FAKE_BIN,
-    cwd: ROOT,
     permission: 'allow',
+    createResident: layer.createResident,
     onPermissionRequest: (info) => {
       calls.push(info);
       return 'allow';
@@ -351,10 +354,11 @@ test('T1②/PR-6：deny 档不注入钩子（零调用）且既有自动拒绝�
   withFakeEnv(t, { FAKE_ACP_MODE: 'permission', FAKE_ACP_FRAMES_LOG: frames });
 
   const calls = [];
+  // deny 档：档位门在池侧（仅 allow 档注入钩子），协议档位同样显式指定（fake 为 ACP-only）
+  const layer = createProtocolLayer({ resident: { protocol: 'acp', permission: 'deny' }, bin: FAKE_BIN, cwd: ROOT });
   const pool = new ContextPool({
-    bin: FAKE_BIN,
-    cwd: ROOT,
     permission: 'deny',
+    createResident: layer.createResident,
     onPermissionRequest: (info) => {
       calls.push(info);
       return 'allow';
@@ -383,7 +387,8 @@ test('T1③/PR-2：钩子返回未结算 Promise ⇒ 无应答帧（挂起）且
   const gate = new Promise((resolve) => {
     release = resolve;
   });
-  const pool = new ContextPool({ bin: FAKE_BIN, cwd: ROOT, permission: 'allow', onPermissionRequest: () => gate });
+  const layer = createProtocolLayer({ resident: { protocol: 'acp', permission: 'allow' }, bin: FAKE_BIN, cwd: ROOT });
+  const pool = new ContextPool({ permission: 'allow', createResident: layer.createResident, onPermissionRequest: () => gate });
   t.after(() => pool.dispose());
 
   const session = pool.getOrCreate('chat-hold', 'pb-dev', { origin: 'web-1' });
@@ -708,7 +713,7 @@ test('T5②/PR-7：一次性路径零改动（argv 仍含 --approval-mode yolo�
   const oneShot = s.readArgs().find((a) => a.includes('-p'));
   assert.ok(oneShot, '一次性路径应 spawn `omp -p`');
   assert.ok(!oneShot.includes('acp'));
-  assert.equal(oneShot[oneShot.indexOf('--approval-mode') + 1], 'yolo', '§4.4：allow 档一次性 argv 逐字为 yolo');
+  assert.equal(oneShot[oneShot.indexOf('--approval-mode') + 1], PROFILES['omp:oneshot'].approval.mode, '§4.4/W2-A：档位值取自 omp:oneshot profile 的 approval.mode（逐字 yolo）');
   assert.equal(s.web.notices('confirmation_request').length, 0);
 });
 
