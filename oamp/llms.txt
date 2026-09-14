@@ -30,7 +30,7 @@
 - GET /api/calls/:call_id/transcript — 按调用取转录（进程内、不持久；含终态条目）
 - GET /api/calls/:call_id — 按调用取终态（进行中给状态）
 - GET /api/confirmations — 待确认项列表（跨对话的在途确认项；进程内，不持久）
-- POST /api/confirmations/:confirmation_id/decision — 提交确认项裁决（选项 id 必填 + 可选文本；条目随即移出在途表并回传请求方）
+- POST /api/confirmations/:confirmation_id/decision — 提交确认项裁决（permission 类 option_id 必填；question 类 option_ids 与 text 至少一个非空；条目随即移出在途表并回传请求方）
 
 ## 深入
 
