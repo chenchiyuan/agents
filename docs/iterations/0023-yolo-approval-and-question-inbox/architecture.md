@@ -1,10 +1,11 @@
 # architecture.md — 0023-yolo-approval-and-question-inbox
 
-**版本**: 0.2.0（阶段 3 · 第 2 轮收口：**L1 决策 7 条已用户确认**（§4.1）+ **`[model_inferred]` 4 项归零**（§12.2）；第 1 轮已完成 M7 式实测 6 条（§2，探针脚本与原始输出已落盘）与 T-01~T-08 全部落定（§7））
+**版本**: 0.3.0（阶段 3 · 第 3 轮收口：**门禁 D-1 定点修正** —— 确认项信封的**类别字段由 `kind` 改名为 `request_kind`**（§5.2 / §5.3 / §5.5 / §12.4），消解它与既有通知判别键 `kind` 的**同 key 双语义**冲突；**L1-1~L1-7 语义逐字不变（只改名）**）
 **迭代**: 0023-yolo-approval-and-question-inbox
 **阶段**: 3（技术架构）
 **创建日期**: 2026-09-14
-**本轮收口**: 2026-09-14（第 2 轮：用户裁决回收——L1 7 条已确认、`[model_inferred]` 4 项归零、§12.1 三条疑问已裁定；裁决原件 = `clarifications/2026-09-14-architect-round1-verdicts.md`，回收过程 = `clarifications/2026-09-14-architect-round2.md`）
+**本轮收口**: 2026-09-14（第 3 轮：**门禁 D-1 定点修正** —— 信封类别字段 `kind` → `request_kind`，逐 key 证明与既有通知 body 的 key 集**不相交**（§5.2「与既有通知 `kind` 的共存证明」）；修正记录 = `clarifications/2026-09-14-architect-round3.md`）
+**前轮收口**: 2026-09-14（第 2 轮：用户裁决回收——L1 7 条已确认、`[model_inferred]` 4 项归零、§12.1 三条疑问已裁定；裁决原件 = `clarifications/2026-09-14-architect-round1-verdicts.md`，回收过程 = `clarifications/2026-09-14-architect-round2.md`）
 **输入**: `prd.md` v0.2.0（16 卡：F01~F11 需求功能点 + F12~F16 保证项；`[架构待填]` T-01~T-08）+ `prd/F01~F16*.md` + `demand.md` v1.0.0（W1~W6 / N1~N12 / M1~M8 / E1~E9 / R1~R5 / 登记⑧ 五类处置；**只读**）+ `clarifications/2026-09-14-*.md` + `clarifications/probes/probe-r1*`（K11 / K12）+ **本轮 6 条真实探针**（§2，脚本与原始输出落 `clarifications/probes/`）
 **代码基线**: `<工作区地址>/oamp/**`（只读；本次基线复核为 **2026-09-14 实读**，逐条带 `文件:行号`）
 **体例参照（只读，未写入）**: `docs/iterations/0022-agent-launcher-and-protocol-layer/architecture.md`
@@ -29,7 +30,8 @@
 | §9 必然变更点清单（改 / 不改 / 测试面 / 文档面） | ✅ 已落盘 |
 | §10 奥卡姆剃刀检验（新组件 ↔ 必需功能） | ✅ 已落盘（**新组件 0 个**） |
 | §11 风险与已知代价（R1~R5 承载 + 实测新事实 N-1~N-5） | ✅ 已落盘 |
-| §12 越界与疑问（含 `[user_confirmed]` 集中列示） | ✅ 已落盘（疑问 3 条已裁定 + `[model_inferred]` 4 条已全部转 `[user_confirmed]`） |
+| §12 越界与疑问（含 `[user_confirmed]` 集中列示） | ✅ 已落盘（疑问 3 条已裁定 + `[model_inferred]` 4 条已全部转 `[user_confirmed]`；第 3 轮追加 D-1 定点修正登记 §12.4） |
+| **§5.2 / §5.3 / §5.5 信封类别字段改名（第 3 轮 · 门禁 D-1 定点修正）** | ✅ 已落盘（`kind` → `request_kind`；与既有通知 body 的 key 集**不相交**，逐 key 对照见 §5.2） |
 | §13 未越界声明 | ✅ 已落盘 |
 
 ---
@@ -74,8 +76,8 @@ L1/L2 分层（0022 已建立，本迭代沿用）：`launcher.js` = L1（profil
 | **G3** | **oneshot 实现自己合成档位**（第三处判定）：`toolsOn ? (permission==='deny' ? 'always-ask' : 'yolo') : null` | `oneshot-client.js:93-96`、`:121` | F03 验收 4（**唯一**汇聚点）：此处是「每个调用点自觉」的现存实例，须改为消费解析结果 |
 | **G4** | **rpc 的非门交互请求一律回 `{cancelled:true}`**（`select`/`confirm`/`input`/`editor`） | `rpc-client.js:24`、`:341-343` | W3 / W5：默认链路今天**物理上没有提问面**（提问被当场取消） |
 | **G5** | **acp 的非 `Approve\|Deny` elicitation 一律 `decline`**（注释明示"oamp 不代答产品外的提问"） | `acp-client.js:565-571`（`decline` 在 `:570`） | W3 / F09：acp 链路的提问面**存在但被拒答** |
-| **G6** | **信封 7 字段、无类别字段**（`confirmation_id/chat_id/agent_id/tool/title/options/created_at`）；`web.js` 逐字段白名单重建；在途表按 id 存整条、`take()` 即删 | `agent.js:275-293`、`web.js:1597-1610`、`inbox.js:9-30` | M3 / T-02：`kind` 与提问形状的扩展依据 |
-| **G7** | **裁决回传载荷只有 `{optionId}`**；自由文本在 web 侧被当作"追加一条 chat 输入"（代码注释在 `:1312`） | `agent.js:300-308`、`web.js:1308-1324` | M5 / T-04：答案本体（含文本）无法回传；旁路须按 `kind` 分化 |
+| **G6** | **信封 7 字段、无类别字段**（`confirmation_id/chat_id/agent_id/tool/title/options/created_at`）；`web.js` 逐字段白名单重建；在途表按 id 存整条、`take()` 即删 | `agent.js:275-293`、`web.js:1597-1610`、`inbox.js:9-30` | M3 / T-02：`request_kind`（类别字段）与提问形状的扩展依据 |
+| **G7** | **裁决回传载荷只有 `{optionId}`**；自由文本在 web 侧被当作"追加一条 chat 输入"（代码注释在 `:1312`） | `agent.js:300-308`、`web.js:1308-1324` | M5 / T-04：答案本体（含文本）无法回传；旁路须按 `request_kind` 分化 |
 | **G8** | **上浮钩子按 `permission` 档单点注入**：仅 `permission === 'allow'` 时给 `onPermissionRequest`/`onApproval`，`deny` 档恒 `null` | `context-pool.js:194-203`、`agent.js:698-700` | W2 / F03：`deny` 档"门存在但不上浮"的**唯一**结构依据（本迭代**零改动**保留，见 §5.1） |
 
 ### 1.4 可复用原语（本迭代**必须复用、不得另造**）
@@ -168,7 +170,7 @@ L1/L2 分层（0022 已建立，本迭代沿用）：`launcher.js` = L1（profil
 | 实测事实 | 架构含义 |
 |---|---|
 | yolo 下零门、always-ask 下门齐备（Y1 / R3 D*） | 档位必须真的落到 argv（`--approval-mode`）⇒ W1 的实现面 = argv 取值（§5.1） |
-| yolo 下用户策略仍可产门（Y2） | ①`kind:'permission'` 通路**不可删**（F10 验收 2 成立）；② **门钩子**必须继续在 **`permission==='allow'`** 时注入（否则偶发门无人接收、被 `cancelled:true` 吃掉）⇒ G8 的判定**零改动**保留；③ 该判定只约束**门面**，**提问钩子另按"恒注入"**（§5.1） |
+| yolo 下用户策略仍可产门（Y2） | ①`request_kind:'permission'` 通路**不可删**（F10 验收 2 成立）；② **门钩子**必须继续在 **`permission==='allow'`** 时注入（否则偶发门无人接收、被 `cancelled:true` 吃掉）⇒ G8 的判定**零改动**保留；③ 该判定只约束**门面**，**提问钩子另按"恒注入"**（§5.1） |
 | rpc 拒绝后轮次照常收尾（R3 D1） | rpc 侧「自动拒绝三步」**须新建**（回执 ⇒ `abort` ⇒ 以 `permission_denied` 结算）；acp 侧零改动 |
 | abort 后会话可用（R3b） | 中止按**轮次级**实现（复用 `ProtocolError('permission_denied')` + `ContextPool._failSession` 的轮次级语义），**不杀子进程、不弃会话** |
 | 宿主工具在 ready 前/后均可注册、注册为替换、跨轮存活、`--no-tools` 下可用（R2/R2b） | 注册**恰一次**、时机 = 握手完成后（返回会话对象前）；提问能力**不依赖工具开关**（F09 验收 1 对匿名实例同样成立） |
@@ -226,11 +228,11 @@ graph TB
 | `src/launcher.js` | profile 表不再承载档位**取值**（只留 `appliesWhen` 形态）；`buildArgv` 的 `approval` 入参改为已解析档位 | 收窄（死数据删除 + 入参语义收窄） |
 | `src/rpc-client.js` | ① 握手后注册宿主工具（恰一次）② `host_tool_call` → 上浮 + 冻结计时 + 回包 ③ `host_tool_cancel` → 撤条目 ④ 门被自动拒绝时补"中止该轮"三步 | 扩展（+2 承接 / 1 拒绝分支改写） |
 | `src/acp-client.js` | `_handleElicitationRequest` 的**非门分支**由 `decline` 改为"逐问登记 → 齐答后一次性回包"；承载本期新增的 `approval` 入参 | 改写（1 处判定分支）+ 入参透传 |
-| `src/agent.js` | ① 新增 `--approval-mode` 参数解析 + 档位声明入事件 ② 提问钩子接线（`onQuestionRequest` 与门钩子共用 `raiseConfirmation`）③ 信封扩展与 `kind` 分化 | 扩展（3 处） |
+| `src/agent.js` | ① 新增 `--approval-mode` 参数解析 + 档位声明入事件 ② 提问钩子接线（`onQuestionRequest` 与门钩子共用 `raiseConfirmation`）③ 信封扩展与 `request_kind` 分化 | 扩展（3 处） |
 | `src/config.js` | 第 5 键 `approval`（值域 `{always-ask, yolo}`，缺省 `yolo`；非法 ⇒ 响亮失败） | 扩展（1 键） |
-| `web/app.js`（+ `web/style.css`） | 条目按 `kind` 分化渲染（**[user_confirmed MI-2]**）：question 类支持多选与"一次提交"（permission 类交互**不变**） | 扩展（1 分支） |
+| `web/app.js`（+ `web/style.css`） | 条目按 `request_kind` 分化渲染（**[user_confirmed MI-2]**）：question 类支持多选与"一次提交"（permission 类交互**不变**） | 扩展（1 分支） |
 | `src/context-pool.js` | **提问钩子透传**（`onQuestionRequest`，注入条件与门钩子**不同**：门钩子仍限 `permission === 'allow'`、提问钩子**恒注入**）——其余逻辑零改动 | 扩展（1 处透传） |
-| `src/web.js` | ① 信封白名单补 `kind`/`multiple` ② 裁决路由按 `kind` 分化（question 类停掉"文本 → chat 输入"旁路；MI-03 必填校验） | 扩展（2 处） |
+| `src/web.js` | ① 信封白名单补 `request_kind`/`multiple` ② 裁决路由按 `request_kind` 分化（question 类停掉"文本 → chat 输入"旁路；MI-03 必填校验） | 扩展（2 处） |
 | `inbox.js` / `transport.js` / `persist.js` / `router.js` | **零改动**（在途表结构不变：整条存、`take()` 即删） | 零 |
 | `oneshot-client.js` | 改为消费已解析档位（删除自定义合成） | 收窄 |
 
@@ -264,8 +266,8 @@ agent start <id> [--permission allow|deny] [--approval-mode <v>]
   └─ 模型调用 ask_user{question, options?, multiple?}
         └─ 帧 host_tool_call{id, toolCallId, toolName:'ask_user', arguments}
               ├─ rpc-client：freezeTurnTimer()（挂起期不计入轮次预算）
-              ├─ hooks.onQuestionRequest({kind:'question', question, options, multiple, chatId, agentId, origin})
-              │     └─ agent.js::raiseConfirmation → 信封（kind:'question'）→ notice → web.js → inbox.add → SSE 帧 → 第三栏
+              ├─ hooks.onQuestionRequest({requestKind:'question', question, options, multiple, chatId, agentId, origin})
+              │     └─ agent.js::raiseConfirmation → 信封（request_kind:'question'）→ notice → web.js → inbox.add → SSE 帧 → 第三栏
               ├─ 用户作答 → POST /api/confirmations/<id>/decision {option_ids, text}
               │     └─ web.js → notice{kind:'confirmation_decision', option_ids, text} → agent.js → resolve
               └─ rpc-client：thawTurnTimer() → host_tool_result{id, result:{content:[{type:'text', text}]}}
@@ -327,7 +329,7 @@ deny 实例 ⇒ permission==='deny'
 
 ### 4.1 L1 决策清单（**影响系统边界 / 核心模块职责 / 新增配置面 —— 7 条已用户确认（2026-09-14）；可进入实现**）
 
-> 分级口径（角色契约）：**L1 = 引入新技术栈 / 改变现有核心模块职责 / 影响系统整体边界**。以下 7 条**不引入新技术栈**（零新依赖、零新进程），但都**改变既有核心模块职责或跨模块契约**，故按 L1 上报。7 条均已于 **2026-09-14** 经用户裁决**采纳推荐项①**（原件 = `clarifications/2026-09-14-architect-round1-verdicts.md`）；**候选方案与否决理由逐字保留在下方表内**。
+> 分级口径（角色契约）：**L1 = 引入新技术栈 / 改变现有核心模块职责 / 影响系统整体边界**。以下 7 条**不引入新技术栈**（零新依赖、零新进程），但都**改变既有核心模块职责或跨模块契约**，故按 L1 上报。7 条均已于 **2026-09-14** 经用户裁决**采纳推荐项①**（原件 = `clarifications/2026-09-14-architect-round1-verdicts.md`）；**候选方案与否决理由逐字保留在下方表内**。**第 3 轮定点修正（2026-09-14 · 门禁 D-1）**：L1-3 推荐①的类别字段**只改名**（`kind` → `request_kind`，落点 §5.2 / §12.4）——七条决策的**语义逐字不变**；表内候选与理由原文按留档体例保留，其中提及 `kind` 者一律以 §5.2 的 `request_kind` 为准（`kind` 是**通知**判别键，不是信封字段）。
 
 | # | **裁决** | 决策 | 候选方案 | **推荐** | 理由 / 影响面 |
 |---|---|---|---|---|---|
@@ -347,7 +349,7 @@ deny 实例 ⇒ permission==='deny'
 |---|---|---|
 | L2-1 | **档位取值不再由 profile 静态表承载**（`PROFILES` 五行的 `mode` 删除，保留 `appliesWhen` 形态）；`buildArgv` 的 `approval` 入参 = **已解析档位字符串**（未给 ⇒ 响亮失败） | 静态表表达不了 per-instance 覆写（M1）；`undefined` 静默回落会让"某条链路忘记覆写"变成**静默失效**——正是 F03 验收 4 要消灭的通路。响亮失败 = 既有配置校验体例 |
 | L2-2 | `omp:oneshot` 行的 `appliesWhen` 由 `'always'`（既有死值：一次性实现从来都是显式传段）改为 `'tools-on'` | 让 profile 行与真实行为一致；改后一次性路径 argv **逐字不变**（`tools off ⇒ 无档位段`） |
-| L2-3 | **提问钩子命名 `onQuestionRequest`**：与门钩子**同形**（钩子入参 / 未结算 Promise / 冻结计时的用法一致）、经**同一注入点**透传，但**注入条件不同** —— 门钩子仍由 `permission === 'allow'` 判定（deny ⇒ null ⇒ 自动拒绝），提问钩子**恒注入**（M6「一律登记待答」/ F04 验收 4；`deny` 实例上提问同样上浮） | 复用 R2 原语（不新建通路、不新建模块）；"提问不随档位变"必须与 `permission` 解耦才能成立（否则 `deny` 实例的提问会被自动拒绝 = 代答，违 N12） |
+| L2-3 | **提问钩子命名 `onQuestionRequest`**：与门钩子**同形**（钩子入参 / 未结算 Promise / 冻结计时的用法一致）、经**同一注入点**透传，但**注入条件不同** —— 门钩子仍由 `permission === 'allow'` 判定（deny ⇒ null ⇒ 自动拒绝），提问钩子**恒注入**（M6「一律登记待答」/ F04 验收 4；`deny` 实例上提问同样上浮） | 复用 R2 原语（不新建通路、不新建模块）；"提问不随档位变"必须与 `permission` 解耦才能成立（否则 `deny` 实例的提问会被自动拒绝 = 代答，违 N12）；**类别标记（第 3 轮 D-1 定点修正）**：提问钩子入参新增 `requestKind`（`'permission' | 'question'`），由 `raiseConfirmation` **一对一**写入信封的 `request_kind`（无映射层；缺省 ⇒ `'permission'`，与 §5.2 的兜底同源） |
 | L2-4 | **question 类条目的选项 `option_id` = `label`**（两个载体上都是"人给的字符串"，omp 的 acp 回包按 label 匹配、宿主工具参数本就是字符串数组） | 少一层 id↔label 映射；`option_id` 在 acp 侧取 `const`、`label` 取 `title`（两者在 omp 产出里恒相等，防御性取字段） |
 | L2-5 | **宿主工具回包文本的渲染**：仅选项 ⇒ `选项：A, B`；选项+文本 ⇒ `选项：A, B\n文本：<逐字>`；仅文本 ⇒ `<逐字>` | 自由文本**逐字**出现（E4 的"答案文本与输入一致"可核）；标签行固定、机器可读；格式属呈现细节（L3 可调）；**已采纳**（[user_confirmed MI-4]，2026-09-14） |
 | L2-6 | **未知形状的 elicitation 继续 `decline`**（只新增识别 §5.5 表中四种形状） | 保守不代答（既有注释口径）；不为未知协议形状猜语义 |
@@ -384,19 +386,19 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 - **钩子注入面（两型分开，★ 本迭代必须区分的一处）**：
   - **门钩子（`onApproval` / `onPermissionRequest`）**：`context-pool.js:194-203` 的 `permission === 'allow'` 判定**逐字保留**——它是"`deny` 档的工具门不上浮"的唯一点，且保证 yolo 档下的偶发门（R4 Y2 实测）仍有人接收（F10 验收 2）。
   - **提问钩子（`onQuestionRequest`，新增）**：**恒注入**（与 `permission` 解耦）——依据 M6「提问类请求**一律**登记待答、不代答拒绝」与 F04 验收 4「提问上浮不随档位变」。`permission` 只决定**工具门**是否自动拒绝（W2 / Q1 原文只谈门），不决定提问面。
-  - **两型在同一实例上的并存形态（防止误读）**：`deny` 实例 ⇒ **工具门零上浮**（收件箱零新增，F03 验收 2 成立）**且提问仍上浮**（F04 验收 4 / N12 成立）——两者不冲突：它们是同一个 inbox 上的两类条目，由 `kind` 区分。
+  - **两型在同一实例上的并存形态（防止误读）**：`deny` 实例 ⇒ **工具门零上浮**（收件箱零新增，F03 验收 2 成立）**且提问仍上浮**（F04 验收 4 / N12 成立）——两者不冲突：它们是同一个 inbox 上的两类条目，由 `request_kind` 区分。
   - **离线边界（如实登记，不新增机制）**：无收件人（agent 与 Router 连接不可用）时沿用既有 `raiseConfirmation` 的 `null` 回落（**不把轮次永久吊起**）；E5 / F08 的判定场景是"条目已出现后搁置"，不覆盖该边界；**不新增离线重投 / 重放机制**（未要求）。
 - **能力位面（F11）**：`CAPABILITY_KEYS` 六键与 `capabilities()` 签名**不变**；`approvalGate` 恒按协议声明（rpc/acp `'yes'`、oneshot `'no'` + note），**与档位无关**（代码结构上：档位值不进入任何能力位表）。档位声明 = `spec.approval` + `AGENT_START` 事件 `approval` 字段 + argv。
 - **生效范围（Q-3 已裁定（2026-09-14））**：档位配置面对**三条路径**（rpc / acp / 一次性 `omp -p`）**统一生效**（解析点唯一 ⇒ F03 验收 4 的单点要求）。**代价如实登记**：配 `always-ask` 时，一次性路径（无反向通道）在工具开启时会退化为 **omp 侧自动拒绝**受门禁调用 —— 与既有 `--permission deny` 在一次性路径的表现**同形**（存量行为）；已否决"给一次性路径开例外"（会产生第二个判定点，与 F03 验收 4 相冲）。
 
 ### 5.2 确认项信封（T-02）
 
-沿用既有 7 字段，**新增 2 个**（`kind` / `multiple`）：
+沿用既有 7 字段，**新增 2 个**（`request_kind` / `multiple`）：
 
 | 字段 | 类型 | permission 类 | question 类 | 说明 |
 |---|---|---|---|---|
 | `confirmation_id` | string | ✅ | ✅ | 既有 |
-| **`kind`** | `'permission' \| 'question'` | `'permission'` | `'question'` | **新增**：M3 的类别字段（如缺失按 `'permission'` 兜底，兼容既有投递） |
+| **`request_kind`** | `'permission' \| 'question'` | `'permission'` | `'question'` | **新增**：M3 的类别字段（**不与通知判别键 `kind` 同 key**；如缺失按 `'permission'` 兜底，兼容既有投递） |
 | `chat_id` / `agent_id` | string\|null | ✅ | ✅ | 既有 |
 | `tool` | string\|null | 工具名 | 承载名（rpc：`ask_user`；acp：`ask` / `null`） | 既有字段，语义不变（"是谁在要"） |
 | `title` | string\|null | 原始请求正文（多行） | **问题文本** | M3「问题文本」的承载（与既有"给人看的正文"同一展示位 ⇒ 前端第二行零改动） |
@@ -410,10 +412,50 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 |---|---|
 | 问题文本 | `title` |
 | 选项集合（含是否多选） | `options` + `multiple` |
-| 是否允许自由文本 | **由 `kind:'question'` 蕴含**（question 类**恒**允许自由文本 —— F05 验收 3 带选项可附文本、验收 4 纯文本提问；acp 侧上游对每问恒附加 `__other`，§2.7）⇒ 不设恒真字段 |
-| 无选项的纯自由文本提问 | `options: []` + `kind:'question'` |
+| 是否允许自由文本 | **由 `request_kind:'question'` 蕴含**（question 类**恒**允许自由文本 —— F05 验收 3 带选项可附文本、验收 4 纯文本提问；acp 侧上游对每问恒附加 `__other`，§2.7）⇒ 不设恒真字段 |
+| 无选项的纯自由文本提问 | `options: []` + `request_kind:'question'` |
 
 > **不改载体（N11）**：仍在第三栏、仍用既有条目容器与 `POST /api/confirmations/<id>/decision`；变异面仅"条目形状 + question 类控件"。
+
+#### 5.2.1 与既有通知 `kind` 的共存证明（第 3 轮 · 门禁 D-1 定点修正）
+
+**为什么必须改名**：`notice` 的 body 是**扁平**结构，而 `kind` 在既有投递上早已是**通知类型判别键**（实读 2026-09-14）：
+
+| 面 | 代码事实（`文件:行号`） | `kind` 的角色 |
+|---|---|---|
+| 生产（agent→web，无信封形态） | `agent.js:245` `const body = fields === null ? { chat_id: chatId, kind, text } : { kind, ...fields };` | 通知类型 |
+| 生产（agent→web，信封形态） | `agent.js:291`（`kind: 'confirmation_request'`）、`:319`（`kind: 'confirmation_cancelled'`） | 通知类型 |
+| 消费（web 侧判读） | `web.js:1597`（`=== 'confirmation_request'`）、`:1613`（`=== 'confirmation_cancelled'`）、`:1618`（`context_released` / `context_reset`） | 通知类型 |
+| 生产（web→agent） | `web.js:1695-1703` `sendControlNotice` ⇒ `:1311`（`kind: 'confirmation_decision'`）、`:598` / `:632`（`kind: 'context_release'`） | 通知类型 |
+| 消费（agent 侧判读） | `agent.js:536`（`=== 'confirmation_decision'`）、`:540`（`!== 'context_release'`） | 通知类型 |
+
+⇒ 若信封的类别字段也叫 `kind`，`agent.js:245` 的 `{ kind, ...fields }` 展开次序会让 `fields.kind` **覆盖**通知类型 ⇒ **同一个扁平 key 承载两个值**（该请求在 `web.js:1597` 判否后被丢弃）。改名后此冲突不复存在。
+
+**逐 key 对照（既有通知 body 的 key 并集 × 本次新增字段名）**
+
+| 既有 notice body 的 key（两方向并集） | 实读出处（`文件:行号`） | 语义 | 与 `request_kind` / `multiple` 相交 |
+|---|---|---|---|
+| `kind` | `agent.js:245` / `:291` / `:319` / `:536` / `:540`；`web.js:1597` / `:1613` / `:1618` / `:1311` / `:598` / `:632` | 通知类型判别键 | **不相交** |
+| `chat_id` | `agent.js:245` / `:282`；`web.js:1601` / `:1311` / `:598` | 归属对话 | **不相交** |
+| `text` | `agent.js:245`；`web.js:1311` | 提示正文 / 裁决附文 | **不相交** |
+| `confirmation_id` | `agent.js:281` / `:319`；`web.js:1600` / `:1614` / `:1311` | 在途项 id | **不相交** |
+| `agent_id` | `agent.js:283`；`web.js:1602` | 发起 agent | **不相交** |
+| `tool` | `agent.js:284`；`web.js:1603` | 工具名 / 承载名 | **不相交** |
+| `title` | `agent.js:285`；`web.js:1604` | 请求正文 / 问题文本 | **不相交** |
+| `options` | `agent.js:286`；`web.js:1605` | 选项集合 | **不相交** |
+| `created_at` | `agent.js:287`；`web.js:1606` | 登记时刻 | **不相交** |
+| `option_id` | `web.js:1311`（回传向） | permission 类选中项 | **不相交** |
+
+**key 并集（10 个）** = {`kind`, `chat_id`, `text`, `confirmation_id`, `agent_id`, `tool`, `title`, `options`, `created_at`, `option_id`}；**本次新增字段名** = {`request_kind`, `multiple`} ⇒ **交集 = ∅**。
+
+**字段面 = 生产面与消费面的边界（解耦效果）**
+
+| 面 | 本迭代的字段面 | 缺该字段时的行为 |
+|---|---|---|
+| **生产面**（agent 侧 `raiseConfirmation`） | 在既有 7 字段上**追加** `request_kind`（由钩子入参 `requestKind` 一对一透传；入参缺省 ⇒ `'permission'`）与 `multiple` | —— |
+| **消费面**（`web.js` 白名单重建 + `web/app.js`） | 读 `body.request_kind`；**非字符串 ⇒ 按 `'permission'` 兜底**（既有投递无此字段） | 新分支**惰性**：既有投递照常走 `'permission'` 路径 ⇒ 无条目丢失、无判据改写、无构建 / 测试失败 |
+
+⇒ 两侧由此**各自可独立合入**：生产面只"增字段"、不改任何既有判据；消费面只"读自己已兜底的字段"，`web.js:1597` 的**通知类型判据零改动**（`kind` 仍恒为 `'confirmation_request'`）。
 
 ### 5.3 裁决回传载荷（T-04）
 
@@ -435,7 +477,9 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 
 **校验（服务端权威，L2-7 / MI-03）**：`option_ids ⊆ 条目的 option_id 集合`；且 `option_ids.length > 0 || text.trim() !== ''`；任一不满足 ⇒ **400 INVALID_PARAM 且条目保留在途**（沿用既有非法 `option_id` 的体例）。空提交**不构成作答**（F05 验收 5 / F07 验收 1）。
 
-**旁路分化（④改写）**：`kind:'question'` ⇒ **不**追加 chat 输入（`web.js:1308-1324` 的既有分支按 `kind` 排除）；`kind:'permission'` ⇒ 既有路径逐字不变。
+**旁路分化（④改写）**：`request_kind:'question'` ⇒ **不**追加 chat 输入（`web.js:1308-1324` 的既有分支按 `request_kind` 排除）；`request_kind:'permission'` ⇒ 既有路径逐字不变。
+
+> **方向区分（第 3 轮 · D-1）**：本节回传载荷里的 `kind` 是 **web→agent 向**的通知判别键（恒为 `'confirmation_decision'`），与 §5.2 信封的类别字段 `request_kind` **既不同 key、也不同方向**；两者在同一扁平体上不可能互撞（§5.2.1）。
 
 ### 5.4 宿主工具（T-05，默认链路）
 
@@ -466,6 +510,8 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 - **条目顺序**：`q0 → q{N-1}`（拆帧顺序）；不与 `rpc` 链路对齐（R4：不要求逐字等价）。
 - **`message`**：多问时上游给 `Answer N questions`（非问题正文）⇒ **不进条目**（问题正文取自 `q{i}.title`）；单值形状时 `message` 即问题正文 ⇒ 进 `title`。
 - **单值形状的承载上限（如实登记）**：`select` / `confirm` 只有一个值位 ⇒ 用户"既选选项又写文本"时，回包按**选项优先**（`{value: 选项 ?? 文本}`）；`input` 无选项 ⇒ 文本独占。这是上游形状的单值约束（§2.7），不是 hub 的取舍失效；多问形状（`q{i}` + `q{i}__other`）不受此限，**自由文本与选项可并存**。**Q-2 已裁定（2026-09-14）**：接受该映射 —— 单值形状下"选项与文本二者取一"、以**选项优先**回包；`confirm` ⇒ 选项「是 / 否」（§12.1-Q-2）。
+
+- **条目类别（第 3 轮定点修正 · D-1）**：本表除「审批门」外的五行产出的条目**一律 `request_kind:'question'`**；「审批门」（既有）产出的条目为 `request_kind:'permission'`（既有路径**零改动**）。
 
 ### 5.6 能力位（T-06 / F11）
 
@@ -498,7 +544,7 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 | **F06** 一问一条 | 流 3（acp 拆帧）/ 流 2（rpc 天然逐问）+ §5.5 | 验收 1：条目数 = N（acp 一帧 N 问 ⇒ N 条）；验收 2：逐条独立（各自 `confirmation_id`）；验收 3：齐答后一次性回包（`Promise.all` ⇒ 单次 `_respond`）；验收 4：条目仍是"一次裁决"形状（无 `questions[]`） |
 | **F07** 作答回传 | §5.3 + §5.4 渲染 + §5.5 映射 + 旁路分化 | 验收 1：答案本体（`option_ids` + `text`）到达提问方（rpc 逐字文本 / acp `content`）；验收 2：该轮继续（`host_tool_result` ⇒ 轮次结算 / acp 单次回包 ⇒ `end_turn`）；验收 3：question 类零新增 chat 输入；验收 4：permission 类既有口径不变 |
 | **F08** 未作答保持阻塞 | §5.7 全表 | 验收 1：挂起无上限（冻结计时 + 无超时源）；验收 2：无自动选 / 无超时收尾；验收 3：不代答拒绝（不产生 `decline`/`{cancelled:true}`）；验收 4：无策略配置面（零新增）；验收 5：同栏同态 |
-| **F09** 两条链路承载 | §5.4（rpc）/ §5.5（acp）/ §5.2（同一信封） | 验收 1：`ask_user` 通路（R2/R2b 实测可跑）；验收 2：非门 elicitation 不再 `decline`；验收 3：同栏同 `kind`、字段集合与语义一致；验收 4：`--mode rpc` 不变（零改动） |
+| **F09** 两条链路承载 | §5.4（rpc）/ §5.5（acp）/ §5.2（同一信封） | 验收 1：`ask_user` 通路（R2/R2b 实测可跑）；验收 2：非门 elicitation 不再 `decline`；验收 3：同栏同 `request_kind`、字段集合与语义一致；验收 4：`--mode rpc` 不变（零改动） |
 | **F10** 门通路保留 | 既有机制（零改动）+ §5.1 档位触发 + G8 | 验收 1：`always-ask` 档门出现且可裁决（既有）；验收 2：`yolo` 档偶发门仍可处理（R4 Y2 实测形态 + 钩子零改动）；验收 3：permission 类形状与交互不变；验收 4："恰一条"的适用面 = 档位 `always-ask`（触发条件由 argv 档位决定）；验收 5：`deny` 实例零条目 |
 | **F11** 能力位与档位声明分离 | §5.1 能力位面 + §5.6 | 验收 1：两档下 `approvalGate` 相同（常量表，结构保证）；验收 2：档位声明独立可读；验收 3：能力位定义不含档位取值 |
 | **F12** 不改上游 | 全部通路均由 omp 既有面承载（K11/K12 + 本轮 A2/R2/R2b/R3/R3b/R4） | 验收 1/2：零上游改动、能力均为既有；验收 3：无"必须改上游"事项（§2.7 的上游硬约束**不改上游**、按已知差异登记） |
@@ -516,9 +562,9 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 | 编号 | 原待填内容 | **架构落定** | 落点 |
 |---|---|---|---|
 | **T-01** | 档位解析的归属与"唯一汇聚点"落点 | **`protocol.js::resolveApproval(spec)` + `createProtocolLayer` 求值一次**；规则 = `deny ⇒ always-ask` > 显式 `--approval-mode` > `config.json:approval` > 内置 `yolo`；三实现只消费（`oneshot-client` 的既有自定义合成删除） | §5.1 / 流 1 / L1-1 |
-| **T-02** | 信封与提问形状的最终字段名 | **新增 `kind`（`'permission'\|'question'`，两类都带）与 `multiple`（boolean）**；问题文本 = 既有 `title`；选项 = 既有 `options`（`option_id` = `label`）；自由文本由 `kind:'question'` 蕴含；无选项 = `options: []` | §5.2 / L1-3 |
+| **T-02** | 信封与提问形状的最终字段名 | **新增 `request_kind`（`'permission'\|'question'`，两类都带）与 `multiple`（boolean）**；问题文本 = 既有 `title`；选项 = 既有 `options`（`option_id` = `label`）；自由文本由 `request_kind:'question'` 蕴含；无选项 = `options: []` | §5.2 / L1-3 |
 | **T-03** | acp 多问的组内暂存形态 | **该帧处理函数内的局部状态**（帧 id + 每题一个未结算 Promise + 答案聚合）；`Promise.all` 齐答后**恰一次** `_respond`；无新模块 / 无跨帧状态 / 无定时器 | §5.5 / 流 3 / L1-5 |
-| **T-04** | 裁决回传载荷字段名 | question 类 = `option_ids: string[]` + `text: string`（web→agent 的 `confirmation_decision` 与钩子结算值同形）；permission 类 = 既有 `option_id` + `text` **逐字不变**；按 `kind` 分化（登记⑧ ④） | §5.3 / L1-4 |
+| **T-04** | 裁决回传载荷字段名 | question 类 = `option_ids: string[]` + `text: string`（web→agent 的 `confirmation_decision` 与钩子结算值同形）；permission 类 = 既有 `option_id` + `text` **逐字不变**；按 `request_kind` 分化（登记⑧ ④） | §5.3 / L1-4 |
 | **T-05** | 宿主工具注册时机 / 命名 / 参数 schema + acp 表单→信封映射 | 命名 `ask_user`；schema `{question, options?, multiple?}`；**握手完成后注册恰一次**（实测：ready 前/后均可，注册为**替换**语义故不得重复）；映射表见 §5.5（四形状 + 未知形状保守 `decline`） | §5.4 / §5.5 / L1-6 |
 | **T-06** | 能力位最终集合与签名 | **不变**（六键 + 既有签名）；`approvalGate` 不随档位变（结构保证）；档位声明独立表达（`spec.approval` / `AGENT_START.approval` / argv） | §5.6 / L1-7 |
 | **T-07** | 档位配置面落点与键名 | `config.json` **第 5 键 `approval`**（缺省 `yolo`，非法 ⇒ `OAMP 配置错误`）+ `agent start --approval-mode <always-ask\|yolo>`（非法 ⇒ 退出 2）；**不新增 env 键、不新增控制台可切面** | §5.1 / L1-2 |
@@ -536,14 +582,15 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 | C4 | N1~N12 全部不被违反 | ✅ | N1 → 值域两值；N2/N12 → §5.7 无自动裁决无代答 **+ 提问钩子恒注入（§5.1）⇒ `deny` 实例的提问也不会被代答拒绝**；N3 → §2 全部通路上游既有；N4 → 零新增审计载体（`permission_denied` 是既有码值）；N5 → 一次性路径与 `!` shell 路径**零改动**（档位仍落到其 argv，但不设提问通路）；N6 → 事件类型沿用；N7 → 无新入口；N8 → 零改动；N9 → `inbox.js` 零改动；N10 → 零依赖；N11 → 第三栏与 permission 类交互不变 |
 | C5 | 与 M1~M8 逐条一致 | ✅ | M1 → §5.1 解析链；M2 → 两档语义落到 argv；M3 → §5.2；M4 → 一问一条 + 组内暂存（§5.5）；M5 → §5.3；M6 → §5.7；M7 → §5.4/§5.5；M8 → §5.6 |
 | C6 | E1~E9 每条都有可观测面 | ✅ | E1 → argv + R4 Y1 形态；E2 → 流 5（两条链路各有观测面）；E3 → 流 2/3；E4 → §5.3/§5.4；E5 → §5.7；E6/E7 → 既有门机制（R4 Y1/Y2 形态）；E8 → §5.1 两配置面 + 非法值；E9 → §5.5 |
-| C7 | 登记⑧ 五类处置逐类有实现落点 | ✅ | ① 取代 → 触发条件改为"档位 = always-ask"（§5.1 argv 面），机制不删；② 保留 → §9"零改动清单"；③ 条件化 → §5.2/§5.3 按 `kind` 分化；④ 改写 → §5.3 旁路分化；⑤ 收窄 → E1/E8 的 yolo 面（argv 决定是否产生门）+ F13 验收 4 |
+| C7 | 登记⑧ 五类处置逐类有实现落点 | ✅ | ① 取代 → 触发条件改为"档位 = always-ask"（§5.1 argv 面），机制不删；② 保留 → §9"零改动清单"；③ 条件化 → §5.2/§5.3 按 `request_kind` 分化；④ 改写 → §5.3 旁路分化；⑤ 收窄 → E1/E8 的 yolo 面（argv 决定是否产生门）+ F13 验收 4 |
 | C8 | `[架构待填]` 全部回填且未与 `[model_inferred]` 混用 | ✅ | §7 T-01~T-08；`[model_inferred]` 只在 §12 集中列示（4 条，**第 2 轮已全部转 `[user_confirmed]`**），不进卡片 |
-| C9 | 无架构内部冲突 | ✅ | 档位单点（§5.1）× 三条链路消费一致；信封两类形状互不污染（`kind` 分化）；计时单点（§5.7）× 两实现同款原语 |
+| C9 | 无架构内部冲突 | ✅ | 档位单点（§5.1）× 三条链路消费一致；信封两类形状互不污染（`request_kind` 分化）；计时单点（§5.7）× 两实现同款原语 |
 | C10 | 与 0021/0022 已冻结契约不冲突 | ✅ | 0021：信封 7 字段只增不改、裁决路由签名不变（body 增 `option_ids`）、在途表零改动；0022：能力位键集/签名不变、L1/L2 分层与唯一注入点不变（档位解析**加在**该单点上） |
 | C11 | 实测结论与设计一致（不按假设定型） | ✅ | 注册时机/替换语义/`--no-tools` 可用/跨轮存活/abort 语义/零门，六条逐条进 §5（§2.6 映射表） |
 | C12 | 每条 L1 有候选与理由 | ✅ | §4.1 七条（含被否候选与理由；**第 2 轮已逐条标 `✅ 用户确认（2026-09-14，采纳推荐）`**） |
 | C13 | 未越界（不改产品维度 / 不拆任务 / 不写实现） | ✅ | §13 |
 | C14 | 保证项（F12~F16）逐条可机械复核 | ✅ | §6 行内逐条给出核对对象 |
+| C15 | **信封新增字段名与既有通知 body 的 key 集不相交**（第 3 轮新增的**机械自查项**——门禁 D-1 的根因即"同一扁平 key 承载两个值"） | ✅ | §5.2.1 逐 key 对照：既有并集 10 key（`agent.js:245`/`:281-287`/`:291`/`:319`/`:536`/`:540`；`web.js:598`/`:632`/`:1311`/`:1597-1618`）∩ {`request_kind`, `multiple`} = ∅ |
 
 ---
 
@@ -556,18 +603,18 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 | `src/protocol.js` | +`resolveApproval(spec)`（纯函数，唯一汇聚点）；`createProtocolLayer` 求值一次并写入 spec（`spec.approval`） |
 | `src/launcher.js` | `PROFILES` 五行的 `approval.mode` 删除（保留 `appliesWhen`）；`buildArgv` 的 `approval` 入参 = 已解析档位字符串（未给 ⇒ 响亮失败）；JSDoc 同步 |
 | `src/config.js` | +第 5 键 `approval`（默认 `yolo`，值域校验，参照既有 `readProtocol` 体例） |
-| `src/agent.js` | +`--approval-mode` 解析与校验；`AGENT_START` 事件 +`approval` 字段；+`onQuestionRequest` 钩子接线（与门钩子共用 `raiseConfirmation`）；`raiseConfirmation` 支持 `kind:'question'` 的字段集；`settleConfirmation` 支持 `option_ids` |
+| `src/agent.js` | +`--approval-mode` 解析与校验；`AGENT_START` 事件 +`approval` 字段；+`onQuestionRequest` 钩子接线（与门钩子共用 `raiseConfirmation`）；`raiseConfirmation` 支持 `request_kind:'question'` 的字段集；`settleConfirmation` 支持 `option_ids` |
 | `src/rpc-client.js` | 握手后 `set_host_tools`（恰一次）；+`host_tool_call` / `host_tool_cancel` 承接；`handleApproval` 的"无收件人"分支 ⇒ 拒绝 + `abort` + `permission_denied` 结算 |
 | `src/acp-client.js` | 构造面 +`approval`（传 L1）；`_handleElicitationRequest` 非门分支 ⇒ 逐问登记 + 齐答一次性回包 |
 | `src/oneshot-client.js` | 删除自定义档位合成，改消费 `spec.approval` |
-| `src/web.js` | 信封白名单 +`kind`/`multiple`；裁决路由按 `kind` 分化（question 类**停掉**"文本 → chat 输入"旁路 + MI-03 必填校验） |
+| `src/web.js` | 信封白名单 +`request_kind`/`multiple`；裁决路由按 `request_kind` 分化（question 类**停掉**"文本 → chat 输入"旁路 + MI-03 必填校验） |
 | `src/context-pool.js` | 提问钩子透传（`onQuestionRequest`，**恒注入**；门钩子的 `permission === 'allow'` 判定逐字保留） |
 
 ### 9.2 修改（前端 2 个文件）
 
 | 文件 | 变更点 |
 |---|---|
-| `web/app.js` | `renderInboxItem` 按 `kind` 分化（question 类：多选取舍 + 文本 + 提交按钮；permission 类不变）；`decide()` body 按 `kind` 提交 `{option_ids, text}` / `{option_id, text}` |
+| `web/app.js` | `renderInboxItem` 按 `request_kind` 分化（question 类：多选取舍 + 文本 + 提交按钮；permission 类不变）；`decide()` body 按 `request_kind` 提交 `{option_ids, text}` / `{option_id, text}` |
 | `web/style.css` | question 类多选控件的样式（既有类名体系内新增，不引框架） |
 
 ### 9.3 零改动（**本迭代明确不碰**）
@@ -586,7 +633,7 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 
 ### 9.5 文档面
 
-`oamp/API.md`（`POST /api/confirmations/:id/decision` 的 body 增 `option_ids`、可选值域说明；`GET /api/confirmations` 的条目字段增 `kind`/`multiple`）、`oamp/README.md`（若含档位说明）。**本阶段不写**。
+`oamp/API.md`（`POST /api/confirmations/:id/decision` 的 body 增 `option_ids`、可选值域说明；`GET /api/confirmations` 的条目字段增 `request_kind`/`multiple`）、`oamp/README.md`（若含档位说明）。**本阶段不写**。
 
 ---
 
@@ -597,7 +644,7 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 | 新模块 / 新目录 | —（全部落在既有 6 个模块内） | **不引入** |
 | 新第三方依赖 | —（前端 vanilla、后端 Node 内置） | **不引入**（N10 / F16） |
 | 新配置**面**（键 / 参数） | W1 的"可配"与 E8 的"读配置面"（Q3 明文点名两处） | 引入 **1 键 + 1 参数**（用户已裁） |
-| 新信封字段 | `kind`：M3 的类别区分与 §5.3 的按类分化；`multiple`：F05 验收 2 的多选 | 引入 **2 字段**（其余四项可表达性均落在既有字段 / `kind` 蕴含） |
+| 新信封字段 | `request_kind`：M3 的类别区分与 §5.3 的按类分化；`multiple`：F05 验收 2 的多选 | 引入 **2 字段**（其余四项可表达性均落在既有字段 / `request_kind` 蕴含） |
 | 新状态载体 | 提问组暂存（T-03）：**不需要**——帧处理函数的闭包即最小载体 | **不引入** |
 | 新计时器 / 超时面 | —（F08 要求"无上限"，新增计时器是反向） | **不引入** |
 | 新通路（转发层 / 队列 / 事件类型） | —（复用 `notice` + `pending` + SSE 三件既有原语） | **不引入** |
@@ -664,6 +711,33 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 - 本文件**未**写任何实现代码、**未**做工程任务拆解（阶段 4 职责）、**未**运行 oamp 测试套件（阶段 5 职责）。
 - 探针只读 omp 安装包与真实进程；`~/.omp` 用户配置**未被读写**（R4 的例外场景用 `--config` 临时 overlay 落在 `/tmp`）。
 
+### 12.4 定点修正登记（第 3 轮 · 门禁 D-1 消解）
+
+**问题（来源 = `clarifications/verify-stage4-gate-20260914.md` 的 D-1，高·阻塞）**：v0.2.0 的 §5.2 让确认项信封**新增 `kind`** 作类别字段，而既有通知 body 是**扁平**结构、`kind` 早是**通知类型判别键**（`agent.js:245` 的 `{ kind, ...fields }`、`:291` 的 `kind:'confirmation_request'`、`web.js:1597` 的 `body.kind === 'confirmation_request'`）⇒ **同一个 key 承载两个值**：提问类信封的 `fields.kind` 覆盖通知类型后，该请求在 `web.js:1597` 判否被丢弃（无条目）。
+
+**处置（方向 ①：改名，不改判别口径）**：类别字段由 `kind` **改名为 `request_kind`**（值域 `'permission' | 'question'`、缺失兜底 `'permission'` 等**语义逐字不变**）。
+
+**选它的理由（与被否方向 ② 的对比）**：
+1. **改动面最小、零既有回归**：方向 ② 要改 `web.js` 的通知判类口径（`body.kind` → 其他识别键）⇒ 会动既有通知四型（`confirmation_request` / `confirmation_cancelled` / `context_released` / `context_reset`）与其全部测试面；方向 ① 只改**新增字段**的名字，**既有 `web.js:1597` 判据逐字保留**，四条通知类型、`sendControlNotice` 面、permission 类 `{option_id, text}` 与 `settleConfirmation` 全部零改动（奥卡姆 + 外科手术式精准）。
+2. **不相交可机械核验**：`request_kind` / `multiple` 与既有 notice body 的 key 并集（10 个）**交集为空**（§5.2.1 逐 key 带 `文件:行号`）。
+3. **命名理由**（在 `request_kind` / `entry_kind` / `item_kind` 中取前者）：信封描述的对象是"一次上浮的**请求**"，取值描述的正是"哪一类请求"，且与同体上的通知类型 `'confirmation_request'` 合成一句自洽陈述；`entry` / `item` 是 web 侧**容器**词汇（`renderInboxItem` / `.inbox-item`），写进跨进程信封会把"信封字段"与"前端容器"混层。全链路（信封 → `web.js` 白名单 → `GET /api/confirmations` → `web/app.js` → `API.md`）**单名到底、无别名、无映射层**。
+
+**决策级别**：字段命名属 **L3** ⇒ 本 agent 自主决定；本修正**不新增 L1、不改任何已确认结论的语义**（§4.1 七条的语义逐字未变，仅 L1-3 推荐①的类别字段**名字**以本版为准，已于 §4.1 表头加注）。**仍未落任何代码**（实现属阶段 5）。
+
+**本文件内已同步的位置（全部）**：文首（版本行 / 本轮收口两项）、§0 状态表、§1.3（G6 / G7）、§2.6、§3.2（`agent.js` / `web/app.js` / `web.js` 三行）、§3.3（流 2 两处）、§4.1（表头注）、§4.2（L2-3 的类别标记）、§5.1、§5.2（字段表 + M3 对照 + **新增 §5.2.1**）、§5.3（旁路分化 + 方向区分注）、§5.5（新增条目类别条）、§6（F09）、§7（T-02 / T-04）、§8（C7 / C9 + **新增 C15**）、§9.1（`agent.js` / `web.js`）、§9.2（`web/app.js`）、§9.5、§10、§12.4、§13。
+
+**本文件之外需同步的位置（本轮按"唯一写入 = `architecture.md` + 本轮记录"的派发约束与产品维度红线**未改**，逐条登记如下）**
+
+| 位置 | `kind` 命中行号（2026-09-14 实读） | 需同步 |
+|---|---|---|
+| `prs/pr-001-approval-resolution-and-question-channel.md` | `:5`、`:34`⑤、`:62`（2 处）、`:63`（"其 body 含 `kind:'question'`"半句）、`:72`② | 信封类别字段 → `request_kind`。`:48` 的 `notices('confirmation_request')` 与 `:63` 的 `notice{kind:'confirmation_request'}` 是**通知类型**，**不改**。（**阶段 4 返工**） |
+| `prs/pr-002-web-envelope-and-decision-routing.md` | `:5`、`:18`①、`:19`、`:21`①、`:27`、`:28`、`:29`、`:51`（依赖核实结论全文） | 同上；其中 `:51` 的**解耦论证**须按 §5.2.1 的"字段面 = 生产面 / 消费面边界 + 缺字段兜底"重写（原文以同 key 双语义立论）。`notice{kind:'confirmation_decision'}` 处不改。（**阶段 4 返工**） |
+| `prs/pr-003-inbox-question-item-frontend.md` | `:5`、`:17`①（`entry.kind`）、`:19`②、`:25`（fixture）、`:29`、`:31`、`:40`、`:47`①（`entry.kind` / `entry.multiple`） | 同上（条目字段名与测试 fixture）。（**阶段 4 返工**） |
+| `prd/F04-question-surfacing.md:42`、`prd/F05-question-shape.md:42`、`prd/F10-permission-channel-preserved.md:43`（三处**架构段** T-02 行，逐字同文） | — | **仅架构段字段名追溯标注** → `request_kind`；同卡的验收标准 / 边界**不动** |
+| `prd.md` + `prd/F04` / `F05` / `F07` / `F08` / `F09` / `F10` 中以 `kind:'permission'` / `kind:'question'` 指代"两类条目"的**产品维度用语**（7 个文件有命中） | — | **不改**（产品维度不可动）。其文以 `kind` 指代类别，与 §5.2 的 `request_kind` **一一对应**、无语义漂移；如需消歧属产品阶段的表述修订，不在本阶段范围 |
+
+**两 PR 的解耦口径（供阶段 4 更新 `pr-001` / `pr-002`）**：生产面（agent 侧 `raiseConfirmation`）**只增字段** `request_kind`（钩子入参 `requestKind` 一对一透传，缺省 `'permission'`）与 `multiple`，**不改任何既有判据**；消费面（`web.js` 白名单重建 + `web/app.js`）**只读** `body.request_kind`，**非字符串 ⇒ 兜底 `'permission'`** ⇒ 生产面未合入时新分支**惰性**、既有投递走 `'permission'` 路径、无条目丢失、无构建 / 测试失败。两侧因此**各自可独立合入**（`web.js:1597` 的通知判据零改动）。
+
 ---
 
 ## 13. 未越界声明
@@ -671,10 +745,11 @@ spec.configApproval（config 第 5 键）  ⇒ 该值
 本阶段（阶段 3）唯一写入为**本工作区内**的绝对路径文件：
 - **第 1 轮（v0.1.0）写入**：`architecture.md` 初版、`clarifications/probes/**`（6 个探针脚本 + 6 份原始输出，均可复跑）、`clarifications/2026-09-14-architect-round1.md`、16 张 `prd/F01~F16*.md` 的「架构待填」段（只动架构维度）。
 - **第 2 轮（本版 v0.2.0）写入**：`architecture.md`（用户裁决回收：§4.1 七条 L1 的裁决列、§12.1 三条裁定、§12.2 四项 `[user_confirmed]`、§5.1 / §5.4 / §5.5 / §3.2 / §6 / §11 的落点与追溯标记）、`clarifications/2026-09-14-architect-round2.md`（本轮记录）。
+- **第 3 轮（本版 v0.3.0）写入**：`architecture.md`（**门禁 D-1 定点修正** —— 信封类别字段 `kind` → `request_kind` 及全部受影响表述，落点清单见 §12.4）、`clarifications/2026-09-14-architect-round3.md`（本轮记录）。**第 3 轮未改** `prd/**`、`prs/**`、`oamp/**` 与任何既有澄清记录；需同步的外部位置逐条登记在 §12.4。
 - **L1 决策已确认、仍未实施**：§4.1 的 7 条已于 2026-09-14 经用户确认（**全部采纳推荐**），构成本迭代的**生效架构契约**；但阶段 3 仍**不进入任何代码实现**（实现属阶段 5）。
-- **本轮未新增架构决策 / 未增删组件 / 未变更已定稿技术结论 / 未触碰功能卡产品维度**：所有改动均可回指 `clarifications/2026-09-14-architect-round1-verdicts.md` 的裁决原文。
+- **本轮未新增架构决策 / 未增删组件 / 未变更已定稿技术结论 / 未触碰功能卡产品维度**：第 1~2 轮的改动均可回指 `clarifications/2026-09-14-architect-round1-verdicts.md` 的裁决原文；**第 3 轮的 `kind` → `request_kind` 属 L3 字段命名的定点改名（§12.4 已登记）**，七条 L1 的语义逐字未变。
 
-- `docs/iterations/0023-yolo-approval-and-question-inbox/architecture.md`（第 1 轮新增、第 2 轮更新至 v0.2.0）；
+- `docs/iterations/0023-yolo-approval-and-question-inbox/architecture.md`（第 1 轮新增、第 2 轮更新至 v0.2.0、**第 3 轮更新至 v0.3.0**）；
 - 新增 `clarifications/probes/probe-a2-acp-ask-form.mjs` / `a2-acp-ask-form-output.txt` / `probe-r2-host-tools.mjs` / `r2-host-tools-output.txt` / `probe-r2b-host-tool-persistence.mjs` / `r2b-host-tool-persistence-output.txt` / `probe-r3-deny-autoreject.mjs` / `r3-deny-autoreject-output.txt` / `probe-r3b-abort-semantics.mjs` / `r3b-abort-semantics-output.txt` / `probe-r4-yolo-gate.mjs` / `r4-yolo-gate-output.txt`（6 个脚本 + 6 份原始输出，均可复跑）；
 - 新增 `clarifications/2026-09-14-architect-round1.md`（第 1 轮过程与裁决待办）；
 - 回填 `prd/F01~F16*.md` 的「架构待填（阶段 3）」段（F13~F16 为"无待填项"的复核结论；**只动架构维度，产品维度逐字未改**）。

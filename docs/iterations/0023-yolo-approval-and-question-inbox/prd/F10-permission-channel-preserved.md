@@ -40,7 +40,7 @@
 
 | 编号 | 原待填内容 | **架构落定（阶段 3）** |
 |---|---|---|
-| T-02 | 信封与提问形状的最终字段名（`kind` 取值表达 + 问题文本 / 选项含是否多选 / 是否允许自由文本 / 无选项纯自由文本 的字段承载） | 信封在既有 7 字段上**新增 `kind`（`'permission' | 'question'`，两类条目都带）与 `multiple`（boolean）**；四项可表达性逐项有承载：**问题文本 = 既有 `title`**（与既有"给人看的请求正文"同一展示位 ⇒ 前端零改动）、**选项集合 = 既有 `options`**（question 类 `option_id` = `label`）、**是否多选 = `multiple`**、**是否允许自由文本由 `kind:'question'` 蕴含**（question 类恒允许：带选项可附文本 + 纯自由文本两种形态都是验收要求，故不设恒真字段）、**无选项纯自由文本 = `options: []`**。`permission` 类字段集合与语义逐字不变。（architecture §5.2 / §7 T-02 / L1-3） |
+| T-02 | 信封与提问形状的最终字段名（`request_kind` 取值表达 + 问题文本 / 选项含是否多选 / 是否允许自由文本 / 无选项纯自由文本 的字段承载） | 信封在既有 7 字段上**新增 `request_kind`（`'permission' | 'question'`，两类条目都带）与 `multiple`（boolean）**；四项可表达性逐项有承载：**问题文本 = 既有 `title`**（与既有"给人看的请求正文"同一展示位 ⇒ 前端零改动）、**选项集合 = 既有 `options`**（question 类 `option_id` = `label`）、**是否多选 = `multiple`**、**是否允许自由文本由 `request_kind:'question'` 蕴含**（question 类恒允许：带选项可附文本 + 纯自由文本两种形态都是验收要求，故不设恒真字段）、**无选项纯自由文本 = `options: []`**。`permission` 类字段集合与语义逐字不变。（architecture §5.2 / §7 T-02 / L1-3） |
 | T-01 | 档位解析的归属与"唯一汇聚点"落点（默认值来源 / `deny ⇒ always-ask` 由谁算、算在哪一处 / 配置值参与解析的位置） | **唯一汇聚点 = `protocol.js` 的 `resolveApproval(spec)`**：`createProtocolLayer` 在装配时求值**一次**，结果写入 `spec.approval`，三个实现（rpc / acp / oneshot）只消费、不再判定（`oneshot-client` 里既有的"按 permission 自定义合成"删除 ⇒ F03 验收 4 的"每个调用点自觉"通路被结构消灭）。解析链：`permission === 'deny'` ⇒ `always-ask`（**优先于**显式档位）> 显式 `--approval-mode` > `config.json` 第 5 键 `approval` > 内置默认 `yolo`。argv 面：`profile.approval.appliesWhen === 'tools-on'` 且工具开 ⇒ 追加 `--approval-mode <值>`（工具关不追加）。（architecture §5.1 / §7 T-01 / 流 1 / L1-1） |
 ## 口径更替落点（`demand.md` 登记⑧ ①取代 + ③条件化）
 

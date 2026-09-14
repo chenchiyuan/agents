@@ -139,3 +139,88 @@
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖，从架构方案+代码库现状出发，不经过全局任务图
 - 输入：`architecture.md` v0.2.0（665 行）+ `prd.md` v0.2.0（16 卡）+ 工作区内 `oamp/` 代码库现状 + 探针证据
 - 输出：`docs/iterations/0023-yolo-approval-and-question-inbox/prs/pr-{NNN-描述}.md`（七字段）+ `clarifications/2026-09-14-pr-planner-round1.md`
+
+### 2026-09-14 19:44:00 · 收到报告 · pr-planner
+
+- 1. `prs/` 目录路径：`docs/iterations/0023-yolo-approval-and-question-inbox/prs/`
+- 2. 文件列表：`pr-001-approval-resolution-and-question-channel.md` / `pr-002-web-envelope-and-decision-routing.md` / `pr-003-inbox-question-item-frontend.md`（3 个）
+- 3. 每个 PR 摘要：**pr-001**（batch 1 / 无依赖 / F01~F13+F16 共 14 卡 / 8 生产文件 + README + 8 个既有测试迁移 + 新建 `test/approval-resolution.test.js`；依赖不可分证据 = `buildArgv` 签名收窄与三实现接线必然同批、且 `agent.js` 同时承载档位装配与提问钩子 ⇒ 硬拆成环）；**pr-002**（batch 1 / 无依赖 / F04,F05,F07,F10,F14,F15 / `src/web.js` + `API.md` + `llms.txt`（条件）+ `test/confirmation-inbox.test.js`）；**pr-003**（batch 2 / →pr-002 / F05,F06,F07,F10,F15 / `web/app.js` + `web/style.css` + `test/inbox-console.test.js`）
+- 4. 疑问/越界：Q1（提问钩子如何到达 `AcpClient`：复用 `onPermissionRequest` 按 `info.kind` 同形 vs 新增构造参数——两读法都不改变 PR 划分）；保证项 F12~F16 承载已逐条给出；测试面归属已逐文件列明
+
+### 2026-09-14 19:44:30 · 派发 · verifier
+
+- 阶段：阶段 4 → 5 入口 Gate
+- 任务：独立验证 3 个 PR 文件的粒度与依赖正确性
+- 输出：`clarifications/verify-stage4-gate-20260914.md`
+
+### 2026-09-14 19:50:34 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-stage4-gate-20260914.md`
+- 2. 结论与计数：**FAIL**（pass 8 / fail 2 / partial 2 / blocked 0；偏差 3 条）
+- 3. fail 条目：**均同根因**——`kind` 字段双重语义：`pr-001:63` 要求信封 body 含 `kind:'question'`，而通知 body 是扁平展开（`oamp/src/agent.js:245` `{kind, ...fields}`、`:291` `kind:'confirmation_request'`；`oamp/src/web.js:1597` 以 `body.kind` 判别通知类型）⇒ **同一个 key 不能承载两个值**，pr-001 该条按字面不可构造/不可判定；其成立必须依赖 pr-002 改判别口径，而 `pr-002` 声明无依赖 ⇒ **A3 独立性 fail（两 PR 同根因）**，B1 依赖图未如实反映该契约耦合
+- 4. partial：A1×3 pass / A2 pr-001 partial（单文件级可审查 pass，但跨 3 个可独立失败功能面需多次心智模型切换——受文件不重叠 + 无环约束为最细可行粒度，未列返工项）；B1 partial（已声明的 pr-003→pr-002 证据成立，但 pr-001↔pr-002 的同 key 耦合未反映）
+- 5. 其余通过：B2 无环 / B3 文件范围两两交集为空 + F01~F16 全覆盖 + 文件面无遗漏（并集 24 文件 = architecture §9.1 九个后端 + §9.2 两个前端 + §9.5 文档面 + 11 个测试文件）
+- 6. 偏差：**D-1（高·阻塞）** 上述字段双重语义 ⇒ 建议实现前消解（信封类别字段**改名**，或通知判据不再依赖 `kind`）并同步两 PR 与 architecture；D-2（低）三份 PR 的「零改动」清单互相覆盖他 PR 修改面（跨 PR 阅读易误读）；D-3（低）`architecture §9.5` 未列 `oamp/llms.txt`（pr-002 以条件性纳入）
+- 7. `deferred-demand-changes.md` 经核实**不存在**；唯一写入 = 报告；零 git 写操作
+
+### 2026-09-14 19:51:00 · 调度决策 · Gate确认
+
+- 决策内容：Gate 判定 **FAIL** ⇒ 按规范**不进入阶段 5，回到阶段 4 修订**。根因在 **architecture §5.2 的字段命名决策**（L1-3 的实现形态），故先派 `architect` 做**定点修正**（信封类别字段改名，消解与通知 `kind` 的同 key 冲突；`permission` 语义与既有逐字行为不变），再派 `pr-planner` 同步两份 PR 文件并复核依赖图是否随之解耦，最后**重跑 Gate**。裁定 pr-planner 的 Q1：两读法均不改变 PR 划分，实现期由 dev 二选一并在报告中说明（倾向 (a) 复用 `onPermissionRequest` 按 `info.kind` 同形，因 `protocol.js` 零改动）
+- 触发依据：`clarifications/verify-stage4-gate-20260914.md` §fail 明细（两条同根因）+ §偏差记录 D-1（高·阻塞）；工作流规范 §Gate「未通过：回到阶段 4 修订 PR 文件，不进入阶段 5」
+
+### 2026-09-14 19:51:30 · 派发 · architect
+
+- 阶段：阶段 3（技术架构）· 第 3 轮（Gate D-1 定点修正）
+- 任务：消解信封类别字段与通知 `kind` 的同 key 冲突（改名 + 同步受影响的 §5.2/§5.3/§5.5/§12 与卡片追溯标注）
+- 输入：`clarifications/verify-stage4-gate-20260914.md`（D-1 证据）+ `architecture.md` v0.2.0 + 涉事代码（`agent.js:245/:291`、`web.js:1597`）
+- 输出：`architecture.md` v0.3.0 + `clarifications/2026-09-14-architect-round3.md`
+
+### 2026-09-14 20:08:00 · 收到报告 · architect
+
+- 1. `architecture.md` 路径 + 核心组件：**v0.3.0（758 行）**；本轮核心改动 = 信封类别字段**改名 `kind` → `request_kind`**（取值域与缺失兜底不变；钩子入参同名风格 `requestKind`）；新增 §5.2.1「共存证明／字段面边界」+ §8 C15 机械自查项 + §12.4 定点修正登记
+- 2. L1 决策清单：无新增（本修正属 L3 字段命名）；L1-1~L1-7 语义逐字未变
+- 3. 新引入技术组件/技术栈：0（未增删组件 / 依赖 / 计时器 / 审计面）
+- 4. `[架构待填]` 已填写条目数：0（T-01~T-08 已于前两轮 8/8 落定；本轮仅同步 T-02 落定文本内的字段名）
+- 5. 疑问/越界：无新疑问；**逐 key 不相交证据**（新增 `request_kind`/`multiple` ∩ 既有通知 body 10 键并集 = ∅，逐键带行号；并给出 `sendNotice`/`sendControlNotice` 两种 shape 的完备性论证）；**两 PR 契约解耦论证**（生产面只增字段、消费面缺字段兜底 ⇒ `web.js:1597` 通知判据零改动且恒成立 ⇒ D-1 根因被消除而非绕开）；遗留事项 2 条（阶段 4 返工三份 PR 文件；3 处卡内架构段字段名追溯标注）
+
+### 2026-09-14 20:12:00 · 收到报告 · pr-planner
+
+- 1. `prs/` 路径与文件：`prs/pr-001~pr-003*.md`（三份均已同步）
+- 2. 摘要：**pr-001**（batch 1 / 无依赖 / F01~F13+F16 / 18 文件；8 处字段名改写）；**pr-002**（batch 1 / 无依赖 / F04,F05,F07,F10,F14,F15 / 4 文件；字段名 16 处 + **§51 独立性论证整段重写**）；**pr-003**（batch 2 / →pr-002 / F05,F06,F07,F10,F15 / 3 文件；10 处改写）
+- 3. 复核：七字段 7/7×3 / F01~F16 全覆盖 / 文件范围两两交集 ∅（并集 24 文件）/ 依赖图仅 `pr-003→pr-002` 一条边无环 / **pr-001↔pr-002 契约耦合已消除**（`request_kind`/`multiple` 与既有 notice body 10 键并集 = ∅）
+- 4. 疑问/越界：共 43 处字段名替换 + pr-002:51 整段重写；**超出架构最小改写集 3 处**已逐条说明（pr-001:48③ `notice{kind:'question'}` 属旧名残留；pr-002:18②/③、:21⑤ 同行类引用）；授权例外 3 处卡内架构段字段名已同步（产品维度逐段未动）
+
+### 2026-09-14 20:16:00 · 派发 · verifier
+
+- 阶段：阶段 4 → 5 入口 **Gate 验证（第二轮）**
+- 任务：独立验证修订后的 3 份 PR 文件（粒度 A1~A3 + 依赖 B1~B3 + 特别核实「同一信封字段名双语义」）
+- 输入：`prs/pr-001~pr-003*.md` + `architecture.md` v0.3.0 + 代码库；**不传入执行过程上下文（含首轮结论）**
+- 输出：`clarifications/verify-stage4-gate-r2-20260914.md`
+
+### 2026-09-14 20:22:00 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-stage4-gate-r2-20260914.md`
+- 2. 结论与计数：**PASS**（19/19 pass；fail 0 / partial 0 / blocked 0；偏差 5 条；下一迭代候选 3 条）
+- 3. 特别核实结论：**不存在同一字段名双语义冲突**（生产侧写 `request_kind`/`multiple`、消费侧读同名同值域；既有通知判别键 `kind` 与新增键集交集 = ∅，独立按代码重算并集 = 10 键与架构 §5.2.1 一致）
+- 4. 关键证据：B3 文件范围两两交集 ∅（pr-001=18 / pr-002=4 / pr-003=3；对照 §9.1/§9.2/§9.5 无遗漏）；F01~F16 覆盖 16/16 且无挂名；依赖图 `{pr-003→pr-002}` 无环；pr-002「无依赖」成立（判据键未改 + `fake-node` 注入面可独立合成 question 信封）；锚点抽查 20 处中 18 处逐字命中
+- 5. 偏差：G2-D1 `config.js` 锚点 :41 应为 :49；G2-D2 漏列 `protocol-layer.test.js:535` 的 `buildArgv` 调用点；G2-D3 路由 `summary` 文案与 `llms.txt` 漂移锁未声明；G2-D4 `rpc-client.js` 能力位 `hostTools:'no'` 及其 note 在接线后与事实不符；G2-D5 `status.md` 阶段 3 备注版本号陈旧
+- 6. `deferred-demand-changes.md` 经核实不存在；唯一写入 = 报告；零 git 写操作
+
+### 2026-09-14 20:23:00 · 调度决策 · Gate确认
+
+- 决策内容：阶段 4 → 5 入口 Gate 判定 **PASS** ⇒ 阶段 4 标记 ✅（含「已验证」列）。裁定 5 条偏差：**G2-D1/G2-D2/G2-D3 写入对应 PR 的 dev brief**（锚点修正 / 补迁移点 / 同步 summary 并重生成 `llms.txt`）；**G2-D4 裁定随 pr-001 同步能力位**（`hostTools` 由 `'no'` 转为已接线，note 同步；依据 A1 裁决「默认链路提问靠宿主工具承载」；`approvalGate` 不受影响，F11 验收 3 仍成立）；**G2-D5 已由主 agent 在 `status.md` 修正**；同时初始化阶段 5 并发配置
+- 触发依据：`clarifications/verify-stage4-gate-r2-20260914.md` 结论 PASS（fail 0）；工作流规范 §Gate「验证结论必须为 pass」
+
+### 2026-09-14 20:24:00 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）· 首波
+- PR：`prs/pr-001-approval-resolution-and-question-channel.md`；worktree 分支 `feat/0023-pr-001-approval-resolution-and-question-channel`
+- 任务：把该 PR 拆为可独立验收的任务图
+- 输出：`docs/iterations/0023-yolo-approval-and-question-inbox/prs/pr-001-tasks.md`
+
+### 2026-09-14 20:24:00 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）· 首波
+- PR：`prs/pr-002-web-envelope-and-decision-routing.md`；worktree 分支 `feat/0023-pr-002-web-envelope-and-decision-routing`
+- 任务：把该 PR 拆为可独立验收的任务图
+- 输出：`docs/iterations/0023-yolo-approval-and-question-inbox/prs/pr-002-tasks.md`
