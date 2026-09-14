@@ -31,13 +31,14 @@
 - 不含**审批审计面的补偿**（**N4** 封死 → F13）：`deny` 档下的拒绝痕迹沿用既有面，不新增载体（MI-02 的 `rpc` 观测面亦不例外——`rpc` 侧只以"该轮以 `permission_denied` 中止 + 收件箱零新增条目"判定，不为它补任何痕迹）。
 - 不含 `permission === 'allow'` 的档位语义句作为触发条件的用法（**登记⑧ ①取代**：触发条件已改为"档位 = `always-ask`"）。
 
-## 架构待填（阶段 3 · **保持留白，不得在本阶段回填**）
+## 架构待填（阶段 3 · **已回填**）
 
-| 编号 | 待填内容 | 关联 |
+> **回填说明**：本节原为留白（阶段 2 体例）。阶段 3（技术架构）按 `docs/iterations/0023-yolo-approval-and-question-inbox/architecture.md` 落定，结论均在该文件的对应小节内可核（本轮另含 6 条真实探针证据，脚本与原始输出落 `clarifications/probes/`）。上方「越界自查」是**阶段 2 的历史自查记录**，其中「已落 T-xx 留白」一类表述由本节取代；**本卡的产品维度（用户价值 / 验收标准 / 边界）未被阶段 3 触碰**。
+
+| 编号 | 原待填内容 | **架构落定（阶段 3）** |
 |---|---|---|
-| T-01 | 档位解析的归属与"唯一汇聚点"落点（"deny ⇒ always-ask"由谁算、算在哪一处） | F03 / F01 / F02 |
-| T-07 | 档位配置面的落点与键名形态（`deny` 与显式档位冲突时的取值表达面） | F03 / F02 |
-
+| T-01 | 档位解析的归属与"唯一汇聚点"落点（默认值来源 / `deny ⇒ always-ask` 由谁算、算在哪一处 / 配置值参与解析的位置） | **唯一汇聚点 = `protocol.js` 的 `resolveApproval(spec)`**：`createProtocolLayer` 在装配时求值**一次**，结果写入 `spec.approval`，三个实现（rpc / acp / oneshot）只消费、不再判定（`oneshot-client` 里既有的"按 permission 自定义合成"删除 ⇒ F03 验收 4 的"每个调用点自觉"通路被结构消灭）。解析链：`permission === 'deny'` ⇒ `always-ask`（**优先于**显式档位）> 显式 `--approval-mode` > `config.json` 第 5 键 `approval` > 内置默认 `yolo`。argv 面：`profile.approval.appliesWhen === 'tools-on'` 且工具开 ⇒ 追加 `--approval-mode <值>`（工具关不追加）。（architecture §5.1 / §7 T-01 / 流 1 / L1-1） |
+| T-07 | 档位配置面的落点与键名形态（配置项落点 / 启动参数形态 / 两档在两面上的表达 / 冲突时的取值表达面） | **配置面 = Q3 点名的两处**：① `config.json` **第 5 键 `approval`**（值域 `{always-ask, yolo}`，缺省 `yolo`；非法值 ⇒ `OAMP 配置错误: approval 仅支持 always-ask/yolo（当前值 …）` ⇒ `agent start` 退出 1）；② **`agent start --approval-mode <always-ask|yolo>`**（非法值 ⇒ 退出 2 并点名该值；未给 ⇒ 交解析链）。两处即 MI-01 的"非法取值 ⇒ 拒绝启动并报错、不静默回落"。**不新增 env 键、不新增控制台可切面**（Q3 未点名 / F01·F02 边界）。（architecture §5.1 / §7 T-07 / L1-2） |
 ## 口径更替落点（`demand.md` 登记⑧ ①取代）
 
 - 0021 `F02` 验收 1（"`allow` 档的受门禁调用上浮"）与 0022 `W4` / `E4`（"一次受门禁调用恰一条确认项"）的**触发条件**从「`permission = allow`」改为「档位 = `always-ask`」；本卡的 `deny` 实例属于"门存在但**不给人**（自动拒绝）"的另一支，**机制不删**（上浮支路见 F10）。

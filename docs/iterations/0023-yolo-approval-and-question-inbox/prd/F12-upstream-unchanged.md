@@ -27,12 +27,13 @@
 - 不含"为提问能力补齐上游能力"的任何形式（N3 封死）。
 - 不含会话形态的改动（保持默认链路既有形态 → F09 验收 4）。
 
-## 架构待填（阶段 3 · **保持留白，不得在本阶段回填**）
+## 架构待填（阶段 3 · **已回填**）
 
-| 编号 | 待填内容 | 关联 |
+> **回填说明**：本节原为留白（阶段 2 体例）。阶段 3（技术架构）按 `docs/iterations/0023-yolo-approval-and-question-inbox/architecture.md` 落定，结论均在该文件的对应小节内可核（本轮另含 6 条真实探针证据，脚本与原始输出落 `clarifications/probes/`）。上方「越界自查」是**阶段 2 的历史自查记录**，其中「已落 T-xx 留白」一类表述由本节取代；**本卡的产品维度（用户价值 / 验收标准 / 边界）未被阶段 3 触碰**。
+
+| 编号 | 原待填内容 | **架构落定（阶段 3）** |
 |---|---|---|
-| T-05 | 宿主工具的注册时机 / 命名 / 参数 schema（"在上游既有面上如何注册"的落点） | F12 / F09 |
-
+| T-05 | 宿主工具的注册时机 / 命名 / 参数 schema + `acp` 表单到信封的映射细节（含"每题一个自由文本"与"多选"如何落进形状） | **默认链路（rpc）**：宿主工具名 **`ask_user`**，schema `{ question:string, options?:string[], multiple?:boolean }`（`required: [question]`，一调用 = 一问）；**注册时机 = 握手完成后、返回会话对象之前，恰一次**（实测：ready 前/后发送均被受理；重复注册为**替换**语义 ⇒ 不得重复；`--no-tools` 下仍可注册并调用 ⇒ 提问能力不依赖工具开关）。承接：`host_tool_call` ⇒ 冻结轮次计时 ⇒ 上浮 ⇒ `host_tool_result{result:{content:[{type:'text',text}]}}`；`host_tool_cancel` ⇒ 撤条目、不回包。**acp 链路**：`elicitation/create` 的非门形状按映射表拆问 —— askDialog（`q{i}` + `q{i}__other`）⇒ N 条（数组型 ⇒ `multiple:true`）；`value` 单值形状 ⇒ 1 条（`enum` ⇒ 选项 / `boolean` ⇒ 是·否 / `string` 无 enum ⇒ 纯自由文本）；**其余未知形状维持既有 `decline`**。（architecture §5.4 / §5.5 / §7 T-05 / L1-6） |
 ## 越界自查
 
 - 本卡为**保证项卡**（不引入新能力），只承载 `demand.md` 已确认的 N3；体例先例：0021 `F12`、0022 `F11`。

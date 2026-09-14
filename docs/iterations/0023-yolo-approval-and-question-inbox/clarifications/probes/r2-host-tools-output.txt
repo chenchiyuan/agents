@@ -1,0 +1,76 @@
+
+========== 场景 S1 时序与轮次结算：--mode rpc --model deepseek/deepseek-v4-flash ==========
+0.72s | ready protocolVersion= | 1
+0.73s | extension_ui_request | setWidget | ""
+0.77s | RESP | negotiate_protocol | {"protocolVersion":2}
+1.03s | >>> set_host_tools（ready 后 300ms）
+1.03s | RESP | set_host_tools | {"toolNames":["ask_user"]}
+1.03s | >>> get_state（看工具清单是否含宿主工具）
+1.04s | RESP | get_state | {"model":{"id":"deepseek-v4-flash","name":"DeepSeek V4 Flash","api":"openai-completions","provider":"deepseek","baseUrl":"https://api.deepseek.com/v1","reasoning":true,"input":["text"],"cost":{"input":0.14,"output":0.28,"cacheRead":0.0028,"
+1.33s | >>> prompt（要求调用 ask_user）
+1.33s | RESP | prompt | null
+2.72s | tool_execution_start | read
+2.72s | tool_execution_end | read
+4.18s | ★ host_tool_call #1 | ask_user | {"question":"优先级？","options":["高优先级","低优先级"]}
+4.18s | ⏳ 故意延迟 8s 回包（观察回包前是否仍在飞 / 是否有其它帧）
+4.18s | tool_execution_start | write
+12.19s | 回包延迟实测 = | 8.00s |  agent_end 是否已发生 = | false
+12.19s | tool_execution_end | write
+13.47s | extension_ui_request | setWidget | ""
+13.47s | agent_end isTerminal= | true | 距 prompt | (prompt@now)
+14.07s | extension_ui_request | setWidget | ""
+14.10s | 场景结束 exit= | 0
+
+========== 场景 S2 ready 前注册：--mode rpc --model deepseek/deepseek-v4-flash ==========
+0.00s | >>> set_host_tools（**spawn 后立刻、任何 ready 帧之前**）
+0.71s | ready protocolVersion= | 1
+0.71s | extension_ui_request | setWidget | ""
+0.76s | RESP | set_host_tools | {"toolNames":["ask_user"]}
+0.76s | RESP | negotiate_protocol | {"protocolVersion":2}
+1.01s | >>> get_state
+1.02s | RESP | get_state | {"model":{"id":"deepseek-v4-flash","name":"DeepSeek V4 Flash","api":"openai-completions","provider":"deepseek","baseUrl":"https://api.deepseek.com/v1","reasoning":true,"input":["text"],"cost":{"input":0.14,"output":0.28,"cacheRead":0.0028,"
+1.31s | >>> prompt（要求调用 ask_user；若 pre-ready 注册未生效则模型看不到该工具）
+1.32s | RESP | prompt | null
+3.22s | tool_execution_start | read
+3.22s | tool_execution_end | read
+4.21s | ★ host_tool_call #1 | ask_user | {"question":"优先级？"}
+4.21s | tool_execution_start | write
+45.00s | 硬超时 → kill
+45.00s | 硬超时 → kill
+45.01s | 场景结束 exit= | 143
+
+========== 场景 S3 重复注册：--mode rpc --model deepseek/deepseek-v4-flash ==========
+0.71s | ready protocolVersion= | 1
+0.71s | extension_ui_request | setWidget | ""
+0.75s | RESP | negotiate_protocol | {"protocolVersion":2}
+1.01s | >>> set_host_tools(A: ask_user)
+1.02s | RESP | set_host_tools | {"toolNames":["ask_user"]}
+1.22s | >>> set_host_tools(B: other_tool)
+1.22s | RESP | set_host_tools | {"toolNames":["other_tool"]}
+1.43s | >>> get_state（工具清单）
+1.44s | RESP | get_state | {"model":{"id":"deepseek-v4-flash","name":"DeepSeek V4 Flash","api":"openai-completions","provider":"deepseek","baseUrl":"https://api.deepseek.com/v1","reasoning":true,"input":["text"],"cost":{"input":0.14,"output":0.28,"cacheRead":0.0028,"
+1.44s | 重复注册后 dumpTools = | ["read","bash","edit","eval","glob","grep","task","hub","todo","web_search","write"]
+2.04s | extension_ui_request | setWidget | ""
+2.07s | 场景结束 exit= | 0
+
+========== 场景 S4 --no-tools：--mode rpc --model deepseek/deepseek-v4-flash ==========
+0.72s | ready protocolVersion= | 1
+0.72s | extension_ui_request | setWidget | ""
+0.77s | RESP | negotiate_protocol | {"protocolVersion":2}
+1.02s | >>> set_host_tools（--no-tools 下）
+1.03s | RESP | set_host_tools | {"toolNames":["ask_user"]}
+1.23s | >>> get_state（工具清单）
+1.24s | RESP | get_state | {"model":{"id":"deepseek-v4-flash","name":"DeepSeek V4 Flash","api":"openai-completions","provider":"deepseek","baseUrl":"https://api.deepseek.com/v1","reasoning":true,"input":["text"],"cost":{"input":0.14,"output":0.28,"cacheRead":0.0028,"
+1.53s | >>> prompt（要求调用 ask_user）
+1.53s | RESP | prompt | null
+3.96s | ★ host_tool_call #1 | ask_user | {"question":"优先级？","options":["高","低"]}
+3.96s | tool_execution_start | ask_user
+45.00s | 硬超时 → kill
+45.00s | 硬超时 → kill
+45.02s | 场景结束 exit= | 143
+
+===== R2 汇总 =====
+S1 时序与轮次结算 | dumpTools = null | host_tool_call 次数 = 1 | agent_end = 13.47s
+S2 ready 前注册 | dumpTools = null | host_tool_call 次数 = 1 | agent_end = null
+S3 重复注册 | dumpTools = null | host_tool_call 次数 = 0 | agent_end = null
+S4 --no-tools | dumpTools = null | host_tool_call 次数 = 1 | agent_end = null
