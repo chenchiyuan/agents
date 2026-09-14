@@ -332,3 +332,30 @@
 - PR：`prs/pr-003-inbox-question-item-frontend.md`（HEAD `4162fff`，基线 `d90e6e0`）
 - 任务：独立验收 PR 验收 1~10 + 改动面 + 渲染/提交分化 + Q3 落地 + 断言强度 + 全量绿
 - 输出：`clarifications/verify-pr-003-20260914.md`
+
+### 2026-09-14 21:06:00 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-pr-003-20260914.md`
+- 2. 结论与计数：**PASS**（标准 7/7；fail 0 / partial 0 / blocked 0；偏差 3 条；下一迭代候选 5 条）
+- 3. 关键证据：**自建 node vm 沙箱**独立抽取 `app.js` 函数体执行（非本 PR 自带测试）——单选态 2×同名 radio（组内至多单值）/ 多选态 2×checkbox / `options:[]` 无空容器残骸；提交体 `{option_ids:['A','C'],text:'  都要  '}`（**原序/不去重/不 trim**）、仅文本 ⇒ 空数组、全空仍发请求（Q3）、404 移出、500 保留 + 重绘；**permission 渲染与基线 `d90e6e0` 字节级完全相等**；`decide` body 逐字不变；改动面恰 3 文件；`inbox-console` 16/16 + 全量 387/387
+- 4. 偏差：D-1 `architecture.md §9.2` 的 `decide()` 措辞与实现（新增 `submitQuestion`）不符（PR 文件与 MI-5/Q4 已许可） / D-2 MI-3 的「交付说明」无独立文件（实质接口面由测试断言承载） / D-3 标准来源 `prs/pr-003-tasks.md` 在其读取时点尚未合并（属读取时点差异）
+- 5. 边界：唯一写入 = 报告；未修改被测产物（`git status --porcelain` = 0 行）；零 git 写操作
+
+### 2026-09-14 21:07:00 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-003 判定完成并合并进迭代分支**（`11dc502`）；清理该 PR 的 worktree 与分支；**阶段 5 收敛：3/3 PR 全部合并**；合并后全量套件实跑 **387/387 绿**
+- 触发依据：`clarifications/verify-pr-003-20260914.md` 结论 PASS；`git worktree list` 仅剩主工作区 + 迭代工作区；`git branch --list 'feat/*'` 为空
+
+### 2026-09-14 21:24:00 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-stage6-20260914.md`
+- 2. 结论与计数：**PASS**（34/34：pass 34 / fail 0 / partial 0 / blocked 0；偏差 10 条；下一迭代候选 8 条）
+- 3. 真机证据（**10 套隔离栈**：`OAMP_SOCKET`/`OAMP_DB` 指向 `/tmp`、随机非默认端口、真实 `omp`、真实 HTTP/SSE）：E1 默认档 argv `--approval-mode yolo` + 13 次确认轮询 maxCount=0 + 零全局 confirmation 帧 + 文件/bash 效果真实；E2 `--permission deny` ⇒ argv `always-ask` + 轮次 `permission_denied` + 收件箱零新增；E3/E4 rpc `ask_user` 与 acp 原生 elicitation **均**上浮 `request_kind:'question'`，作答含 `option_ids` + 自由文本被提问方逐字收到，**对话内消息数保持 1（零新增用户消息）**；E5 挂起 25s/20s 无超时无自动裁决；E6/E7 `always-ask` 与 `yolo+用户策略` 两类门均上浮并裁决后工具真实执行；E8 配置两值真实改变 argv 与行为（非法值 exit 2 点名 / 配置非法 exit 1）；E9 acp 单帧三问 ⇒ **3 条独立条目**、逐条作答、齐答后才推进；F14 `lsof` 证实仅监听 `127.0.0.1`；终态全量 **387/387**
+- 4. 偏差（10 条，均不阻塞）：D-1 `architecture.md:494` 的 `details:{}` / D-2 pr-001 PR 文件锚点陈旧 / D-3 `architecture.md:406` 的 permission 类 `multiple=false` / D-4 `architecture.md:617` 的 `decide()` 措辞 / D-5 `appliesWhen` 未回写 / D-6 `prd/F04` 验收 2 未限定来源帧型 / D-7 规划产物计入文件范围的口径 / D-8 派发简报台账定位有误（已记录并用实际台账替代） / **D-9 `status.md` 阶段 5 与 pr-003 列在收口前陈旧** / **D-10 `verify-pr-003` 报告未落库**
+- 5. 方法说明（如实登记，非 fail）：B1 的 worktree 磁盘共存证据因首波 worktree 已清理而**不可回溯**，改以「同刻派发记录 + 真实提交时间窗重叠 + 同基点互不包含 + 清理证据」链支撑；Scenario D 的模型自述被决定性复跑 H/H2 与上游探针推翻（判为模型自述噪音，不计偏差）
+- 6. 边界：唯一写入 = 报告（223 行）；被测产物零修改；零 git 写操作；探针与临时库均在 `/tmp/verify-0023-stage6/**`
+
+### 2026-09-14 21:25:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**阶段 6 判定 PASS** ⇒ 阶段 6 标记 ✅ 且「已验证」列打勾；按规范执行收口三步（主工作区 `checkout main` → `merge --no-ff` → `branch -d`），前置动作 = 迭代工作区 `checkout --detach`。同步处置阶段 6 的 **D-9/D-10**（`status.md` 状态修正 + 未落库产物随收口提交落库）；其余 8 条偏差登记为下一迭代候选（文档面同步/体例口径），**收口前不做返工**（偏差记录不阻塞迭代关闭）
+- 触发依据：`clarifications/verify-stage6-20260914.md` 结论 PASS（fail 0）；工作流规范「迭代分支合并进 main：阶段 6 对本迭代最终产物判定 pass 之后」
