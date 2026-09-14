@@ -2,7 +2,8 @@
 // 观测面：fake bin（沿用既有测试面的 `OAMP_OMP_BIN` 注入 + argv / 帧日志），零第三方依赖、零真实 omp / LLM / 外网。
 // 五组断言：① 能力位 ② 解析链与选择域 ③ 选择与进程面（argv）④ RPC 逐帧映射与门 ⑤ oneshot 无会话语义。
 // 依据：prs/pr-005-tasks.md T5 验收 1~8；architecture §5.2 / §5.3 / §5.4 / §5.6 / §5.7 / §9.4.2 B-16。
-// 期望值真源 = `launcher.js` 模块（`PROFILES` / `buildArgv`），测试内不复写 argv 推导逻辑。
+// 期望值真源 = `launcher.js` 模块（`PROFILES` / `buildArgv`），测试内不复写 argv 推导逻辑；oneshot 的档位段
+// （`--approval-mode`）= 调用层决策（W2-A），期望值经 `buildArgv` 的 `approval` 入参表达（值域对齐 `agent.js:192-199`）。
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -483,7 +484,7 @@ test('④ cancel 幂等（abort 帧无参）+ close 容忍 EOF 后晚到的帧',
 
 // ─────────────────────────── ⑤ oneshot 无会话语义（T5 验收 6） ───────────────────────────
 
-test('⑤ oneshot argv = omp:oneshot profile 期望值（含末位位置参数与 --approval-mode yolo）', async (t) => {
+test('⑤ oneshot argv = omp:oneshot profile 期望值 + 调用层档位段（W2-A；tools 关 ⇒ 无 --approval-mode）', async (t) => {
   const { session, readLog } = oneshotSession(t, {
     resident: { model: 'fake/model', roleFile: '/tmp/role.md', tools: false },
   });
@@ -496,12 +497,54 @@ test('⑤ oneshot argv = omp:oneshot profile 期望值（含末位位置参数�
       roleFile: '/tmp/role.md',
       tools: { mode: 'off' },
       prompt: '请回答',
+      approval: null, // W2-A：tools 关 ⇒ 调用层不追加 --approval-mode（逐字对齐 agent.js:192-195）
     }),
   );
   assert.equal(entry.argv[0], '-p');
   assert.equal(entry.argv[entry.argv.length - 1], '请回答', '提示词 = argv 末位位置参数');
-  assert.equal(entry.argv[entry.argv.indexOf('--approval-mode') + 1], 'yolo');
+  assert.ok(!entry.argv.includes('--approval-mode'), 'W2-A：tools 关 ⇒ 不追加 --approval-mode（对齐 agent.js:192-195 的 toolsOn 分支）');
   assert.ok(!entry.argv.includes('--no-skills') && !entry.argv.includes('--no-rules'), 'profile skills/rules:true ⇒ 不追加');
+  // D-7′ 防护（pr-001 遗留偏差 D-7）：`input:'positional'` 且未提供提示词 ⇒ 恰少一个位置参数，argv 内不得落字面 undefined
+  const noPrompt = buildArgv('omp:oneshot', { tools: { mode: 'off' } });
+  const withPrompt = buildArgv('omp:oneshot', { tools: { mode: 'off' }, prompt: 'X' });
+  assert.deepEqual(noPrompt, withPrompt.slice(0, -1), 'D-7′：未提供提示词 ⇒ 不追加位置参数（其余段逐字一致）');
+  assert.ok(!noPrompt.some((arg) => arg === undefined || arg === 'undefined'), 'D-7′：argv 内不得出现 undefined / "undefined"');
+  assert.deepEqual(
+    buildArgv('omp:oneshot', { tools: { mode: 'off' }, prompt: '' }),
+    noPrompt,
+    'D-7′：空串提示词同样不追加（体例同「空即未设」）',
+  );
+});
+
+test('⑤ 档位段 = 调用层合成（W2-A，值域逐字对齐 agent.js:196-198）：tools 关 ⇒ 无段 / tools 开 + deny ⇒ always-ask / 其余 ⇒ yolo', async (t) => {
+  // 既有生产语义（agent.js:192-199）：`if (!toolsOn) args.push('--no-tools')`；
+  // `if (toolsOn) args.push('--approval-mode', permission === 'deny' ? 'always-ask' : 'yolo')`。
+  // 档位段**不由 profile 数据决定**（omp:oneshot 的 profile 值为 `yolo` + `appliesWhen:'always'`）⇒ 期望值经
+  // `buildArgv` 的 `approval` 入参表达（调用层合成面）。
+  const cases = [
+    { name: 'tools 关（匿名实例）', resident: { tools: false }, toolsOn: false, expectedApproval: null },
+    { name: 'tools 开 + permission=deny', resident: { tools: true, permission: 'deny' }, toolsOn: true, expectedApproval: 'always-ask' },
+    { name: 'tools 开 + permission=allow（缺省）', resident: { tools: true }, toolsOn: true, expectedApproval: 'yolo' },
+  ];
+  for (const item of cases) {
+    const { session, readLog } = oneshotSession(t, { resident: { model: 'fake/model', ...item.resident } });
+    await session.prompt('请回答', { timeoutMs: 10000 });
+    const [entry] = readLog().argv;
+    assert.deepEqual(
+      entry.argv,
+      buildArgv('omp:oneshot', {
+        model: 'fake/model',
+        tools: { mode: item.toolsOn ? 'allow' : 'off' },
+        prompt: '请回答',
+        approval: item.toolsOn ? { mode: item.expectedApproval, appliesWhen: 'tools-on' } : null,
+      }),
+      `${item.name}: 调用层合成后的 argv 逐字`,
+    );
+    const at = entry.argv.indexOf('--approval-mode');
+    assert.equal(at === -1 ? null : entry.argv[at + 1], item.expectedApproval, `${item.name}: 档位段（W2-A）`);
+    assert.equal(entry.argv.includes('--no-tools'), !item.toolsOn, `${item.name}: 工具开关与 --no-tools 同向（agent.js:192-193）`);
+    assert.equal(entry.argv[entry.argv.length - 1], '请回答', `${item.name}: 提示词 = 末位位置参数`);
+  }
 });
 
 test('⑤ 连续两轮 = 两次独立子进程、不续接、无 contextId', async (t) => {

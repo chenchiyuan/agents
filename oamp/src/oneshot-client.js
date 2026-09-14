@@ -3,6 +3,8 @@
 //  「不持有会话状态」；argv 与行流回收自既有 `agent.js:190-199` / `:236-250` 逐字承接。）
 // 进程面：argv 全部经 L1（`launcher.js` 的 `omp:oneshot` profile + 唯一 argv 构造 + spawn 封装）产出——
 //   本模块内不出现任何 flag 字面量；stdin 恒 `'ignore'`（既有一次性形态），stdout / stderr 为 pipe。
+// 档位段（`--approval-mode`）= **调用层合成**（W2-A）：本模块按 (tools, permission) 决定档位值，经 L1 的
+//   `approval` 入参落 argv（flag 字面量仍单点在 L1）；语义逐字对齐既有 `agent.js:192-199`。
 // 错误面：一律 ProtocolError。对 ProtocolError / CAPABILITY_KEYS 的引用只在**函数体内**求值（互有 import 的 TDZ）。
 
 import { CAPABILITY_KEYS, ProtocolError } from './protocol.js';
@@ -25,7 +27,7 @@ const ONESHOT_CAPABILITY_VALUES = {
 const ONESHOT_CAPABILITY_NOTES = {
   streaming: '仅进程 stdout / stderr 行流（无结构化 delta 面）：逐行文本，行数上限 200',
   thinking: '一次性文本输出无思考块（`-p` 形态无 thinking 增量）',
-  approvalGate: '一次性路径恒为 yolo 档（不收审批请求），omp 因此不发审批门（既有一致，零行为变更）',
+  approvalGate: '本实现不承接审批门（无反向请求通道）；档位段按 permission 档由调用层合成（deny ⇒ always-ask）',
   hostTools: '本迭代不接线宿主工具面（omp 默认不注册即不触发）',
   introspection: '无会话状态面（不建会话，无 state / stats 回读）',
   queueControl: '无插话 / 排队控制（一次性执行，两轮之间不续接）',
@@ -88,6 +90,11 @@ export function createOneshotSession({ resident = {} } = {}) {
   const spec = resident && typeof resident === 'object' ? resident : {};
   const roleFile = readOptionalText(spec.roleFile);
   const toolsOn = spec.tools === true; // 工具开关只在 argv 决定（与既有一次性形态同向）
+  // 档位段（W2-A，逐字对齐既有 `agent.js:196-198`）：tools 关 ⇒ 不追加（`null`）；tools 开 + `permission='deny'`
+  // ⇒ always-ask；其余 ⇒ yolo。
+  const approval = toolsOn
+    ? { mode: spec.permission === 'deny' ? 'always-ask' : 'yolo', appliesWhen: 'tools-on' }
+    : null;
 
   let current = null; // 本轮子进程句柄（无跨轮状态：结算后清空）
   let closed = false;
@@ -111,6 +118,7 @@ export function createOneshotSession({ resident = {} } = {}) {
           model: turnModel,
           roleFile,
           tools: { mode: toolsOn ? 'allow' : 'off' },
+          approval,
           prompt: text,
           stdin: 'ignore', // 既有一次性形态：stdin 不接线
         });
