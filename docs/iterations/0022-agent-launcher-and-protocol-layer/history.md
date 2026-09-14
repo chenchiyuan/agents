@@ -229,3 +229,66 @@
 - 任务：按 Gate 第二轮偏差记录逐条修正 PR 文件文本（D-2 入参面 10 键与装配归属 / D-3 import 白名单限定 / D-1 AcpError 精确表述 / D-4 行号 / D-6 择一判定声明），不改 PR 数量、文件名、编号、文件范围、依赖边、覆盖
 - 输入：`clarifications/verify-stage4-gate-r2-20260914.md` + `prs/pr-001~pr-005*.md` + 代码库（实读锚点）
 - 输出：修订后的 `prs/*.md` + `clarifications/2026-09-14-pr-planner-round3.md`
+
+### 2026-09-14 15:37:00 · 收到报告 · pr-planner
+
+- 1. `prs/` 目录路径：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/`
+- 2. 文件列表：pr-001（本轮零改动）/ pr-002 / pr-003 / pr-004 / pr-005（共 5 个）
+- 3. 每个 PR 摘要：结构未变（PR 数量 / 文件名 / 编号 / 文件范围集合 / 依赖边集合 / 功能点覆盖全部不变）；仅文本级修正
+- 4. 疑问/越界：无新增；本轮逐条给出「偏差编号 → 修订内容 → 代码锚点」：D-3（pr-005 白名单两分口径：白名单只挂 rpc-client.js / oneshot-client.js，protocol.js 为装配方不在被限制方内）；D-2（AcpClient 入参面 8 → 实测 10 键逐键带行号 + 双侧装配归属：装配面=pr-005 注入工厂、取值来源面与档位语义=pr-003）；D-1（pr-003 的 AcpError 引用由「8 处 instanceof」改为精确表述：instanceof 仅 :191/:251，其余为构造/抛出）；D-4（pr-004 行号 :556 → :550）；D-6（4 个 PR 补「择一判定声明」：F02 主面 pr-005 / 辅面 pr-003；F06 主面 pr-003 / 辅面 pr-002；F08 主面 pr-004 / 辅面 pr-003）；D-7 零改动（登记已在场，architecture.md 未触碰）
+
+### 2026-09-14 15:37:30 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 4 收尾——提交阶段 4 全部产物到迭代分支（commit `e3f8a62`）；**初始化阶段 5 并派发首波**：按依赖图取「依赖为空」的两个 PR `{pr-001, pr-004}`，各自建立 PR worktree 并进入 planner（首波并发数 1/3，当前有效上限 3）
+- 触发依据：`verify-stage4-gate-r2-20260914.md` 结论 PASS（Gate 通过）⇒ 阶段 4 推进条件满足；pr-planner 第 3 轮偏差修正已落盘；依赖图 `pr-001 → {pr-002, pr-005} → pr-003`、`pr-004` 独立；`git worktree list` 输出含两条 PR worktree 且各自 `branch --show-current` 为 `feat/0022-pr-{001,004}-*`
+
+### 2026-09-14 15:37:40 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）
+- PR：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-001-launcher-and-protocol-config.md`
+- worktree 分支：`feat/0022-pr-001-launcher-and-protocol-config`（worktree 地址 `<迭代工作区>/.pb-agents/worktrees/0022-pr-001-launcher-and-protocol-config`）
+- 任务：把该 PR 拆为可独立验收的任务图（含验收标准、前置依赖、优先级）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-001-tasks.md`
+
+### 2026-09-14 15:37:40 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）
+- PR：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-004-stream-kind-partition-ui.md`
+- worktree 分支：`feat/0022-pr-004-stream-kind-partition-ui`（worktree 地址 `<迭代工作区>/.pb-agents/worktrees/0022-pr-004-stream-kind-partition-ui`）
+- 任务：把该 PR 拆为可独立验收的任务图（含验收标准、前置依赖、优先级）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-004-tasks.md`
+
+### 2026-09-14 15:41:00 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-004-tasks.md`（3 个任务 T1~T3；commit `3cfee8f` 单文件 216 行）
+- 2. 依赖图摘要：`T1 → T2 → T3` 全链串行（唯一文件 `oamp/web/app.js`，T2 的过程缓冲必须落在 T1 的分区容器上、T3 核验晚于 T2 ⇒ 天然串行，不为凑并行而拆）
+- 3. `[model_inferred]` 验收标准列表：2 项（T1 验收 3 气泡挂载判据改为「文本或过程任一非空」；T2 验收 6 既有 `stdout`/`stderr` 仍走原文本区、新分区白名单只含三个新值）
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：Q1 `renderStatusLine` 的 streaming 判据按「不触碰」落定；Q2 style.css 实现阶段确认判据；Q3 呈现形态只到结构层；Q4 测试面零改动约束（静态契约转红只能改 app.js）；Q5 跨 PR 时序边界未写成任务依赖
+
+### 2026-09-14 15:44:00 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-001-tasks.md`（6 个任务 T1~T6；commit `3cfee8f` 216 行）
+- 2. 依赖图摘要：拓扑序 `{T1→T2→T3} ‖ {T4→T5} → T6`；最长链 3 跳；可并行组合 = `{T1,T2,T3} ‖ {T4,T5}`（文件面零重叠）
+- 3. `[model_inferred]` 验收标准列表：5 项（MI-1 导出面与 buildArgv 四参 / MI-2 argv 规范次序 / MI-3 oneshot 不追加 --no-skills·--no-rules / MI-4 spawn 的 stdio 两态与不接线 / MI-5 protocol 键位于顶层）
+- 4. 上报的循环依赖：无（DFS 复核全部边单向递增）
+- 5. 疑问/越界：inherited 偏差 2 条（claude/codex 键值不在本 PR 判据面；architecture §9.4.1 未列 config-file.test.js）；1 条需裁决（approval 的 caller 覆写面无签名承载位）；1 条口径声明（tasks 文件自身不计入 PR 改动面）
+
+### 2026-09-14 15:44:30 · 调度决策 · Gate确认
+
+- 决策内容：首波任务图暴露 7 项 `[model_inferred]` ⇒ 按用户决策点真实阻塞式转呈；用户**全部采纳**（pr-001 五项 / pr-004 两项），落盘 `clarifications/2026-09-14-stage5-wave1-verdicts.md`。同时主 agent 裁定 pr-001 的 approval 覆写疑问：`buildArgv` 保持字面签名不扩展 approval 入参，`deny ⇒ always-ask` 覆写由调用方侧（pr-003 / pr-005）前置处理
+- 触发依据：`prs/pr-001-tasks.md` §model_inferred（MI-1~MI-5）+ `prs/pr-004-tasks.md` §model_inferred（2 项）+ `prs/pr-001-tasks.md` §疑问（approval caller 覆写面）
+
+### 2026-09-14 15:45:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 首波
+- PR：`prs/pr-001-launcher-and-protocol-config.md`；worktree 分支 `feat/0022-pr-001-launcher-and-protocol-config`
+- 任务：按 `prs/pr-001-tasks.md` 实现最小改动并让任务图验收标准全部通过
+- 输出：`oamp/src/launcher.js`（新建）/ `oamp/src/config.js` / `oamp/test/config-file.test.js` + 该分支提交
+
+### 2026-09-14 15:45:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 首波
+- PR：`prs/pr-004-stream-kind-partition-ui.md`；worktree 分支 `feat/0022-pr-004-stream-kind-partition-ui`
+- 任务：按 `prs/pr-004-tasks.md` 实现最小改动并让任务图验收标准全部通过
+- 输出：`oamp/web/app.js`（+ 条件 `oamp/web/style.css`）+ 该分支提交
