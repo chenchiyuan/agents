@@ -449,3 +449,50 @@
 - PR：`prs/pr-003-protocol-layer-and-consumption-cutover.md`（依赖 pr-001 / pr-002 / pr-005，三者均已合并）；worktree 分支 `feat/0022-pr-003-protocol-layer-and-consumption-cutover`
 - 任务：把该 PR（切换子集）拆为可独立验收的任务图
 - 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-003-tasks.md`
+
+### 2026-09-14 17:05:00 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-003-tasks.md`（**8 个任务 T1~T8**，345 行；已在 PR worktree 内提交 `42ea495`）
+- 2. 依赖图摘要：9 条边无环，最长链 `T1 → T2 → T3 → T4 → T8`（4 跳）；关键路径 T1/T2/T3/T8；并行面 T4~T7；同文件串行约束逐文件列明（`acp-client.js`→T1、`context-pool.js`→T2、`agent.js`→T3、三个既有测试文件→T4/T5、`zero-intrusion.test.js`→T6、`README.md`→T7）
+- 3. `[model_inferred]` 验收标准列表：5 项（MI-1 池注入位形参名/形状 = `createResident({chatId, agentId, role, hooks})` / MI-2 档位门语义同适用于 rpc 分支 `hooks.onApproval` / MI-3 池可用性判据改按自身状态 / MI-4 B-17③ 运行时快照比对 / MI-5 `web.test.js` 执行路径判定用例放宽容忍 argv 判据）
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：3 项上报（① D-2 判据字面口径不可达（grep 含自指/注释命中）② `web.test.js` 两条断言互斥（默认切 rpc 后 ACP-only 桩不再回包，rpc 握手上限 10s > `sendAndWait` 8s）③ F04 消费侧管道面在本 PR 文件范围内无入库证据面）+ 9 条登记（含 `acp-client.js` 需补 `close()` 的归属）
+
+### 2026-09-14 17:08:00 · 调度决策 · Gate确认
+
+- 决策内容：末波任务图的 5 项 `[model_inferred]` + 3 项上报真实阻塞式转呈用户，用户**全部采纳**（MI-1~MI-5 / 上报①~③ 按建议处置）；主 agent 补充约束 6 条（文件范围锁定 8 项且**不得修改 `project-workspace.test.js`**；`optionId`；不得引入第二套档位语义；`acp-client.js` 补 `close()`；必跑全量套件；D-6 择一判定口径）。落盘 `clarifications/2026-09-14-stage5-wave3-verdicts.md`
+- 触发依据：`prs/pr-003-tasks.md` §model_inferred + §escalations（3 条）+ §registrations（9 条）
+
+### 2026-09-14 17:09:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 末波
+- PR：`prs/pr-003-protocol-layer-and-consumption-cutover.md`；worktree 分支 `feat/0022-pr-003-protocol-layer-and-consumption-cutover`
+- 任务：按 `prs/pr-003-tasks.md`（T1~T8）把消费层切到 L2 标准面（8 文件），含 B-17 零侵入机械断言与全量套件实跑
+- 输出：8 个文件 + 该分支提交
+
+### 2026-09-14 18:07:00 · 收到报告 · dev
+
+- 1. 改了什么文件：提交 `7c123ad`（8 文件，416+/251-）与 `92a1bbb`（拒绝档用例消除跨进程帧读取竞态，+3）；逐文件：`acp-client.js`（argv 改经 L1 / 能力位 + notes / `onChunk→onDelta` / `AcpError→ProtocolError` / 门名原语同源 / 补 `close()` / 删 `dispose()` 别名）/ `context-pool.js`（只消费注入的 `createResident`；释放路径 `close()`；可用性判据按自身状态）/ `agent.js`（接线唯一注入点 + `--protocol` flag + 一次性路径走 L2）/ 3 个既有测试 + `zero-intrusion.test.js`（新建 B-17）+ `README.md`（B-10）
+- 2. 测试结果：全量 `node --test test/*.test.js` **361/361**（提交后树连跑两次一致）；PR 4 文件 87/87；零改动清单（含 `project-workspace.test.js`）逐项核对 0 命中
+- 3. 疑问/待办：3 条（`resident.model` 按建键轮解析 / 拒绝档用例竞态修正 / `web.test.js` setup 助手新增 protocol 选项）
+- 4. 违反边界的事：无
+
+### 2026-09-14 18:08:00 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现）· 末波验收
+- PR：`prs/pr-003-protocol-layer-and-consumption-cutover.md`（HEAD `92a1bbb`，基线 `b54f143`）
+- 任务：独立验收 PR 验收 1~6 + 「指定即生效」+ B-17 机制生效 + acp 行为零变更 + 全量绿
+- 输出：`clarifications/verify-pr-003-20260914.md`
+
+### 2026-09-14 18:15:30 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-pr-003-20260914.md`
+- 2. 结论与计数：**PASS**（委托 7 条 pass / PR 验收 16/16 pass / 任务 T1~T8 **69 条判据**全 pass；fail 0 / partial 0 / blocked 0；偏差 7 条；观察 1 条）
+- 3. 关键证据：实跑三次（全量 361/361、PR 4 文件 87/87、既有 6 文件 62/62）；D-1 默认档 argv = `["--mode","rpc",…]`、`OAMP_PROTOCOL=acp` ⇒ `["acp",…]`、角色级 flag 胜过 env、非法/缺值/未知退 2；D-2/D-3 = 消费层三文件 0 import / 0 构造 / 0 协议字面，**B-17 三条机制绿且带正向对照与内存变异反例（三条均被检出）**；运行时快照比对逐字节相同；**真实 agent 端到端**：rpc 轮次 `kindCounts {started,thinking,chunk,tool_call,tool_output}` 齐、非终态 `agent_end` 不结算、门恰 1 条（`tool="bash"` 取自多行 title、`options=[Approve,Deny]`、裁决后轮次完成）；acp 既有行为区段无 hunk 改动；`optionId` 为钩子键名（无 `option_id`）；README B-10 四处同步
+- 4. 偏差：D-1 PR 字面判据不可达（按上报①口径） / D-2 8 文件 vs 9 diff 路径（任务图属阶段产物） / D-3 一处 JSDoc 措辞改动（仅注释） / D-4 `oamp/web/**` 字面判据被 `index.html` 的 CSS class 名误命中（零改动文件） / D-5 `acp-client` 私有字段/注释仍名 `disposed`（术语） / D-6 B-17(3) 只覆盖 env 档 / D-7 「argv 首段 = --mode rpc」实为前两段
+- 5. 边界：未接收执行过程上下文；唯一写入 = 报告；零 git 写操作；探针夹具全在 `os.tmpdir` 且进程已终止
+
+### 2026-09-14 18:16:30 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-003 判定完成并合并进迭代分支**（`a975ce8`）；累计槛位释放次数 4 → **5**；清理该 PR 的 worktree 与分支（成功）——`git worktree list` 现仅剩主工作区 + 迭代工作区；**阶段 5 收敛：5/5 PR 全部合并**；合并后全量套件实跑中
+- 触发依据：`clarifications/verify-pr-003-20260914.md` 结论 PASS；`git log --oneline` 含 merge 提交 `a975ce8`；`git branch --list 'feat/*'` 为空
