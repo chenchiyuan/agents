@@ -474,6 +474,25 @@ a.nav-item { text-decoration: none; cursor: pointer; }
   font-size: 12px;
 }
 .inbox-text:focus { outline: none; border-color: var(--green); }
+/* 0023 / F05（architecture §9.2）：question 类条目的勾选控件与「提交」按钮——既有类名体系内新增，零新框架（F16）。
+   勾选控件取原生形态（多值 = checkbox / 单值 = 同名 radio），选中态由 `:checked` 兄弟选择器给出可见样式。 */
+.inbox-choice { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; cursor: pointer; }
+.inbox-choice-box { flex: none; margin: 0; accent-color: var(--green); cursor: pointer; }
+.inbox-choice-text { word-break: break-word; }
+.inbox-choice-box:checked + .inbox-choice-text { color: var(--green); font-weight: 500; }
+.inbox-choice-box:disabled { opacity: 0.5; cursor: default; }
+.inbox-submit {
+  margin-top: 6px;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.inbox-submit:hover:not(:disabled) { border-color: var(--green); color: var(--green); }
+.inbox-submit:disabled { opacity: 0.5; cursor: default; }
 
 /* 窄屏（§7 T-01）：第三栏折叠为可开合面板（默认收起、标题显示在途条数），一个点击展开、不做横向滚动。
    折叠几何只在断点内生效（宽屏恒为三栏同屏），故 .inbox.open 的规则只写在 @media 内。 */
