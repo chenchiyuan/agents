@@ -162,3 +162,70 @@
 - 3. 每个 PR 摘要：pr-001（batch 1 / depends_on 无 / F01,F10,F12,F13 / 3 文件：launcher.js 新建 + config.js 第 4 键 + config-file.test.js）；pr-002（batch 2 / depends_on pr-001 / F03,F06 / 4 个测试文件）；pr-003（batch 3 / depends_on pr-001+pr-002 / F01~F12 / 12 文件含 protocol.js+rpc-client.js+oneshot-client.js 新建与 B-16/B-17 新增测试）；pr-004（batch 1 / depends_on 无 / F08 / web/app.js + 条件文件 style.css）
 - 4. 疑问/越界：5 条待主 agent 裁定（oneshot 增量 kind / B-14 落字口径 / pr-002 是否独立 / style.css 是否确定 / claude·codex profile 键值不在本轮）+ 4 条 architecture 偏差登记（§9.4.1 漏列 config-file.test.js 与 call-protocol.test.js；B-13 的 tool-permission.test.js 移至 pr-003；style.css 为条件文件）；关键结论：L2 标准面与三实现**不能各自独立合并**（import 链 + onDelta 签名链 + ContextPool 唯一生产调用方 ⇒ 传递闭包 = 6 生产文件 = pr-003）
 - 核查结论（主 agent 机器复核）：七字段齐备 / 文件范围无重叠（21 文件各 1 归属）/ F01~F13 全覆盖 / 依赖图 4 条边无环（拓扑序 pr-001 → pr-002 → pr-003；pr-004 独立）
+
+### 2026-09-14 15:14:50 · 派发 · verifier
+
+- 阶段：阶段 4 → 5 入口 **Gate 验证**
+- 任务：独立验证 `prs/` 目录（4 个 PR 文件）的粒度与依赖正确性
+- 输入：`prs/pr-001~pr-004*.md`（产出物）+ 主 agent 指定的两条验证标准（标准 A · PR 粒度判断框架 A1~A3；标准 B · 依赖正确性验证 B1~B3）；**不传入执行过程上下文**
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/clarifications/verify-stage4-gate-20260914.md`
+
+### 2026-09-14 15:19:40 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-stage4-gate-20260914.md`
+- 2. 结论与计数：**FAIL**（fail 2 / partial 2 / pass 15 / blocked 0；偏差记录 5 条）
+- 3. fail 条目：均落在 pr-003 —— **A1 逻辑原子性**（6 生产模块 + 5 测试 + 1 文档、12/13 卡、18 条验收跨 5 个关注面；其「不可再拆」论据经代码核实只覆盖 {protocol.js, acp-client, context-pool, agent} 子簇）+ **A2 可审查性**（须同时持有 5 套心智模型）
+- 4. partial 条目：pr-001 A1（launcher.js 与 config.js 第 4 键为两个可独立回滚单元）；pr-004 A3（F08 端到端形态隐含时序依赖）
+- 5. 偏差记录（5 条）：D-1 architecture §9.4.1 的 6 文件清单实测应为 7（追加 call-protocol.test.js）；D-2 pr-002 依赖措辞可被绕过；D-3 pr-004 验收时序依赖；D-4 测试文件口径 30 应为 29；D-5 pr-003「不可再拆」论据覆盖不全
+- 6. 标准 B **全部通过**（依赖证据 / 无环 / 范围无重叠 / 13/13 覆盖 / architecture 10 处生产变更点零遗漏）；**`deferred-demand-changes.md` 经核实不存在**
+- 独立性与边界：未接收执行过程上下文、未修改任何被验证产物、零 git 写操作
+
+### 2026-09-14 15:19:57 · 调度决策 · Gate确认
+
+- 决策内容：Gate 判定 **FAIL**（存在 fail 条目）⇒ 按「阶段 4 → 5 入口 Gate 未通过」处理——**不进入阶段 5，回到阶段 4 修订 PR 文件**；返工范围按验证报告建议最小化：仅重划 pr-003（其余 3 个 PR 的判定与依赖声明不需变更），重划后再走一次 Gate 判定。同时裁定 pr-planner 第 1 轮的 3 条待裁疑问（保留 pr-003 文件名与编号 / §9.4.1 的 6→7 回填由主 agent 处置 / 接受拆分接缝）与 D-1 的处置形态（登记偏差，不由 pr-planner 改 architecture.md）
+- 触发依据：`clarifications/verify-stage4-gate-20260914.md` §汇总「fail: 2」+ §结论 FAIL + §下一迭代候选第 1 条（两种候选切法）；主 agent 与工作流规范 §Gate「未通过：回到阶段 4 修订 PR 文件，不进入阶段 5」
+
+### 2026-09-14 15:19:57 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划）·第 2 轮（Gate 未通过的返工）
+- 任务：按 Gate 的 fail 证据重划 pr-003（采纳「加性子集 + 切换子集」切法），并修正 D-1~D-5 偏差
+- 输入：`clarifications/verify-stage4-gate-20260914.md`（本轮主输入）+ `prs/pr-001~pr-004*.md` + `architecture.md`（只读）+ 代码库
+- 输出：修订后的 `prs/*.md`（含新增 PR 文件）+ `clarifications/2026-09-14-pr-planner-round2.md`
+
+### 2026-09-14 15:26:27 · 收到报告 · pr-planner
+
+- 1. `prs/` 目录路径：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/`
+- 2. 文件列表：`pr-001`（修订 D-4）/ `pr-002`（D-1 登记 + D-2 锁死 + D-4）/ `pr-003`（**重划为切换子集**，编号与文件名保留）/ `pr-004`（D-3 登记）/ `pr-005-protocol-layer-and-injection-entry.md`（**新增：加性子集**）
+- 3. 每个 PR 摘要：pr-001（batch 1 / 无依赖 / F01,F10,F12,F13 / 3 文件）；pr-002（batch 2 / →pr-001 / F03,F06 / 4 测试文件）；pr-003（batch 3 / →pr-005,pr-002,pr-001 / F01,F02,F03,F05~F12 / 8 文件）；pr-004（batch 1 / 无依赖 + 验收时序登记 / F08 / web/app.js + 条件 style.css）；pr-005（batch 2 / →pr-001 / F01,F02,F04,F07,F09,F11,F12 / protocol.js + rpc-client.js + oneshot-client.js 新建 + protocol-layer.test.js）
+- 4. 疑问/越界：3 条待裁（pr-003 文件名保留 / §9.4.1 的 6→7 回填 / pr-005 的 acp 装配直通接缝）——主 agent 已全部裁定（保留文件名；D-1 登记为已知偏差并由阶段 6 核查；接受接缝，其唯一替代即被 Gate 判 fail 的巨型单元）
+- fail 消除证据：A1 按「新建面（零消费方，Gate E-1 实测）/ 改造面（打破式链自闭合）」切分；A2 把 5 套心智模型按模型分配（新面自证 → pr-005；切换可见切面 → pr-003）
+- 复核结论（主 agent）：5 份 PR × 7 字段齐备 / 21 行文件归属两两交集为空 / 依赖图 5 条边无环（拓扑序 pr-001 → pr-002/pr-005 → pr-003，pr-004 独立）/ F01~F13 并集 13/13
+
+### 2026-09-14 15:26:40 · 派发 · verifier
+
+- 阶段：阶段 4 → 5 入口 **Gate 验证（第二轮）**
+- 任务：独立验证修订后的 5 份 PR 文件（粒度 A1~A3 + 依赖 B1~B3 全量重新判定）
+- 输入：`prs/pr-001~pr-005*.md`（产出物）+ 同一套验证标准；**不传入执行过程上下文**（含第一轮结论）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/clarifications/verify-stage4-gate-r2-20260914.md`
+
+### 2026-09-14 15:32:20 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-stage4-gate-r2-20260914.md`
+- 2. 结论与计数：**PASS**（pass 30 / fail 0 / partial 0 / blocked 0；偏差记录 8 条）
+- 3. 判定覆盖：5 个 PR × {A1 逻辑原子性、A2 可审查性、A3 独立性、B1 依赖证据、B2 依赖图无环、B3 范围与覆盖} = 30 项全 pass；验证者身份 = PR 计划审查者（含代码级耦合校验）
+- 4. 全局核查：依赖图 5 节点 5 边无环（拓扑序 pr-001 → {pr-002,pr-005,pr-004} → pr-003）；5 个 PR 文件范围两两交集为 ∅；F01~F13 13/13 被引用；architecture §9.1/§9.2/§9.4 共 17 项变更点各被唯一 PR 承载、零遗漏零重复；测试面 ACP-only 桩 7 文件经独立 grep 复核零遗漏零多余
+- 5. 高优先偏差：**D-3**（pr-005 验收第 1 条 import 白名单字面判定必假）；**D-2**（pr-005 称 AcpClient 现状入参面 8 键，实测 10 键，漏 `auditContext` 四键 + `onExit`，与 pr-003 要求注入工厂承载 auditContext 不闭合）
+- 6. 其余偏差：D-1（pr-003 把 8 处 AcpError 引用统称 instanceof，实测仅 2 处）/ D-4（pr-004 引 app.js:556 实测为 :550）/ D-5（status.md 仍记 4 个 PR）/ D-6（F02/F08/F06 各有双 PR 主张、缺「择一判定」声明）/ D-7（architecture §9.4.1 6 vs 实测 7）/ D-8（r1 对 pr-001 A1 的 partial 在 r2 独立复核判 pass，理由 = architecture.md:637 T-01 将 L1 定义为同层单元）；`deferred-demand-changes.md` 经核实不存在
+- 独立性与边界：未使用执行过程上下文（未读 pr-planner 两轮记录与 briefs；r1 报告仅用于核查偏差承接、明确不作判定依据）；未修改被验证产物；零 git 写操作
+
+### 2026-09-14 15:32:30 · 调度决策 · Gate确认
+
+- 决策内容：阶段 4 → 5 入口 Gate **判定 PASS** ⇒ 阶段 4 标记 ✅（含「已验证」列）。裁定三件事：① Gate 第二轮 2 项高优先偏差（D-2 / D-3）与 3 项轻微偏差（D-1 / D-4 / D-6）在**阶段 5 派发前**定点修正（派发 pr-planner 第 3 轮），修正后**不重跑 Gate**——理由：判定对象的三条不变式（文件范围集合 / 依赖边集合 / 功能点覆盖）未变，本轮修正只收紧验收措辞与入参面口径，不改变 Gate 判定前提；② D-5（status.md 记 4 个 PR）由主 agent 在 `status.md` 修正为 5 个（本文件已修正）；③ D-7（architecture §9.4.1 清单 6 vs 实测 7）登记为**已知偏差**交阶段 6 核查，不由 pr-planner 改 architecture.md
+- 触发依据：`clarifications/verify-stage4-gate-r2-20260914.md` §结论 PASS（pass 30 / fail 0）+ §高优先级偏差 2 条 + §其余偏差 6 条；工作流规范 §Gate「验证结论必须为 pass」
+
+### 2026-09-14 15:33:00 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划）·第 3 轮（Gate PASS 后的定点修正）
+- 任务：按 Gate 第二轮偏差记录逐条修正 PR 文件文本（D-2 入参面 10 键与装配归属 / D-3 import 白名单限定 / D-1 AcpError 精确表述 / D-4 行号 / D-6 择一判定声明），不改 PR 数量、文件名、编号、文件范围、依赖边、覆盖
+- 输入：`clarifications/verify-stage4-gate-r2-20260914.md` + `prs/pr-001~pr-005*.md` + 代码库（实读锚点）
+- 输出：修订后的 `prs/*.md` + `clarifications/2026-09-14-pr-planner-round3.md`

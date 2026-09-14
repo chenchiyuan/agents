@@ -2,7 +2,7 @@
 
 ## 上下文摘要
 
-前端在**既有流式占位气泡内部**按 `task_update.kind` 分区渲染：`chunk` 仍写既有 `#stream-text`（语义逐字不变），新增 `thinking` / `tool_call` / `tool_output` 三个过程分区。**不新增面板 / 页面 / SSE 事件类型 / 开关 / 过滤 / 分级**（N5 / MI-A-1 / MI-A-2）。`oamp/src/web.js` 零改动（既有分支只校验 `kind` 是否字符串、原样透传 `{chat_id, task_id, kind, text, line}`），故本 PR 与 pr-001~pr-003 之间**无代码级依赖**，可与 pr-001 同批起跑；过程数据真正到达界面需要 pr-003 的 rpc 链路（F08 验收 1 的端到端形态在 pr-003 合并后复核）。
+前端在**既有流式占位气泡内部**按 `task_update.kind` 分区渲染：`chunk` 仍写既有 `#stream-text`（语义逐字不变），新增 `thinking` / `tool_call` / `tool_output` 三个过程分区。**不新增面板 / 页面 / SSE 事件类型 / 开关 / 过滤 / 分级**（N5 / MI-A-1 / MI-A-2）。`oamp/src/web.js` 零改动（既有分支只校验 `kind` 是否字符串、原样透传 `{chat_id, task_id, kind, text, line}`），故本 PR 与 pr-001 / pr-002 / pr-003 / pr-005 之间**无代码级依赖**，可与 pr-001 同批起跑；过程数据真正到达界面需要 pr-003 的 rpc 链路（F08 验收 1 的端到端形态在 pr-003 合并后复核）。
 
 ## 涉及功能点
 
@@ -10,7 +10,7 @@
 
 ## 文件范围
 
-- `oamp/web/app.js`（**修改**：① `handleEvent` 的 `task_update` 分支（`:563`、`:566-572`）与 `appendChunk`（`:601-611`）按 `kind` 分流——`chunk` 走既有 `#stream-text` 路径，新增三个 kind 走气泡内过程分区；② 流式气泡模板（检索式 `id="stream-text"`，`:421`）内新增 `thinking` / `tool` 两个过程分区容器；③ **保持**`for (const type of ['message', 'task_update', 'chat_state', 'notice'])`（`:556`）逐字不变（不新增 SSE 事件类型）；④ 既有 `message(out)` 到达即清空流式态的行为不变（检索式 `state.stream = { chatId: data.chat_id, text: '' }`）；⑤ 新增渲染函数须为顶层函数、命名不与既有六函数（`loadProjects` / `renderProjects` / `createProject` / `resolveCurrentProject` / `showProjectList` / `showWorkspace`）与 `init` 顺序冲突）
+- `oamp/web/app.js`（**修改**：① `handleEvent` 的 `task_update` 分支（`:563`、`:566-572`）与 `appendChunk`（`:601-611`）按 `kind` 分流——`chunk` 走既有 `#stream-text` 路径，新增三个 kind 走气泡内过程分区；② 流式气泡模板（检索式 `id="stream-text"`，`:421`）内新增 `thinking` / `tool` 两个过程分区容器；③ **保持**`for (const type of ['message', 'task_update', 'chat_state', 'notice'])`（`:550`）逐字不变（不新增 SSE 事件类型）；④ 既有 `message(out)` 到达即清空流式态的行为不变（检索式 `state.stream = { chatId: data.chat_id, text: '' }`）；⑤ 新增渲染函数须为顶层函数、命名不与既有六函数（`loadProjects` / `renderProjects` / `createProject` / `resolveCurrentProject` / `showProjectList` / `showWorkspace`）与 `init` 顺序冲突）
 - `oamp/web/style.css`（**条件修改**：仅当过程分区需要新增样式时改动——§9.3 已登记为「实现阶段确认」项；若可用既有 class 组合表达，则本 PR **不触碰**此文件）
 
 **零改动（防夹带；越界即 F08 验收 2 / 4 不通过）**：`oamp/web/index.html`（既有 `#stream-text` 节点与脚本标签逐字不变；分区容器由 `app.js` 渲染）、`oamp/web/notify.js`、`oamp/src/web.js`（`task.update` 分支与 SSE 帧面，`:1626-1632`）、`oamp/src/transport.js`、`oamp/test/**`（本 PR 不修改任何既有测试文件）。
@@ -24,18 +24,22 @@
 - [ ] **既有前端静态契约不回归、且不以改测试达成**（本 PR 不修改任何测试文件）：`node --test oamp/test/web.test.js oamp/test/inbox-console.test.js oamp/test/api-pages.test.js oamp/test/project-workspace.test.js` 中「前端静态契约」类用例保持绿（含 `app.js` 顶层函数在场断言、`POLL_MS` / `setTimeout(tick` 否定断言、`/api/chats/` 读口断言、订阅 4 类事件断言）。
 - [ ] **零生产后端改动**：`git diff --stat` 只含 `oamp/web/app.js`（及可能被条件纳入的 `oamp/web/style.css`），不含 `oamp/src/**` 与 `oamp/test/**`。
 
+**择一判定声明（D-6 · 跨 PR 验收归属）**：F08 验收 1/2 由**本 PR 判主面（界面面）**（F08 卡的 `[user_confirmed MI-01]` 判定面 = 打开控制台对话详情，核对 `thinking` / `tool_call` / `tool_output` 三类过程增量在轮次结束前实时可见、且落在既有对话详情内）；`prs/pr-003-protocol-layer-and-consumption-cutover.md` 判**辅面（管道面）**（三类增量是否被承接上送）。界面上看不到时用辅面区分「管道丢了」与「管道有、界面没接」；同一条验收只计一次主面判定、不互推。
+
 ## 参考资料
 
 - docs/iterations/0022-agent-launcher-and-protocol-layer/architecture.md（§5.5 增量 → 既有运行时通道的帧面（T-06 粒度 = 原样、T-07 = 复用既有 `task_update` + 三个新 kind + `web.js` 零改动）、§3.4 流 1 第 ⑥ 步、§6 F08、§7 T-06 / T-07、§9.2 B-5、§9.3 零改动清单（`index.html`、`web.js`、`style.css` 的待确认项）、§12.1 MI-A-1 / MI-A-2）
 - docs/iterations/0022-agent-launcher-and-protocol-layer/prd/F08-process-visibility-runtime-stream.md（验收 1 / 2 / 4 的界面面；验收 3 的不入库面归 pr-003）
-- 既有代码基线（改动锚点）：`oamp/web/app.js:421`（流式气泡 + `#stream-text`）、`:556`（4 类事件订阅）、`:563-572`（`handleEvent` 的 `task_update` 分支，现状不分 kind）、`:601-611`（`appendChunk`）
+- 既有代码基线（改动锚点）：`oamp/web/app.js:421`（流式气泡 + `#stream-text`）、`:550`（4 类事件订阅）、`:563-572`（`handleEvent` 的 `task_update` 分支，现状不分 kind）、`:601-611`（`appendChunk`）
 - 上游帧面（零改动，本 PR 的输入契约）：`oamp/src/web.js:1626-1632`（`task.update` → SSE `task_update{chat_id, task_id, kind, text, line}`，`stdout` 专属 `entry.lines` 累积不被新 kind 触发）
 
 ## depends_on
 
 （无）
 
-> 代码级依据：`oamp/web/app.js` 只读 SSE 帧的 `kind` / `text` / `line` 三个字段，不 import 任何 `src/` 模块；`oamp/src/web.js` 的 `task.update` 分支（`:1626-1632`）零改动、原样透传新 kind ⇒ 本 PR 不引用 pr-001~pr-003 的任何新增符号（无共享符号 / 无共享接口 / 无共享文件）。F08 验收 1 的**端到端**形态（默认 rpc 链路上实时看到三类增量）在 pr-003 合并后复核，属验收安排，不是合并前置。
+> 代码级依据：`oamp/web/app.js` 只读 SSE 帧的 `kind` / `text` / `line` 三个字段，不 import 任何 `src/` 模块；`oamp/src/web.js` 的 `task.update` 分支（`:1626-1632`）零改动、原样透传新 kind ⇒ 本 PR 不引用其他 PR 的任何新增符号（无共享符号 / 无共享接口 / 无共享文件），故 `depends_on` 为空。
+>
+> **验收时序依赖（与「合并前置」区分，本项不进 `depends_on`）**：F08 验收 1 的**端到端**形态（默认 rpc 链路上实时收到 `thinking` / `tool_call` / `tool_output` 三类增量）在**验收复核时序**上依赖 `pr-003-protocol-layer-and-consumption-cutover.md`——它是本轮重划后把常驻链路切到 rpc 的那一步（协议层本体在 pr-005，但不改变本项的时序结论）。区分依据：① 本 PR 的验收标准 1~5 全部可在自身合并后独立判定（第 2 条的判定面是浏览器控制台直调页面顶层函数 `handleEvent('task_update', {…})`，不经真实 rpc 链路，也不需要 pr-003 已合并）；② 该端到端形态的**复核时点**必须晚于 pr-003 的合并（pr-003 之前，三类增量在默认链路上根本不产生）。阶段 6 的复核清单据此登记：**不得在本 PR 单独合并时判其端到端面通过**。
 
 ## batch
 
