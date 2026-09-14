@@ -228,6 +228,11 @@ rl.on('line', (line) => {
   }
   if (frame.type === 'prompt') {
     send({ type: 'response', command: 'prompt', success: true, id: frame.id });
+    if (process.env.FAKE_RPC_GATE === '1') {
+      // 受门禁调用（审批门帧）：allow 档须上浮裁决、deny 档由消费层自动拒绝（§5.6 / F03 验收 2）
+      setTimeout(() => send({ type: 'extension_ui_request', id: 'g-1', method: 'select', title: 'Allow tool: bash', options: ['Approve', 'Deny'] }), 20);
+      return;
+    }
     setTimeout(() => send({
       type: 'host_tool_call',
       id: 'h-1',
@@ -237,15 +242,16 @@ rl.on('line', (line) => {
     }), 20);
     return;
   }
+  if (frame.type === 'extension_ui_response') {
+    setTimeout(terminal, 10);
+    return;
+  }
   if (frame.type === 'host_tool_result') {
     log({ event: 'rpc_host_tool_result', frame });
     setTimeout(terminal, 10);
     return;
   }
-  if (frame.type === 'abort') {
-    log({ event: 'abort', frame });
-    setTimeout(terminal, 10);
-  }
+  if (frame.type === 'abort') setTimeout(terminal, 10);
 });
 setTimeout(() => send({ type: 'ready', protocolVersion: 1, supportedProtocolVersions: [1, 2], maxReassembledFrameBytes: 67108864 }), 5);
 `;
@@ -380,6 +386,8 @@ async function setup(t, { instanceId = 'pb-dev', protocol = 'acp', flags = ['--t
     replyFrames: () => readFrames().filter((f) => f.frame === 'server_request_reply'),
     /** rpc 形态：本子进程收到的宿主工具回包（`host_tool_result`）。 */
     rpcResults: () => readFrames().filter((f) => f.event === 'rpc_host_tool_result').map((f) => f.frame),
+    /** 客户端→本子进程的帧（两条链路通用：只有 `event:'frame'` 的条目是帧本体，其余条目是形态专属观测面）。 */
+    clientFrames: () => readFrames().filter((f) => f.event === 'frame').map((f) => f.frame),
     cancels: () => readFrames().filter((f) => f.frame === 'session/cancel'),
     /** 第 n 条信封 1（`confirmation_request`）。 */
     waitRequest: (n = 1) =>
@@ -854,6 +862,32 @@ test('T5⑤/PR-6：挂起时长超过轮次预算（timeout_ms=300）不被 canc
 });
 
 // ────────── T6：提问回路端到端（pr-001 的文件范围 = 生产面；栏内可见 / 控件面归 pr-003） ──────────
+
+test('T5④/PR-6（rpc）：deny 档受门禁调用 ⇒ 收件箱零新增条目 + 该轮以 permission_denied 中止（三步俱在）', async (t) => {
+  const s = await setup(t, {
+    protocol: 'rpc',
+    flags: ['--tools', 'on', '--permission', 'deny'],
+    env: { FAKE_RPC_GATE: '1' },
+  });
+  const task = await s.web.sendTask('pb-dev', { executor: 'omp-daemon', chat_id: 'chat-deny-rpc', prompt: '受门禁调用' });
+  const result = await s.waitResult(task.task_id);
+  assert.equal(result.state, 'failed');
+  assert.equal(result.error, 'permission_denied', '该轮以 permission_denied 中止（轮次级：不弃会话）');
+  assert.equal(s.web.notices('confirmation_request').length, 0, 'deny 档不得产生任何确认项（门钩子零注入）');
+
+  const frames = await waitFor(() => (s.clientFrames().some((f) => f.type === 'abort') ? s.clientFrames() : null), {
+    timeoutMs: 8000,
+    what: '门回执 / abort 帧到达',
+  });
+  assert.deepEqual(
+    frames.filter((f) => f.type === 'extension_ui_response'),
+    [{ type: 'extension_ui_response', id: 'g-1', cancelled: true }],
+    '① 回执拒绝（既有帧）',
+  );
+  assert.deepEqual(frames.filter((f) => f.type === 'abort'), [{ type: 'abort' }], '② 无参 abort 恰一帧');
+  assert.equal(s.web.notices('confirmation_cancelled').length, 0, '无条目的轮次不产生失效通知（无误报）');
+  assert.ok(!frames.some((f) => f.type === 'host_tool_result'), '③ 拒绝路径不回宿主工具包');
+});
 
 test('T6①/PR-8（rpc）：宿主工具提问上浮为 request_kind:question 信封；作答 ⇒ host_tool_result 回传 ⇒ 该轮继续', async (t) => {
   const s = await setup(t, { protocol: 'rpc', env: { FAKE_RPC_QUESTION: '优先级？' } });
