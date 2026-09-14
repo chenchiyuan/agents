@@ -1,7 +1,7 @@
 # oamp — 本机多智能体运行时 CLI
 
 零依赖 Node.js v22 ESM 命令行工具：单一入口拉起 Router、拉起 agent 节点、查询拓扑状态、运行对话式 Web 控制台。
-运行参数经环境变量 + 可选配置文件 `oamp/config.json`（库路径 / 默认模型 / 上下文上限 / 常驻协议四键）提供；
+运行参数经环境变量 + 可选配置文件 `oamp/config.json`（库路径 / 默认模型 / 上下文上限 / 常驻协议 / 档位五键）提供；
 节点与 Router 间为 UDS + JSON-RPC 2.0；对话历史落 SQLite（`node:sqlite`，仍为零第三方依赖），实时增量走 SSE。
 
 > **当前状态**：CLI 分发、Router/agent 运行时、`status` 只读查询、`task` 任务指派/进度查询与
@@ -213,7 +213,7 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
 | executor | payload | 行为 |
 |---|---|---|
 | **omp-daemon**（默认；Web 普通提问走这条） | `{executor:"omp-daemon", chat_id, prompt:"…", model?, timeout_ms?}` | 常驻会话子进程（默认 `omp --mode rpc`）多轮：回答以流式增量实时回流，上下文按「对话 × agent」累积 |
-| **omp**（显式一次性；Web 勾选「一次性」） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p [--no-tools] --no-session [--model X] [--append-system-prompt R] [--approval-mode M] <prompt>`——单次执行，不累积也不复用上下文 |
+| **omp**（显式一次性；Web 勾选「一次性」） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p [--no-tools] --no-session [--model X] [--append-system-prompt R] [--approval-mode M] <prompt>`（`M ∈ {always-ask, yolo}`，未配置即 `yolo`）——单次执行，不累积也不复用上下文 |
 | shell（向后兼容；Web 以 `!` 开头） | `{command, args?, timeout_ms?, label?}` | spawn 直启命令（原行为，无上下文） |
 
 - **模型解析链**（每轮独立）：请求 payload `model` > `OAMP_OMP_MODEL` > 配置文件 `defaults.model` > 内置 `deepseek/deepseek-v4-flash`（TTFT ~1s）；
@@ -299,7 +299,7 @@ oamp cluster down   [--config <path>]                 # 收口：C-c → 等子�
 单起一个角色实例（不经集群）：
 
 ```sh
-OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permission allow [--model M] [--protocol rpc|acp]
+OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permission allow [--model M] [--protocol rpc|acp] [--approval-mode always-ask|yolo]
 ```
 
 `instance_id = pb-<role>` 且 `<仓库根>/roles/<role>/<role>.md` 存在时也会自动绑定（等价于显式传 `--role`）；
@@ -311,10 +311,13 @@ OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permi
 可选 JSON 文件（默认 `<包根>/config.json`，`OAMP_CONFIG` 可改路径）；文件不存在则全部走内置默认：
 
 ```json
-{ "protocol": "rpc", "data": { "db": "data/sql.db" }, "defaults": { "model": "deepseek/deepseek-v4-flash" }, "context": { "max": 8 } }
+{ "protocol": "rpc", "approval": "yolo", "data": { "db": "data/sql.db" }, "defaults": { "model": "deepseek/deepseek-v4-flash" }, "context": { "max": 8 } }
 ```
 
 - 逐键优先级 **env > 配置文件 > 内置默认**（对应 `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX` / `OAMP_PROTOCOL`）；相对路径基准 = 包根（与 cwd 无关）。
+- **`approval`（档位）**：取值域 `{always-ask, yolo}`，缺省 `yolo`（工具开时 `yolo` ⇒ 工具直接执行、无逐次裁决）；
+  非法取值 ⇒ 启动即报错退出（不静默回落）。该键只有配置文件一处（无对应 env 键）；等价的启动参数 = `agent start --approval-mode <always-ask|yolo>`
+  （非法取值 ⇒ 退出 2 并点名该值）。`--permission deny` 时档位恒为 `always-ask`（优先于显式档位）。
 - 文件缺失 → 正常启动；JSON 非法或类型不符 → 启动即报错退出 1（快速失败）；未知键忽略；无热重载。
 - 运行时产物落点：socket → `oamp/.runtime/`，对话库 → `oamp/data/`（均已 `.gitignore`）。
 - **不进配置文件的环境变量**：web 的任务对账间隔与全局事件拓扑轮询间隔（`OAMP_WEB_RECONCILE_*` / `OAMP_WEB_TOPOLOGY_POLL_MS`，见上表）属运行期兜底参数，仅由 env 覆盖、非法值回退内置默认。

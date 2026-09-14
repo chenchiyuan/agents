@@ -1010,7 +1010,8 @@ test('F07：一次性路径每次注入（末位 argv 逐字）/ 常驻路径首
   const oneShots = argvs.filter((a) => a.includes(ONESHOT_MODE) && !a.includes(ACP_MODE));
   assert.equal(oneShots.length, 1, '一次性路径应恰好起一次 -p 进程');
   // 末位 argv：内容仍逐字 = 项目块渲染 + '\n\n' + 原文（业务内容，比较强度不变）；另固定 omp:oneshot profile 的 input:'positional' 口径
-  const expectedTail = buildArgv('omp:oneshot', { prompt: `${rendered}\n\n${oneShotText}` }).at(-1);
+  // 档位段 = 唯一汇聚点的解析值（该实例 tools off ⇒ 不追加；本断言只判末位位置参数）
+  const expectedTail = buildArgv('omp:oneshot', { prompt: `${rendered}\n\n${oneShotText}`, approval: null }).at(-1);
   assert.equal(oneShots[0][oneShots[0].length - 1], `${rendered}\n\n${oneShotText}`, '末位 argv 逐字 = 项目块 + \\n\\n + 原文');
   assert.equal(oneShots[0][oneShots[0].length - 1], expectedTail, '末位 argv = launcher.js omp:oneshot profile 的 input:positional 推导值');
 

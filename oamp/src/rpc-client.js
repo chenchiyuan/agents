@@ -1,5 +1,5 @@
-// L2 的 rpc 协议实现（默认链路）：帧 ↔ 标准面映射 + 门承接 + 生命周期（本文件 = §3.3 L2 的 rpc 落点）。
-// （architecture §5.4 逐帧映射表 / §5.6 门映射 / §5.7 能力位 / §4.2 L2-3 L2-6 L2-8~L2-11 / §3.3 L2 行）
+// L2 的 rpc 协议实现（默认链路）：帧 ↔ 标准面映射 + 门承接 + 宿主工具承接 + 生命周期（本文件 = §3.3 L2 的 rpc 落点）。
+// （architecture §5.4 逐帧映射表（含宿主工具六项）/ §5.6 门映射 / §5.7 能力位 / §4.2 L2-3 L2-6 L2-8~L2-11 / §3.3 L2 行）
 // 进程面：argv 全部经 L1（`launcher.js` 的 `omp:rpc` profile + 唯一 argv 构造 + spawn 封装）产出——
 //   本模块内不出现任何 flag 字面量；stdio 三态与宽限常量沿用既有 acp-client 的口径。
 // 错误面：一律 ProtocolError（码值 ∈ 五值）。对 ProtocolError / CAPABILITY_KEYS 的引用只在**函数体内**
@@ -22,6 +22,22 @@ const DELTA_KINDS = { thinking_delta: 'thinking', text_delta: 'chunk', toolcall_
 // 非审批门的交互类方法（§5.4）：回 `{cancelled:true}`——不代答产品外提问（§4.2 L2-6）；展示类方法与未知
 // 方法一律不回执（M-5 实测 setWidget 三帧未回执且轮次正常收尾）。
 const INTERACTIVE_METHODS = new Set(['select', 'confirm', 'input', 'editor']);
+// §5.4 宿主工具描述符（T-05 / L1-6）：一调用 = 一问；注册与 `tools` 开关无关（R2 S4 实测 `--no-tools` 下仍可用）。
+const ASK_USER_TOOL = {
+  name: 'ask_user',
+  label: 'Ask User',
+  description: '向用户提问（问题文本 + 可选选项 + 是否多选），等用户作答后返回其答案。',
+  parameters: {
+    type: 'object',
+    properties: {
+      question: { type: 'string' },
+      options: { type: 'array', items: { type: 'string' } },
+      multiple: { type: 'boolean' },
+    },
+    required: ['question'],
+    additionalProperties: false,
+  },
+};
 // RPC 审批门恒二元选项（M-5 实测 `options: ["Approve","Deny"]`）；仅当帧未携带合法选项串数组时兜底。
 const RPC_GATE_OPTIONS = ['Approve', 'Deny'];
 // ProtocolError 的码值集合（五值逐字，§5.1）：回包带 code 时只接受域内值，否则按命令归类。
@@ -32,12 +48,9 @@ const RPC_CAPABILITY_VALUES = {
   streaming: 'yes',
   thinking: 'yes',
   approvalGate: 'yes',
-  hostTools: 'no',
+  hostTools: 'yes', // 已接线：握手后注册 `ask_user` 并承接 `host_tool_call`（§5.4 / G2-D4）
   introspection: 'yes',
   queueControl: 'yes',
-};
-const RPC_CAPABILITY_NOTES = {
-  hostTools: '本迭代不接线宿主工具面：omp 默认不注册宿主工具即不触发（M-4 实测零触发）',
 };
 
 /** 常驻协议（rpc）的能力位声明（供注入点的 `capabilities()` 读取；键集与常量单点一致）。 */
@@ -49,11 +62,7 @@ export function rpcCapabilities() {
 
 /** 会话级能力位说明（§5.1 `capabilityNotes`）：任一非 'yes' 键恒有非空字符串。 */
 export function rpcCapabilityNotes() {
-  const notes = {};
-  for (const key of CAPABILITY_KEYS) {
-    if (RPC_CAPABILITY_VALUES[key] !== 'yes') notes[key] = RPC_CAPABILITY_NOTES[key];
-  }
-  return notes;
+  return {}; // rpc 六键恒 'yes' ⇒ 恒为空表（MI-5：不为 yes 键新增 note）
 }
 
 // 计时器口径：本模块的计时器一律 ref——`cancel()` / `prompt()` 返回的 Promise 结算与 kill 保证**不得**依赖
@@ -82,6 +91,15 @@ function readPartialText(partial) {
 function readApprovalOptions(options) {
   const offered = Array.isArray(options) ? options.filter((option) => typeof option === 'string' && option !== '') : [];
   return (offered.length > 0 ? offered : RPC_GATE_OPTIONS).map((optionId) => ({ optionId }));
+}
+
+/** L2-5 回包文本渲染：仅选项 ⇒ `选项：A, B`；选项+文本 ⇒ `选项：A, B\n文本：<逐字>`；仅文本 ⇒ `<逐字>`。 */
+function renderAnswerText(answer) {
+  const optionIds = Array.isArray(answer.optionIds) ? answer.optionIds.filter((id) => typeof id === 'string' && id !== '') : [];
+  const text = typeof answer.text === 'string' ? answer.text : '';
+  if (optionIds.length === 0) return text;
+  const chosen = `选项：${optionIds.join(', ')}`;
+  return text === '' ? chosen : `${chosen}\n文本：${text}`;
 }
 
 /** 钩子裁决值 → 合法 optionId（须在本次门提供的选项内）；否则 null（未裁决）。 */
@@ -119,7 +137,13 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
   const model = readOptionalText(spec.model); // 进程 argv 落定的模型（本实现无轮次级模型切换，见 prompt）
   const roleFile = readOptionalText(spec.roleFile);
   const toolsOn = spec.tools === true; // 工具开关只在 argv 决定（§4.3 口径）
-  const child = spawnAgent(PROFILE, { model, roleFile, tools: { mode: toolsOn ? 'allow' : 'off' } });
+  // §5.1 argv 面：档位取唯一汇聚点的解析值（本模块零判定、零取值字面）；工具关 ⇒ null（无档位段）。
+  const child = spawnAgent(PROFILE, {
+    model,
+    roleFile,
+    tools: { mode: toolsOn ? 'allow' : 'off' },
+    approval: toolsOn ? spec.approval : null,
+  });
 
   let buf = '';
   let dead = false;
@@ -129,6 +153,7 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
   let ready = null; // 握手的结算器（{resolve, reject}）
   let turn = null; // 在飞轮次（M-1：1 进程 = 1 会话 = 1 在飞轮次）
   let pauseDepth = 0; // 门挂起深度（> 0 ⇒ 轮次计时冻结，§4.2 L2-9）
+  const cancelledToolCalls = new Set(); // §5.4：已被 `host_tool_cancel` 撤销的在途宿主工具调用（不再回包）
   let nextId = 0;
   const chunkParts = new Map(); // rpc_chunk 分片重组表（chunkId → {count, parts, bytes}）
 
@@ -244,8 +269,12 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
       ready = null;
       if (settle === null) return;
       const version = frame.data && frame.data.protocolVersion;
-      if (frame.success === true && version === PROTOCOL_VERSION) settle.resolve();
-      else {
+      if (frame.success === true && version === PROTOCOL_VERSION) {
+        // §5.4 注册时机（L1-6）：握手回包成功后、返回会话对象**之前**，恰一次（R2 S3 为替换语义 ⇒ 重复即自覆盖）；
+        // 与 `tools` 开关无关（R2 S4：`--no-tools` 下仍可注册并调用）。
+        trySend({ type: 'set_host_tools', tools: [ASK_USER_TOOL] });
+        settle.resolve();
+      } else {
         settle.reject(
           new ProtocolError(
             'context_crashed',
@@ -307,8 +336,15 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
   async function handleApproval(frame, toolName) {
     const onApproval = hooks && typeof hooks.onApproval === 'function' ? hooks.onApproval : null;
     if (onApproval === null) {
-      // 无收件人（消费层未提供钩子）⇒ 不代答放行，也不把子进程吊死
+      // §3.3 流 5（F03 验收 3 的 rpc 观测面）：无收件人（消费层未提供钩子）⇒ 不代答放行、不把子进程吊死，而是
+      // ① 回执拒绝（既有）→ ② 发**无参** `{type:'abort'}`（沿用 `abortSent` 幂等位 ⇒ 恰一帧）→ ③ 以
+      // `ProtocolError('permission_denied')` 结算该轮（复用既有码值；轮次级 ⇒ 会话保持可用、下一轮可正常起）。
       trySend({ type: 'extension_ui_response', id: frame.id, cancelled: true });
+      if (!abortSent) {
+        abortSent = true;
+        trySend({ type: 'abort' });
+      }
+      if (turn) failTurn(turn, new ProtocolError('permission_denied', '审批门无收件人（permission=deny 档）：该轮已中止'));
       return;
     }
     const options = readApprovalOptions(frame.options);
@@ -330,6 +366,66 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
     }
     if (optionId === null) trySend({ type: 'extension_ui_response', id: frame.id, cancelled: true });
     else trySend({ type: 'extension_ui_response', id: frame.id, value: optionId });
+  }
+
+  /**
+   * §5.4 宿主工具回包帧形（A18 实测）：`{type:'host_tool_result', id, result:{content:[{type:'text', text}]}}`；
+   * 失败（未注册名 / 非法参数 / 无收件人）另加 `isError:true`（该轮继续，不吊死、不代答 — N12）。
+   */
+  function hostToolResult(id, text, isError) {
+    const frame = { type: 'host_tool_result', id, result: { content: [{ type: 'text', text }] } };
+    if (isError) frame.isError = true;
+    return frame;
+  }
+
+  /**
+   * §5.4 宿主工具承接（T-05）：`ask_user` **一调用 = 一问** ⇒ 冻结轮次计时 ⇒ 经 `hooks.onQuestionRequest` 上浮等
+   * 未结算 Promise ⇒ 回 `host_tool_result`（文本按 L2-5 模板渲染）⇒ 该轮继续（`agent_end{isTerminal:true}`）。
+   * 未注册名 / 非法参数 / 无收件人 ⇒ `isError:true` + 说明文本（不吊死该轮；不代答 — N12）。
+   */
+  async function handleHostToolCall(frame) {
+    const args = frame.arguments && typeof frame.arguments === 'object' ? frame.arguments : {};
+    const onQuestionRequest = hooks && typeof hooks.onQuestionRequest === 'function' ? hooks.onQuestionRequest : null;
+    const question = typeof args.question === 'string' && args.question !== '' ? args.question : null;
+    if (frame.toolName !== ASK_USER_TOOL.name) {
+      trySend(hostToolResult(frame.id, `未注册的宿主工具: ${String(frame.toolName)}`, true));
+      return;
+    }
+    if (question === null) {
+      trySend(hostToolResult(frame.id, 'ask_user 需要非空字符串参数 question', true));
+      return;
+    }
+    if (onQuestionRequest === null) {
+      trySend(hostToolResult(frame.id, '无收件人承接该提问（不代答）', true));
+      return;
+    }
+    const options = Array.isArray(args.options) ? args.options.filter((option) => typeof option === 'string' && option !== '') : [];
+    freezeTurnTimer(); // 挂起期不计入轮次预算（§5.7）
+    let answer = null;
+    try {
+      answer = await onQuestionRequest({
+        requestKind: 'question', // §5.2 类别字段的来源（agent.js 一对一透传为信封的 request_kind）
+        question,
+        options: options.map((optionId) => ({ optionId })), // MI-1：与门钩子同形 `[{optionId, label?}]`
+        multiple: args.multiple === true,
+      });
+    } catch {
+      answer = null; // 钩子抛错：绝不代答
+    } finally {
+      thawTurnTimer();
+    }
+    if (cancelledToolCalls.delete(frame.id) || cancelledToolCalls.delete(frame.toolCallId)) return; // 已撤销 ⇒ 不回包
+    if (answer === null || typeof answer !== 'object') {
+      trySend(hostToolResult(frame.id, '无收件人承接该提问（不代答）', true));
+      return;
+    }
+    trySend(hostToolResult(frame.id, renderAnswerText(answer), false));
+  }
+
+  /** §5.4 撤销：`host_tool_cancel{targetId}` ⇒ 撤在途条目、**不回包**（轮次死 / SIGINT 的既有清扫面不变）。 */
+  function handleHostToolCancel(frame) {
+    const targetId = frame.targetId;
+    if (typeof targetId === 'string' || typeof targetId === 'number') cancelledToolCalls.add(targetId);
   }
 
   function onUiRequest(frame) {
@@ -397,6 +493,12 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
         return;
       case 'extension_ui_request':
         onUiRequest(frame);
+        return;
+      case 'host_tool_call':
+        void handleHostToolCall(frame);
+        return;
+      case 'host_tool_cancel':
+        handleHostToolCancel(frame);
         return;
       case 'rpc_chunk': {
         const logical = reassemble(frame);

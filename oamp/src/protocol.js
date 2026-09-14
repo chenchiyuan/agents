@@ -39,6 +39,38 @@ export function readApprovalToolName(title) {
 const SELECTABLE_PROTOCOLS = new Set(['rpc', 'acp']);
 const DEFAULT_PROTOCOL = 'rpc'; // 解析链第四档：内置默认
 
+// 档位取值域恰两值（§5.1；`write` / `tier` 不入域 — N1 / A2）与内置默认
+const APPROVAL_VALUES = new Set(['always-ask', 'yolo']);
+const DEFAULT_APPROVAL = 'yolo';
+
+/**
+ * 读一档档位取值：未提供（undefined / null）⇒ undefined；其余（含空串 / 非字符串 / 域外值）⇒ 响亮失败
+ * （体例逐字对齐既有配置校验：`OAMP 配置错误` + 点名当前值，绝不静默回落 `'yolo'`）。
+ */
+function readApprovalValue(value, source) {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== 'string' || !APPROVAL_VALUES.has(value)) {
+    throw new Error(`OAMP 配置错误: ${source} 仅支持 always-ask/yolo（当前值 ${JSON.stringify(value)}）`);
+  }
+  return value;
+}
+
+/**
+ * 档位解析链（§5.1 / F03 验收 4 / L1-1：**全仓唯一判定处**，三实现只消费其输出）：
+ * ① `spec.permission === 'deny'` ⇒ `'always-ask'`（优先于显式档位——deny 档不得因显式档位而失去门）
+ * ② `spec.approval`（显式 `--approval-mode`，未给 ⇒ null）⇒ 该值
+ * ③ `spec.configApproval`（config.json 第 5 键）⇒ 该值
+ * ④ 否则 ⇒ `'yolo'`（内置默认；不做任何档位配置即默认档）
+ */
+export function resolveApproval(spec) {
+  const source = spec && typeof spec === 'object' ? spec : {};
+  if (source.permission === 'deny') return 'always-ask';
+  const explicit = readApprovalValue(source.approval, '--approval-mode');
+  if (explicit !== undefined) return explicit;
+  const configured = readApprovalValue(source.configApproval, 'approval（config.json）');
+  return configured === undefined ? DEFAULT_APPROVAL : configured;
+}
+
 /**
  * 读一档协议取值：未提供（undefined / null / 空串，体例同 config.js 的「空即未设」）⇒ undefined；
  * 域外值 ⇒ 响亮失败（体例逐字对齐既有配置校验，`OAMP 配置错误` + 当前值）。
@@ -65,14 +97,17 @@ function resolveProtocol(resident) {
 
 /**
  * 唯一注入点（§5.3）：由注入配置装配出一个门面；消费层只认识本门面。
- * `resident` = 常驻会话的解析结果（承载协议选择与常驻字段：`protocol` / `configProtocol` / `model` /
- * `roleFile` / `tools` / `permission`）；`profiles` 为 §5.1 的签名参数位（本迭代未使用：profile 表由 L1 的
- * `PROFILES` 单点持有，§5.2 / L2-13）。
+ * `resident` = 常驻会话的解析结果（承载协议选择、档位输入与常驻字段：`protocol` / `configProtocol` /
+ * `approval`（显式档位） / `configApproval`（config 第 5 键） / `model` / `roleFile` / `tools` / `permission`）；
+ * `profiles` 为 §5.1 的签名参数位（本迭代未使用：profile 表由 L1 的 `PROFILES` 单点持有，§5.2 / L2-13）。
  * @returns {{capabilities: function, createResident: function, createEphemeral: function}}
  */
 export function createProtocolLayer({ resident = {}, profiles = null, bin = null, cwd = null, logger = null } = {}) {
   const spec = resident && typeof resident === 'object' ? resident : {};
   const protocol = resolveProtocol(spec); // 解析链一次落定（切换协议 = 新会话，N9）
+  // §5.1 档位唯一汇聚点：装配时求值**恰一次**并就地写入 `spec.approval`（全仓唯一赋值点；三实现只读该值，
+  // 自身零档位判定 ⇒ 「某条链路忘记覆写」的通路不存在 — F03 验收 4 / L1-1）。
+  spec.approval = resolveApproval(spec);
 
   return {
     /** 常驻协议的能力位（声明面）：rpc 的六键表由其实现模块自持；acp 的声明面随 AcpClient 实例落地（§9.2 B-8）。 */
@@ -97,6 +132,11 @@ export function createProtocolLayer({ resident = {}, profiles = null, bin = null
         tools: spec.tools === true,
         roleFile: spec.roleFile ?? null,
         permission: spec.permission ?? 'allow',
+        // §5.1 argv 面：已解析档位（acp 实现只消费；工具关时实现侧自行传 null ⇒ 无档位段）
+        approval: spec.approval,
+        // §5.1 提问钩子（T-03）：与门钩子并存但注入条件不同（门钩子的档位判定在消费层），此处只透传装配位
+        onQuestionRequest:
+          typeof (hooks && hooks.onQuestionRequest) === 'function' ? (info) => hooks.onQuestionRequest(info) : null,
         auditContext: {
           instance: agentId,
           role,

@@ -2,8 +2,8 @@
 // 观测面：fake bin（沿用既有测试面的 `OAMP_OMP_BIN` 注入 + argv / 帧日志），零第三方依赖、零真实 omp / LLM / 外网。
 // 五组断言：① 能力位 ② 解析链与选择域 ③ 选择与进程面（argv）④ RPC 逐帧映射与门 ⑤ oneshot 无会话语义。
 // 依据：prs/pr-005-tasks.md T5 验收 1~8；architecture §5.2 / §5.3 / §5.4 / §5.6 / §5.7 / §9.4.2 B-16。
-// 期望值真源 = `launcher.js` 模块（`PROFILES` / `buildArgv`），测试内不复写 argv 推导逻辑；oneshot 的档位段
-// （`--approval-mode`）= 调用层决策（W2-A），期望值经 `buildArgv` 的 `approval` 入参表达（值域对齐 `agent.js:192-199`）。
+// 期望值真源 = `launcher.js` 模块（`PROFILES` / `buildArgv`），测试内不复写 argv 推导逻辑；档位段
+// （`--approval-mode`）= 唯一汇聚点的解析值（三实现只消费），期望值经 `buildArgv` 的 `approval` 入参表达。
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -70,6 +70,7 @@ if (argv[0] === '-p') {
   const delayMs = Number(process.env.FAKE_FIRST_DELAY_MS || 400);
   let gateQueue = [];
   let gateIndex = 0;
+  let hostCallsLeft = 0; // 宿主工具剧本：未回包的调用数（归零即结算该轮）
   const sendNextGate = () => {
     if (gateIndex >= gateQueue.length) { setTimeout(() => send(terminal()), 10); return; }
     const gate = gateQueue[gateIndex];
@@ -115,6 +116,28 @@ if (argv[0] === '-p') {
       setTimeout(() => send(terminal()), 20);
       return;
     }
+    if (script === 'host-tool') {
+      // §5.4 宿主工具（T-05）：一调用 = 一问；三形态参数（选项+多选 / 仅选项 / 无选项）覆盖 L2-5 三种渲染
+      hostCallsLeft = 3;
+      send({ type: 'host_tool_call', id: 'h-1', toolCallId: 'tc-1', toolName: 'ask_user', arguments: { question: '优先级？', options: ['高', '低'], multiple: true } });
+      send({ type: 'host_tool_call', id: 'h-2', toolCallId: 'tc-2', toolName: 'ask_user', arguments: { question: '选一个？', options: ['A', 'B'] } });
+      send({ type: 'host_tool_call', id: 'h-3', toolCallId: 'tc-3', toolName: 'ask_user', arguments: { question: '还有别的吗？' } });
+      return;
+    }
+    if (script === 'host-tool-cancel') {
+      // §5.4 撤销：先撤后答（撤销发生在钩子结算之前）⇒ 该调用不得回包
+      send({ type: 'host_tool_call', id: 'c-1', toolCallId: 'tc-c1', toolName: 'ask_user', arguments: { question: '会被撤销吗' } });
+      send({ type: 'host_tool_cancel', targetId: 'c-1' });
+      setTimeout(() => send(terminal()), 150);
+      return;
+    }
+    if (script === 'host-tool-invalid') {
+      // §5.4 非法输入：未注册工具名 + ask_user 缺 question ⇒ 各回 isError:true 且该轮继续（不吊死）
+      hostCallsLeft = 2;
+      send({ type: 'host_tool_call', id: 'b-1', toolCallId: 'tc-b1', toolName: 'other_tool', arguments: { question: 'hi' } });
+      send({ type: 'host_tool_call', id: 'b-2', toolCallId: 'tc-b2', toolName: 'ask_user', arguments: { options: ['A'] } });
+      return;
+    }
     if (script === 'ui-classes') {
       send({ id: 'd-1', type: 'extension_ui_request', method: 'setWidget', title: '' });
       send({ id: 'd-2', type: 'extension_ui_request', method: 'notify', title: 'hi' });
@@ -156,6 +179,21 @@ if (argv[0] === '-p') {
       log({ event: 'ui-response', frame });
       const gate = gateIndex > 0 ? gateQueue[gateIndex - 1] : null;
       if (gate && frame.id === gate.id) sendNextGate();
+      return;
+    }
+    if (frame.type === 'set_host_tools') {
+      // 注册回包（A18 实测帧形）：命令 set_host_tools + success:true + data.toolNames
+      send({ type: 'response', command: 'set_host_tools', success: true, data: { toolNames: frame.tools.map((tool) => tool.name) } });
+      return;
+    }
+    if (frame.type === 'host_tool_result') {
+      log({ event: 'host-tool-result', frame });
+      hostCallsLeft -= 1;
+      if (hostCallsLeft <= 0) setTimeout(() => send(terminal()), 10);
+      return;
+    }
+    if (frame.type === 'host_tool_cancel') {
+      log({ event: 'host-tool-cancel', frame });
       return;
     }
     if (frame.type === 'abort') {
@@ -205,6 +243,7 @@ function useLog(t, env = {}) {
     frames: read().filter((entry) => entry.event === 'frame').map((entry) => entry.frame),
     replies: read().filter((entry) => entry.event === 'ui-response').map((entry) => entry.frame),
     aborts: read().filter((entry) => entry.event === 'abort').map((entry) => entry.frame),
+    hostToolResults: read().filter((entry) => entry.event === 'host-tool-result').map((entry) => entry.frame),
   });
 }
 
@@ -275,7 +314,7 @@ test('②③ 无任何指定 ⇒ 走 rpc（argv 由 omp:rpc profile 产出，含
   assert.ok(entry, '须已 spawn 子进程');
   assert.deepEqual(
     entry.argv,
-    buildArgv('omp:rpc', { model: 'fake/model', roleFile: '/tmp/role.md', tools: { mode: 'allow' } }),
+    buildArgv('omp:rpc', { model: 'fake/model', roleFile: '/tmp/role.md', tools: { mode: 'allow' }, approval: 'yolo' }),
   );
   assert.deepEqual(entry.argv.slice(0, 2), ['--mode', 'rpc']);
   assert.ok(!entry.argv.includes('--thinking'), 'profile thinking=null ⇒ 不传 --thinking');
@@ -482,9 +521,126 @@ test('④ cancel 幂等（abort 帧无参）+ close 容忍 EOF 后晚到的帧',
   assert.equal(second.readLog().replies.length, 0, '关闭后到达的门不得被承接');
 });
 
+// ─────────── ④b 门无收件人的自动拒绝三步（T8 / F03 验收 3 的 rpc 观测面） ───────────
+
+test('④b 门无收件人（hooks=null）：回执拒绝 + 无参 abort 恰一帧 + 以 permission_denied 结算该轮', async (t) => {
+  const { session, readLog } = await rpcSession(t, { resident: {}, hooks: null, env: { FAKE_SCRIPT: 'gate' } });
+  await assert.rejects(
+    session.prompt('请回答', { timeoutMs: 10000 }),
+    (err) => err instanceof ProtocolError && err.code === 'permission_denied',
+    '该轮须以 permission_denied 中止（现状仅回 cancelled 且照常收尾）',
+  );
+  await waitFor(() => readLog().aborts.length > 0, { what: 'abort 帧到达（帧级观测面异步落盘）' });
+  const log = readLog();
+  assert.deepEqual(log.replies, [{ type: 'extension_ui_response', id: 'g-1', cancelled: true }], '① 回执拒绝（既有帧保留）');
+  assert.deepEqual(log.aborts, [{ type: 'abort' }], '② abort 恰一帧且无参');
+  // ③ turn 无残留：同会话下一轮可再起（不是 context_busy；仍走同一条无收件人路径）
+  await assert.rejects(session.prompt('再问一次', { timeoutMs: 10000 }), (err) => err.code === 'permission_denied');
+  await waitFor(() => readLog().aborts.length >= 2, { what: '第二轮 abort 帧到达' });
+  assert.equal(readLog().aborts.length, 2, 'abort 幂等位在 prompt() 处按轮重置 ⇒ 每轮各一帧（不互相产生第二帧）');
+});
+
+// ─────────── ④c 宿主工具通路（T7 / F04 验收 1~5 / F09 验收 4） ───────────
+
+test('④c 注册恰一次（晚于 negotiate_protocol 回包、早于首个 prompt）+ 描述符逐字', async (t) => {
+  const hooks = { onQuestionRequest: () => Promise.resolve({ optionIds: [], text: 'x' }) };
+  const { session, readLog } = await rpcSession(t, { resident: { model: 'fake/model' }, hooks, env: { FAKE_SCRIPT: 'host-tool' } });
+  await session.prompt('请回答', { timeoutMs: 10000 });
+  const frameTypes = readLog().frames.map((frame) => frame.type);
+  assert.deepEqual(
+    frameTypes.filter((type) => type === 'set_host_tools').length,
+    1,
+    '一次会话注册恰一次（R2 S3 为替换语义 ⇒ 重复即自覆盖）',
+  );
+  assert.ok(frameTypes.indexOf('negotiate_protocol') < frameTypes.indexOf('set_host_tools'), '注册晚于握手请求');
+  assert.ok(frameTypes.indexOf('set_host_tools') < frameTypes.indexOf('prompt'), '注册先于首个 prompt（返回会话前已完成）');
+
+  const [descriptor] = readLog().frames.find((frame) => frame.type === 'set_host_tools').tools;
+  assert.equal(descriptor.name, 'ask_user');
+  assert.equal(descriptor.label, 'Ask User');
+  assert.equal(typeof descriptor.description, 'string');
+  assert.deepEqual(descriptor.parameters, {
+    type: 'object',
+    properties: {
+      question: { type: 'string' },
+      options: { type: 'array', items: { type: 'string' } },
+      multiple: { type: 'boolean' },
+    },
+    required: ['question'],
+    additionalProperties: false,
+  });
+});
+
+test('④c host_tool_call 上浮（一问一条）+ L2-5 三形态回包 + 该轮继续', async (t) => {
+  const calls = [];
+  const hooks = {
+    onQuestionRequest: (info) => {
+      calls.push(info);
+      return Promise.resolve({
+        optionIds: info.multiple ? ['高', '低'] : info.options.length > 0 ? ['A'] : [],
+        text: '补充文本',
+      });
+    },
+  };
+  const { session, readLog } = await rpcSession(t, { resident: { model: 'fake/model' }, hooks, env: { FAKE_SCRIPT: 'host-tool' } });
+  const result = await session.prompt('请回答', { timeoutMs: 10000 });
+
+  assert.deepEqual(
+    calls,
+    [
+      { requestKind: 'question', question: '优先级？', options: [{ optionId: '高' }, { optionId: '低' }], multiple: true },
+      { requestKind: 'question', question: '选一个？', options: [{ optionId: 'A' }, { optionId: 'B' }], multiple: false },
+      { requestKind: 'question', question: '还有别的吗？', options: [], multiple: false },
+    ],
+    '一调用 = 一问（N 次调用 ⇒ N 次上浮），入参形状取自帧',
+  );
+  const results = readLog().hostToolResults;
+  assert.deepEqual(results.map((frame) => frame.id), ['h-1', 'h-2', 'h-3']);
+  assert.deepEqual(
+    results.map((frame) => frame.result.content[0].text),
+    ['选项：高, 低\n文本：补充文本', '选项：A\n文本：补充文本', '补充文本'],
+    'L2-5 三形态：选项+文本 / 仅选项 / 仅文本（文本逐字）',
+  );
+  assert.ok(results.every((frame) => frame.isError === undefined), '成功路径不带 isError');
+  assert.equal(result.stop_reason, 'stop', '回包后该轮继续并正常终态');
+});
+
+test('④c 宿主工具不依赖 tools 开关（R2 S4）：--no-tools 下仍注册并可调用', async (t) => {
+  const hooks = { onQuestionRequest: () => Promise.resolve({ optionIds: [], text: 'ok' }) };
+  const { session, readLog } = await rpcSession(t, { resident: { model: 'fake/model', tools: false }, hooks, env: { FAKE_SCRIPT: 'host-tool' } });
+  await session.prompt('请回答', { timeoutMs: 10000 });
+  const log = readLog();
+  assert.ok(log.argv[0].argv.includes('--no-tools'), '匿名实例 argv 含 --no-tools');
+  assert.equal(log.frames.filter((frame) => frame.type === 'set_host_tools').length, 1, '--no-tools 下仍注册');
+  assert.equal(log.hostToolResults.length, 3, '仍可承接调用');
+  assert.equal(session.capabilities.hostTools, 'yes', '能力位已接线（G2-D4）');
+});
+
+test('④c 非法输入（未注册名 / 缺 question）⇒ isError:true + 说明文本，该轮继续（不吊死、不代答）', async (t) => {
+  const calls = [];
+  const hooks = { onQuestionRequest: (info) => { calls.push(info); return Promise.resolve({ optionIds: [], text: 'x' }); } };
+  const { session, readLog } = await rpcSession(t, { resident: {}, hooks, env: { FAKE_SCRIPT: 'host-tool-invalid' } });
+  const result = await session.prompt('请回答', { timeoutMs: 10000 });
+  const results = readLog().hostToolResults;
+  assert.deepEqual(results.map((frame) => frame.id), ['b-1', 'b-2']);
+  assert.deepEqual(results.map((frame) => frame.isError), [true, true], '两帧均为失败回包');
+  assert.ok(results.every((frame) => typeof frame.result.content[0].text === 'string' && frame.result.content[0].text !== ''), '各带说明文本');
+  assert.deepEqual(calls, [], '非法输入不得上浮、不得代答');
+  assert.equal(result.stop_reason, 'stop', '该轮继续（不吊死）');
+});
+
+test('④c host_tool_cancel：撤在途条目、不回包（该轮仍照常收尾）', async (t) => {
+  const hooks = { onQuestionRequest: () => sleep(50).then(() => ({ optionIds: ['A'], text: '' })) };
+  const { session, readLog } = await rpcSession(t, { resident: {}, hooks, env: { FAKE_SCRIPT: 'host-tool-cancel' } });
+  const result = await session.prompt('请回答', { timeoutMs: 10000 });
+  const log = readLog();
+  assert.deepEqual(log.hostToolResults, [], '已撤销的调用不得回包（钩子在撤销后 50ms 才结算 ⇒ 未撤则必有回包帧）');
+  assert.equal(result.stop_reason, 'stop', '轮次照常收尾');
+});
+
 // ─────────────────────────── ⑤ oneshot 无会话语义（T5 验收 6） ───────────────────────────
 
-test('⑤ oneshot argv = omp:oneshot profile 期望值 + 调用层档位段（W2-A；tools 关 ⇒ 无 --approval-mode）', async (t) => {
+test('⑤ oneshot argv = omp:oneshot profile 期望值 + 已解析档位段（tools 关 ⇒ 无 --approval-mode）', async (t) => {
   const { session, readLog } = oneshotSession(t, {
     resident: { model: 'fake/model', roleFile: '/tmp/role.md', tools: false },
   });
@@ -497,34 +653,34 @@ test('⑤ oneshot argv = omp:oneshot profile 期望值 + 调用层档位段（W2
       roleFile: '/tmp/role.md',
       tools: { mode: 'off' },
       prompt: '请回答',
-      approval: null, // W2-A：tools 关 ⇒ 调用层不追加 --approval-mode（逐字对齐 agent.js:192-195）
+      approval: null, // 唯一汇聚点解析值只在工具开时落段 ⇒ tools 关传 null（§0.4 契约 1）
     }),
   );
   assert.equal(entry.argv[0], '-p');
   assert.equal(entry.argv[entry.argv.length - 1], '请回答', '提示词 = argv 末位位置参数');
-  assert.ok(!entry.argv.includes('--approval-mode'), 'W2-A：tools 关 ⇒ 不追加 --approval-mode（对齐 agent.js:192-195 的 toolsOn 分支）');
+  assert.ok(!entry.argv.includes('--approval-mode'), 'tools 关 ⇒ 不追加 --approval-mode（口径逐字保留）');
   assert.ok(!entry.argv.includes('--no-skills') && !entry.argv.includes('--no-rules'), 'profile skills/rules:true ⇒ 不追加');
   // D-7′ 防护（pr-001 遗留偏差 D-7）：`input:'positional'` 且未提供提示词 ⇒ 恰少一个位置参数，argv 内不得落字面 undefined
-  const noPrompt = buildArgv('omp:oneshot', { tools: { mode: 'off' } });
-  const withPrompt = buildArgv('omp:oneshot', { tools: { mode: 'off' }, prompt: 'X' });
+  const noPrompt = buildArgv('omp:oneshot', { tools: { mode: 'off' }, approval: null });
+  const withPrompt = buildArgv('omp:oneshot', { tools: { mode: 'off' }, prompt: 'X', approval: null });
   assert.deepEqual(noPrompt, withPrompt.slice(0, -1), 'D-7′：未提供提示词 ⇒ 不追加位置参数（其余段逐字一致）');
   assert.ok(!noPrompt.some((arg) => arg === undefined || arg === 'undefined'), 'D-7′：argv 内不得出现 undefined / "undefined"');
   assert.deepEqual(
-    buildArgv('omp:oneshot', { tools: { mode: 'off' }, prompt: '' }),
+    buildArgv('omp:oneshot', { tools: { mode: 'off' }, prompt: '', approval: null }),
     noPrompt,
     'D-7′：空串提示词同样不追加（体例同「空即未设」）',
   );
 });
 
-test('⑤ 档位段 = 调用层合成（W2-A，值域逐字对齐 agent.js:196-198）：tools 关 ⇒ 无段 / tools 开 + deny ⇒ always-ask / 其余 ⇒ yolo', async (t) => {
-  // 既有生产语义（agent.js:192-199）：`if (!toolsOn) args.push('--no-tools')`；
-  // `if (toolsOn) args.push('--approval-mode', permission === 'deny' ? 'always-ask' : 'yolo')`。
-  // 档位段**不由 profile 数据决定**（omp:oneshot 的 profile 值为 `yolo` + `appliesWhen:'always'`）⇒ 期望值经
-  // `buildArgv` 的 `approval` 入参表达（调用层合成面）。
+test('⑤ 档位段 = 唯一汇聚点的解析值（消费面）：tools 关 ⇒ 无段 / tools 开 + deny ⇒ always-ask / 其余 ⇒ yolo', async (t) => {
+  // 解析链（§5.1，唯一汇聚点在门面内求值并写回 `spec.approval`）：
+  // `permission === 'deny'` ⇒ always-ask；显式档位 ⇒ 该值；config 档 ⇒ 该值；否则 ⇒ 内置 yolo。
+  // 一次性实现只消费该值（工具关 ⇒ 传 null）⇒ 期望值经 `buildArgv` 的 `approval` 入参表达（**不再**由调用点合成）。
   const cases = [
     { name: 'tools 关（匿名实例）', resident: { tools: false }, toolsOn: false, expectedApproval: null },
     { name: 'tools 开 + permission=deny', resident: { tools: true, permission: 'deny' }, toolsOn: true, expectedApproval: 'always-ask' },
     { name: 'tools 开 + permission=allow（缺省）', resident: { tools: true }, toolsOn: true, expectedApproval: 'yolo' },
+    { name: 'tools 开 + 显式档位 always-ask', resident: { tools: true, approval: 'always-ask' }, toolsOn: true, expectedApproval: 'always-ask' },
   ];
   for (const item of cases) {
     const { session, readLog } = oneshotSession(t, { resident: { model: 'fake/model', ...item.resident } });
@@ -536,13 +692,13 @@ test('⑤ 档位段 = 调用层合成（W2-A，值域逐字对齐 agent.js:196-1
         model: 'fake/model',
         tools: { mode: item.toolsOn ? 'allow' : 'off' },
         prompt: '请回答',
-        approval: item.toolsOn ? { mode: item.expectedApproval, appliesWhen: 'tools-on' } : null,
+        approval: item.expectedApproval,
       }),
-      `${item.name}: 调用层合成后的 argv 逐字`,
+      `${item.name}: 已解析档位落 argv 后逐字`,
     );
     const at = entry.argv.indexOf('--approval-mode');
-    assert.equal(at === -1 ? null : entry.argv[at + 1], item.expectedApproval, `${item.name}: 档位段（W2-A）`);
-    assert.equal(entry.argv.includes('--no-tools'), !item.toolsOn, `${item.name}: 工具开关与 --no-tools 同向（agent.js:192-193）`);
+    assert.equal(at === -1 ? null : entry.argv[at + 1], item.expectedApproval, `${item.name}: 档位段 = 解析值`);
+    assert.equal(entry.argv.includes('--no-tools'), !item.toolsOn, `${item.name}: 工具开关与 --no-tools 同向`);
     assert.equal(entry.argv[entry.argv.length - 1], '请回答', `${item.name}: 提示词 = 末位位置参数`);
   }
 });

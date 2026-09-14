@@ -16,6 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { startRouter, startAgent, waitFor, stopAll } from './helpers/harness.js';
 import { startFakeNode } from './helpers/fake-node.js';
 import { PROFILES, buildArgv } from '../src/launcher.js';
+import { ContextPool } from '../src/context-pool.js';
 
 // 协议与 argv 真源（pr-002 验收 2）：模式记号与固定 flag 段取自 src/launcher.js 的 profile 表（flag 段经同模块的
 // buildArgv 推导）——本文件不复写期望数组、也不内置「默认就是 acp」的假设。协议注入见各启动点的 env 载体
@@ -537,9 +538,75 @@ test('§6.6：daemon 启动参数含 acp 固定集（--no-skills/--no-rules/--no
   const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
   const acp = argvs.find((a) => a[0] === ACP_MODE);
   assert.ok(acp, 'daemon 路径应 spawn `acp` 子进程');
-  for (const flag of buildArgv('omp:acp').filter((f) => f.startsWith('--no-'))) {
+  // 期望值真源 = L1（profile 固定段）；档位段由唯一汇聚点给出（本实例工具关 ⇒ 不追加）
+  for (const flag of buildArgv('omp:acp', { approval: null }).filter((f) => f.startsWith('--no-'))) {
     assert.ok(acp.includes(flag), `启动参数应含 ${flag}`);
   }
   assert.ok(acp.includes('--model'));
   assert.equal(acp[acp.indexOf('--model') + 1], 'deepseek/deepseek-v4-flash');
+});
+
+// ─────────── §5.1（T-03）：两型钩子的注入面分开——提问恒注入 / 工具门仅 allow 档注入 ───────────
+
+test('§5.1（T-03）：deny 实例的提问钩子仍注入且被调用（提问上浮），同一实例的工具门零注入', async (t) => {
+  // 观测面 = 注入给会话工厂的 hooks（池侧的唯一注入点）；会话工厂以最小可用外观替身，不 spawn 任何进程
+  const makeStub = () => ({
+    prompt: async () => ({ text: '', model: null, stop_reason: 'stop', usage: null, pid: 1 }),
+    close() {},
+    pid: 1,
+    currentModel: null,
+    contextId: null,
+  });
+  const fakeSession = () => ({ hooksSeen: [], session: null });
+
+  const denyProbe = fakeSession();
+  const denyPool = new ContextPool({
+    permission: 'deny', // 工具门自动拒绝的档位
+    createResident: async ({ hooks }) => {
+      denyProbe.hooksSeen.push(hooks);
+      return makeStub();
+    },
+    onPermissionRequest: () => 'allow', // 门钩子在场：是否注入须由池侧档位判定决定（deny ⇒ 丢弃）
+    onQuestionRequest: (info) => {
+      denyProbe.questions = denyProbe.questions || [];
+      denyProbe.questions.push(info);
+      return Promise.resolve({ optionIds: [], text: '好的' });
+    },
+  });
+  t.after(() => denyPool.dispose());
+
+  const session = denyPool.getOrCreate('chat-q', 'dev-1', { origin: 'web-1' });
+  await session.prompt('一轮', { timeoutMs: 5000, origin: 'web-1' });
+  assert.equal(denyProbe.hooksSeen.length, 1, '会话工厂被调用一次');
+  const hooks = denyProbe.hooksSeen[0];
+  assert.equal(hooks.onPermissionRequest, null, 'deny 档：工具门（permission 型）零注入');
+  assert.equal(hooks.onApproval, null, 'deny 档：工具门（approval 型）零注入');
+  assert.equal(typeof hooks.onQuestionRequest, 'function', '提问钩子恒注入（与 permission 档解耦）');
+
+  // 被注入的提问钩子可调用，且会话身份（chatId/agentId/该轮 origin）与门钩子同法附加
+  const answer = await hooks.onQuestionRequest({ requestKind: 'question', question: '优先级？', options: [], multiple: false });
+  assert.deepEqual(answer, { optionIds: [], text: '好的' }, '注入的钩子即生产钩子（返回其结算值）');
+  assert.deepEqual(
+    denyProbe.questions,
+    [{ requestKind: 'question', question: '优先级？', options: [], multiple: false, chatId: 'chat-q', agentId: 'dev-1', origin: 'web-1' }],
+    '身份附加体例与门钩子一致',
+  );
+
+  // 对照：allow 档 ⇒ 两型钩子同时在位（证明上方断言不是「恒 null」的空判据）
+  const allowProbe = fakeSession();
+  const allowPool = new ContextPool({
+    permission: 'allow',
+    createResident: async ({ hooks }) => {
+      allowProbe.hooksSeen.push(hooks);
+      return makeStub();
+    },
+    onPermissionRequest: () => 'allow',
+    onQuestionRequest: () => Promise.resolve({ optionIds: [], text: '' }),
+  });
+  t.after(() => allowPool.dispose());
+  await allowPool.getOrCreate('chat-a', 'dev-1', { origin: 'web-1' }).prompt('一轮', { timeoutMs: 5000, origin: 'web-1' });
+  const allowHooks = allowProbe.hooksSeen[0];
+  assert.equal(typeof allowHooks.onPermissionRequest, 'function', 'allow 档：工具门钩子注入（既有判定逐字保留）');
+  assert.equal(allowHooks.onApproval, allowHooks.onPermissionRequest, 'allow 档：两型门钩子同点透传');
+  assert.equal(typeof allowHooks.onQuestionRequest, 'function', 'allow 档：提问钩子在位');
 });

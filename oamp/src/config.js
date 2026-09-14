@@ -17,6 +17,9 @@ const MODEL_DEFAULT = 'deepseek/deepseek-v4-flash';
 const CONTEXT_MAX_DEFAULT = 8;
 // 第 4 键 protocol（§5.3 / T-03）：顶层键 + env OAMP_PROTOCOL，选择域 {rpc, acp}，内置默认 rpc
 const PROTOCOL_DEFAULT = 'rpc';
+// 第 5 键 approval（§5.1 / T-07）：顶层键，取值域 {always-ask, yolo}，内置默认 yolo（MI-1：不新增 env 键）
+const APPROVAL_DEFAULT = 'yolo';
+const APPROVAL_VALUES = new Set(['always-ask', 'yolo']);
 
 const NUMERIC_DEFAULTS = {
   OAMP_HEARTBEAT_INTERVAL_MS: 10000,
@@ -52,6 +55,17 @@ function readProtocol(value, source) {
   }
   if (value !== 'rpc' && value !== 'acp') {
     throw new Error(`OAMP 配置错误: ${source} 仅支持 rpc/acp（当前值 ${JSON.stringify(value)}）`);
+  }
+  return value;
+}
+
+// §5.1 取值域校验（MI-01：非法值响亮失败，不静默回落）；体例同 readProtocol（越界值 / 非字符串 / 空串一律拒收）
+function readApproval(value, source) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !APPROVAL_VALUES.has(value)) {
+    throw new Error(`OAMP 配置错误: ${source} 仅支持 always-ask/yolo（当前值 ${JSON.stringify(value)}）`);
   }
   return value;
 }
@@ -115,6 +129,7 @@ function readConfigFile(filePath) {
     model: readStringField(defaults, 'model', 'defaults', filePath),
     contextMax: max,
     protocol: readProtocol(parsed.protocol, 'protocol'),
+    approval: readApproval(parsed.approval, 'approval'),
   };
 }
 
@@ -143,6 +158,8 @@ export function loadConfig(env = process.env) {
       : readPositiveInt('OAMP_CTX_MAX', env),
     // §5.3 解析链本 PR 落三档（角色级 --protocol 归 pr-003）：OAMP_PROTOCOL > config.json: protocol > 内置 'rpc'
     protocol: readProtocol(readNonEmptyString(env.OAMP_PROTOCOL), 'OAMP_PROTOCOL') || file.protocol || PROTOCOL_DEFAULT,
+    // §5.1 第 5 键：只有配置文件一处（无 env 键 ⇒ 逐键优先级表不含档位）
+    approval: file.approval || APPROVAL_DEFAULT,
   };
 }
 
