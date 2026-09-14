@@ -366,3 +366,45 @@
 - 阶段：阶段 5 首波合并后的自动触发（工作流契约：每次 PR 合并后自动派发一次）
 - 任务：独立核实真实 git 状态，整体覆盖写入 `progress.md`
 - 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/progress.md`
+
+### 2026-09-14 16:09:59 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-002-tasks.md`（5 个任务 T1~T5；该文件已在 PR worktree 内提交 `192a255`，避免重蹈 pr-004 任务图未入库）
+- 2. 依赖图摘要：`{T1,T2,T3,T4} → T5`（4 个测试文件面零重叠可全并发；最长链 1 跳）
+- 3. `[model_inferred]` 验收标准列表：4 项（MI-1 允许引用 `buildArgv` 作为期望值产出面 / MI-2 以实测 10 启动点·8 env 载体为注入完整性判据 / MI-3 收口 diff 基准取 `fa2acd6` / MI-4 一次性筛选记号纳入 profile 真源）
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：**疑问①（承重）** 一次性路径 `--approval-mode` 与段序在「生产 `agent.js:192-199`」与「`launcher.js` 的 `omp:oneshot` profile 数据」之间分歧 —— 若按 profile 的 `yolo` 落地，`deny` 档会静默绕过权限门；三选项 (a)/(b)/(c) 已列；疑问② 测试可否引用 `buildArgv`；登记①~④（§9.4.1 口径 / F06 主面归 pr-003 / 惰性判据为当下实测 / 行号口径）
+
+### 2026-09-14 16:10:12 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-005-tasks.md`（6 个任务 T1~T6；已在 PR worktree 内提交 `7e5f2be`）
+- 2. 依赖图摘要：`T1 → T2 → T3 → T5 → T6`（最长链 4 跳）；并行组合 `{T2→T3} ‖ {T4}`；同文件串行约束 = `rpc-client.js` 由 T2→T3 独占
+- 3. `[model_inferred]` 验收标准列表：4 项（MI-1 解析链承载键 resident.protocol + resident.configProtocol / MI-2 oneshot 行流载荷含 stream 字段 / MI-3 oneshot 返回字段不造值取 null / MI-4 门名原语由 protocol.js 具名导出）
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：**矛盾①（上游产物内部冲突）** —— architecture §5.1 与既有消费面（`agent.js:302-311`/:344-351）用 `optionId`，而 §3.4/§5.6 字面写 `options:[{option_id}]`；按 §3.4/§5.6 落地会让 pr-003 零改动的 `raiseConfirmation` 读到 null；任务图按 `optionId` 写并上报，未改上游产物
+
+### 2026-09-14 16:15:00 · 调度决策 · Gate确认
+
+- 决策内容：次波任务图的 8 项 `[model_inferred]` + 1 处上游口径冲突真实阻塞式转呈用户，用户三项裁决：**W2-A 一次性档位归调用层**（档位由 `permission` + `toolsOn` 在调用层合成；pr-002 按调用层合成结果断言；pr-003/pr-005 必须复现该语义）/ **W2-B pr-005 四项 MI 全部采纳** / **W2-C 钩子入参键名按 `optionId`**（architecture §3.4/§5.6 字面作废，登记偏差交阶段 6）。主 agent 另裁定：测试可引用 `buildArgv`（禁在测试内复写推导）、pr-002 的 MI-2/3/4 采纳、pr-001 遗留偏差 D-7′ 列为 pr-003/pr-005 防护义务
+- 触发依据：`prs/pr-002-tasks.md` §疑问①/② + `prs/pr-005-tasks.md` §model_inferred/§矛盾①；裁决落盘 `clarifications/2026-09-14-stage5-wave2-verdicts.md`
+
+### 2026-09-14 16:16:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 次波
+- PR：`prs/pr-002-test-face-profile-pinning.md`；worktree 分支 `feat/0022-pr-002-test-face-profile-pinning`
+- 任务：按 `prs/pr-002-tasks.md` 实现测试面改动（4 个测试文件），生产零改动
+- 输出：4 个测试文件 + 该分支提交
+
+### 2026-09-14 16:16:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 次波
+- PR：`prs/pr-005-protocol-layer-and-injection-entry.md`；worktree 分支 `feat/0022-pr-005-protocol-layer-and-injection-entry`
+- 任务：按 `prs/pr-005-tasks.md` 实现 L2 标准面 + 三实现 + B-16 用例（4 个文件）
+- 输出：`protocol.js` / `rpc-client.js` / `oneshot-client.js` / `test/protocol-layer.test.js` + 该分支提交
+
+### 2026-09-14 16:24:00 · 收到报告 · dev
+
+- 1. 改了什么文件：`oamp/test/acp-daemon.test.js`（注入 4 处 env 载体 + 7 组 argv 断言改 profile 取值）/ `context-pool.test.js`（2 处注入 + 2 处断言）/ `project-workspace.test.js`（1 处注入 + 2 处断言）/ `call-protocol.test.js`（1 行注入）；提交 `3dc14f7`（55 insertions / 31 deletions）；**`oamp/src/**` 与 `oamp/test/helpers/**` 零 diff**
+- 2. 测试结果：T1~T4 单跑 7/7、16/16、21/21、11/11 全绿；T5-1 四文件合跑 **55/55**；注入完整性 8 处 env 载体覆盖 10 个启动点；改动面封闭；惰性两条 grep 零命中；提交卫生（未用 `--no-verify`、工作树 clean）。**T5-2 全库既有面未跑**（派发约束「不跑全量」，由主 agent 收口统一执行）
+- 3. 疑问/待办：4 条（T2-2 的四个固定 flag 改为 profile 派生 filter 断言 / 档位双处不对称（④ 取 profile、⑥ 取字面 `always-ask`，按 W2-A 刻意为之）/ 注入键可被调用方 env 覆盖（当前无调用方传该键）/ A1 行号偏移）
+- 4. 违反边界的事：无
