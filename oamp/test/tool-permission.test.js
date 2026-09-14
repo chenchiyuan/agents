@@ -1,6 +1,7 @@
 // test/tool-permission.test.js — ACP 客户端 argv 参数化 + permission 应答/审计（fake ACP 帧级，不依赖真实 omp/网络）
 // 覆盖：F04-AR-08/AR-09（argv 含否 --no-tools）、F02-AR-04（--append-system-prompt）,
-//       F05-AR-10/AR-11（allow/deny/未知方法应答 + 每请求一行审计）、pr-003 验收 1~7。
+//       F05-AR-10/AR-11（allow/deny/未知方法应答 + 每请求一行审计）、pr-003 验收 1~7（含 B-16 的 acp 侧：
+//       六键能力位 / onDelta({kind:'chunk'}) 增量面 / ProtocolError 错误契约）。
 // 范式：test/context-pool.test.js 的 FAKE_ACP_SOURCE（同构 fake bin 写 tmpdir、经 AcpClient 的 bin 注入）。
 // 架构依据：architecture §3.2 / §4.3 / §4.4 / §4.5 / §11.2 / §12.2 跨组契约 1。
 
@@ -10,6 +11,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { AcpClient } from '../src/acp-client.js';
+import { buildArgv, PROFILES } from '../src/launcher.js';
+import { CAPABILITY_KEYS, ProtocolError } from '../src/protocol.js';
 
 // —— fake omp（acp 形态）：initialize / session/new（真实数组形态 configOptions）——
 // 每次 session/prompt 主动下发一个服务端请求（按 FAKE_ACP_MODE：allow/deny → session/request_permission；unknown → fs/read_text_file），
@@ -178,6 +181,16 @@ rl.on('line', (line) => {
       send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn', usage: {} } });
       return;
     }
+    if (MODE === 'chunk') {
+      // pr-003/B-16（acp 侧）：文本增量逐块下发（agent_message_chunk）+ 一帧思考增量（agent_thought_chunk）——
+      // 后者必须**不被转发**（acp 只产文本块，§5.7 的 thinking='no' 由实现结构保证）。
+      send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: '内部思考' } } } });
+      for (const part of ['你好', '，世界']) {
+        send({ jsonrpc: '2.0', method: 'session/update', params: { sessionId: sid, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: part } } } });
+      }
+      send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn', usage: {} } });
+      return;
+    }
     serverSeq += 1;
     awaitingReply.set(serverSeq, { promptId: msg.id, kind: MODE === 'unknown' ? 'unknown_method' : 'permission' });
     if (MODE === 'unknown') {
@@ -326,7 +339,8 @@ test('F04/AR-08/AR-09：tools=true → argv 不含 --no-tools；缺省/false →
   const on = writeFake('allow');
   await startClient(clients, on.bin, { tools: true });
   const onArgv = readJsonLines(on.argsLog)[0];
-  assert.deepEqual(onArgv.slice(0, 3), ['acp', '--no-skills', '--no-rules']);
+  // 期望值真源 = L1 的 omp:acp profile（argv 全序逐位比对；本文件不复写 profile 形态的期望数组）
+  assert.deepEqual(onArgv, buildArgv('omp:acp', { tools: { mode: 'allow' } }));
   assert.ok(!onArgv.includes('--no-tools'), 'tools=true 不得传 --no-tools');
   for (const flag of ['--no-skills', '--no-rules', '--no-session']) {
     assert.ok(onArgv.includes(flag), `argv 应恒含 ${flag}`);
@@ -335,12 +349,14 @@ test('F04/AR-08/AR-09：tools=true → argv 不含 --no-tools；缺省/false →
   const dflt = writeFake('allow');
   await startClient(clients, dflt.bin, {});
   const dfltArgv = readJsonLines(dflt.argsLog)[0];
+  assert.deepEqual(dfltArgv, buildArgv('omp:acp'), '缺省档 argv 全序 = omp:acp profile 期望值');
   assert.ok(dfltArgv.includes('--no-tools'), '缺省（既有 5 键调用方）必须沿用 --no-tools');
   assert.ok(!dfltArgv.includes('--append-system-prompt'), '未传 roleFile 不得出现注入参数');
 
   const off = writeFake('allow');
   await startClient(clients, off.bin, { tools: false });
   const offArgv = readJsonLines(off.argsLog)[0];
+  assert.deepEqual(offArgv, buildArgv('omp:acp', { tools: { mode: 'off' } }));
   assert.ok(offArgv.includes('--no-tools'), 'tools=false 必须传 --no-tools');
 });
 
@@ -355,11 +371,59 @@ test('F02/AR-04：roleFile → argv 含 --append-system-prompt <绝对路径>', 
 
   await startClient(clients, fake.bin, { tools: true, roleFile });
   const argv = readJsonLines(fake.argsLog)[0];
+  assert.deepEqual(argv, buildArgv('omp:acp', { roleFile, tools: { mode: 'allow' } }), 'argv 全序 = omp:acp profile 期望值');
   const idx = argv.indexOf('--append-system-prompt');
   assert.ok(idx >= 0, 'argv 应含 --append-system-prompt');
   assert.equal(argv[idx + 1], roleFile);
   assert.ok(path.isAbsolute(argv[idx + 1]), '注入值应为绝对路径');
   assert.ok(!argv.includes('--no-tools'));
+});
+
+test('pr-003/B-16：acp 标准面外观——六键能力位 + onDelta({kind:"chunk"}) + ProtocolError 错误契约', async (t) => {
+  const clients = withClients(t);
+  const fake = writeFake('chunk');
+  const deltas = [];
+  const client = await startClient(clients, fake.bin, { tools: false });
+
+  // ① 能力位（§5.7 的 acp 列逐字）：键集取自 CAPABILITY_KEYS（不增不减），非 yes 键必有非空 note
+  assert.deepEqual(Object.keys(client.capabilities).sort(), [...CAPABILITY_KEYS].sort(), '六键齐全且不增不减');
+  for (const key of CAPABILITY_KEYS) {
+    assert.ok(['yes', 'no', 'degraded'].includes(client.capabilities[key]), `${key} 取值须 ∈ 三态`);
+    if (client.capabilities[key] !== 'yes') {
+      assert.equal(typeof client.capabilityNotes[key], 'string', `${key} 非 yes 须有 note`);
+      assert.notEqual(client.capabilityNotes[key], '', `${key} 的 note 须非空`);
+    }
+  }
+  assert.deepEqual(client.capabilities, {
+    streaming: 'yes',
+    thinking: 'no',
+    approvalGate: 'yes',
+    hostTools: 'no',
+    introspection: 'yes',
+    queueControl: 'no',
+  });
+
+  // ② 文本增量经 onDelta({kind:'chunk', text}) 逐块原样到达（不聚合）；思考块不转发（acp 不产生该增量）
+  const result = await client.prompt('说点什么', { onDelta: (delta) => deltas.push(delta) });
+  assert.deepEqual(deltas, [
+    { kind: 'chunk', text: '你好' },
+    { kind: 'chunk', text: '，世界' },
+  ]);
+  assert.equal(result.text, '你好，世界', '累积面逐字不变（acp 行为零变更）');
+
+  // ③ 错误面 = 标准面的 ProtocolError（码值域五值）
+  client.kill();
+  await waitFor(() => client.dead, '子进程退出');
+  const codes = ['context_crashed', 'model_unavailable', 'timeout', 'permission_denied', 'context_busy'];
+  await assert.rejects(
+    () => client.prompt('再来一轮'),
+    (err) => {
+      assert.ok(err instanceof ProtocolError, '错误须为标准面的 ProtocolError');
+      assert.equal(err.name, 'ProtocolError');
+      assert.ok(codes.includes(err.code), `码值须 ∈ 五值域（实得 ${err.code}）`);
+      return true;
+    },
+  );
 });
 
 test('F05-2/§11.2：允许档恒回 allow_once，N 次受门禁调用 = N 行 TOOL_APPROVED（字段齐全）', async (t) => {
@@ -438,9 +502,12 @@ test('F05-3/F05-4：拒绝档回 reject_once + 立即 session/cancel + 轮次 pe
 
   await assert.rejects(
     () => client.prompt('创建 role-smoke.txt'),
-    (err) => err.name === 'AcpError' && err.code === 'permission_denied' && /permission=deny/.test(err.message),
+    (err) => err.name === 'ProtocolError' && err.code === 'permission_denied' && /permission=deny/.test(err.message),
   );
 
+  // session/cancel 是**跨进程事实**：轮次结算（回包触发 prompt 拒绝）可能先于子进程把该帧追加进日志，
+  // 直接读会偶发踩空（全量并行跑时 1/N 次）⇒ 先等该帧落地再断言（判据不变：帧必须存在且 params 逐字相同）。
+  await waitFor(() => readJsonLines(fake.framesLog).some((f) => f.frame === 'session/cancel'), 'session/cancel 帧落地');
   const frames = readJsonLines(fake.framesLog);
   const reply = frames.find((f) => f.frame === 'server_request_reply');
   assert.deepEqual(reply.result, { outcome: { outcome: 'selected', optionId: 'reject_once' } });
@@ -507,13 +574,13 @@ test('§4.4/L1-2②/pr-001①：tools=true 时两档 argv 恒为 --approval-mode
   const allowArgv = readJsonLines(allow.argsLog)[0];
   const allowIdx = allowArgv.indexOf('--approval-mode');
   assert.ok(allowIdx >= 0, 'allow 档必须追加 --approval-mode');
-  assert.equal(allowArgv[allowIdx + 1], 'always-ask', 'yolo 档下 omp 不发权限请求（实测 M1）⇒ 上浮无来源');
+  assert.equal(allowArgv[allowIdx + 1], PROFILES['omp:acp'].approval.mode, 'yolo 档下 omp 不发权限请求（实测 M1）⇒ 上浮无来源');
   assert.ok(!allowArgv.includes('--no-tools'));
 
   const deny = writeFake('allow');
   await startClient(clients, deny.bin, { tools: true, permission: 'deny' });
   const denyArgv = readJsonLines(deny.argsLog)[0];
-  assert.equal(denyArgv[denyArgv.indexOf('--approval-mode') + 1], 'always-ask');
+  assert.equal(denyArgv[denyArgv.indexOf('--approval-mode') + 1], PROFILES['omp:acp'].approval.mode);
 
   const off = writeFake('allow');
   await startClient(clients, off.bin, { tools: false, permission: 'deny' });

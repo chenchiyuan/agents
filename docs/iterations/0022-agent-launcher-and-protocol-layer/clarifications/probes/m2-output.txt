@@ -1,0 +1,142 @@
+argv: /Users/chenchiyuan/.bun/bin/omp --mode rpc --model deepseek/deepseek-v4-flash --no-skills --no-rules --no-session --thinking off --approval-mode always-ask
+
+===== M-2 结论数据 =====
+{
+  "probe": "M-2 RPC 取消与超时语义",
+  "argv": [
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--thinking",
+    "off",
+    "--approval-mode",
+    "always-ask"
+  ],
+  "exitCode": 0,
+  "idleAbortIdleError": null,
+  "agentEndEvents": [
+    {
+      "at": "50.13s",
+      "isTerminal": true
+    },
+    {
+      "at": "57.82s",
+      "isTerminal": true
+    },
+    {
+      "at": "63.09s",
+      "isTerminal": true
+    }
+  ],
+  "abortResponseAt": "57.82s",
+  "gateAt": "3.52s",
+  "gateAnsweredAt": "48.52s",
+  "gates": [
+    {
+      "at": "0.80s",
+      "id": "157ec8c0ef6937c3",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "3.52s",
+      "id": "157ec8c396a937c4",
+      "method": "select",
+      "title": "Allow tool: bash\nCommand: echo m2-gate",
+      "hasTimeout": false,
+      "options": [
+        "Approve",
+        "Deny"
+      ]
+    },
+    {
+      "at": "50.13s",
+      "id": "157ec8f11ca937c5",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "57.82s",
+      "id": "157ec8f89de937c6",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "63.09s",
+      "id": "157ec8fdc3a937c7",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "210.01s",
+      "id": "157ec98d3de937c8",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    }
+  ],
+  "gateHasTimeoutField": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "frameCounts": {
+    "ready": 1,
+    "extension_ui_request": 6,
+    "available_commands_update": 3,
+    "response": 8,
+    "agent_start": 3,
+    "turn_start": 4,
+    "message_start": 8,
+    "message_end": 8,
+    "message_update": 115,
+    "mu:toolcall_start": 1,
+    "mu:toolcall_delta": 25,
+    "mu:toolcall_end": 1,
+    "tool_execution_start": 1,
+    "tool_execution_end": 1,
+    "turn_end": 4,
+    "mu:text_start": 2,
+    "mu:text_delta": 84,
+    "mu:text_end": 2,
+    "agent_end": 3
+  }
+}
+
+===== 时间线 =====
+0.80s | READY | {"type":"ready","protocolVersion":1,"supportedProtocolVersions":[1,2],"maxFrameBytes":1048576,"maxReassembledFrameBytes":67108864}
+0.80s | GATE | {"id":"157ec8c0ef6937c3","method":"setWidget","hasTimeout":false}
+1.42s | STATE | session=01a09ded-b24b-77cb-9b1d-f1d2dc543a9a streaming=false msgs=0
+2.03s | AGENT_START | 
+3.52s | GATE | {"id":"157ec8c396a937c4","method":"select","hasTimeout":false}
+3.52s | tool_execution_start | bash
+48.52s | tool_execution_end | bash
+50.13s | GATE | {"id":"157ec8f11ca937c5","method":"setWidget","hasTimeout":false}
+56.80s | AGENT_START | 
+57.82s | GATE | {"id":"157ec8f89de937c6","method":"setWidget","hasTimeout":false}
+61.80s | AGENT_START | 
+63.09s | GATE | {"id":"157ec8fdc3a937c7","method":"setWidget","hasTimeout":false}
+79.80s | STATE | session=01a09ded-b24b-77cb-9b1d-f1d2dc543a9a streaming=false msgs=8
+210.01s | GATE | {"id":"157ec98d3de937c8","method":"setWidget","hasTimeout":false}
+
+===== 请求 / 响应日志 =====
+1.05s | >>> abort (idle, 无在飞轮次) | 
+1.40s | >>> get_state (空闲后) | 
+2.00s | >>> prompt (触发门，门到达后延迟应答) | 
+48.52s | >>> UI_RESP (延迟应答, value=Deny) | 157ec8c396a937c4
+56.80s | >>> prompt #2 (用于 abort 测试) | 
+57.80s | >>> abort (idle-mid: 试探空转时点) | 
+61.80s | >>> prompt #3 (abort 之后能否再开一轮) | 
+79.80s | >>> get_state (末态) | 
+210.00s | >>> end stdin | 

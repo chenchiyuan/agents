@@ -15,6 +15,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startRouter, startAgent, waitFor, stopAll, buildEnv } from './helpers/harness.js';
+import { PROFILES, buildArgv } from '../src/launcher.js';
+
+// 协议与 argv 真源（pr-002 验收 2）：模式记号与档位值取自 src/launcher.js 的 profile 表，期望 argv 经同模块的
+// buildArgv 产出——本文件不复写推导、也不内置「默认就是 acp」的假设。协议注入见各启动点的 env 载体
+// （setup / roleEnv / 匿名实例 / permission 审计四处）——注入键由 pr-001 的 src/config.js 交付。
+const ACP_MODE = PROFILES['omp:acp'].modeArgs[0]; // 常驻链路模式记号
+const ONESHOT_MODE = PROFILES['omp:oneshot'].modeArgs[0]; // 一次性路径模式记号
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'oamp.js');
@@ -243,7 +250,7 @@ function tempDbDir(t) {
 async function setup(t, { env = {} } = {}) {
   const router = await startRouter({ envExtra: LEASE_ENV });
   t.after(() => stopAll([router]));
-  const agent = await startAgent('dev-1', { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN, ...env } });
+  const agent = await startAgent('dev-1', { socketPath: router.socketPath, envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN, ...env } });
   t.after(() => agent.stop());
   await agent.waitAgentLine(/REGISTERED instance=dev-1/);
   const dbPath = tempDbDir(t);
@@ -498,7 +505,7 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
   const router = await startRouter({ envExtra: LEASE_ENV });
   t.after(() => stopAll([router]));
 
-  const roleEnv = { OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: FAKE_BIN };
+  const roleEnv = { OAMP_PROTOCOL: 'acp', OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: FAKE_BIN };
   // ① 角色实例（显式 flag，tools on）② 角色实例（tools off）③ 匿名实例（§2.3 回归不变式）
   const dev = startFlaggedAgent('pb-dev', ['--role', 'dev', '--tools', 'on', '--permission', 'allow'], {
     socketPath: router.socketPath,
@@ -512,7 +519,7 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
     envExtra: { ...roleEnv, FAKE_ACP_ARGS_LOG: plannerArgs },
   });
   t.after(() => planner.stop());
-  const anon = await startAgent('dev-1', { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_ARGS_LOG: anonArgs } });
+  const anon = await startAgent('dev-1', { socketPath: router.socketPath, envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_ARGS_LOG: anonArgs } });
   t.after(() => anon.stop());
   await dev.waitLine(/REGISTERED instance=pb-dev/);
   await planner.waitLine(/REGISTERED instance=pb-planner/);
@@ -536,56 +543,56 @@ test('E2E：角色实例 argv 注入 + 工具开关 + 匿名回归 + 一次性�
 
   // 常驻路径：各投一轮 → 各懒创建一个 `omp acp` 进程（argv 落各自的 FAKE_ACP_ARGS_LOG）
   const devTurn = await sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev', text: '请记住数字 42' });
-  await waitFor(() => readJsonl(devArgs).some((a) => a[0] === 'acp'), { what: 'pb-dev acp argv' });
+  await waitFor(() => readJsonl(devArgs).some((a) => a[0] === ACP_MODE), { what: 'pb-dev acp argv' });
   await sendAndWait(web, { project_id: projectId, agent_id: 'pb-planner', text: '请记住数字 42' });
-  await waitFor(() => readJsonl(plannerArgs).some((a) => a[0] === 'acp'), { what: 'pb-planner acp argv' });
+  await waitFor(() => readJsonl(plannerArgs).some((a) => a[0] === ACP_MODE), { what: 'pb-planner acp argv' });
   const anonTurn = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '请记住数字 42' });
-  await waitFor(() => readJsonl(anonArgs).some((a) => a[0] === 'acp'), { what: 'dev-1 acp argv' });
+  await waitFor(() => readJsonl(anonArgs).some((a) => a[0] === ACP_MODE), { what: 'dev-1 acp argv' });
 
   // ① 角色实例 + --tools on：注入角色 md 绝对路径，且不得传 --no-tools
-  const devArgv = readJsonl(devArgs).find((a) => a[0] === 'acp');
+  const devArgv = readJsonl(devArgs).find((a) => a[0] === ACP_MODE);
   const devIdx = devArgv.indexOf('--append-system-prompt');
   assert.ok(devIdx >= 0, 'F02-5/AR-04：角色实例 acp argv 应含 --append-system-prompt');
   assert.equal(devArgv[devIdx + 1], ROLE_FILE_DEV, '注入值应为 <仓库根>/roles/dev/dev.md');
   assert.ok(path.isAbsolute(devArgv[devIdx + 1]), '注入值应为绝对路径');
   assert.ok(!devArgv.includes('--no-tools'), 'F04-2/AR-08：--tools on 不得传 --no-tools');
-  assert.equal(devArgv[devArgv.indexOf('--approval-mode') + 1], 'always-ask', '§4.4/L1-2②（pr-001）：常驻路径 tools on + allow 的 argv 恒为 --approval-mode always-ask（yolo 档不发权限请求）');
+  assert.equal(devArgv[devArgv.indexOf('--approval-mode') + 1], PROFILES['omp:acp'].approval.mode, '§4.4/L1-2②（pr-001）：常驻路径 tools on + allow 的 argv 恒为 --approval-mode always-ask（yolo 档不发权限请求）');
 
   // ② 角色实例 + --tools off：必须传 --no-tools（注入机制仍在）
-  const plannerArgv = readJsonl(plannerArgs).find((a) => a[0] === 'acp');
+  const plannerArgv = readJsonl(plannerArgs).find((a) => a[0] === ACP_MODE);
   assert.ok(plannerArgv.includes('--no-tools'), 'AR-08：--tools off 必须传 --no-tools');
   assert.equal(plannerArgv[plannerArgv.indexOf('--append-system-prompt') + 1], ROLE_FILE_PLANNER);
 
   // ③ 匿名实例回归（§2.3 不变式 / 与 context-pool.test.js 同口径）：acp argv 逐字节不变
-  const anonArgv = readJsonl(anonArgs).find((a) => a[0] === 'acp');
+  const anonArgv = readJsonl(anonArgs).find((a) => a[0] === ACP_MODE);
   assert.deepEqual(
     anonArgv,
-    ['acp', '--no-skills', '--no-rules', '--no-tools', '--no-session', '--model', 'deepseek/deepseek-v4-flash'],
-    '§2.3 回归：无绑定实例 acp argv 逐字节不变（含 --no-tools，无角色注入）',
+    buildArgv('omp:acp', { model: 'deepseek/deepseek-v4-flash' }),
+    '§2.3 回归：无绑定实例 acp argv 逐字节不变（含 --no-tools，无角色注入；期望值由 omp:acp profile 产出）',
   );
 
   // ④ 一次性路径：角色实例的 `omp -p` 同样带角色注入（§3.3 第 2 行 / TC-09）
   await sendAndWait(web, { chat_id: devTurn.chatId, agent_id: 'pb-dev', text: '请记住数字 7', one_shot: true }, { rounds: 2 });
-  await waitFor(() => readJsonl(devArgs).some((a) => a.includes('-p')), { what: 'pb-dev -p argv' });
-  const devOneShot = readJsonl(devArgs).find((a) => a.includes('-p'));
-  assert.ok(!devOneShot.includes('acp'), '一次性路径不应含 acp');
+  await waitFor(() => readJsonl(devArgs).some((a) => a.includes(ONESHOT_MODE)), { what: 'pb-dev -p argv' });
+  const devOneShot = readJsonl(devArgs).find((a) => a.includes(ONESHOT_MODE));
+  assert.ok(!devOneShot.includes(ACP_MODE), '一次性路径不应含 acp');
   assert.equal(devOneShot[devOneShot.indexOf('--append-system-prompt') + 1], ROLE_FILE_DEV, '一次性 argv 应注入同一角色文件');
   assert.ok(!devOneShot.includes('--no-tools'), '角色实例（tools on）一次性 argv 不传 --no-tools');
-  assert.equal(devOneShot[devOneShot.indexOf('--approval-mode') + 1], 'yolo', '§4.4/pr-007②：allow 档一次性 argv 应含 --approval-mode yolo');
+  assert.equal(devOneShot[devOneShot.indexOf('--approval-mode') + 1], PROFILES['omp:oneshot'].approval.mode, '§4.4/pr-007②：allow 档一次性 argv 应含 --approval-mode yolo');
 
   // ⑤ 匿名实例一次性路径回归：仍传 --no-tools、无注入
   await sendAndWait(web, { chat_id: anonTurn.chatId, agent_id: 'dev-1', text: '请记住数字 7', one_shot: true }, { rounds: 2 });
-  await waitFor(() => readJsonl(anonArgs).some((a) => a.includes('-p')), { what: 'dev-1 -p argv' });
-  const anonOneShot = readJsonl(anonArgs).find((a) => a.includes('-p'));
+  await waitFor(() => readJsonl(anonArgs).some((a) => a.includes(ONESHOT_MODE)), { what: 'dev-1 -p argv' });
+  const anonOneShot = readJsonl(anonArgs).find((a) => a.includes(ONESHOT_MODE));
   assert.ok(anonOneShot.includes('--no-tools'), '§2.3 回归：匿名实例一次性 argv 仍含 --no-tools');
-  assert.ok(!anonOneShot.includes('--approval-mode'), '§2.3 回归：匿名实例（tools off）一次性 argv 无档位');
+  assert.ok(!anonOneShot.includes('--approval-mode'), '§2.3 回归：匿名实例（tools off）一次性 argv 无档位（档位由调用层按 permission × 工具开关合成，见 src/agent.js 一次性路径）');
   assert.ok(!anonOneShot.includes('--append-system-prompt'), '§2.3 回归：匿名实例一次性 argv 无注入');
 
   // ⑥ 一次性路径 deny 档（§4.4/pr-007②）：--permission deny ⇒ --approval-mode always-ask
   await sendAndWait(web, { project_id: projectId, agent_id: 'pb-dev-deny', text: '请记住数字 8', one_shot: true });
-  await waitFor(() => readJsonl(denyArgs).some((a) => a.includes('-p')), { what: 'pb-dev-deny -p argv' });
-  const denyOneShot = readJsonl(denyArgs).find((a) => a.includes('-p'));
-  assert.equal(denyOneShot[denyOneShot.indexOf('--approval-mode') + 1], 'always-ask', '§4.4：deny 档一次性 argv 应含 --approval-mode always-ask');
+  await waitFor(() => readJsonl(denyArgs).some((a) => a.includes(ONESHOT_MODE)), { what: 'pb-dev-deny -p argv' });
+  const denyOneShot = readJsonl(denyArgs).find((a) => a.includes(ONESHOT_MODE));
+  assert.equal(denyOneShot[denyOneShot.indexOf('--approval-mode') + 1], 'always-ask', '§4.4/pr-002 裁决（W2-A）：一次性档位由调用层合成（tools on + permission=deny ⇒ always-ask），不取 profile 值');
   assert.ok(!denyOneShot.includes('--no-tools'), 'tools on 的一次性 argv 不传 --no-tools');
 });
 
@@ -695,7 +702,7 @@ test('E2E：常驻路径 permission 审计——TOOL_APPROVED 四键非空 + N=N
   const dev = startFlaggedAgent('pb-dev', ['--role', 'dev', '--tools', 'on', '--permission', 'allow'], {
     socketPath: router.socketPath,
     cwd: REPO_ROOT,
-    envExtra: { OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: permBin, FAKE_ACP_ARGS_LOG: argsLog },
+    envExtra: { OAMP_PROTOCOL: 'acp', OAMP_ROLE_ROOT: REPO_ROOT, OAMP_OMP_BIN: permBin, FAKE_ACP_ARGS_LOG: argsLog },
   });
   t.after(() => dev.stop());
   await dev.waitLine(/REGISTERED instance=pb-dev/);

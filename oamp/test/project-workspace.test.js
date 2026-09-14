@@ -17,6 +17,13 @@ import { fileURLToPath } from 'node:url';
 import { startRouter, startAgent, waitFor, stopAll, buildEnv } from './helpers/harness.js';
 import { startFakeNode } from './helpers/fake-node.js';
 import { createApiRoutes, projectRoutes, renderLlmsTxt } from '../src/web.js';
+import { PROFILES, buildArgv } from '../src/launcher.js';
+
+// 协议与 argv 真源（pr-002 验收 2）：一次性路径的模式记号取自 src/launcher.js 的 profile 表，末位 argv 的口径经
+// 同模块的 buildArgv 推导——本文件不复写期望数组、也不内置「默认就是 acp」的假设。协议注入见 setup 的 env 载体
+// 注入键由 pr-001 的 src/config.js 交付。
+const ACP_MODE = PROFILES['omp:acp'].modeArgs[0]; // 常驻链路模式记号
+const ONESHOT_MODE = PROFILES['omp:oneshot'].modeArgs[0]; // 一次性路径模式记号
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'oamp.js');
@@ -222,7 +229,7 @@ async function setup(t, { withAgent = true, agentId = 'dev-1', env = {}, webEnv 
   const router = await startRouter({ envExtra: LEASE_ENV });
   t.after(() => stopAll([router]));
   if (withAgent) {
-    const agent = await startAgent(agentId, { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN, ...env } });
+    const agent = await startAgent(agentId, { socketPath: router.socketPath, envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN, ...env } });
     t.after(() => agent.stop());
     await agent.waitAgentLine(new RegExp(`REGISTERED instance=${agentId}`));
   }
@@ -1000,9 +1007,12 @@ test('F07：一次性路径每次注入（末位 argv 逐字）/ 常驻路径首
     .split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l));
-  const oneShots = argvs.filter((a) => a.includes('-p') && !a.includes('acp'));
+  const oneShots = argvs.filter((a) => a.includes(ONESHOT_MODE) && !a.includes(ACP_MODE));
   assert.equal(oneShots.length, 1, '一次性路径应恰好起一次 -p 进程');
+  // 末位 argv：内容仍逐字 = 项目块渲染 + '\n\n' + 原文（业务内容，比较强度不变）；另固定 omp:oneshot profile 的 input:'positional' 口径
+  const expectedTail = buildArgv('omp:oneshot', { prompt: `${rendered}\n\n${oneShotText}` }).at(-1);
   assert.equal(oneShots[0][oneShots[0].length - 1], `${rendered}\n\n${oneShotText}`, '末位 argv 逐字 = 项目块 + \\n\\n + 原文');
+  assert.equal(oneShots[0][oneShots[0].length - 1], expectedTail, '末位 argv = launcher.js omp:oneshot profile 的 input:positional 推导值');
 
   // ② 常驻路径：同一 (chat×agent) 首轮注入一次，次轮不注入
   const firstText = '常驻首轮原文';

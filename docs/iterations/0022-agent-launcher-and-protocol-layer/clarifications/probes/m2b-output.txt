@@ -1,0 +1,222 @@
+argv: /Users/chenchiyuan/.bun/bin/omp --mode rpc --model deepseek/deepseek-v4-flash --no-skills --no-rules --no-session
+
+===== M-2b 结论数据 =====
+{
+  "probe": "M-2b 终态帧载荷 + 思考增量",
+  "argv": [
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session"
+  ],
+  "exitCode": 0,
+  "agentEnds": [
+    {
+      "at": "5.32s",
+      "frameKeys": [
+        "type",
+        "messages",
+        "isTerminal"
+      ],
+      "isTerminal": true,
+      "messageCount": 4,
+      "lastAssistantKeys": [
+        "role",
+        "content",
+        "api",
+        "provider",
+        "model",
+        "usage",
+        "stopReason",
+        "timestamp",
+        "responseId",
+        "duration",
+        "ttft"
+      ],
+      "lastStopReason": "stop",
+      "lastUsageKeys": [
+        "input",
+        "output",
+        "cacheRead",
+        "cacheWrite",
+        "totalTokens",
+        "cost"
+      ]
+    }
+  ],
+  "firstDeltaAt": {
+    "thinking_start": "3.01s",
+    "thinking_delta": "3.01s",
+    "thinking_end": "3.39s",
+    "text_start": "3.39s",
+    "text_delta": "3.39s",
+    "text_end": "3.68s",
+    "toolcall_start": "3.68s",
+    "toolcall_delta": "3.68s",
+    "toolcall_end": "3.79s"
+  },
+  "assistantEventSamples": {
+    "thinking_start": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "partial"
+      ],
+      "delta": null,
+      "contentIndex": 0
+    },
+    "thinking_delta": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "delta",
+        "partial"
+      ],
+      "delta": "The",
+      "contentIndex": 0
+    },
+    "thinking_end": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "content",
+        "partial"
+      ],
+      "delta": null,
+      "contentIndex": 0
+    },
+    "text_start": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "partial"
+      ],
+      "delta": null,
+      "contentIndex": 1
+    },
+    "text_delta": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "delta",
+        "partial"
+      ],
+      "delta": "**",
+      "contentIndex": 1
+    },
+    "text_end": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "content",
+        "partial"
+      ],
+      "delta": null,
+      "contentIndex": 1
+    },
+    "toolcall_start": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "partial"
+      ],
+      "delta": null,
+      "contentIndex": 2
+    },
+    "toolcall_delta": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "delta",
+        "partial"
+      ],
+      "delta": "",
+      "contentIndex": 2
+    },
+    "toolcall_end": {
+      "keys": [
+        "type",
+        "contentIndex",
+        "toolCall",
+        "partial"
+      ],
+      "delta": null,
+      "contentIndex": 2
+    }
+  },
+  "frameCounts": {
+    "ready": 1,
+    "extension_ui_request": 3,
+    "available_commands_update": 3,
+    "response": 2,
+    "agent_start": 1,
+    "turn_start": 2,
+    "message_start": 4,
+    "message_end": 4,
+    "message_update": 239,
+    "mu:thinking_start": 1,
+    "mu:thinking_delta": 88,
+    "mu:thinking_end": 1,
+    "mu:text_start": 2,
+    "mu:text_delta": 118,
+    "mu:text_end": 2,
+    "mu:toolcall_start": 1,
+    "mu:toolcall_delta": 25,
+    "mu:toolcall_end": 1,
+    "tool_execution_start": 1,
+    "tool_execution_update": 2,
+    "tool_execution_end": 1,
+    "turn_end": 2,
+    "agent_end": 1
+  }
+}
+
+===== 时间线 =====
+1.21s | >>> prompt（含多步推理 + 一次工具调用） | 
+3.01s | THINKING_DELTA | "The"
+3.04s | THINKING_DELTA | " user"
+3.05s | THINKING_DELTA | " asks"
+3.05s | THINKING_DELTA | " for"
+3.05s | THINKING_DELTA | " a"
+3.09s | THINKING_DELTA | " three"
+3.09s | THINKING_DELTA | "-step"
+3.09s | THINKING_DELTA | " reasoning"
+3.09s | THINKING_DELTA | " of"
+3.09s | THINKING_DELTA | " "
+3.09s | THINKING_DELTA | "13"
+3.09s | THINKING_DELTA | "×"
+3.09s | THINKING_DELTA | "17"
+3.09s | THINKING_DELTA | " and"
+3.10s | THINKING_DELTA | " then"
+3.10s | THINKING_DELTA | " run"
+3.10s | THINKING_DELTA | " bash"
+3.10s | THINKING_DELTA | " echo"
+3.10s | THINKING_DELTA | " m"
+3.10s | THINKING_DELTA | "2"
+3.10s | THINKING_DELTA | "b"
+3.12s | THINKING_DELTA | "."
+3.12s | THINKING_DELTA | " Simple"
+3.13s | THINKING_DELTA | " task"
+3.13s | THINKING_DELTA | "."
+3.13s | THINKING_DELTA | " Let"
+3.13s | THINKING_DELTA | "'s"
+3.17s | THINKING_DELTA | " do"
+3.17s | THINKING_DELTA | " it"
+3.17s | THINKING_DELTA | " and"
+3.17s | THINKING_DELTA | " also"
+3.17s | THINKING_DELTA | " run"
+3.17s | THINKING_DELTA | " the"
+3.17s | THINKING_DELTA | " command"
+3.17s | THINKING_DELTA | ".\n\n"
+3.17s | THINKING_DELTA | "13"
+3.19s | THINKING_DELTA | "×"
+3.19s | THINKING_DELTA | "17"
+3.19s | THINKING_DELTA | " ="
+3.83s | TOOL_UPDATE | keys=["content","details"] contentKinds=["text"]
+3.83s | TOOL_UPDATE | keys=["content","details"] contentKinds=["text"]
+3.83s | TOOL_END | keys=["content","details"]
+5.32s | AGENT_END | isTerminal=true msgs=4
+60.00s | >>> end stdin | 

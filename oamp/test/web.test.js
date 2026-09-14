@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { startRouter, startAgent, waitFor, stopAll, buildEnv } from './helpers/harness.js';
 import { startFakeNode } from './helpers/fake-node.js';
 import { diffTopology, createTopologyWatch } from '../src/web.js'; // 0015 pr-002：全局事件判定源与轮询器（直接单测，不起进程）
+import { buildArgv, PROFILES } from '../src/launcher.js'; // §5.2/§5.3：argv 真源（期望值由 profile 推导，不手抄形态）
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = path.join(ROOT, 'bin', 'oamp.js');
@@ -241,11 +242,16 @@ async function openEvents(base) {
   return { res, events, close: () => ac.abort(), pump };
 }
 
-async function setup(t, { env = {}, agentId = 'dev-1', withAgent = true, webEnv = {} } = {}) {
+async function setup(t, { env = {}, agentId = 'dev-1', withAgent = true, webEnv = {}, protocol = 'acp' } = {}) {
   const router = await startRouter({ envExtra: LEASE_ENV });
   t.after(() => stopAll([router]));
   if (withAgent) {
-    const agent = await startAgent(agentId, { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN, ...env } });
+    // §5.3：本文件的 fake 是 ACP-only 桩 ⇒ 常驻协议档位默认显式注入 acp；
+    // 「默认档（不做任何协议指定）」用例传 protocol: null（不加该 env 键）
+    const agent = await startAgent(agentId, {
+      socketPath: router.socketPath,
+      envExtra: { OAMP_OMP_BIN: FAKE_BIN, ...(protocol === null ? {} : { OAMP_PROTOCOL: protocol }), ...env },
+    });
 
     t.after(() => agent.stop());
     await agent.waitAgentLine(new RegExp(`REGISTERED instance=${agentId}`));
@@ -542,10 +548,23 @@ test('Web：执行路径判定——默认 daemon / one_shot / ! shell', async (
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-web-args-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const argsLog = path.join(dir, 'argv.jsonl');
-  const { web, projectId } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog } });
+  const { web, projectId } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog }, protocol: null });
+  const readArgvs = () =>
+    fs.existsSync(argsLog)
+      ? fs.readFileSync(argsLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l))
+      : [];
 
-  const daemon = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '默认路径问题' });
-  assert.match(daemon.detail.messages[1].text, /收到：【项目上下文】[\s\S]*默认路径问题/, '常驻首轮注入项目上下文');
+  // 常驻路径：**不做任何协议指定** ⇒ 默认档必须起 rpc 常驻进程（argv 可观测，且不回落 acp）。
+  // ⚠ 本文件的 fake 是 ACP-only 桩：默认 rpc 在本轮必然握手超时（10s 上限）⇒ 该轮不做终态 / 文本判据；
+  //   「常驻首轮注入项目上下文」的语义由 project-workspace.test.js（显式 acp 注入）承载。
+  const daemonSent = await jpost(web.base, '/api/messages', { project_id: projectId, agent_id: 'dev-1', text: '默认路径问题' });
+  assert.equal(daemonSent.status, 200, `发送应成功: ${JSON.stringify(daemonSent.body)}`);
+  const daemonArgv = await waitFor(() => readArgvs().find((a) => a.includes('--mode')), {
+    timeoutMs: 5000,
+    what: '默认路径的常驻子进程 argv',
+  });
+  assert.deepEqual(daemonArgv.slice(0, 2), PROFILES['omp:rpc'].modeArgs, '默认路径应起 rpc 常驻进程（modeArgs 取自 omp:rpc profile）');
+  assert.ok(!daemonArgv.includes('acp'), '默认档不得回落到 acp');
 
   const oneShot = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '一次性问题', one_shot: true });
   assert.match(oneShot.detail.messages[1].text, /one-shot answer: 【项目上下文】[\s\S]*一次性问题/, 'one_shot 应走 omp -p 一次性路径（每次派发都注入项目上下文）');
@@ -553,8 +572,7 @@ test('Web：执行路径判定——默认 daemon / one_shot / ! shell', async (
   const shell = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '!echo shell-path-ok' });
   assert.match(shell.detail.messages[1].text, /shell-path-ok/, '! 前缀应走 shell 执行器');
 
-  const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
-  assert.ok(argvs.some((a) => a[0] === 'acp'), '默认路径应起 acp 常驻进程');
+  const argvs = readArgvs();
   assert.ok(argvs.some((a) => a.includes('-p') && !a.includes('acp')), '一次性路径应走 -p');
   assert.ok(argvs.some((a) => a[a.length - 1].startsWith('【项目上下文】') && a[a.length - 1].endsWith('\n\n一次性问题')), '一次性路径末位 argv = 项目块 + \\n\\n + 原文');
 });
@@ -564,14 +582,14 @@ test('Web：model 透传与审计（payload 含该值 / out.model = ACP 实报�
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'oamp-web-model-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const argsLog = path.join(dir, 'argv.jsonl');
-  const { web, projectId } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog, OAMP_OMP_MODEL: 'beta/model-b' } });
+  const { web, projectId } = await setup(t, { env: { FAKE_ACP_ARGS_LOG: argsLog, OAMP_OMP_MODEL: 'beta/model-b', OAMP_PROTOCOL: 'acp' } });
 
   // ① 请求带 model → 派发 payload 含该值（经 agent 侧首轮启动参数可观察），out.model = ACP 实报值
   const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '第一轮', model: 'alpha/model-a' });
   assert.equal(first.detail.messages[1].model, 'alpha/model-a');
   const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
   const acpArgv = argvs.find((a) => a[0] === 'acp');
-  assert.ok(acpArgv.includes('--model') && acpArgv[acpArgv.indexOf('--model') + 1] === 'alpha/model-a', '首轮应以请求 model 起进程');
+  assert.deepEqual(acpArgv, buildArgv('omp:acp', { model: 'alpha/model-a' }), 'argv = omp:acp profile 期望值：进程启动模型 = resident 的模型解析值（该建键轮的请求 model）');
 
   // ② 同 chat 未带 model → 默认链在 agent 侧解析（web 不注入默认值）；切换不重建进程
   const second = await sendAndWait(web, { chat_id: first.chatId, agent_id: 'dev-1', text: '第二轮' }, { rounds: 2 });
@@ -594,7 +612,8 @@ test('Web：model 透传与审计（payload 含该值 / out.model = ACP 实报�
 
 // ────────────────────────── F04：SSE 事件序列与 E-4 ──────────────────────────
 test('Web：SSE 事件序列 + E-4（终态前 ≥2 个 task_update 且文本递增）+ 过程不入库', async (t) => {
-  const { web, projectId } = await setup(t);
+  // §5.5：本用例的 kind 判据面 = acp 链路（该实现不产生 thinking / tool 增量 ⇒ 恒为 chunk）⇒ 显式注入档位
+  const { web, projectId } = await setup(t, { env: { OAMP_PROTOCOL: 'acp' } });
 
   // 先建 chat（新 chat 的 chat_id 只在 POST 响应中可得，故 E-4 取既有 chat 的第二轮）
   const first = await sendAndWait(web, { project_id: projectId, agent_id: 'dev-1', text: '第一轮建 chat' });
@@ -624,7 +643,7 @@ test('Web：SSE 事件序列 + E-4（终态前 ≥2 个 task_update 且文本递
   assert.ok(updates.length >= 2, `E-4：终态前应有 ≥2 个 task_update（实得 ${updates.length}）`);
   assert.equal(updates[0].data.text, '收', '首片（第一个 chunk）必须到达——少一帧增量即在此暴露');
   assert.ok(updates.every((u) => u.data.chat_id === chatId && u.data.task_id === sent.body.task_id));
-  assert.ok(updates.every((u) => u.data.kind === 'chunk' && typeof u.data.text === 'string'), 'task_update 应为 kind=chunk + text');
+  assert.ok(updates.every((u) => u.data.kind === 'chunk' && typeof u.data.text === 'string'), 'acp 链路恒为 kind=chunk + text（该实现不产生过程增量；rpc 链路的过程增量不在本用例判据面内）');
   let acc = 0;
   for (const u of updates) {
     const next = acc + u.data.text.length;

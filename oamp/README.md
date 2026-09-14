@@ -1,7 +1,7 @@
 # oamp — 本机多智能体运行时 CLI
 
 零依赖 Node.js v22 ESM 命令行工具：单一入口拉起 Router、拉起 agent 节点、查询拓扑状态、运行对话式 Web 控制台。
-运行参数经环境变量 + 可选配置文件 `oamp/config.json`（库路径 / 默认模型 / 上下文上限三键）提供；
+运行参数经环境变量 + 可选配置文件 `oamp/config.json`（库路径 / 默认模型 / 上下文上限 / 常驻协议四键）提供；
 节点与 Router 间为 UDS + JSON-RPC 2.0；对话历史落 SQLite（`node:sqlite`，仍为零第三方依赖），实时增量走 SSE。
 
 > **当前状态**：CLI 分发、Router/agent 运行时、`status` 只读查询、`task` 任务指派/进度查询与
@@ -86,6 +86,7 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_DB` | web | `<包根>/data/sql.db` | 对话库路径；相对路径基准 = 包根 |
 | `OAMP_OMP_MODEL` | agent | `deepseek/deepseek-v4-flash` | 默认模型（请求未指定 `model` 时生效）；`openai/gpt-5.6-luna` 为可选值，其首 token 可能数分钟 |
 | `OAMP_CTX_MAX` | agent | `8` | 常驻上下文进程上限（超出按 LRU 淘汰）；正整数 |
+| `OAMP_PROTOCOL` | agent | `rpc` | 常驻链路协议（`rpc` / `acp`）；**全局档**（无 per-chat / per-request 切换入口）；优先级 env > 配置文件 `protocol` > 内置 |
 | `OAMP_WEB_PORT` | web | `7788` | Web 控制台端口（命令行 `--port` 优先） |
 | `OAMP_WEB_TOPOLOGY_POLL_MS` | web | `2000` | 全局事件流（`GET /api/events`）的拓扑轮询间隔（毫秒）；仅有全局订阅者时运行；缺省/非法回退默认（运维/测试可调） |
 | `OAMP_WEB_RECONCILE_INTERVAL_MS` | web | `5000` | 任务对账首查与间隔（毫秒，快速预算 6 次）；缺省/非法回退默认（运维/测试可调） |
@@ -137,7 +138,7 @@ oamp web start [--port 7788]      # 默认 http://127.0.0.1:7788（env OAMP_WEB_
 
 | 输入 | 走哪条路 | 上下文 |
 |---|---|---|
-| 普通提问（默认） | 常驻 `omp acp` 进程（`omp-daemon`） | **同对话累积**；新对话互不可见 |
+| 普通提问（默认） | 常驻 `omp --mode rpc` 进程（`omp-daemon`；可经注入配置切回 `acp`） | **同对话累积**；新对话互不可见 |
 | 勾选「一次性」 | `omp -p --no-session`（0010 原样） | 不累积，也不复用常驻上下文 |
 | 以 `!` 开头 | `/bin/sh -c` shell 执行（0010 原样） | 无上下文 |
 
@@ -195,7 +196,7 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
 
 ## 常驻上下文与关闭（0011）
 
-- 默认路径按 **「对话 × agent」各一个常驻 `omp acp` 子进程 + 一个 ACP session** 维护上下文：
+- 默认路径按 **「对话 × agent」各一个常驻会话子进程（默认 `omp --mode rpc`，可经注入配置切回 `acp`）** 维护上下文：
   同一对话多轮记得前文，**不同对话相互隔离**，同一对话的不同 agent 也互不串扰。
 - 同一对话的轮次**串行**（单次在飞，FIFO 排队上限 8，超出以 `context_busy` 失败）；不同对话可并发；
   常驻进程总数上限 `context.max` / `OAMP_CTX_MAX`（默认 8），超出按 **LRU 淘汰**最久未用者并推送 `notice{context_reset}` 提示。
@@ -211,13 +212,13 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
 
 | executor | payload | 行为 |
 |---|---|---|
-| **omp-daemon**（默认；Web 普通提问走这条） | `{executor:"omp-daemon", chat_id, prompt:"…", model?, timeout_ms?}` | 常驻 `omp acp` 子进程 + ACP session 多轮：回答以流式增量实时回流，上下文按「对话 × agent」累积 |
-| **omp**（显式一次性；Web 勾选「一次性」） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p --no-session [--no-tools] [--model X] <prompt>`——单次执行，不累积也不复用上下文 |
+| **omp-daemon**（默认；Web 普通提问走这条） | `{executor:"omp-daemon", chat_id, prompt:"…", model?, timeout_ms?}` | 常驻会话子进程（默认 `omp --mode rpc`）多轮：回答以流式增量实时回流，上下文按「对话 × agent」累积 |
+| **omp**（显式一次性；Web 勾选「一次性」） | `{executor:"omp", prompt:"…", model?, tools?, timeout_ms?}` | spawn `omp -p [--no-tools] --no-session [--model X] [--append-system-prompt R] [--approval-mode M] <prompt>`——单次执行，不累积也不复用上下文 |
 | shell（向后兼容；Web 以 `!` 开头） | `{command, args?, timeout_ms?, label?}` | spawn 直启命令（原行为，无上下文） |
 
 - **模型解析链**（每轮独立）：请求 payload `model` > `OAMP_OMP_MODEL` > 配置文件 `defaults.model` > 内置 `deepseek/deepseek-v4-flash`（TTFT ~1s）；
   `openai/gpt-5.6-luna` 仍可在模型框显式指定，但它是 reasoning 模型，**首 token 可能长达数分钟**（实测 ≈242s）且本机存在间歇性无响应；
-  Web 侧不注入默认值（未指定即回默认链）。对话详情里的 `model` 记录的是 **ACP 实报的生效模型**（不是请求回显）。
+  Web 侧不注入默认值（未指定即回默认链）。对话详情里的 `model` 记录的是 **会话实报的生效模型**（不是请求回显）。
 - 默认 `--no-tools`（纯问答更安全/更快）；需要 agent 干活时 payload 传 `tools:true` 放开工具（仅一次性路径）。
 - omp 默认超时 1800s（30 分钟；`timeout_ms` 可覆盖，上限同为 1800s）；omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
 - 输出经 ANSI 清理后回流；回答在对话里以浅色可读排版展示（区别于 shell 的终端块）。
@@ -298,11 +299,11 @@ oamp cluster down   [--config <path>]                 # 收口：C-c → 等子�
 单起一个角色实例（不经集群）：
 
 ```sh
-OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permission allow [--model M]
+OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permission allow [--model M] [--protocol rpc|acp]
 ```
 
 `instance_id = pb-<role>` 且 `<仓库根>/roles/<role>/<role>.md` 存在时也会自动绑定（等价于显式传 `--role`）；
-角色规则经进程 argv 注入——常驻路径 `omp acp … --append-system-prompt <角色 md 绝对路径>`，
+角色规则经进程 argv 注入——常驻路径（默认 `omp --mode rpc …`，可经注入配置切回 `acp`） `--append-system-prompt <角色 md 绝对路径>`，
 一次性路径 `omp -p … --append-system-prompt <角色 md 绝对路径>`，**不在仓库根写入任何规则类文件**。
 
 ## 配置面（oamp/config.json）
@@ -310,10 +311,10 @@ OAMP_ROLE_ROOT=<仓库根> oamp agent start pb-dev --role dev --tools on --permi
 可选 JSON 文件（默认 `<包根>/config.json`，`OAMP_CONFIG` 可改路径）；文件不存在则全部走内置默认：
 
 ```json
-{ "data": { "db": "data/sql.db" }, "defaults": { "model": "deepseek/deepseek-v4-flash" }, "context": { "max": 8 } }
+{ "protocol": "rpc", "data": { "db": "data/sql.db" }, "defaults": { "model": "deepseek/deepseek-v4-flash" }, "context": { "max": 8 } }
 ```
 
-- 逐键优先级 **env > 配置文件 > 内置默认**（对应 `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX`）；相对路径基准 = 包根（与 cwd 无关）。
+- 逐键优先级 **env > 配置文件 > 内置默认**（对应 `OAMP_DB` / `OAMP_OMP_MODEL` / `OAMP_CTX_MAX` / `OAMP_PROTOCOL`）；相对路径基准 = 包根（与 cwd 无关）。
 - 文件缺失 → 正常启动；JSON 非法或类型不符 → 启动即报错退出 1（快速失败）；未知键忽略；无热重载。
 - 运行时产物落点：socket → `oamp/.runtime/`，对话库 → `oamp/data/`（均已 `.gitignore`）。
 - **不进配置文件的环境变量**：web 的任务对账间隔与全局事件拓扑轮询间隔（`OAMP_WEB_RECONCILE_*` / `OAMP_WEB_TOPOLOGY_POLL_MS`，见上表）属运行期兜底参数，仅由 env 覆盖、非法值回退内置默认。

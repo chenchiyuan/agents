@@ -1,0 +1,159 @@
+argv: /Users/chenchiyuan/.bun/bin/omp --mode rpc --model deepseek/deepseek-v4-flash --no-skills --no-rules --no-session --thinking off --approval-mode always-ask --tools=read,bash,write
+
+===== M-5 结论数据 =====
+{
+  "probe": "M-5 RPC 一次受门禁调用是否恒只产生一道门",
+  "argv": [
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--thinking",
+    "off",
+    "--approval-mode",
+    "always-ask",
+    "--tools=read,bash,write"
+  ],
+  "exitCode": 0,
+  "gateTotal": 3,
+  "nonGateUiRequests": [
+    "setWidget",
+    "setWidget",
+    "setWidget"
+  ],
+  "gateOptionSets": [
+    "[\"Approve\",\"Deny\"]"
+  ],
+  "gateMethods": [
+    "select"
+  ],
+  "gateTimeoutFields": [
+    {
+      "hasTimeout": false
+    },
+    {
+      "hasTimeout": false
+    },
+    {
+      "hasTimeout": false
+    }
+  ],
+  "gatesByCallKey": {
+    "Command: echo gate-A": 1,
+    "Command: echo gate-B": 1,
+    "Path: /tmp/oamp-probe-gated.txt": 1
+  },
+  "toolExecStarts": 3,
+  "toolNames": [
+    "bash",
+    "bash",
+    "write"
+  ],
+  "toolExecEnds": 3,
+  "toolErrors": 0,
+  "gates": [
+    {
+      "at": "0.81s",
+      "id": "157ec8c0ebd2c0b9",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false,
+      "isGate": false
+    },
+    {
+      "at": "3.46s",
+      "id": "157ec8c38352c0ba",
+      "method": "select",
+      "title": "Allow tool: bash\nCommand: echo gate-A",
+      "options": [
+        "Approve",
+        "Deny"
+      ],
+      "hasTimeout": false,
+      "isGate": true
+    },
+    {
+      "at": "5.34s",
+      "id": "157ec8c559d2c0bb",
+      "method": "select",
+      "title": "Allow tool: bash\nCommand: echo gate-B",
+      "options": [
+        "Approve",
+        "Deny"
+      ],
+      "hasTimeout": false,
+      "isGate": true
+    },
+    {
+      "at": "7.16s",
+      "id": "157ec8c72012c0bc",
+      "method": "select",
+      "title": "Allow tool: write\nPath: /tmp/oamp-probe-gated.txt\nContent:\ndone",
+      "options": [
+        "Approve",
+        "Deny"
+      ],
+      "hasTimeout": false,
+      "isGate": true
+    },
+    {
+      "at": "8.61s",
+      "id": "157ec8c88ad2c0bd",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false,
+      "isGate": false
+    },
+    {
+      "at": "180.01s",
+      "id": "157ec96fec12c0be",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false,
+      "isGate": false
+    }
+  ],
+  "frameCounts": {
+    "ready": 1,
+    "extension_ui_request": 6,
+    "available_commands_update": 3,
+    "response": 3,
+    "agent_start": 1,
+    "turn_start": 4,
+    "message_start": 8,
+    "message_end": 8,
+    "message_update": 116,
+    "mu:text_start": 3,
+    "mu:text_delta": 18,
+    "mu:text_end": 3,
+    "mu:toolcall_start": 3,
+    "mu:toolcall_delta": 86,
+    "mu:toolcall_end": 3,
+    "tool_execution_start": 3,
+    "tool_execution_update": 5,
+    "tool_execution_end": 3,
+    "turn_end": 4,
+    "agent_end": 1
+  }
+}
+
+===== 时间线 =====
+0.81s | GATE | setWidget options=undefined title=""
+1.41s | >>> prompt（2 次 bash + 1 次 write，全部过门） | 
+3.46s | GATE | select options=["Approve","Deny"] title="Allow tool: bash\nCommand: echo gate-A"
+3.46s | TOOL_START | bash {"command":"echo gate-A"}
+3.66s | TOOL_END | bash isError=false
+5.34s | GATE | select options=["Approve","Deny"] title="Allow tool: bash\nCommand: echo gate-B"
+5.34s | TOOL_START | bash {"command":"echo gate-B"}
+5.50s | TOOL_END | bash isError=false
+7.16s | GATE | select options=["Approve","Deny"] title="Allow tool: write\nPath: /tmp/oamp-probe-gated.txt\nContent:\ndone"
+7.16s | TOOL_START | write {"path":"/tmp/oamp-probe-gated.txt","content":"done"}
+7.32s | TOOL_END | write isError=false
+8.61s | GATE | setWidget options=undefined title=""
+8.61s | AGENT_END | isTerminal=true
+90.81s | >>> get_state (末态) | 
+180.00s | >>> end stdin | 
+180.01s | GATE | setWidget options=undefined title=""
