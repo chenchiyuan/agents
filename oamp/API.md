@@ -942,7 +942,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 | `tool` | string \| null | 承载名：`permission` 类 = 请求放行的工具名；`question` 类 = 提问承载（`ask_user` / `ask`，未知为 `null`） |
 | `title` | string \| null | 展示正文：`permission` 类 = 该次工具调用的动作描述；`question` 类 = 问题文本（上游已按 120 字符截断） |
 | `options` | array | 请求方给出的选项集合**原样**（不筛选、不增补、不翻译）：`[{ option_id, label? }]`；`option_id` 是裁决唯一可提交的值 |
-| `multiple` | boolean | 是否多选（`question` 类有效；缺失 / 非布尔 ⇒ `false`，`permission` 类恒 `false`） |
+| `multiple` | boolean | 是否多选（**仅 `request_kind:"question"` 的条目有意义**；`permission` 类不携带该键 ⇒ 读作 `false`）。取值 = 请求方给出的布尔值，缺失 / 非布尔 ⇒ `false`（不按类别改写） |
 | `created_at` | number | 登记时刻（毫秒时间戳） |
 
 - 列表顺序**不作承诺**（无排序语义、无分页）：条目存在性与字段内容一致即满足「重建一致」口径。
@@ -1008,7 +1008,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 |---|---|---|
 | `agent_online` | `{instance_id, last_heartbeat}` | 一个实例从「不在线」变为 `online`（新注册 / 恢复） |
 | `agent_offline` | `{instance_id}` | 一个实例从「在线」变为不在线（优雅注销，或判活超时被判离线） |
-| `confirmation` | `{confirmation_id, chat_id, agent_id, tool, title, options, created_at}` | 一条确认请求**首次**进入 web 进程在途表时（**恰一帧**）；`data` 与 §3.20 的列表元素**同形状**。重建（§3.20）**不发帧** ⇒ 刷新 / 重连不重复通知 |
+| `confirmation` | `{confirmation_id, request_kind, chat_id, agent_id, tool, title, options, multiple, created_at}` | 一条确认请求**首次**进入 web 进程在途表时（**恰一帧**）；`data` 与 §3.20 的列表元素**同形状**。重建（§3.20）**不发帧** ⇒ 刷新 / 重连不重复通知 |
 | `chat_state` | `{chat_id, state}` | 对话状态变化（与 §4.1 的 `chat_state` **同源同形**；服务端**不判**它算不算一类通知，`completed` / `failed` 的派生由前端完成） |
 
 - **判定源**：`router.status` 的 `state === "online"` 集合（注册表是唯一真源，不是日志、不是另一条推送通道）。
