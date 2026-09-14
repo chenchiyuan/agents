@@ -98,16 +98,20 @@ function requireProfile(profileKey) {
 
 /**
  * 唯一 argv 构造（L1 判据：`-p` 与 `--mode rpc` 的 argv 均出自本模块）。
- * 签名：buildArgv(profileKey, { model, roleFile, tools, prompt })——未传的 model / roleFile 取 profile 值
+ * 签名：buildArgv(profileKey, { model, roleFile, tools, prompt, approval })——未传的 model / roleFile 取 profile 值
  * （null ⇒ 不追加对应 flag）；tools 覆写与 profile.tools 同形（未传即取 profile.tools）。
+ * approval = 调用层的档位决策（一次性路径的 caller 覆写面，W2-A）：`undefined` ⇒ 取 `profile.approval`（既有调用方
+ * 零行为变更）；`null` ⇒ 不追加 `--approval-mode`；否则按传入值（与 `profile.approval` 同形）。
  * 返回值 = args 数组（不含可执行名，bin 由 spawn 侧按解析链注入）。
  * 次序：modeArgs → skills → rules → tools → session → model → roleFile → approval → positional prompt。
+ * 位置参数只在 `input:'positional'` 且提示词非空时追加（D-7′ 防护：未提供 ⇒ 跳过，不落字面 `undefined`）。
  */
-export function buildArgv(profileKey, { model, roleFile, tools, prompt } = {}) {
+export function buildArgv(profileKey, { model, roleFile, tools, prompt, approval } = {}) {
   const profile = requireProfile(profileKey);
   const toolsSpec = tools === undefined ? profile.tools : tools;
   const modelValue = model === undefined ? profile.model : model;
   const roleFileValue = roleFile === undefined ? profile.roleFile : roleFile;
+  const approvalSpec = approval === undefined ? profile.approval : approval;
   const toolsOn = toolsSpec.mode !== 'off';
 
   const args = [...profile.modeArgs];
@@ -122,11 +126,13 @@ export function buildArgv(profileKey, { model, roleFile, tools, prompt } = {}) {
   if (profile.session === false) args.push('--no-session');
   if (modelValue !== null) args.push('--model', modelValue);
   if (roleFileValue !== null) args.push('--append-system-prompt', roleFileValue);
-  // appliesWhen='tools-on' ⇒ 仅当工具开时追加；'always' ⇒ 恒追加。档位值只取 profile 值，本模块不改写。
-  if (profile.approval.appliesWhen === 'always' || toolsOn) {
-    args.push('--approval-mode', profile.approval.mode);
+  // appliesWhen='tools-on' ⇒ 仅当工具开时追加；'always' ⇒ 恒追加。null ⇒ 不追加（调用层显式关闭档位段）。
+  if (approvalSpec !== null && (approvalSpec.appliesWhen === 'always' || toolsOn)) {
+    args.push('--approval-mode', approvalSpec.mode);
   }
-  if (profile.input === 'positional') args.push(prompt);
+  // D-7′ 防护：`input:'positional'` 且提示词未提供（undefined / null / 空串，体例同「空即未设」）⇒ 不追加位置参数
+  // （否则子进程会收到字面量 "undefined"，即 pr-001 验收遗留偏差 D-7）。
+  if (profile.input === 'positional' && prompt !== undefined && prompt !== null && prompt !== '') args.push(prompt);
   return args;
 }
 
@@ -139,11 +145,11 @@ export function resolveBin(profileKey, env = process.env) {
 /**
  * spawn 封装（§3.4 流 1 ★L1）：启动 profile 对应的 agent 子进程并返回句柄。
  * argv 全部来自 buildArgv（本封装不拼任何 flag）；stdin 两态可指定（常驻 'pipe' / 一次性 'ignore'），
- * stdout / stderr 恒为 pipe；data 监听的接线归实现方。
+ * stdout / stderr 恒为 pipe；data 监听的接线归实现方；`approval` 为调用层档位决策的透传位（见 buildArgv）。
  */
-export function spawnAgent(profileKey, { model, roleFile, tools, prompt, stdin = 'pipe' } = {}) {
+export function spawnAgent(profileKey, { model, roleFile, tools, prompt, approval, stdin = 'pipe' } = {}) {
   const profile = requireProfile(profileKey);
-  return spawn(resolveBin(profileKey), buildArgv(profileKey, { model, roleFile, tools, prompt }), {
+  return spawn(resolveBin(profileKey), buildArgv(profileKey, { model, roleFile, tools, prompt, approval }), {
     cwd: profile.cwd === null ? undefined : profile.cwd,
     stdio: [stdin, 'pipe', 'pipe'],
   });
