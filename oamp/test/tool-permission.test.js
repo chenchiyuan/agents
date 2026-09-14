@@ -505,6 +505,9 @@ test('F05-3/F05-4：拒绝档回 reject_once + 立即 session/cancel + 轮次 pe
     (err) => err.name === 'ProtocolError' && err.code === 'permission_denied' && /permission=deny/.test(err.message),
   );
 
+  // session/cancel 是**跨进程事实**：轮次结算（回包触发 prompt 拒绝）可能先于子进程把该帧追加进日志，
+  // 直接读会偶发踩空（全量并行跑时 1/N 次）⇒ 先等该帧落地再断言（判据不变：帧必须存在且 params 逐字相同）。
+  await waitFor(() => readJsonLines(fake.framesLog).some((f) => f.frame === 'session/cancel'), 'session/cancel 帧落地');
   const frames = readJsonLines(fake.framesLog);
   const reply = frames.find((f) => f.frame === 'server_request_reply');
   assert.deepEqual(reply.result, { outcome: { outcome: 'selected', optionId: 'reject_once' } });
