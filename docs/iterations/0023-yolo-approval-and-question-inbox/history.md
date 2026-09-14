@@ -211,16 +211,124 @@
 - 决策内容：阶段 4 → 5 入口 Gate 判定 **PASS** ⇒ 阶段 4 标记 ✅（含「已验证」列）。裁定 5 条偏差：**G2-D1/G2-D2/G2-D3 写入对应 PR 的 dev brief**（锚点修正 / 补迁移点 / 同步 summary 并重生成 `llms.txt`）；**G2-D4 裁定随 pr-001 同步能力位**（`hostTools` 由 `'no'` 转为已接线，note 同步；依据 A1 裁决「默认链路提问靠宿主工具承载」；`approvalGate` 不受影响，F11 验收 3 仍成立）；**G2-D5 已由主 agent 在 `status.md` 修正**；同时初始化阶段 5 并发配置
 - 触发依据：`clarifications/verify-stage4-gate-r2-20260914.md` 结论 PASS（fail 0）；工作流规范 §Gate「验证结论必须为 pass」
 
-### 2026-09-14 20:24:00 · 派发 · planner
+### 2026-09-14 20:08:00 · 派发 · planner
 
 - 阶段：阶段 5（PR 实现）· 首波
 - PR：`prs/pr-001-approval-resolution-and-question-channel.md`；worktree 分支 `feat/0023-pr-001-approval-resolution-and-question-channel`
 - 任务：把该 PR 拆为可独立验收的任务图
 - 输出：`docs/iterations/0023-yolo-approval-and-question-inbox/prs/pr-001-tasks.md`
 
-### 2026-09-14 20:24:00 · 派发 · planner
+### 2026-09-14 20:08:00 · 派发 · planner
 
 - 阶段：阶段 5（PR 实现）· 首波
 - PR：`prs/pr-002-web-envelope-and-decision-routing.md`；worktree 分支 `feat/0023-pr-002-web-envelope-and-decision-routing`
 - 任务：把该 PR 拆为可独立验收的任务图
 - 输出：`docs/iterations/0023-yolo-approval-and-question-inbox/prs/pr-002-tasks.md`
+
+### 2026-09-14 20:30:00 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-002-tasks.md`（**4 个任务 T1~T4**；已在 PR worktree 内提交 `415d82e`）
+- 2. 依赖图摘要：线性链 `T1 → T2 → T3 → T4`（4 跳，全图唯一链）；同文件串行约束 = `src/web.js` 由 T1/T2/T3 顺序修改、`test/confirmation-inbox.test.js` 由 T1/T2 顺序修改
+- 3. `[model_inferred]` 验收标准列表：**5 项**（MI-a question 类 body 不含 `option_id` / MI-b `option_ids` 缺失=空集·非字符串数组⇒400 / MI-c `required:false` + desc 分类说明 / MI-d `API.md` tool·title 两行补 question 口径 / MI-e 域外 `request_kind` ⇒ 兜底 permission）
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：**G2-D3 经实读判为「必然动作」**（summary 唯一文案源 `web.js:1276` + `llms.txt:33` 逐字渲染 + 两道漂移锁逐字节比对 ⇒ 不同步必红），已落 T3 验收 3/6；Q1（required 编码）/ Q2（`text` 是否 trim）/ **Q3（高风险：`API.md` 净增 ≥ +44 行会使 `call-protocol.test.js:1064-1081` 的绝对行号窗口判据转红）**；边界 B1~B3
+
+### 2026-09-14 20:31:00 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-001-tasks.md`（**15 个任务 T1~T15**，42 条边；已在 PR worktree 内提交 `4dade85`）
+- 2. 依赖图摘要：源点 `{T1,T2,T3}`、汇点 `T15`；最长链 `T3 → T5 → T6 → T11 → T15`（4 跳）；并行波 `{T1,T2,T3} / {T4,T5,T7,T9} / {T6,T8,T10} / {T11,T12,T13,T14} / {T15}`；同文件串行：`acp-client.js`（T5→T6）、`rpc-client.js`（T7→T8）
+- 3. `[model_inferred]` 验收标准列表：**5 项**（MI-1 提问钩子 `options` 元素形态 / MI-2 问题文本键名 `question`→信封 `title` / MI-3 `--approval-mode` 校验机制 / MI-4 工具关时不追加档位段 / MI-5 `hostTools` 转 `'yes'` 后的 note 处置）
+- 4. 上报的循环依赖：无（Kahn 拓扑 15/15；42 条边全单向递增）
+- 5. 疑问/越界：三条判据口径澄清（① rpc 无收件人属**新增断言**而非迁移，落 `protocol-layer.test.js`；② 验收 1 读作「已解析档位值的赋值面恰一处」，输入面校验可出现取值域字面；③ `acp-daemon.test.js` 档位涉及行以实读为准 `:559/:570/:581/:588/:595`）；Gate 义务 G2-D1/D2/D4 已逐字纳入（并实读确认 G2-D4 不冲击既有断言）
+
+### 2026-09-14 20:35:00 · 调度决策 · Gate确认
+
+- 决策内容：首波两份任务图的 **10 项 `[model_inferred]` + 3 项 pr-002 风险（Q1~Q3）** 真实阻塞式转呈用户，**全部采纳推荐**：pr-001 五项（MI-1~MI-5）/ pr-002 五项（MI-a~MI-e）/ Q1~Q3 按推荐处置（`required:false`+desc；`text` 保持 `.trim()`；**`API.md` 新增文字尽量压缩以保 `call-protocol.test.js` 零改动，无法满足则停下报告**）。主 agent 另采纳三条判据口径澄清。落盘 `clarifications/2026-09-14-stage5-wave1-verdicts.md`
+- 触发依据：`prs/pr-001-tasks.md` §model_inferred（5）+ `prs/pr-002-tasks.md` §model_inferred（5）+ §questions（Q1~Q3）；用户三组回答
+
+### 2026-09-14 20:17:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 首波
+- PR：`prs/pr-001-approval-resolution-and-question-channel.md`；worktree 分支 `feat/0023-pr-001-approval-resolution-and-question-channel`
+- 任务：按 `prs/pr-001-tasks.md`（T1~T15）实现档位唯一汇聚点 + 提问通路 agent 侧（18 文件）
+- 输出：18 个文件改动（含新建 `test/approval-resolution.test.js`）+ 该分支提交
+
+### 2026-09-14 20:17:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 首波
+- PR：`prs/pr-002-web-envelope-and-decision-routing.md`；worktree 分支 `feat/0023-pr-002-web-envelope-and-decision-routing`
+- 任务：按 `prs/pr-002-tasks.md`（T1~T4）实现 web 信封与裁决路由（4 文件）
+- 输出：`src/web.js` / `API.md` / `test/confirmation-inbox.test.js`（+ 条件 `llms.txt`）+ 该分支提交
+
+### 2026-09-14 20:46:00 · 收到报告 · dev
+
+- 1. 改了什么文件（pr-002）：提交 `00e9b58`（4 文件：`src/web.js` 白名单 `request_kind`/`multiple` + 裁决分化 + 停旁路 / `API.md` §3.20-§3.21 同步 / `llms.txt` 重生成 / `test/confirmation-inbox.test.js` 适配 + 新增 7 组断言）；提交 `21fec8b`（**合并前定点修复**：`API.md` §4.2 事件行 7→9 字段（D-1）+ §3.20 `multiple` 行口径改写为「仅 question 类有意义、permission 类不携带该键」（D-2 选 (a)，零行为改动））
+- 2. 测试结果：目标 4 文件 74/74 绿；相邻面（api-pages/inbox-console/hygiene/zero-intrusion）20/20；`call-protocol.test.js` 11/11 且该文件**零改动**（行号窗口实测未受影响，净增 +7 行）；修复后复跑 30/30 且 `API.md` 净增 0 行
+- 3. 疑问/待办：3 条（`API.md §4.2` 字段面矛盾 → 已修；`multiple` 口径 → 已按 (a) 落定；架构 §5.2 信封表列头仍写 permission 类 `multiple=false`（不在本 PR 文件范围，未触碰，交主 agent 决策））
+- 4. 违反边界的事：无
+
+### 2026-09-14 20:47:00 · 收到报告 · dev
+
+- 1. 改了什么文件（pr-001）：提交 `fafdb45` + `2182b8b`；**恰 18 个文件**（8 生产：`protocol.js`（+`resolveApproval` 唯一汇聚点 + 装配时求值恰一次）/ `config.js`（第 5 键）/ `launcher.js`（档位入参收窄 + `appliesWhen` 调整）/ `oneshot-client.js` / `acp-client.js`（非门 elicitation 四形状拆问 + 组内暂存）/ `rpc-client.js`（宿主工具 `ask_user` 握手后恰一次 + `host_tool_call` 承接 + 无收件人三步 + `hostTools:'yes'`）/ `agent.js`（`--approval-mode` + 提问接线 + 信封 9 字段）/ `context-pool.js`（提问钩子恒注入）+ `README.md` + 8 个既有测试迁移 + 新建 `test/approval-resolution.test.js`）
+- 2. 测试结果：PR 目标 9 文件 **179/179**；单文件全绿（approval-resolution 5 / config-file 12 / protocol-layer 28 / tool-permission 27 / acp-daemon 7 / confirmation-roundtrip 23 / context-pool 17 / project-workspace 21 / web 39）；CLI 与配置面实测（非法值 exit 2 点名 / 缺值 exit 2 / 配置非法 exit 1 点名 / 缺省 yolo）
+- 3. 疑问/待办：见验收报告 4 条低偏差（`host_tool_result` 是否含 `details`、`appliesWhen` 措辞、PR 文件锚点、`prd/F04` 措辞）
+- 4. 违反边界的事：无
+
+### 2026-09-14 20:53:00 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-pr-001-20260914.md`（结论 **PASS**，7/7 pass、0 fail、4 条低偏差）与 `clarifications/verify-pr-002-20260914.md`（结论 **PASS**，7 条标准中 5 pass / 2 partial、0 fail、3 条偏差）
+- 2. 关键实跑：pr-001 目标 9 文件 179/179 + **全量 379/379** + CLI 与配置面非法值实测 + rpc 无收件人三步（单元 + E2E）；pr-002 目标 4 文件 74/74 + **全量 362/362** + `llms.txt` 重生成逐字节相等 + F14/F15 证据
+- 3. partial（pr-002）：D-1 `API.md §4.2` 事件行 7 字段与 §3.20 的 9 字段**自相矛盾**；D-3 分支 diff 含规划产物 `pr-002-tasks.md`（不在 PR 文件范围，体例同前序迭代）
+- 4. 偏差（pr-002）：D-2 `multiple` 是否按类钳制的文档↔实现口径差；下一迭代候选 4 条（`call-protocol.test.js` 的绝对行号窗口是脆弱耦合 / pr-003 必须同步 `web/app.js:725` 提交体 / `API.md §4.2` 字段面 / 测试助手 `entryOf` 复刻兜底逻辑的漂移风险）
+
+### 2026-09-14 20:55:00 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-001 与 pr-002 判定完成并合并进迭代分支**（`0123dcb` 20:43:45 / `6dedd23` 20:46:49）；pr-001 合并后跑全量 = **379/379 绿**；pr-002 的 D-1 由主 agent 派发**定点修复**（`21fec8b` 20:46:32，`API.md` 两行、零行为改动、行号窗口实测未受影响）后合并；两 PR 的 worktree 与分支已清理；累计槛位释放次数 0 → **2**，**当前有效上限按规范公式重算 = min(3 + 2×3, 5) = 5**（触硬上限；本行原记录的「= 3」为主 agent 误算，观察者第 1 次快照发现并已更正）；**末波 `pr-003` 解锁**并建 worktree（`feat/0023-pr-003-inbox-question-item-frontend`）
+- 触发依据：两份验收报告结论均 PASS；依赖图 `pr-003 → pr-002` 的依赖已合并；`git worktree list` 含新 worktree 且 `branch --show-current` 为 `feat/0023-pr-003-inbox-question-item-frontend`
+
+### 2026-09-14 20:56:00 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）· 末波
+- PR：`prs/pr-003-inbox-question-item-frontend.md`；worktree 分支 `feat/0023-pr-003-inbox-question-item-frontend`
+- 任务：把该 PR 拆为可独立验收的任务图
+- 输出：`docs/iterations/0023-yolo-approval-and-question-inbox/prs/pr-003-tasks.md`
+
+### 2026-09-14 20:53:00 · 收到报告 · planner
+
+- 1. `tasks.md` 路径 + 任务总数：`prs/pr-003-tasks.md`（**4 个任务 T1~T4**；已在 PR worktree 内提交 `d90e6e0` 20:52:50）
+- 2. 依赖图摘要：`T1 → T2 → T4` 与 `T1 → T3 → T4`（最长链 3 跳）；并行面 `T2 ∥ T3`；同文件串行 = `web/app.js`（T1→T2）/ `inbox-console.test.js`（T1→T2）/ `style.css`（仅 T3）
+- 3. `[model_inferred]` 验收标准列表：**7 项**（MI-1 控件形态判据 / MI-2 文本输入复用类名与文案 / MI-3 类名清单与提交体签名入交付说明 / MI-4 多问题独立性判据 / MI-5 body 逐字锁适配不降强度 / MI-6 手势计数 2→3 保强度 / MI-7 改动面 = 3 代码文件）
+- 4. 上报的循环依赖：无（拓扑序 T1<T2<T3<T4）
+- 5. 疑问/越界：5 项（Q1 通知正文模板对 question 不贴切 ⇒ 下一迭代候选；Q2 控件 tag 由 MI-1 兜住；Q3 L2-7 前端提示强度待裁；Q4 body 锁两路径相容；Q5 运行期判据限沙箱、真实交互链归阶段 6）
+
+### 2026-09-14 20:54:00 · 调度决策 · Gate确认
+
+- 决策内容：末波任务图 **7 项 `[model_inferred]` + Q3** 真实阻塞式转呈用户，**全部采纳推荐**（MI-1~MI-7；**Q3 = 前端不短路空提交、仅可选提示**）；planner 自登记 4 项确认。落盘 `clarifications/2026-09-14-stage5-wave2-verdicts.md`
+- 触发依据：`prs/pr-003-tasks.md` §model_inferred（7）+ §questions（Q1~Q5）；用户两项回答
+
+### 2026-09-14 20:55:00 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 末波
+- PR：`prs/pr-003-inbox-question-item-frontend.md`；worktree 分支 `feat/0023-pr-003-inbox-question-item-frontend`
+- 任务：按 `prs/pr-003-tasks.md`（T1~T4）实现第三栏 question 条目渲染与提交载荷分化（3 文件）
+- 输出：`oamp/web/app.js` / `oamp/web/style.css` / `oamp/test/inbox-console.test.js` + 该分支提交
+
+### 2026-09-14 20:56:00 · 派发 · progress-observer
+
+- 阶段：阶段 5 首波合并后的自动触发（第 1 次快照）
+- 任务：独立核实真实 git 状态（阶段产物存在性 / merge 真伪 / 分支与 worktree 清理 / 并发真实执行证据 / 状态漂移）
+- 输出：`docs/iterations/0023-yolo-approval-and-question-inbox/progress.md`
+
+### 2026-09-14 21:00:00 · 收到报告 · dev
+
+- 1. 改了什么文件（pr-003）：提交 `4162fff`；**恰 3 个代码文件**——`oamp/web/app.js`（+59/-1：新增 `renderInboxChoice`（原生 checkbox/radio 两态）与 `submitQuestion`（`{option_ids,text}` + disabled + 200/404 移出 + 其余保留重绘）；`renderInboxItem` 加 `request_kind==='question'` 分支；**permission 分支逐字未动**）/ `oamp/web/style.css`（+19/-0 纯追加）/ `oamp/test/inbox-console.test.js`（+321/-2：新增 7 条 question 面判据 + 3 个沙箱 helper；`:379` 手势计数 2→3 适配）
+- 2. 测试结果：`node --test test/inbox-console.test.js` **16/16**；全量 `node --test test/*.test.js` **387/387**；**变异敏感度反证**（把 question body 改为 `{option_id: optionIds[0], text}` ⇒ 用例转红，还原后 sha256 复原）；改动面封闭（`oamp/src/**` / `index.html` / `notify.js` / `API.md` / `llms.txt` / 其他测试文件零改动）
+- 3. 疑问/待办：placeholder 取「补充说明或作答（可不填）」；Q3 视觉提示未实现（非验收要求）；`notify.js` 模板措辞登记下一迭代候选；真实浏览器交互链归阶段 6
+- 4. 违反边界的事：无
+
+### 2026-09-14 21:00:30 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现）· 末波验收
+- PR：`prs/pr-003-inbox-question-item-frontend.md`（HEAD `4162fff`，基线 `d90e6e0`）
+- 任务：独立验收 PR 验收 1~10 + 改动面 + 渲染/提交分化 + Q3 落地 + 断言强度 + 全量绿
+- 输出：`clarifications/verify-pr-003-20260914.md`
