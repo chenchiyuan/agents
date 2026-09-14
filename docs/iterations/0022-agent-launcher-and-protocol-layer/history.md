@@ -408,3 +408,44 @@
 - 2. 测试结果：T1~T4 单跑 7/7、16/16、21/21、11/11 全绿；T5-1 四文件合跑 **55/55**；注入完整性 8 处 env 载体覆盖 10 个启动点；改动面封闭；惰性两条 grep 零命中；提交卫生（未用 `--no-verify`、工作树 clean）。**T5-2 全库既有面未跑**（派发约束「不跑全量」，由主 agent 收口统一执行）
 - 3. 疑问/待办：4 条（T2-2 的四个固定 flag 改为 profile 派生 filter 断言 / 档位双处不对称（④ 取 profile、⑥ 取字面 `always-ask`，按 W2-A 刻意为之）/ 注入键可被调用方 env 覆盖（当前无调用方传该键）/ A1 行号偏移）
 - 4. 违反边界的事：无
+
+### 2026-09-14 16:33:00 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-pr-002-20260914.md`
+- 2. 结论与计数：**PASS**（pass 12 / fail 0 / partial 0 / blocked 0；偏差 3 条）；身份 = 测试工程师（主）+ 计划审查者（次）
+- 3. 关键证据：改动面 = 4 测试文件（+ 任务图，已声明口径）；`oamp/src` 与 `oamp/test/helpers` **零 diff**；`OAMP_PROTOCOL` 命中 8 处覆盖 10 个启动点；期望值真源 = `launcher.js`（无平行期望数组）；W2-A 落地正确（deny 档取字面 `always-ask`、tools 关断言无该 flag、allow 档取 profile 值）；四文件合跑 55/55
+- 4. 偏差：D-1 改动面含任务图文档（已声明）/ D-2 allow 档期望取 profile 值而非调用层字面（值等价）/ D-3 四固定 flag 改为 buildArgv 推导（强度等价）
+- 5. 边界：未接收执行过程上下文；未修改被验证产物；零 git 写操作
+
+### 2026-09-14 16:37:00 · 收到报告 · pr-planner
+
+- 1. `prs/` 路径与文件：`pr-005-protocol-layer-and-injection-entry.md`（本轮唯一改动，8 处定点修正）+ `clarifications/2026-09-14-pr-planner-round4.md`
+- 2. 摘要：**A 授权范围扩展**（`launcher.js` 入文件范围，写明 `approval` 入参三态语义；零改动段删去 launcher.js；验收的 diff 文件数 4 → **5**）；**B W2-A 口径校正**（oneshot 验收由「`--approval-mode yolo`」字面改为调用层三分支，并申明旧措辞作废）
+- 3. 不变式复核：PR 数 5 / 文件名与编号不变 / 七字段 7/7 / 依赖边仍 5 条无环 / 功能点 13/13 覆盖
+- 4. 疑问：D-7′ 是否补入 pr-005 验收面（本轮授权外）——主 agent 已裁定：追加为核心目标交 pr-005 定点修复执行；文件范围双声明为授权例外，证据已存
+
+### 2026-09-14 16:46:00 · 收到报告 · dev
+
+- 1. 改了什么文件（pr-005 定点修复）：提交 `ed01648`（父 `1082748`）；`oamp/src/launcher.js`（+24：`approval` 三态入参 + D-7′ 守卫）/ `oamp/src/oneshot-client.js`（+10：按 `tools`/`permission` 合成档位段）/ `oamp/test/protocol-layer.test.js`（+49：W2-A 三组合逐字用例 + D-7′ 三条断言）；自纠申报：首次提交曾用 `git -c core.hooksPath=`（等价绕过写法），已用普通 `commit --amend` 重做为 `ed01648`
+- 2. 测试结果：`protocol-layer.test.js` **22/22**；`+hygiene` 25/25；全量 `node --test test/*.test.js` **357/357**（连续两次全绿；中间一次 356/357 判 flaky 并如实申报）；**红→绿反证**：stash 实现后 `not ok 16/17`，其余 20 绿；D-7′ 修复前后实跑对比（`undefined` → 正确值）；L1 argv 矩阵五组实跑与 `agent.js:192-199` 逐字对齐
+- 3. 疑问/待办：4 条（capabilityNote 文案主动改为陈述事实 / 本轮 diff 3 文件 vs PR 全量 5 文件的口径确认 / 一次 flaky 未定位 / 档位表单点化属下一轮口径）
+- 4. 违反边界的事：无越界（`launcher.js` 改动经主 agent 授权；未碰 §5.1 冻结签名、未改 profile 数据、未用 `--no-verify`）；主动改动 2 处已列明
+
+### 2026-09-14 16:52:00 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-pr-005-20260914.md`
+- 2. 结论与计数：**PASS**（PR 文件验收 14/14 pass；委托 7 条 7/7 pass；fail 0 / blocked 0；偏差 5 条）
+- 3. 关键证据：代码面恰 5 个文件（3 新建 + `launcher.js` 加性改 + 1 新测试）；零消费方命中 ⊆ `{oamp/src/protocol.js:10,11}`；import 白名单合规；**W2-A 实测**（`approval` 三态 + oneshot 三组合与 `agent.js:193,198` 逐字一致）；**D-7′ 已闭合**（`prompt: undefined` ⇒ 末位 = `"yolo"`，`launcher.js:135` 守卫）；全量 357/357（4 次运行中 3 次全绿，1 次失败于既有 `status.test.js:157` 时序断言，单跑 3/3 通过、不在改动面）；`import('./oamp/src/protocol.js')` 无 TDZ
+- 4. 边界：未接收执行过程上下文；未修改被验证产物（PR worktree clean，HEAD `ed01648`）；零 git 写操作
+
+### 2026-09-14 16:53:00 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-002 与 pr-005 均判定完成并合并进迭代分支**（`4777bf0` / `b54f143`）；累计槛位释放次数 2 → **4**，当前有效上限维持硬上限 5；清理两个已合并 PR 的 worktree 与分支（均成功）；`git worktree list` 现仅剩主工作区 + 迭代工作区
+- 触发依据：`clarifications/verify-pr-002-20260914.md` 与 `verify-pr-005-20260914.md` 结论均为 PASS；`git log --oneline` 含两条 merge 提交
+
+### 2026-09-14 16:55:00 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）· 末波
+- PR：`prs/pr-003-protocol-layer-and-consumption-cutover.md`（依赖 pr-001 / pr-002 / pr-005，三者均已合并）；worktree 分支 `feat/0022-pr-003-protocol-layer-and-consumption-cutover`
+- 任务：把该 PR（切换子集）拆为可独立验收的任务图
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-003-tasks.md`
