@@ -15,6 +15,13 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { startRouter, startAgent, waitFor, stopAll } from './helpers/harness.js';
 import { startFakeNode } from './helpers/fake-node.js';
+import { PROFILES, buildArgv } from '../src/launcher.js';
+
+// 协议与 argv 真源（pr-002 验收 2）：模式记号与固定 flag 段取自 src/launcher.js 的 profile 表（flag 段经同模块的
+// buildArgv 推导）——本文件不复写期望数组、也不内置「默认就是 acp」的假设。协议注入见各启动点的 env 载体
+// （setup 与 dev-2 两处）——注入键由 pr-001 的 src/config.js 交付。
+const ACP_MODE = PROFILES['omp:acp'].modeArgs[0]; // 常驻链路模式记号
+const ONESHOT_MODE = PROFILES['omp:oneshot'].modeArgs[0]; // 一次性路径模式记号
 
 // —— fake omp：同一脚本两种形态（`acp` 常驻 JSON-RPC / `-p` 一次式）——
 // acp 形态实现 initialize / session/new / set_config_option / session/prompt（流式 chunk + per-session 记忆），
@@ -200,7 +207,7 @@ async function setup(t, { env = {}, instanceId = 'dev-1' } = {}) {
   t.after(() => stopAll([router]));
   const agent = await startAgent(instanceId, {
     socketPath: router.socketPath,
-    envExtra: { OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_EVENTS_LOG: events, FAKE_ACP_ARGS_LOG: argsLog, ...env },
+    envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN, FAKE_ACP_EVENTS_LOG: events, FAKE_ACP_ARGS_LOG: argsLog, ...env },
   });
   t.after(() => agent.stop());
   await agent.waitAgentLine(new RegExp(`REGISTERED instance=${instanceId}`));
@@ -264,7 +271,7 @@ test('E-2/F05-3：新 chat → 新键新进程，答不出旧 chat 的设定值'
 
 test('F05-4：同 chat 两个不同 agent 上下文互不串扰', async (t) => {
   const { router, web } = await setup(t, { instanceId: 'dev-1' });
-  const agent2 = await startAgent('dev-2', { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN } });
+  const agent2 = await startAgent('dev-2', { socketPath: router.socketPath, envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN } });
   t.after(() => agent2.stop());
   await agent2.waitAgentLine(/REGISTERED instance=dev-2/);
 
@@ -512,7 +519,7 @@ test('F08/§9.1：一次性 executor=omp（-p）与 shell 路径不回归', asyn
   const stdout = oneShot.updates.filter((u) => u.kind === 'stdout').map((u) => u.line);
   assert.ok(stdout.some((l) => l.includes('one-shot answer')), '一次性路径应走 omp -p');
   const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  assert.ok(argvs.some((a) => a.includes('-p') && !a.includes('acp')), '一次性路径参数集含 -p 且不含 acp');
+  assert.ok(argvs.some((a) => a.includes(ONESHOT_MODE) && !a.includes(ACP_MODE)), '一次性路径参数集含 -p 且不含 acp');
 
   const shell = await turn(web, 'dev-1', { command: process.execPath, args: ['-e', 'console.log("shell-ok")'] }, { daemon: false });
   assert.equal(shell.result.state, 'completed');
@@ -528,9 +535,9 @@ test('§6.6：daemon 启动参数含 acp 固定集（--no-skills/--no-rules/--no
   assert.equal(round.result.state, 'completed');
 
   const argvs = fs.readFileSync(argsLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l));
-  const acp = argvs.find((a) => a[0] === 'acp');
+  const acp = argvs.find((a) => a[0] === ACP_MODE);
   assert.ok(acp, 'daemon 路径应 spawn `acp` 子进程');
-  for (const flag of ['--no-skills', '--no-rules', '--no-tools', '--no-session']) {
+  for (const flag of buildArgv('omp:acp').filter((f) => f.startsWith('--no-'))) {
     assert.ok(acp.includes(flag), `启动参数应含 ${flag}`);
   }
   assert.ok(acp.includes('--model'));

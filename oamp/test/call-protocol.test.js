@@ -298,7 +298,7 @@ async function setup(t, { withAgent = true, agentId = 'pb-dev', agentEnv = {}, w
   let agent = null;
   if (withAgent) {
     // OAMP_OMP_MODEL 折到桩的会话默认值（'fake/model'）⇒ 未显式指定 model 时终态 model = 'fake/model'
-    agent = await startAgent(agentId, { socketPath: router.socketPath, envExtra: { OAMP_OMP_BIN: FAKE_BIN, OAMP_OMP_MODEL: 'fake/model', ...agentEnv } });
+    agent = await startAgent(agentId, { socketPath: router.socketPath, envExtra: { OAMP_PROTOCOL: 'acp', OAMP_OMP_BIN: FAKE_BIN, OAMP_OMP_MODEL: 'fake/model', ...agentEnv } });
     t.after(() => agent.stop());
     await agent.waitAgentLine(new RegExp(`REGISTERED instance=${agentId}`));
   }
