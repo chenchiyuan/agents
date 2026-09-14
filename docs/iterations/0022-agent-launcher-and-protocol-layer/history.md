@@ -142,3 +142,23 @@
 
 - 决策内容：阶段 3（技术架构）三项推进条件**逐项核查通过**（主 agent 读取 `architecture.md` v0.2.0 文首状态行与 §4.1 / §12.1 核查）⇒ 阶段 3 标记 ✅；同时处置 progress-observer 的两项发现——补记 `status.md` / `history.md`（本条即补记）与**将阶段 1~3 产物提交到迭代分支**；随后进入阶段 4（PR 规划），派发 `pr-planner`
 - 触发依据：① L1 决策经用户确认 = §4.1 两行 `✅ 用户确认（2026-09-14，采纳推荐项①）`（裁决原件 `clarifications/2026-09-14-architect-round1-verdicts.md`）；② 所有功能卡有技术路径 = §6 F01~F13 = 13/13；③ 无架构内部冲突 = §12.1 标题 `[user_confirmed]` 归零、待决标记全文检索零命中；④ progress-observer 发现①②（`progress.md` §5 不一致条目 1/3/5）
+
+### 2026-09-14 15:05:31 · 调度决策 · 阶段推进核查
+
+- 决策内容：处置 progress-observer 第 2 项发现——把阶段 1~3 全部产物提交进迭代分支（`git -C <工作区地址> commit`），commit `a4d3e2f`（`docs(0022): 阶段 1~3 产物落盘…`）；该分支相对 main 的提交数由 0 变为 1
+- 触发依据：`progress.md` §5 不一致条目 5（迭代分支相对 main 提交数 = 0、`docs/iterations/0022-*/` 未被 git 跟踪）；修正后 `git rev-list --count main..iteration/0022-agent-launcher-and-protocol-layer` 输出 1
+
+### 2026-09-14 15:06:30 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划）
+- 任务：反射出可独立合并的提交单元划分及单元间真实依赖，从架构方案+代码库现状出发，不经过全局任务图
+- 输入：`architecture.md` v0.2.0 + `prd.md` v0.2.0（13 卡）+ 工作区内 `oamp/` 代码库现状
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-{NNN-描述}.md`（七字段）+ `clarifications/2026-09-14-pr-planner-round1.md`
+
+### 2026-09-14 15:15:00 · 收到报告 · pr-planner
+
+- 1. `prs/` 目录路径：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/`
+- 2. 文件列表：`pr-001-launcher-and-protocol-config.md` / `pr-002-test-face-profile-pinning.md` / `pr-003-protocol-layer-and-consumption-cutover.md` / `pr-004-stream-kind-partition-ui.md`（4 个）
+- 3. 每个 PR 摘要：pr-001（batch 1 / depends_on 无 / F01,F10,F12,F13 / 3 文件：launcher.js 新建 + config.js 第 4 键 + config-file.test.js）；pr-002（batch 2 / depends_on pr-001 / F03,F06 / 4 个测试文件）；pr-003（batch 3 / depends_on pr-001+pr-002 / F01~F12 / 12 文件含 protocol.js+rpc-client.js+oneshot-client.js 新建与 B-16/B-17 新增测试）；pr-004（batch 1 / depends_on 无 / F08 / web/app.js + 条件文件 style.css）
+- 4. 疑问/越界：5 条待主 agent 裁定（oneshot 增量 kind / B-14 落字口径 / pr-002 是否独立 / style.css 是否确定 / claude·codex profile 键值不在本轮）+ 4 条 architecture 偏差登记（§9.4.1 漏列 config-file.test.js 与 call-protocol.test.js；B-13 的 tool-permission.test.js 移至 pr-003；style.css 为条件文件）；关键结论：L2 标准面与三实现**不能各自独立合并**（import 链 + onDelta 签名链 + ContextPool 唯一生产调用方 ⇒ 传递闭包 = 6 生产文件 = pr-003）
+- 核查结论（主 agent 机器复核）：七字段齐备 / 文件范围无重叠（21 文件各 1 归属）/ F01~F13 全覆盖 / 依赖图 4 条边无环（拓扑序 pr-001 → pr-002 → pr-003；pr-004 独立）
