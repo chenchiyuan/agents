@@ -29,7 +29,7 @@ const state = {
   filter: 'all',
   mention: { open: false, items: [], index: 0, start: -1 },
   routerOk: false,
-  stream: { chatId: null, text: '' }, // 流式占位文本（task_update 累积；终态 message 到达即清空）
+  stream: { chatId: null, text: '', thinking: '', tool: '' }, // 流式占位文本 + 过程缓冲（task_update 按 kind 累积；终态 message 到达即清空）
   titleEdit: null, // ★ 标题行内编辑态：null = 未编辑；{ chatId } = 正在编辑该对话的标题
   notices: [], // 会话内系统提示条（SSE notice，运行时事件不入库；仅本次页面会话保留，刷新即不重现）
   // 0021 / F01（architecture §7 T-02 / T-07）：第三栏（待确认 inbox）——在途项 + 窄屏开合态。
@@ -413,12 +413,20 @@ function renderMessage(m) {
     ${meta.length > 0 ? `<div class="msg-meta">${meta.join(' · ')}</div>` : ''}</div></div>`;
 }
 
-/** 流式占位气泡（首个 task_update 出现时创建，后续 chunk 原地追加）。 */
+/** 流式占位气泡（首个 task_update 出现时创建，后续 chunk / 过程增量原地追加）。 */
 function renderStreamSlot(chat) {
-  if (state.stream.chatId !== chat.chat_id || state.stream.text === '') return '';
+  if (state.stream.chatId !== chat.chat_id || (state.stream.text === '' && state.stream.thinking === '' && state.stream.tool === '')) return '';
+  const parts = `${renderStreamPart('thinking', state.stream.thinking)}${renderStreamPart('tool', state.stream.tool)}`;
   return `<div class="msg"><div class="msg-head"><span class="avatar avatar-agent">@</span>
       <span class="msg-role">${escapeHtml(chat.agent_id || 'agent')}</span>${badge('working')}</div>
-    <div class="msg-body"><div class="answer"><div class="answer-line" id="stream-text">${escapeHtml(state.stream.text)}</div></div></div></div>`;
+    <div class="msg-body">${parts}<div class="answer"><div class="answer-line" id="stream-text">${escapeHtml(state.stream.text)}</div></div></div></div>`;
+}
+
+/** 过程分区容器（slot = thinking / tool）：气泡内的结构落点，不做折叠 / 配色 / 开关（MI-A-2）；
+ *  空内容不渲染 ⇒ 无过程增量时零可见残留（不出现空块 / 边框）。 */
+function renderStreamPart(slot, text) {
+  if (text === '') return '';
+  return `<div class="answer"><div class="answer-line" id="stream-${slot}">${escapeHtml(text)}</div></div>`;
 }
 
 /** 系统提示条（上下文释放/重置；运行时事件，不入库，刷新后不重现——§6.3/§19 裁决 3）。
@@ -530,7 +538,7 @@ function unsubscribe() {
     source = null;
   }
   subscribedChatId = null;
-  state.stream = { chatId: null, text: '' };
+  state.stream = { chatId: null, text: '', thinking: '', tool: '' };
 }
 
 /** 订阅某 chat 的四类事件；同一 chat 重复调用不重连（避免丢增量）。 */
@@ -566,12 +574,17 @@ function handleEvent(type, data) {
   if (type === 'task_update') {
     if (!current) return;
     const chunk = typeof data.text === 'string' ? data.text : typeof data.line === 'string' ? `${data.line}\n` : '';
-    if (chunk !== '') appendChunk(data.chat_id, chunk);
+    if (chunk !== '') {
+      // 过程分区白名单只有三个新 kind；其余取值（chunk / 既有 stdout / stderr / 未知）一律走既有答案路径
+      if (data.kind === 'thinking') appendProcess(data.chat_id, 'thinking', chunk);
+      else if (data.kind === 'tool_call' || data.kind === 'tool_output') appendProcess(data.chat_id, 'tool', chunk);
+      else appendChunk(data.chat_id, chunk);
+    }
     return;
   }
   if (type === 'message') {
     if (data.message && data.message.direction === 'out' && state.stream.chatId === data.chat_id) {
-      state.stream = { chatId: data.chat_id, text: '' }; // 终态以落盘文本为准（§5.3）
+      state.stream = { chatId: data.chat_id, text: '', thinking: '', tool: '' }; // 终态以落盘文本为准（§5.3）
     }
     loadChats();
     if (current) refreshChat();
@@ -599,7 +612,7 @@ function handleEvent(type, data) {
 }
 
 function appendChunk(chatId, chunk) {
-  if (state.stream.chatId !== chatId) state.stream = { chatId, text: '' };
+  if (state.stream.chatId !== chatId) state.stream = { chatId, text: '', thinking: '', tool: '' };
   state.stream.text += chunk;
   let el = document.getElementById('stream-text');
   if (!el) {
@@ -607,6 +620,22 @@ function appendChunk(chatId, chunk) {
     el = document.getElementById('stream-text');
   }
   if (el) el.textContent = state.stream.text;
+  const box = $('messages');
+  box.scrollTop = box.scrollHeight;
+}
+
+/** 过程增量累积（slot = thinking / tool 两个分区）：四段语义与 appendChunk 同款（切 chat 复位 → 累积 →
+ *  元素缺失先 renderChat 再取 → textContent 覆写 + 滚动到底）；T-06 粒度 = 原样（不聚合、不节流）。 */
+function appendProcess(chatId, slot, chunk) {
+  if (state.stream.chatId !== chatId) state.stream = { chatId, text: '', thinking: '', tool: '' };
+  state.stream[slot] += chunk;
+  const id = `stream-${slot}`;
+  let el = document.getElementById(id);
+  if (!el) {
+    renderChat();
+    el = document.getElementById(id);
+  }
+  if (el) el.textContent = state.stream[slot];
   const box = $('messages');
   box.scrollTop = box.scrollHeight;
 }
