@@ -560,3 +560,13 @@
 
 - 决策内容：**阶段 6 判定 PASS** ⇒ 阶段 6 标记 ✅ 且「已验证」列打勾；按规范执行收口三步（在仓库主工作区：`checkout main` → `merge --no-ff iteration/0022-agent-launcher-and-protocol-layer` → `branch -d`），前置动作 = 在迭代工作区 `checkout --detach` 让出该分支的检出。**收口前不做任何偏差返工**：偏差记录不阻塞迭代关闭（D-4 flake 与 D-7/D-w2-1 文档面差异登记为下一迭代候选）
 - 触发依据：`clarifications/verify-stage6-20260914.md` 结论 PASS（fail 0）；工作流规范「迭代分支合并进 main：阶段 6 对本迭代最终产物判定 pass 之后」
+
+### 2026-09-14 18:26:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**迭代收口**——① 迭代工作区 `git checkout --detach` 让出 `iteration/0022-*` 的检出；② 在**仓库主工作区**执行 `git checkout main` + `git merge --no-ff iteration/0022-agent-launcher-and-protocol-layer` ⇒ merge **`4e644b1`**；③ `git branch -d iteration/0022-agent-launcher-and-protocol-layer`（was `9f38557`）；④ 主分支 `oamp` 全量测试复跑 **361/361 绿**（72.7s）
+- 触发依据：阶段 6 结论 PASS（fail 0，偏差记录不阻塞关闭）；工作流规范 §「迭代分支合并进 main」三步 + 第 3 步前置游离动作；`git branch --list` 现仅剩 `main`
+
+### 2026-09-14 18:27:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**迭代 0022 关闭**——`status.md` 头部改为「已完成（6/6 阶段收口）/ 迭代分支已合并进 main（merge `4e644b1`）/ 状态已完成」；迭代工作区与分支清理。本轮交付：5/5 PR 合并、6/6 阶段收口、每 PR 均经独立验收 PASS、阶段 6 独立验证 PASS（真机证据齐全）
+- 触发依据：merge 提交 `4e644b1` 真实存在；主分支全量测试 361/361 绿；`git worktree list` 在清理后仅剩仓库主工作区
