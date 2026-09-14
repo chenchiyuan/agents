@@ -321,7 +321,7 @@
 - 任务：独立验收该 PR 验收 1~6 + 改动面封闭性 + 测试面零改动 + 过程分区落点 + 边界（N4/N5）
 - 输出：`clarifications/verify-pr-004-20260914.md`
 
-### 2026-09-14 16:02:20 · 收到报告 · verifier
+### 2026-09-14 16:01:50 · 收到报告 · verifier
 
 - 1. 报告路径：`clarifications/verify-pr-001-20260914.md`
 - 2. 结论与计数：**PASS**（pass 5 / fail 0 / partial 0 / blocked 0；偏差 7 条；下一迭代候选 5 条）；验证者身份 = 同级代码审查者（Node.js ESM 子进程启动与 argv 构造方向）兼测试面审查者
@@ -329,7 +329,7 @@
 - 4. 偏差（不阻塞）：D-1 §9.4.1 未列 config-file.test.js（PR 文件已授权）/ D-2 验收 13 字面「三个文件」与 diff 含阶段产物 / D-3 argv 次序取 A6 序 / D-4 导出形态与 stdio 契约架构未定（MI-1/MI-4 已裁决）/ D-5 oneshot skills·rules 取 true（MI-3 已裁决）/ D-6 protocol 顶层键（MI-5 已裁决）/ **D-7 `input:'positional'` 且未传 prompt 时 argv 末位为 `undefined`**（不在本 PR 判据面，列为下一迭代候选与阶段 5 消费方防护项）
 - 5. 独立性与边界：未使用执行过程上下文；唯一写入 = 报告；零 git 写操作
 
-### 2026-09-14 16:03:36 · 收到报告 · verifier
+### 2026-09-14 16:03:14 · 收到报告 · verifier
 
 - 1. 报告路径：`clarifications/verify-pr-004-20260914.md`
 - 2. 结论与计数：**PASS**（委托标准 6/6 pass；PR 验收 1~6 全 pass；T1 7/7、T2 9/9、T3 8/8；fail 0；偏差 4 条；下一迭代候选 5 条）
@@ -409,7 +409,39 @@
 - 3. 疑问/待办：4 条（T2-2 的四个固定 flag 改为 profile 派生 filter 断言 / 档位双处不对称（④ 取 profile、⑥ 取字面 `always-ask`，按 W2-A 刻意为之）/ 注入键可被调用方 env 覆盖（当前无调用方传该键）/ A1 行号偏移）
 - 4. 违反边界的事：无
 
-### 2026-09-14 16:33:00 · 收到报告 · verifier
+### 2026-09-14 16:33:37 · 派发 · dev
+
+- 阶段：阶段 5（PR 实现）· 次波（**合并前定点修复**）
+- PR：`prs/pr-005-protocol-layer-and-injection-entry.md`（HEAD 当时 = `1082748`）
+- 任务：修复 oneshot 路径 approval 语义（W2-A）与 D-7′ 位置参数防护；主 agent 授权把 `oamp/src/launcher.js` 纳入该 PR 范围
+- 输出：修复提交 `ed01648` + 逐条报告
+- 补记说明：本条为**事后补记**（记录遗漏该派发条目），时刻由「修复提交 `ed01648` 时刻 `16:43:38` − 任务耗时 10m1s」推得
+
+### 2026-09-14 16:34:24 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现）· 次波验收
+- PR：`prs/pr-002-test-face-profile-pinning.md`（commit `3dc14f7`，父 `192a255`）
+- 任务：独立验收该 PR 验收 1~6 + 改动面封闭性 + 生产零改动 + 期望值真源 + W2-A 口径 + 注入完整性
+- 输出：`clarifications/verify-pr-002-20260914.md`
+- 补记说明：本条为**事后补记**，时刻由「验收报告 mtime `16:38:12` − 任务耗时 3m48s」推得
+
+### 2026-09-14 16:44:27 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现）· 次波验收
+- PR：`prs/pr-005-protocol-layer-and-injection-entry.md`（HEAD = `ed01648`，基线 `fa2acd6`）
+- 任务：独立验收 PR 验收 14 条 + 5 文件范围 + 零消费方 + W2-A 落地 + D-7′ 防护 + 全量绿
+- 输出：`clarifications/verify-pr-005-20260914.md`
+- 补记说明：本条为**事后补记**，时刻由「验收报告 mtime `16:53:01` − 任务耗时 8m34s」推得
+
+### 2026-09-14 17:07:50 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现）· 末波验收
+- PR：`prs/pr-003-protocol-layer-and-consumption-cutover.md`（HEAD = `92a1bbb`，基线 `b54f143`）
+- 任务：独立验收 PR 验收 1~6 + 「指定即生效」+ B-17 机制生效（含正向对照/反例）+ acp 行为零变更 + 全量绿
+- 输出：`clarifications/verify-pr-003-20260914.md`
+- 补记说明：本条为**事后补记**，时刻由「验收报告 mtime `18:08:55` − 任务耗时 7m6s」推得
+
+### 2026-09-14 16:38:12 · 收到报告 · verifier
 
 - 1. 报告路径：`clarifications/verify-pr-002-20260914.md`
 - 2. 结论与计数：**PASS**（pass 12 / fail 0 / partial 0 / blocked 0；偏差 3 条）；身份 = 测试工程师（主）+ 计划审查者（次）
@@ -431,7 +463,7 @@
 - 3. 疑问/待办：4 条（capabilityNote 文案主动改为陈述事实 / 本轮 diff 3 文件 vs PR 全量 5 文件的口径确认 / 一次 flaky 未定位 / 档位表单点化属下一轮口径）
 - 4. 违反边界的事：无越界（`launcher.js` 改动经主 agent 授权；未碰 §5.1 冻结签名、未改 profile 数据、未用 `--no-verify`）；主动改动 2 处已列明
 
-### 2026-09-14 16:52:00 · 收到报告 · verifier
+### 2026-09-14 16:53:01 · 收到报告 · verifier
 
 - 1. 报告路径：`clarifications/verify-pr-005-20260914.md`
 - 2. 结论与计数：**PASS**（PR 文件验收 14/14 pass；委托 7 条 7/7 pass；fail 0 / blocked 0；偏差 5 条）
@@ -484,7 +516,7 @@
 - 任务：独立验收 PR 验收 1~6 + 「指定即生效」+ B-17 机制生效 + acp 行为零变更 + 全量绿
 - 输出：`clarifications/verify-pr-003-20260914.md`
 
-### 2026-09-14 18:15:30 · 收到报告 · verifier
+### 2026-09-14 18:08:55 · 收到报告 · verifier
 
 - 1. 报告路径：`clarifications/verify-pr-003-20260914.md`
 - 2. 结论与计数：**PASS**（委托 7 条 pass / PR 验收 16/16 pass / 任务 T1~T8 **69 条判据**全 pass；fail 0 / partial 0 / blocked 0；偏差 7 条；观察 1 条）
@@ -492,7 +524,39 @@
 - 4. 偏差：D-1 PR 字面判据不可达（按上报①口径） / D-2 8 文件 vs 9 diff 路径（任务图属阶段产物） / D-3 一处 JSDoc 措辞改动（仅注释） / D-4 `oamp/web/**` 字面判据被 `index.html` 的 CSS class 名误命中（零改动文件） / D-5 `acp-client` 私有字段/注释仍名 `disposed`（术语） / D-6 B-17(3) 只覆盖 env 档 / D-7 「argv 首段 = --mode rpc」实为前两段
 - 5. 边界：未接收执行过程上下文；唯一写入 = 报告；零 git 写操作；探针夹具全在 `os.tmpdir` 且进程已终止
 
-### 2026-09-14 18:16:30 · 调度决策 · 槛位释放
+### 2026-09-14 18:09:13 · 调度决策 · 槛位释放
 
-- 决策内容：**pr-003 判定完成并合并进迭代分支**（`a975ce8`）；累计槛位释放次数 4 → **5**；清理该 PR 的 worktree 与分支（成功）——`git worktree list` 现仅剩主工作区 + 迭代工作区；**阶段 5 收敛：5/5 PR 全部合并**；合并后全量套件实跑中
+- 决策内容：**pr-003 判定完成并合并进迭代分支**（`a975ce8`）；累计槛位释放次数 4 → **5**；清理该 PR 的 worktree 与分支（成功）——`git worktree list` 现仅剩主工作区 + 迭代工作区；**阶段 5 收敛：5/5 PR 全部合并**；合并后全量套件**361/361 绿**（实跑完成，用时 69.7s）
 - 触发依据：`clarifications/verify-pr-003-20260914.md` 结论 PASS；`git log --oneline` 含 merge 提交 `a975ce8`；`git branch --list 'feat/*'` 为空
+
+### 2026-09-14 18:10:50 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 5 收尾落盘——提交 `status.md` / `history.md` 与阶段产物（commit `7651040`）；**阶段 5 判定 ✅**（5/5 PR 合并 + 每 PR 独立验收 PASS + 合并后全量 361/361 绿）⇒ 进入**阶段 6（独立验证）**
+- 触发依据：`git worktree list` 仅剩主工作区 + 迭代工作区；`git branch --list 'feat/*'` 为空；`oamp` 全量 `node --test test/*.test.js` 输出 `# pass 361 / # fail 0`；`status.md` 阶段表 5 已完成
+
+### 2026-09-14 18:12:40 · 派发 · verifier
+
+- 阶段：阶段 6（独立验证）
+- 任务：对迭代终态做收口独立验证（PR 粒度与依赖终态 / 并发调度真实执行证据三项 / E1~E7 效果 / 边界与保证项 / 搭置文件与偏差台账）
+- 输入：迭代分支 `a975ce8` 上全部产物（demand / prd / architecture / prs / clarifications / status / history / progress）+ 5 条 merge 提交 + 各 PR 验收报告；**不传入执行过程上下文**
+- 输出：`clarifications/verify-stage6-20260914.md`
+
+### 2026-09-14 18:12:40 · 派发 · progress-observer
+
+- 阶段：阶段 5 末波合并后的自动触发（第 3 次快照）
+- 任务：独立核实迭代终态真实 git 状态（合并真伪 / 分支与 worktree 清理 / 并发真实执行证据 / 状态漂移）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/progress.md`
+
+### 2026-09-14 18:24:20 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-stage6-20260914.md`
+- 2. 结论与计数：**PASS**（17 条判据：pass 16 / partial 1 / fail 0 / blocked 0；偏差 9 条）；身份 = 四重反射（PR 粒度与依赖→计划审查者；并发证据→流程审计者；E1~E7→测试工程师；边界保证项→同级代码审查者）
+- 3. 关键真机证据（真实 omp 18.0.11，非 fake 桩；10/10 sha256 同源副本，仓库零写入）：默认档 argv 含 `--mode rpc`；rpc 完整 SSE 时序（thinking@1.5s → tool_call → tool_output → chunk → `message(out)`@3.1s，共 165 帧）且同轮结束库内恰 1 in + 1 out；一次受门禁调用在途序列 `maxInFlight=1`、7 字段信封、`tool='bash'` 取自多行 title、裁决后条目消失且轮次推进（反面：非法 id 裁决被静默丢弃，无静默放行）；`OAMP_PROTOCOL=acp` ⇒ argv 首段 `acp`、角色级 flag 胜过 env、非法值退 2；真实 acp 回归与 oneshot 两轮两进程不续接、`!echo` 回合未 spawn omp；`buildArgv('claude:acp')` 零源码改动产出非 omp 宿主 argv
+- 4. 并发与流程证据：B2/B3 并发配置五字段在 `ea63557` 初始化后经 `0b78fee`/`b41933c`/`7651040` 三次真实更新（释放 2→4→5、有效上限 3→5 触硬上限）；B1 worktree 重叠 ≈48 分钟（独立观测者快照 `0b78fee` 记录两 worktree 同时在盘）；B-17 三用例实跑 3/3；`deferred-demand-changes.md` 全仓零命中 ⇒ 不存在
+- 5. 偏差：D-2（C6 partial：交付物内零真实 omp 证据，协议行为证据全来自 fake bin，由本轮真机补足）/ D-3（§9.4.1 六 vs 七文件，台账 D-7 仍开放）/ D-4（`status.test.js:157` 连跑 8 次失败 2 次 ≈25%，既有 flake，使「361/361 绿」非确定性）/ D-5（`option_id` 与 `optionId` 为两个真实面，代码自洽仅文档未点明）/ D-6（跨界文件例外仅 `launcher.js` 一处，台账 D-w2-2 可闭合）/ D-7（status.md 派发计数口径混用——主 agent 已修正为 24 并注明重算依据）/ D-8（真实 acp 门 `tool=null`，与 main 一致）/ D-9（门未裁决时轮次可无限挂起，属设计）/ D-1（HEAD = `7651040`，代码面与 `a975ce8` 逐字节一致）
+- 6. 边界：唯一写入 = 报告；`oamp/**` 零改动；零 git 写操作；探针进程与夹具已全部停止
+
+### 2026-09-14 18:25:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**阶段 6 判定 PASS** ⇒ 阶段 6 标记 ✅ 且「已验证」列打勾；按规范执行收口三步（在仓库主工作区：`checkout main` → `merge --no-ff iteration/0022-agent-launcher-and-protocol-layer` → `branch -d`），前置动作 = 在迭代工作区 `checkout --detach` 让出该分支的检出。**收口前不做任何偏差返工**：偏差记录不阻塞迭代关闭（D-4 flake 与 D-7/D-w2-1 文档面差异登记为下一迭代候选）
+- 触发依据：`clarifications/verify-stage6-20260914.md` 结论 PASS（fail 0）；工作流规范「迭代分支合并进 main：阶段 6 对本迭代最终产物判定 pass 之后」
