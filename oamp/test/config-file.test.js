@@ -43,6 +43,8 @@ test('无配置文件：新增三键取内置默认，既有六键取值逐字�
     dbPath: DEFAULT_DB,
     defaultModel: DEFAULT_MODEL,
     contextMax: 8,
+    // §5.3 解析链（T-03）：无配置文件 + 无 env ⇒ 内置默认 rpc
+    protocol: 'rpc',
   });
   assert.ok(path.isAbsolute(config.dbPath), 'dbPath 应为绝对路径（与 cwd 无关）');
 });
@@ -129,4 +131,18 @@ test('既有键回归：env 覆盖与校验行为不变（验收 1）', () => {
   assert.throws(() => loadConfig({ OAMP_CONFIG: missingConfig(), OAMP_HEARTBEAT_INTERVAL_MS: '0' }), /OAMP 配置错误/);
   assert.throws(() => loadConfig({ OAMP_CONFIG: missingConfig(), OAMP_HEARTBEAT_TIMEOUT_MS: 'abc' }), /OAMP 配置错误/);
   assert.throws(() => loadConfig({ OAMP_CONFIG: missingConfig(), OAMP_RECONNECT: '2' }), /OAMP 配置错误/);
+});
+
+test('protocol 三档解析：env > 配置文件 > 内置默认（验收 9 / §5.3 / T-03）', () => {
+  const file = writeConfig(JSON.stringify({ protocol: 'acp' }));
+  assert.equal(loadConfig({ OAMP_CONFIG: file }).protocol, 'acp');
+  assert.equal(loadConfig({ OAMP_CONFIG: file, OAMP_PROTOCOL: 'rpc' }).protocol, 'rpc');
+  assert.equal(loadConfig({ OAMP_CONFIG: missingConfig() }).protocol, 'rpc');
+  assert.equal(loadConfig({ OAMP_CONFIG: file, OAMP_PROTOCOL: '  ' }).protocol, 'acp');
+});
+
+test('protocol 越界值 → 抛「OAMP 配置错误」（验收 9 / §5.3）', () => {
+  assert.throws(() => loadConfig({ OAMP_CONFIG: missingConfig(), OAMP_PROTOCOL: 'bogus' }), /OAMP 配置错误/);
+  const file = writeConfig(JSON.stringify({ protocol: 'bogus' }));
+  assert.throws(() => loadConfig({ OAMP_CONFIG: file }), /OAMP 配置错误/);
 });

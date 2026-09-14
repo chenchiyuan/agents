@@ -15,6 +15,8 @@ const DB_DEFAULT = 'data/sql.db';
 // 默认模型取值：2026-09-10 用户修订（依据 V-13：原值首字延迟 ≈242s 且间歇无响应）——原值 openai/gpt-5.6-luna 保留为可指定值
 const MODEL_DEFAULT = 'deepseek/deepseek-v4-flash';
 const CONTEXT_MAX_DEFAULT = 8;
+// 第 4 键 protocol（§5.3 / T-03）：顶层键 + env OAMP_PROTOCOL，选择域 {rpc, acp}，内置默认 rpc
+const PROTOCOL_DEFAULT = 'rpc';
 
 const NUMERIC_DEFAULTS = {
   OAMP_HEARTBEAT_INTERVAL_MS: 10000,
@@ -41,6 +43,17 @@ function readPositiveInt(name, env) {
 function readNonEmptyString(value) {
   // env 空串/纯空白视为未提供（§8.2 未定义该情形，沿用既有 `env.X || 默认` 的"空即未设"风格）
   return typeof value === 'string' && value.trim() !== '' ? value : undefined;
+}
+
+// §5.3 选择域校验：越界值（含非字符串 / 空串）响亮失败，体例同 readPositiveInt / OAMP_RECONNECT 的 0/1 校验
+function readProtocol(value, source) {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value !== 'rpc' && value !== 'acp') {
+    throw new Error(`OAMP 配置错误: ${source} 仅支持 rpc/acp（当前值 ${JSON.stringify(value)}）`);
+  }
+  return value;
 }
 
 function isPlainObject(value) {
@@ -101,6 +114,7 @@ function readConfigFile(filePath) {
     db: readStringField(data, 'db', 'data', filePath),
     model: readStringField(defaults, 'model', 'defaults', filePath),
     contextMax: max,
+    protocol: readProtocol(parsed.protocol, 'protocol'),
   };
 }
 
@@ -127,6 +141,8 @@ export function loadConfig(env = process.env) {
     contextMax: env.OAMP_CTX_MAX === undefined
       ? (file.contextMax ?? CONTEXT_MAX_DEFAULT)
       : readPositiveInt('OAMP_CTX_MAX', env),
+    // §5.3 解析链本 PR 落三档（角色级 --protocol 归 pr-003）：OAMP_PROTOCOL > config.json: protocol > 内置 'rpc'
+    protocol: readProtocol(readNonEmptyString(env.OAMP_PROTOCOL), 'OAMP_PROTOCOL') || file.protocol || PROTOCOL_DEFAULT,
   };
 }
 
