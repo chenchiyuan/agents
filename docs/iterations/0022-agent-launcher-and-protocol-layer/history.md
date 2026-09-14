@@ -292,3 +292,77 @@
 - PR：`prs/pr-004-stream-kind-partition-ui.md`；worktree 分支 `feat/0022-pr-004-stream-kind-partition-ui`
 - 任务：按 `prs/pr-004-tasks.md` 实现最小改动并让任务图验收标准全部通过
 - 输出：`oamp/web/app.js`（+ 条件 `oamp/web/style.css`）+ 该分支提交
+
+### 2026-09-14 15:48:42 · 收到报告 · dev
+
+- 1. 改了什么文件：`oamp/src/launcher.js`（新建 150 行）/ `oamp/src/config.js`（+16）/ `oamp/test/config-file.test.js`（+16）；提交 `263c787`（3 files changed, 182 insertions, 0 deletions）
+- 2. 测试结果：`node --test oamp/test/config-file.test.js oamp/test/hygiene.test.js` = 14/14 通过；T1~T6 逐条验收通过（含 20 项一次性核对全 PASS：profile 键集与十三字段、rpc/acp 非 mode 段逐位相同、oneshot 不追加 --no-skills/--no-rules、bin 三档解析、spawn stdin 两态、零消费方；改动面封闭 + 禁改面 grep 零命中）
+- 3. 疑问/待办：approval 覆写按主 agent 裁定保持字面签名（不扩展入参，`deny ⇒ always-ask` 归调用方侧）；T2 验收 1 的差集口径已在报告中说明（oneshot 另有 profile **数据**差异，非结构差异）
+- 4. 违反边界的事：无（未用 --no-verify；无文件范围外改动）
+
+### 2026-09-14 15:55:27 · 收到报告 · dev
+
+- 1. 改了什么文件：`oamp/web/app.js`（37 insertions / 8 deletions）；提交 `28acecb`
+- 2. 测试结果：T1~T3 逐条通过（静态契约测试 `web/inbox-console/api-pages/project-workspace` = 74/74 绿；运行期落点由浏览器控制台直调 `handleEvent` 观测）
+- 3. 疑问/待办：见任务图 Q1~Q5（renderStatusLine 判据不触碰 / style.css 条件未触发 / 呈现形态只到结构层 / 测试面零改动约束 / 跨 PR 时序边界）
+- 4. 违反边界的事：无
+
+### 2026-09-14 15:56:43 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现）· 首波验收
+- PR：`prs/pr-001-launcher-and-protocol-config.md`（commit `263c787`）；worktree 分支 `feat/0022-pr-001-launcher-and-protocol-config`
+- 任务：独立验收该 PR 验收标准 + 改动面封闭性 + 零消费方 + 测试面无越界 + 无架构决策泄漏
+- 输出：`clarifications/verify-pr-001-20260914.md`
+
+### 2026-09-14 15:56:43 · 派发 · verifier
+
+- 阶段：阶段 5（PR 实现）· 首波验收
+- PR：`prs/pr-004-stream-kind-partition-ui.md`（commit `28acecb`）；worktree 分支 `feat/0022-pr-004-stream-kind-partition-ui`
+- 任务：独立验收该 PR 验收 1~6 + 改动面封闭性 + 测试面零改动 + 过程分区落点 + 边界（N4/N5）
+- 输出：`clarifications/verify-pr-004-20260914.md`
+
+### 2026-09-14 16:02:20 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-pr-001-20260914.md`
+- 2. 结论与计数：**PASS**（pass 5 / fail 0 / partial 0 / blocked 0；偏差 7 条；下一迭代候选 5 条）；验证者身份 = 同级代码审查者（Node.js ESM 子进程启动与 argv 构造方向）兼测试面审查者
+- 3. 关键证据：改动面 = 恰好 3 个文件；既有测试面 29 个中仅 `config-file.test.js` 被改；`node --test` 14/14；零消费方（全仓对 `launcher.js` / `OAMP_PROTOCOL` 无生产引用）；`package.json` dependencies 仍为空
+- 4. 偏差（不阻塞）：D-1 §9.4.1 未列 config-file.test.js（PR 文件已授权）/ D-2 验收 13 字面「三个文件」与 diff 含阶段产物 / D-3 argv 次序取 A6 序 / D-4 导出形态与 stdio 契约架构未定（MI-1/MI-4 已裁决）/ D-5 oneshot skills·rules 取 true（MI-3 已裁决）/ D-6 protocol 顶层键（MI-5 已裁决）/ **D-7 `input:'positional'` 且未传 prompt 时 argv 末位为 `undefined`**（不在本 PR 判据面，列为下一迭代候选与阶段 5 消费方防护项）
+- 5. 独立性与边界：未使用执行过程上下文；唯一写入 = 报告；零 git 写操作
+
+### 2026-09-14 16:03:36 · 收到报告 · verifier
+
+- 1. 报告路径：`clarifications/verify-pr-004-20260914.md`
+- 2. 结论与计数：**PASS**（委托标准 6/6 pass；PR 验收 1~6 全 pass；T1 7/7、T2 9/9、T3 8/8；fail 0；偏差 4 条；下一迭代候选 5 条）
+- 3. 关键证据：改动面仅 `oamp/web/app.js`（零新增文件、style.css 条件未触发）；`src/web.js` / `index.html` / `test/web.test.js` 与 base 同 blob（零改动）；静态契约 74/74；运行期落点 = `thinking → #stream-thinking`、`tool_call`/`tool_output → #stream-tool`、`chunk`/`stdout`/`stderr`/未知值 → `#stream-text`；端到端（既有 acp + 一次性 fake）过程零入库（`messages=4` 两轮 in/out）
+- 4. 偏差：D-1 PR 摘要「三个过程分区」与实现「两个过程分区」措辞不一致 / D-2 `renderStatusLine` 判据口径差（任务图明定不触碰）/ D-3 复位赋值 4 处但触发语义 3 处 / D-4 `prs/pr-004-tasks.md` 未被 git 跟踪（体例不一致）
+- 5. 独立性与边界：未使用执行过程上下文；已停止 router/web/agent 进程与浏览器会话并清理临时件；唯一写入 = 报告
+
+### 2026-09-14 16:04:30 · 调度决策 · 槛位释放
+
+- 决策内容：**pr-001 与 pr-004 均判定完成并合并进迭代分支**（`2a2d979` pr-001 / `f1097ae` pr-004）；合并后跑 `oamp` 全量测试 = **335/335 绿**（base 333 + 本波新增 2 条 config 协议用例）；累计槛位释放次数 0 → **2**，当前有效上限按爬升公式 `min(3 + 2×3, 5)` = **5**（触硬上限）；清理两个已合并 PR 的 worktree 与分支（`git worktree remove` + `git branch -d`，均成功）
+- 触发依据：`clarifications/verify-pr-001-20260914.md` 与 `verify-pr-004-20260914.md` 结论均为 PASS；依赖图解锁条件 = 合并进迭代分支；`git log --oneline` 含两条 merge 提交
+
+### 2026-09-14 16:05:07 · 调度决策 · 阶段推进核查
+
+- 决策内容：处置 pr-004 验收者登记的偏差 **D-4**——`prs/pr-004-tasks.md` 未被 git 跟踪（首波 planner 产物未随 dev 提交流入集成分支）⇒ 复制该文件入迭代工作区并提交（`fa2acd6`），随后 `git worktree remove --force` 清理该 PR worktree、删除其分支；pr-001 分支一并删除
+- 触发依据：`git -C <pr-004 worktree> status --short` 输出 `?? docs/iterations/0022-*/prs/pr-004-tasks.md`；`git worktree remove` 因该未跟踪文件报「contains modified or untracked files」
+
+### 2026-09-14 16:05:30 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）· 次波
+- PR：`prs/pr-002-test-face-profile-pinning.md`（依赖 pr-001，已合并）；worktree 分支 `feat/0022-pr-002-test-face-profile-pinning`
+- 任务：把该 PR 拆为可独立验收的任务图
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-002-tasks.md`
+
+### 2026-09-14 16:05:30 · 派发 · planner
+
+- 阶段：阶段 5（PR 实现）· 次波
+- PR：`prs/pr-005-protocol-layer-and-injection-entry.md`（依赖 pr-001，已合并）；worktree 分支 `feat/0022-pr-005-protocol-layer-and-injection-entry`
+- 任务：把该 PR 拆为可独立验收的任务图
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prs/pr-005-tasks.md`
+
+### 2026-09-14 16:05:30 · 派发 · progress-observer
+
+- 阶段：阶段 5 首波合并后的自动触发（工作流契约：每次 PR 合并后自动派发一次）
+- 任务：独立核实真实 git 状态，整体覆盖写入 `progress.md`
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/progress.md`
