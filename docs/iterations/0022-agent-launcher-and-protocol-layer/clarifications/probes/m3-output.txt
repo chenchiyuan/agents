@@ -1,0 +1,718 @@
+
+----------- rpc/baseline
+{
+  "name": "rpc/baseline",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash"
+  ],
+  "kind": "rpc",
+  "ready": true,
+  "readyAt": "0.83s",
+  "stderr": "",
+  "exit": 0,
+  "state": {
+    "sessionId": "01a09ded-b286-70eb-9623-9185203f0583",
+    "isStreaming": false,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "toolCount": 11,
+    "systemPromptHasMarker": false,
+    "systemPromptLines": 3,
+    "contextUsage": [
+      "tokens",
+      "contextWindow",
+      "percent"
+    ]
+  },
+  "error": null,
+  "frames": {
+    "ready": 1,
+    "extension_ui_request": 2,
+    "advisor_cost_changed": 1,
+    "available_commands_update": 1,
+    "response": 2
+  },
+  "protocolVersion": 1,
+  "supportedProtocolVersions": [
+    1,
+    2
+  ],
+  "maxFrameBytes": 1048576,
+  "rawStdout": "{\"type\":\"ready\",\"protocolVersion\":1,\"supportedProtocolVersions\":[1,2],\"maxFrameBytes\":1048576,\"maxReassembledFrameBytes\":67108864}\n{\"type\":\"extension_ui_request\",\"id\":\"157ec8c0efc7247a\",\"method\":\"setWidget\",\"widgetKey\":\"autoresearch\"}\n{\"type\":\"advisor_cost_changed\"}\n{\"type\":\"available_commands_update\",\"commands\":[{\"name\":\"security\",\"description\":\"Plan, run, inspect, import, and compare OMP-native security scans\",\"input\":{\"hint\":\"<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>\"},\"subcommands\":[{\"name\":\"plan\",\"description\":\"Create an immutable security scan plan\"},{\"name\":\"scan\",\"description\":\"Start a planned or newly planned native scan\"},{\"name\":\"status\",\"description\":\"Show native scan operation status\"},{\"name\":\"cancel\",\"description\":\"Cancel a running nativ",
+  "finishReason": "got get_state"
+}
+
+----------- rpc/no-skills+no-rules+no-session
+{
+  "name": "rpc/no-skills+no-rules+no-session",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session"
+  ],
+  "kind": "rpc",
+  "ready": true,
+  "readyAt": "0.85s",
+  "stderr": "",
+  "exit": 0,
+  "state": {
+    "sessionId": "01a09ded-bbcd-733b-aabf-4ff1819679b7",
+    "isStreaming": false,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "toolCount": 11,
+    "systemPromptHasMarker": false,
+    "systemPromptLines": 3,
+    "contextUsage": [
+      "tokens",
+      "contextWindow",
+      "percent"
+    ]
+  },
+  "error": null,
+  "frames": {
+    "ready": 1,
+    "extension_ui_request": 2,
+    "available_commands_update": 2,
+    "response": 2
+  },
+  "protocolVersion": 1,
+  "supportedProtocolVersions": [
+    1,
+    2
+  ],
+  "maxFrameBytes": 1048576,
+  "rawStdout": "{\"type\":\"ready\",\"protocolVersion\":1,\"supportedProtocolVersions\":[1,2],\"maxFrameBytes\":1048576,\"maxReassembledFrameBytes\":67108864}\n{\"type\":\"extension_ui_request\",\"id\":\"157ec8c351842c40\",\"method\":\"setWidget\",\"widgetKey\":\"autoresearch\"}\n{\"type\":\"available_commands_update\",\"commands\":[{\"name\":\"security\",\"description\":\"Plan, run, inspect, import, and compare OMP-native security scans\",\"input\":{\"hint\":\"<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>\"},\"subcommands\":[{\"name\":\"plan\",\"description\":\"Create an immutable security scan plan\"},{\"name\":\"scan\",\"description\":\"Start a planned or newly planned native scan\"},{\"name\":\"status\",\"description\":\"Show native scan operation status\"},{\"name\":\"cancel\",\"description\":\"Cancel a running native scan\"},{\"name\":\"scans\",\"descri",
+  "finishReason": "got get_state"
+}
+
+----------- rpc/tools=read,bash
+{
+  "name": "rpc/tools=read,bash",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--tools=read,bash"
+  ],
+  "kind": "rpc",
+  "ready": true,
+  "readyAt": "0.81s",
+  "stderr": "",
+  "exit": 0,
+  "state": {
+    "sessionId": "01a09ded-c531-7494-b916-ecc88f58d315",
+    "isStreaming": false,
+    "tools": [
+      "read",
+      "bash",
+      "write"
+    ],
+    "toolCount": 3,
+    "systemPromptHasMarker": false,
+    "systemPromptLines": 3,
+    "contextUsage": [
+      "tokens",
+      "contextWindow",
+      "percent"
+    ]
+  },
+  "error": null,
+  "frames": {
+    "ready": 1,
+    "extension_ui_request": 2,
+    "available_commands_update": 2,
+    "response": 2
+  },
+  "protocolVersion": 1,
+  "supportedProtocolVersions": [
+    1,
+    2
+  ],
+  "maxFrameBytes": 1048576,
+  "rawStdout": "{\"type\":\"ready\",\"protocolVersion\":1,\"supportedProtocolVersions\":[1,2],\"maxFrameBytes\":1048576,\"maxReassembledFrameBytes\":67108864}\n{\"type\":\"extension_ui_request\",\"id\":\"157ec8c5a76e902c\",\"method\":\"setWidget\",\"widgetKey\":\"autoresearch\"}\n{\"type\":\"available_commands_update\",\"commands\":[{\"name\":\"security\",\"description\":\"Plan, run, inspect, import, and compare OMP-native security scans\",\"input\":{\"hint\":\"<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>\"},\"subcommands\":[{\"name\":\"plan\",\"description\":\"Create an immutable security scan plan\"},{\"name\":\"scan\",\"description\":\"Start a planned or newly planned native scan\"},{\"name\":\"status\",\"description\":\"Show native scan operation status\"},{\"name\":\"cancel\",\"description\":\"Cancel a running native scan\"},{\"name\":\"scans\",\"descri",
+  "finishReason": "got get_state"
+}
+
+----------- rpc/no-tools
+{
+  "name": "rpc/no-tools",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--no-tools"
+  ],
+  "kind": "rpc",
+  "ready": true,
+  "readyAt": "0.72s",
+  "stderr": "",
+  "exit": 0,
+  "state": {
+    "sessionId": "01a09ded-ce1d-721f-9a1b-9630148aa9df",
+    "isStreaming": false,
+    "tools": [
+      "mcp__context_query_docs",
+      "mcp__context_resolve_library_id",
+      "mcp__openaideveloperdocs_fetch_openai_doc",
+      "mcp__openaideveloperdocs_get_openapi_spec",
+      "mcp__openaideveloperdocs_list_api_endpoints",
+      "mcp__openaideveloperdocs_list_openai_docs",
+      "mcp__openaideveloperdocs_search_openai_docs",
+      "mcp__pb_agent_supervisor_provider_close",
+      "mcp__pb_agent_supervisor_provider_follow",
+      "mcp__pb_agent_supervisor_provider_interrupt",
+      "mcp__pb_agent_supervisor_provider_open",
+      "mcp__pb_agent_supervisor_provider_resume",
+      "mcp__pb_agent_supervisor_provider_send",
+      "mcp__pb_agent_supervisor_task_cancel",
+      "mcp__pb_agent_supervisor_task_checkpoint",
+      "mcp__pb_agent_supervisor_task_complete",
+      "mcp__pb_agent_supervisor_task_create",
+      "mcp__pb_agent_supervisor_task_guide",
+      "mcp__pb_agent_supervisor_task_interim_delivery",
+      "mcp__pb_agent_supervisor_task_observe",
+      "mcp__pb_agent_supervisor_task_pause",
+      "mcp__pb_agent_supervisor_task_reject_candidate",
+      "mcp__pb_agent_supervisor_task_request_user",
+      "mcp__pb_agent_supervisor_task_respond",
+      "mcp__pb_agent_supervisor_task_result",
+      "mcp__pb_agent_supervisor_task_resume",
+      "mcp__pb_agent_supervisor_task_start",
+      "mcp__pb_agent_supervisor_task_status",
+      "mcp__pb_agent_supervisor_task_switch_provider",
+      "mcp__pencil_batch_design",
+      "mcp__pencil_batch_get",
+      "mcp__pencil_find_empty_space_on_canvas",
+      "mcp__pencil_get_editor_state",
+      "mcp__pencil_get_guidelines",
+      "mcp__pencil_get_screenshot",
+      "mcp__pencil_get_style_guide",
+      "mcp__pencil_get_style_guide_tags",
+      "mcp__pencil_get_variables",
+      "mcp__pencil_open_document",
+      "mcp__pencil_replace_all_matching_properties",
+      "mcp__pencil_search_all_unique_properties",
+      "mcp__pencil_set_variables",
+      "mcp__pencil_snapshot_layout",
+      "mcp__workbuddy_consult_codebuddy",
+      "mcp__workbuddy_execute_codebuddy_task",
+      "mcp__workbuddy_resume_codebuddy_task"
+    ],
+    "toolCount": 46,
+    "systemPromptHasMarker": false,
+    "systemPromptLines": 3,
+    "contextUsage": [
+      "tokens",
+      "contextWindow",
+      "percent"
+    ]
+  },
+  "error": null,
+  "frames": {
+    "ready": 1,
+    "extension_ui_request": 2,
+    "available_commands_update": 1,
+    "response": 2
+  },
+  "protocolVersion": 1,
+  "supportedProtocolVersions": [
+    1,
+    2
+  ],
+  "maxFrameBytes": 1048576,
+  "rawStdout": "{\"type\":\"ready\",\"protocolVersion\":1,\"supportedProtocolVersions\":[1,2],\"maxFrameBytes\":1048576,\"maxReassembledFrameBytes\":67108864}\n{\"type\":\"extension_ui_request\",\"id\":\"157ec8c7df171dec\",\"method\":\"setWidget\",\"widgetKey\":\"autoresearch\"}\n{\"type\":\"available_commands_update\",\"commands\":[{\"name\":\"security\",\"description\":\"Plan, run, inspect, import, and compare OMP-native security scans\",\"input\":{\"hint\":\"<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>\"},\"subcommands\":[{\"name\":\"plan\",\"description\":\"Create an immutable security scan plan\"},{\"name\":\"scan\",\"description\":\"Start a planned or newly planned native scan\"},{\"name\":\"status\",\"description\":\"Show native scan operation status\"},{\"name\":\"cancel\",\"description\":\"Cancel a running native scan\"},{\"name\":\"scans\",\"descri",
+  "finishReason": "got get_state"
+}
+
+----------- rpc/append-system-prompt
+{
+  "name": "rpc/append-system-prompt",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--append-system-prompt=/tmp/oamp-probe-role.md",
+    "--tools=read"
+  ],
+  "kind": "rpc",
+  "ready": true,
+  "readyAt": "0.71s",
+  "stderr": "",
+  "exit": 0,
+  "state": {
+    "sessionId": "01a09ded-d703-7240-8352-a7ef4b5629d8",
+    "isStreaming": false,
+    "tools": [
+      "read",
+      "write"
+    ],
+    "toolCount": 2,
+    "systemPromptHasMarker": true,
+    "systemPromptLines": 3,
+    "contextUsage": [
+      "tokens",
+      "contextWindow",
+      "percent"
+    ]
+  },
+  "error": null,
+  "frames": {
+    "ready": 1,
+    "extension_ui_request": 2,
+    "available_commands_update": 1,
+    "response": 2
+  },
+  "protocolVersion": 1,
+  "supportedProtocolVersions": [
+    1,
+    2
+  ],
+  "maxFrameBytes": 1048576,
+  "rawStdout": "{\"type\":\"ready\",\"protocolVersion\":1,\"supportedProtocolVersions\":[1,2],\"maxFrameBytes\":1048576,\"maxReassembledFrameBytes\":67108864}\n{\"type\":\"extension_ui_request\",\"id\":\"157ec8ca17609f9c\",\"method\":\"setWidget\",\"widgetKey\":\"autoresearch\"}\n{\"type\":\"available_commands_update\",\"commands\":[{\"name\":\"security\",\"description\":\"Plan, run, inspect, import, and compare OMP-native security scans\",\"input\":{\"hint\":\"<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>\"},\"subcommands\":[{\"name\":\"plan\",\"description\":\"Create an immutable security scan plan\"},{\"name\":\"scan\",\"description\":\"Start a planned or newly planned native scan\"},{\"name\":\"status\",\"description\":\"Show native scan operation status\"},{\"name\":\"cancel\",\"description\":\"Cancel a running native scan\"},{\"name\":\"scans\",\"descri",
+  "finishReason": "got get_state"
+}
+
+----------- rpc/approval-mode+thinking+max-time
+{
+  "name": "rpc/approval-mode+thinking+max-time",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--thinking",
+    "off",
+    "--approval-mode",
+    "always-ask",
+    "--max-time",
+    "5m"
+  ],
+  "kind": "rpc",
+  "ready": true,
+  "readyAt": "0.72s",
+  "stderr": "",
+  "exit": 0,
+  "state": {
+    "sessionId": "01a09ded-dfe4-758c-b34a-567f94ef6345",
+    "isStreaming": false,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "toolCount": 11,
+    "systemPromptHasMarker": false,
+    "systemPromptLines": 3,
+    "contextUsage": [
+      "tokens",
+      "contextWindow",
+      "percent"
+    ]
+  },
+  "error": null,
+  "frames": {
+    "ready": 1,
+    "extension_ui_request": 2,
+    "available_commands_update": 1,
+    "response": 2
+  },
+  "protocolVersion": 1,
+  "supportedProtocolVersions": [
+    1,
+    2
+  ],
+  "maxFrameBytes": 1048576,
+  "rawStdout": "{\"type\":\"ready\",\"protocolVersion\":1,\"supportedProtocolVersions\":[1,2],\"maxFrameBytes\":1048576,\"maxReassembledFrameBytes\":67108864}\n{\"type\":\"extension_ui_request\",\"id\":\"157ec8cc4f5bbe8f\",\"method\":\"setWidget\",\"widgetKey\":\"autoresearch\"}\n{\"type\":\"available_commands_update\",\"commands\":[{\"name\":\"security\",\"description\":\"Plan, run, inspect, import, and compare OMP-native security scans\",\"input\":{\"hint\":\"<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>\"},\"subcommands\":[{\"name\":\"plan\",\"description\":\"Create an immutable security scan plan\"},{\"name\":\"scan\",\"description\":\"Start a planned or newly planned native scan\"},{\"name\":\"status\",\"description\":\"Show native scan operation status\"},{\"name\":\"cancel\",\"description\":\"Cancel a running native scan\"},{\"name\":\"scans\",\"descri",
+  "finishReason": "got get_state"
+}
+
+----------- rpc/cwd-flag
+{
+  "name": "rpc/cwd-flag",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--cwd=/tmp"
+  ],
+  "kind": "rpc",
+  "ready": true,
+  "readyAt": "0.70s",
+  "stderr": "",
+  "exit": 0,
+  "state": {
+    "sessionId": "01a09ded-e8b7-706f-ae3f-8d6eae7f2931",
+    "isStreaming": false,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "toolCount": 11,
+    "systemPromptHasMarker": false,
+    "systemPromptLines": 3,
+    "contextUsage": [
+      "tokens",
+      "contextWindow",
+      "percent"
+    ]
+  },
+  "error": null,
+  "frames": {
+    "ready": 1,
+    "extension_ui_request": 2,
+    "available_commands_update": 1,
+    "response": 2
+  },
+  "protocolVersion": 1,
+  "supportedProtocolVersions": [
+    1,
+    2
+  ],
+  "maxFrameBytes": 1048576,
+  "rawStdout": "{\"type\":\"ready\",\"protocolVersion\":1,\"supportedProtocolVersions\":[1,2],\"maxFrameBytes\":1048576,\"maxReassembledFrameBytes\":67108864}\n{\"type\":\"extension_ui_request\",\"id\":\"157ec8ce83b39758\",\"method\":\"setWidget\",\"widgetKey\":\"autoresearch\"}\n{\"type\":\"available_commands_update\",\"commands\":[{\"name\":\"security\",\"description\":\"Plan, run, inspect, import, and compare OMP-native security scans\",\"input\":{\"hint\":\"<plan|scan|status|cancel|scans|show|import|export|validate|compare|disposition>\"},\"subcommands\":[{\"name\":\"plan\",\"description\":\"Create an immutable security scan plan\"},{\"name\":\"scan\",\"description\":\"Start a planned or newly planned native scan\"},{\"name\":\"status\",\"description\":\"Show native scan operation status\"},{\"name\":\"cancel\",\"description\":\"Cancel a running native scan\"},{\"name\":\"scans\",\"descri",
+  "finishReason": "got get_state"
+}
+
+----------- rpc/@file-positional(应被拒)
+{
+  "name": "rpc/@file-positional(应被拒)",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "@/tmp/oamp-probe-role.md"
+  ],
+  "kind": "rpc",
+  "ready": null,
+  "readyAt": null,
+  "stderr": "Error: @file arguments are not supported in RPC mode\n",
+  "exit": 1,
+  "state": null,
+  "error": null,
+  "frames": {},
+  "finishReason": "exited before ready"
+}
+
+----------- acp/对照组(同一组非 mode 参数)
+{
+  "name": "acp/对照组(同一组非 mode 参数)",
+  "argv": [
+    "/Users/chenchiyuan/.bun/bin/omp",
+    "acp",
+    "--no-skills",
+    "--no-rules",
+    "--no-tools",
+    "--no-session",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--append-system-prompt=/tmp/oamp-probe-role.md",
+    "--approval-mode",
+    "always-ask"
+  ],
+  "kind": "acp",
+  "ready": null,
+  "readyAt": null,
+  "stderr": "",
+  "exit": 0,
+  "state": null,
+  "error": null,
+  "frames": {
+    "undefined": 2
+  },
+  "rawStdout": "{\"jsonrpc\":\"2.0\",\"id\":\"init\",\"result\":{\"protocolVersion\":1,\"agentInfo\":{\"name\":\"oh-my-pi\",\"title\":\"Oh My Pi\",\"version\":\"18.0.11\"},\"authMethods\":[{\"id\":\"agent\",\"name\":\"Use existing local credentials\",\"description\":\"Authenticate via the provider keys/OAuth state already configured under ~/.omp.\"}],\"agentCapabilities\":{\"loadSession\":true,\"mcpCapabilities\":{\"http\":true,\"sse\":true},\"promptCapabilities\":{\"embeddedContext\":true,\"image\":true},\"sessionCapabilities\":{\"list\":{},\"fork\":{},\"resume\":{},\"close\":{}}}}}\n{\"jsonrpc\":\"2.0\",\"id\":\"newsess\",\"result\":{\"sessionId\":\"01a09ded-fa3b-73b5-87fd-049681434e4c\",\"configOptions\":[{\"id\":\"mode\",\"name\":\"Mode\",\"category\":\"mode\",\"type\":\"select\",\"currentValue\":\"default\",\"options\":[{\"value\":\"default\",\"name\":\"Default\",\"description\":\"Standard ACP headless mode\"},{\"va",
+  "acpSessionId": "01a09ded-fa3b-73b5-87fd-049681434e4c",
+  "acpConfigOptions": "[{\"id\":\"mode\",\"name\":\"Mode\",\"category\":\"mode\",\"type\":\"select\",\"currentValue\":\"default\",\"options\":[{\"value\":\"default\",\"name\":\"Default\",\"description\":\"Standard ACP headless mode\"},{\"value\":\"plan\",\"name\"",
+  "finishReason": "got session/new"
+}
+
+===== M-3 汇总 =====
+[
+  {
+    "name": "rpc/baseline",
+    "ready": true,
+    "readyAt": "0.83s",
+    "exit": 0,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "systemPromptHasMarker": false,
+    "acpSessionId": null,
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got get_state"
+  },
+  {
+    "name": "rpc/no-skills+no-rules+no-session",
+    "ready": true,
+    "readyAt": "0.85s",
+    "exit": 0,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "systemPromptHasMarker": false,
+    "acpSessionId": null,
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got get_state"
+  },
+  {
+    "name": "rpc/tools=read,bash",
+    "ready": true,
+    "readyAt": "0.81s",
+    "exit": 0,
+    "tools": [
+      "read",
+      "bash",
+      "write"
+    ],
+    "systemPromptHasMarker": false,
+    "acpSessionId": null,
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got get_state"
+  },
+  {
+    "name": "rpc/no-tools",
+    "ready": true,
+    "readyAt": "0.72s",
+    "exit": 0,
+    "tools": [
+      "mcp__context_query_docs",
+      "mcp__context_resolve_library_id",
+      "mcp__openaideveloperdocs_fetch_openai_doc",
+      "mcp__openaideveloperdocs_get_openapi_spec",
+      "mcp__openaideveloperdocs_list_api_endpoints",
+      "mcp__openaideveloperdocs_list_openai_docs",
+      "mcp__openaideveloperdocs_search_openai_docs",
+      "mcp__pb_agent_supervisor_provider_close",
+      "mcp__pb_agent_supervisor_provider_follow",
+      "mcp__pb_agent_supervisor_provider_interrupt",
+      "mcp__pb_agent_supervisor_provider_open",
+      "mcp__pb_agent_supervisor_provider_resume",
+      "mcp__pb_agent_supervisor_provider_send",
+      "mcp__pb_agent_supervisor_task_cancel",
+      "mcp__pb_agent_supervisor_task_checkpoint",
+      "mcp__pb_agent_supervisor_task_complete",
+      "mcp__pb_agent_supervisor_task_create",
+      "mcp__pb_agent_supervisor_task_guide",
+      "mcp__pb_agent_supervisor_task_interim_delivery",
+      "mcp__pb_agent_supervisor_task_observe",
+      "mcp__pb_agent_supervisor_task_pause",
+      "mcp__pb_agent_supervisor_task_reject_candidate",
+      "mcp__pb_agent_supervisor_task_request_user",
+      "mcp__pb_agent_supervisor_task_respond",
+      "mcp__pb_agent_supervisor_task_result",
+      "mcp__pb_agent_supervisor_task_resume",
+      "mcp__pb_agent_supervisor_task_start",
+      "mcp__pb_agent_supervisor_task_status",
+      "mcp__pb_agent_supervisor_task_switch_provider",
+      "mcp__pencil_batch_design",
+      "mcp__pencil_batch_get",
+      "mcp__pencil_find_empty_space_on_canvas",
+      "mcp__pencil_get_editor_state",
+      "mcp__pencil_get_guidelines",
+      "mcp__pencil_get_screenshot",
+      "mcp__pencil_get_style_guide",
+      "mcp__pencil_get_style_guide_tags",
+      "mcp__pencil_get_variables",
+      "mcp__pencil_open_document",
+      "mcp__pencil_replace_all_matching_properties",
+      "mcp__pencil_search_all_unique_properties",
+      "mcp__pencil_set_variables",
+      "mcp__pencil_snapshot_layout",
+      "mcp__workbuddy_consult_codebuddy",
+      "mcp__workbuddy_execute_codebuddy_task",
+      "mcp__workbuddy_resume_codebuddy_task"
+    ],
+    "systemPromptHasMarker": false,
+    "acpSessionId": null,
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got get_state"
+  },
+  {
+    "name": "rpc/append-system-prompt",
+    "ready": true,
+    "readyAt": "0.71s",
+    "exit": 0,
+    "tools": [
+      "read",
+      "write"
+    ],
+    "systemPromptHasMarker": true,
+    "acpSessionId": null,
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got get_state"
+  },
+  {
+    "name": "rpc/approval-mode+thinking+max-time",
+    "ready": true,
+    "readyAt": "0.72s",
+    "exit": 0,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "systemPromptHasMarker": false,
+    "acpSessionId": null,
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got get_state"
+  },
+  {
+    "name": "rpc/cwd-flag",
+    "ready": true,
+    "readyAt": "0.70s",
+    "exit": 0,
+    "tools": [
+      "read",
+      "bash",
+      "edit",
+      "eval",
+      "glob",
+      "grep",
+      "task",
+      "hub",
+      "todo",
+      "web_search",
+      "write"
+    ],
+    "systemPromptHasMarker": false,
+    "acpSessionId": null,
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got get_state"
+  },
+  {
+    "name": "rpc/@file-positional(应被拒)",
+    "ready": null,
+    "readyAt": null,
+    "exit": 1,
+    "tools": null,
+    "systemPromptHasMarker": null,
+    "acpSessionId": null,
+    "stderrHead": "Error: @file arguments are not supported in RPC mode",
+    "nonJson": null,
+    "finishReason": "exited before ready"
+  },
+  {
+    "name": "acp/对照组(同一组非 mode 参数)",
+    "ready": null,
+    "readyAt": null,
+    "exit": 0,
+    "tools": null,
+    "systemPromptHasMarker": null,
+    "acpSessionId": "01a09ded-fa3b-73b5-87fd-049681434e4c",
+    "stderrHead": "",
+    "nonJson": null,
+    "finishReason": "got session/new"
+  }
+]

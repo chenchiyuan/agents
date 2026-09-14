@@ -1,0 +1,105 @@
+argv: /Users/chenchiyuan/.bun/bin/omp --mode rpc --model deepseek/deepseek-v4-flash --no-skills --no-rules --no-session --thinking off
+
+===== M-1 结论数据 =====
+{
+  "probe": "M-1 RPC 会话模型",
+  "argv": [
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--thinking",
+    "off"
+  ],
+  "exitCode": 0,
+  "promptResponses": 3,
+  "agentStart": 1,
+  "agentEnd": 1,
+  "distinctSessionIds": [
+    "01a09deb-150f-77e4-901b-67d965e74e06",
+    "01a09deb-9752-77bd-9486-b6083406d227"
+  ],
+  "sessionIdCount": 2,
+  "stateSamples": [
+    {
+      "at": "0.90s",
+      "sessionId": "01a09deb-150f-77e4-901b-67d965e74e06",
+      "isStreaming": false,
+      "queued": 0,
+      "messageCount": 0
+    },
+    {
+      "at": "4.69s",
+      "sessionId": "01a09deb-150f-77e4-901b-67d965e74e06",
+      "isStreaming": true,
+      "queued": 0,
+      "messageCount": 3
+    },
+    {
+      "at": "9.69s",
+      "sessionId": "01a09deb-150f-77e4-901b-67d965e74e06",
+      "isStreaming": false,
+      "queued": 0,
+      "messageCount": 4
+    },
+    {
+      "at": "30.69s",
+      "sessionId": "01a09deb-150f-77e4-901b-67d965e74e06",
+      "isStreaming": false,
+      "queued": 0,
+      "messageCount": 4
+    },
+    {
+      "at": "36.69s",
+      "sessionId": "01a09deb-9752-77bd-9486-b6083406d227",
+      "isStreaming": false,
+      "queued": 0,
+      "messageCount": 0
+    }
+  ],
+  "frameCounts": {
+    "ready": 1,
+    "extension_ui_request": 4,
+    "available_commands_update": 4,
+    "response": 12,
+    "agent_start": 1,
+    "turn_start": 2,
+    "message_start": 4,
+    "message_end": 4,
+    "message_update": 79,
+    "mu:toolcall_start": 1,
+    "mu:toolcall_delta": 26,
+    "mu:toolcall_end": 1,
+    "tool_execution_start": 1,
+    "tool_execution_update": 2,
+    "tool_execution_end": 1,
+    "turn_end": 2,
+    "mu:text_start": 1,
+    "mu:text_delta": 49,
+    "mu:text_end": 1,
+    "agent_end": 1
+  }
+}
+
+===== 时间线 =====
+0.69s | READY | {"type":"ready","protocolVersion":1,"supportedProtocolVersions":[1,2],"maxFrameBytes":1048576,"maxReassembledFrameBytes":67108864}
+
+===== 请求 / 响应日志 =====
+0.89s | >>> get_state (S1) | 
+1.29s | >>> prompt P1 | 
+3.19s | >>> prompt P2（P1 仍在飞） | 
+3.19s | ERROR_RESPONSE | {"id":"p2","type":"response","command":"prompt","success":false,"error":"Agent is already processing. Use steer() or followUp() to queue messages, or wait for completion."}
+4.69s | >>> get_state (S2, mid) | 
+9.69s | >>> get_state (S3, mid) | 
+30.69s | >>> get_state (S4, after both) | 
+31.69s | >>> get_last_assistant_text (before new_session) | 
+31.69s | get_last_assistant_text.response | {"text":"执行了 `echo M1-P1`（cwd: `/tmp`），stdout 输出 `M1-P1`，退出正常，耗时 0.04s。无副作用、无文件读写。"}
+33.69s | >>> new_session | 
+33.70s | new_session.response | {"cancelled":false}
+36.69s | >>> get_state (S5, after new_session) | 
+37.69s | >>> get_last_assistant_text (after new_session) | 
+37.69s | get_last_assistant_text.response | {}
+150.00s | >>> end stdin | 

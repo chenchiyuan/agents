@@ -1,0 +1,175 @@
+argv: /Users/chenchiyuan/.bun/bin/omp --mode rpc --model deepseek/deepseek-v4-flash --no-skills --no-rules --no-session --thinking off --approval-mode yolo --tools=read
+
+===== M-4 结论数据 =====
+{
+  "probe": "M-4 host_tool_call / host_uri_request 默认是否触发",
+  "argv": [
+    "--mode",
+    "rpc",
+    "--model",
+    "deepseek/deepseek-v4-flash",
+    "--no-skills",
+    "--no-rules",
+    "--no-session",
+    "--thinking",
+    "off",
+    "--approval-mode",
+    "yolo",
+    "--tools=read"
+  ],
+  "exitCode": 0,
+  "phaseA_hostToolCalls": 0,
+  "phaseB_hostToolCalls": 0,
+  "phaseA_uiRequests": 0,
+  "hostToolCalls": [
+    {
+      "at": "69.24s",
+      "phase": "C",
+      "id": "157ec9e74338372d",
+      "toolName": "probe_host_echo",
+      "arguments": {
+        "text": "b"
+      }
+    }
+  ],
+  "hostUriRequests": [
+    {
+      "at": "112.16s",
+      "phase": "C",
+      "id": "157eca112ef8372f",
+      "operation": "read",
+      "url": "probe://hello"
+    }
+  ],
+  "uiRequests": [
+    {
+      "at": "0.73s",
+      "phase": "C",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "3.62s",
+      "phase": "C",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "32.80s",
+      "phase": "C",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "70.38s",
+      "phase": "C",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "113.33s",
+      "phase": "C",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    },
+    {
+      "at": "240.01s",
+      "phase": "C",
+      "method": "setWidget",
+      "title": "",
+      "hasTimeout": false
+    }
+  ],
+  "stateTools": [
+    {
+      "at": "1.05s",
+      "phase": "C",
+      "tools": [
+        "read",
+        "write"
+      ]
+    },
+    {
+      "at": "64.75s",
+      "phase": "C",
+      "tools": [
+        "read",
+        "write"
+      ]
+    },
+    {
+      "at": "150.74s",
+      "phase": "C",
+      "tools": [
+        "read",
+        "write"
+      ]
+    }
+  ],
+  "frameCounts": {
+    "ready": 1,
+    "extension_ui_request": 6,
+    "available_commands_update": 3,
+    "response": 10,
+    "agent_start": 4,
+    "turn_start": 9,
+    "message_start": 19,
+    "message_end": 19,
+    "message_update": 189,
+    "mu:toolcall_start": 5,
+    "mu:toolcall_delta": 153,
+    "mu:toolcall_end": 5,
+    "tool_execution_start": 5,
+    "tool_execution_end": 5,
+    "turn_end": 9,
+    "mu:text_start": 4,
+    "mu:text_delta": 18,
+    "mu:text_end": 4,
+    "agent_end": 4,
+    "notice": 1,
+    "host_tool_call": 1,
+    "host_uri_request": 1
+  }
+}
+
+===== 时间线 =====
+0.73s | UI_REQUEST | setWidget
+1.04s | >>> PHASE A: get_state (默认) | 
+1.05s | STATE | tools=[read,write] msgs=0
+1.53s | >>> PHASE A: prompt（要求使用未注册的宿主工具） | 
+2.76s | tool_execution_start | read
+2.76s | tool_execution_end | read
+3.62s | UI_REQUEST | setWidget
+3.62s | AGENT_END | isTerminal=true
+30.73s | >>> PHASE A: prompt（要求读取宿主 scheme 的 URI） | 
+31.69s | tool_execution_start | read
+31.69s | tool_execution_end | read
+32.80s | UI_REQUEST | setWidget
+32.80s | AGENT_END | isTerminal=true
+62.73s | >>> PHASE B: set_host_tools（显式注册） | 
+64.73s | >>> PHASE B: get_state（注册后） | 
+64.75s | STATE | tools=[read,write] msgs=8
+66.74s | >>> PHASE B: prompt（同一个问题再问一次） | 
+68.02s | tool_execution_start | read
+68.02s | tool_execution_end | read
+69.24s | HOST_TOOL_CALL | probe_host_echo {"text":"b"}
+69.24s | tool_execution_start | write
+69.24s | tool_execution_end | write
+70.38s | UI_REQUEST | setWidget
+70.38s | AGENT_END | isTerminal=true
+108.73s | >>> PHASE C: set_host_uri_schemes（显式注册） | 
+110.73s | >>> PHASE C: prompt（同一个 URI 再读一次） | 
+112.16s | HOST_URI_REQUEST | read probe://hello
+112.16s | tool_execution_start | read
+112.16s | tool_execution_end | read
+113.33s | UI_REQUEST | setWidget
+113.33s | AGENT_END | isTerminal=true
+150.73s | >>> PHASE C: get_state（末态） | 
+150.74s | STATE | tools=[read,write] msgs=19
+240.00s | >>> end stdin | 
+240.01s | UI_REQUEST | setWidget

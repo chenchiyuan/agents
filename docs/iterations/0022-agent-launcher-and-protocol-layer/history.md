@@ -1,0 +1,144 @@
+# history.md — 0022-agent-launcher-and-protocol-layer
+
+### 2026-09-14 10:48:53 · 调度决策 · 阶段推进核查
+
+- 决策内容：迭代启动——建立工作区 `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0022-agent-launcher-and-protocol-layer`（分支 `iteration/0022-agent-launcher-and-protocol-layer`，base = main `71d5920`）；创建 `status.md` 与 `history.md`；进入阶段 1（需求收敛）
+- 触发依据：用户指令「请先与我沟通方案，然后使用 workflow-pb 的工作流开发」；开工前沟通完成并收到 4 项用户裁决（J1~J4，见 `clarifications/2026-09-14-kickoff-discussion.md` §四）；工作区存在性依据 = `git worktree list` 含该地址且 `git -C <该地址> branch --show-current` 输出 `iteration/0022-agent-launcher-and-protocol-layer`
+
+### 2026-09-14 10:49:07 · 派发 · demand
+
+- 阶段：阶段 1（需求收敛）
+- 任务：通过结构化对话消除模糊、界定边界，产出有澄清依据的需求合同
+- 输入：`docs/iterations/0022-agent-launcher-and-protocol-layer/clarifications/2026-09-14-kickoff-discussion.md`（用户原始表述 + 实测证据 + 4 项用户裁决）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/demand.md`
+
+### 2026-09-14 10:55:00 · 收到报告 · demand
+
+- 1. `demand.md` 路径：`docs/iterations/0022-agent-launcher-and-protocol-layer/demand.md`（v0.1.0 第 1 轮，未收敛）；澄清记录 `clarifications/2026-09-14-demand-round1.md`
+- 2. 第一段摘要：读出用户原话约束 U-1~U-5；开工前裁决 J1~J4 逐条落位（未重问未推翻）；一手事实 19 条（F1~F6b 主 agent 探针 + F7~F19 本会话亲读源码，均带文件与行号）
+- 3. 第二段摘要：做什么 8 条（W1 启动服务层 / W2 协议层 / W3 rpc adapter / W4 权限门跨协议映射 / W5 acp 兜底 / W6 oneshot adapter / W7 过程可视化 / W8 零侵入契约）；不做什么 11 条（N1~N11，逐条带"为什么这次不做"）
+- 4. 方案雏形/参考视角摘要：用户已给雏形 = 原话第 1、2 点的分层轮廓；本轮 Q1~Q5 一次问完 8 条"做什么"；参考视角 5 条（标注不进结论）
+- 5. 待确认项：6 项 `[model_inferred]`（P1~P6）+ 2 项 `[待裁决]`（V1/V2）+ 边界 N1~N11 + 方案雏形 Q1~Q5
+- 6. 疑问/越界：越界登记 1 处——读了简报未指定的 `docs/multi-omp-agent-protocol.md` 并作出相邻重叠登记（落为边界 N11）
+
+### 2026-09-14 10:56:00 · 调度决策 · Gate确认
+
+- 决策内容：出现未确认的 `[model_inferred]` 项 ⇒ 按「用户决策点」暂停并阻塞式转呈 7 组裁决；用户已全部回应（P1 **改写为依赖注入口径**、P2 采纳、P3~P6 四项全部采纳、V1=(a) 仅保留 + 显式声明降级、V2=(a) 仅生产消费层、方案雏形 Q1~Q5 无额外想法、边界 N1~N11 全部保留），落盘 `clarifications/2026-09-14-demand-round1-verdicts.md`
+- 触发依据：`clarifications/2026-09-14-demand-round1.md` §11 转呈件清单 10 行；`demand.md` v0.1.0 第二段含未生效的 6 项 `[model_inferred]` 与 2 项 `[待裁决]`（阶段 1 推进条件第 2 项未满足）
+
+### 2026-09-14 10:58:00 · 派发 · demand
+
+- 阶段：阶段 1（需求收敛）·第 2 轮
+- 任务：按用户裁决回收第 1 轮全部未生效项，把 `demand.md` 收敛为 v1.0.0（`model_inferred` 归零）
+- 输入：`clarifications/2026-09-14-demand-round1-verdicts.md`（本轮主输入）+ kickoff + round1 记录 + `demand.md` v0.1.0
+- brief 留痕：`clarifications/briefs/2026-09-14-demand-round2-brief.md`（角色定义全文注入）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/demand.md`（v1.0.0）+ `clarifications/2026-09-14-demand-round2.md`
+
+### 2026-09-14 10:59:30 · 收到报告 · demand
+
+- 1. `demand.md` 路径：`docs/iterations/0022-agent-launcher-and-protocol-layer/demand.md`（**v1.0.0 收敛版**，279 行 / 23325 B）
+- 2. 第一段摘要：明确性 4 处缺口全闭合（零侵入→W8 D-1~D-3 依赖注入判据；协议指定粒度→注入点唯一 + 配置面解析链；展示落点→既有按对话运行时通道；协议层与一次性/shell 分层）；逻辑闭环 why→what 逐条可反推；边界 N1~N11 全部转 `user_confirmed` + 新增 N12；来源统计 `model_inferred` = 0、`[待裁决]` = 0、`[架构待填]` = 6 处
+- 3. 第二段摘要：做什么 8 条（W1 启动服务层 / W2 协议层 / W3 rpc 适配器 / W4 权限门跨协议映射 / W5 acp 兜底 / W6 oneshot 适配器 / W7 过程可视化 / W8 零侵入契约）；不做什么 12 条（N1~N12）
+- 4. 方案雏形/参考视角摘要：用户已给口径两处（协议指定用依赖注入 A1、指定粒度与入口 A2）；Q1~Q5 用户答「都没有额外想法」⇒ 第六维无缺口；第 1 轮 5 条参考视角不写入合同任何一段
+- 5. 待确认项：无（转呈件为空）
+- 6. 疑问/越界：越界 1 处（登记⑦）——为承接 A4 在「不做什么」新增 N12；N1~N11 编号与内容一字未改
+
+### 2026-09-14 11:00:39 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 1（需求收敛）三项推进条件**逐项核查通过**（主 agent 读取 `demand.md` v1.0.0 全文核查，非采信报告）⇒ 阶段 1 标记 ✅，进入阶段 2（功能规格），派发 `prd`
+- 触发依据：① 两段均有内容（第一段 §1~§8 澄清依据；第二段 §1~§6 需求结论）；② 全文检索 `[model_inferred]` / `[待裁决]` 仅出现在「已归零」的说明行、无生效条目；③ `demand.md` §8 未闭合声明：无活跃冲突；登记①~⑦ 均为派生修订 / 事实澄清 / 裁决落地
+
+### 2026-09-14 11:01:23 · 派发 · prd
+
+- 阶段：阶段 2（功能规格）
+- 任务：将需求合同原子化为可独立验证的功能卡，只做产品维度，不做架构决策
+- 输入：`docs/iterations/0022-agent-launcher-and-protocol-layer/demand.md`（v1.0.0）
+- brief 留痕：`clarifications/briefs/2026-09-14-prd-stage2-brief.md`（角色定义全文注入）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/prd.md` + `prd/*.md`
+
+### 2026-09-14 11:05:27 · 收到报告 · prd
+
+- 1. `prd.md` 路径 + 功能点总数：`docs/iterations/0022-agent-launcher-and-protocol-layer/prd.md`（v0.1.0 / 270 行）；**13 张卡**（F01~F09 需求功能点 + F10~F13 保证项）
+- 2. `prd/` 目录文件列表：F01~F13 共 13 个文件
+- 3. model_inferred 标注列表：**4 项**（MI-01 F04 验收 1 增量承接的判定层 / MI-02 F01 验收 1~2「统一入口」口径 / MI-03 F09 验收 3 候选能力位定位 / MI-04 F07 验收 1「无会话语义」判法）
+- 4. 架构待填列表：**T-01~T-11（11 项）**，全部留白未回填 + M7 / M-1~M-5 移交阶段 3 承接
+- 5. 疑问/越界：非一对一拆分 5 处（W2→F02+F03、W3→F04+F05、W5/W6→F06/F07、M6→F09、M1/M7 不设卡）与 profile 内容维度清单来源张力已登记；未发现 demand.md 内部矛盾，未写 deferred-demand-changes.md
+
+### 2026-09-14 11:10:21 · 调度决策 · Gate确认
+
+- 决策内容：`prd.md` v0.1.0 出现 4 项未确认 `[model_inferred MI-01~MI-04]` ⇒ 按「用户决策点」真实阻塞式转呈；MI-01 与 MI-04 经**两轮澄清**（用户两次反馈「没懂」，主 agent 改用具体验收动作重述）后取得裁决，MI-02 用户给出更强口径并确认落在现有需求内；裁决全部落盘 `clarifications/2026-09-14-prd-round1-verdicts.md`
+- 触发依据：`prd.md` §「MI 判定口径」+ `clarifications/2026-09-14-prd-round1.md`（阶段 2 首轮声明「4 项 MI 未裁决前本阶段不视为收敛」）
+
+### 2026-09-14 11:10:36 · 派发 · prd
+
+- 阶段：阶段 2（功能规格）·第 2 轮
+- 任务：按用户裁决回收 4 项 MI，把 `prd.md` 收敛为 v0.2.0（`model_inferred` 归零）
+- 输入：`clarifications/2026-09-14-prd-round1-verdicts.md`（本轮主输入）+ `prd.md` v0.1.0 + `prd/*.md`
+- 输出：`prd.md` v0.2.0 + 受影响卡（F01/F02/F04/F07/F08/F09）+ `clarifications/2026-09-14-prd-round2.md`
+
+### 2026-09-14 11:14:54 · 收到报告 · prd
+
+- 1. `prd.md` 路径 + 功能点总数：`prd.md` **v0.2.0（收敛版 / 286 行）**；13 张卡不变（未增删、未改编号），只改写 8 处验收判定表述
+- 2. `prd/` 目录文件列表：F01~F13 共 13 个文件（不变）
+- 3. model_inferred 标注列表：**0 项**（转呈件为空）
+- 4. 架构待填列表：**T-01~T-11（11 项）**，保持留白（仅把 T-04 作引用补进 F01/F02 留白表）
+- 5. 疑问/越界：转呈件空；报告级判断 4 条（MI-01 落点扩到 F08 验收 1、MI-02 分摊到三卡、裁决原件「证书」按上下文读作「判据」、用户原话无空格写法保真）
+
+### 2026-09-14 11:15:26 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 2（功能规格）三项推进条件**逐项核查通过**（主 agent 读取 `prd.md` v0.2.0 与卡片内容核查，非采信报告）⇒ 阶段 2 标记 ✅，进入阶段 3（技术架构），派发 `architect`
+- 触发依据：① 所有功能点有独立卡片 = `prd.md` 索引 13 行 ↔ `prd/` 下 13 个文件一一对应；② 无 demand.md 外新增功能点 = W1~W8 / N1~N12 / M / E / R 逐条有落点（F10~F13 为保证项，不引入新能力）；③ 架构待定项已标注 `[架构待填]` = 13 张卡均含「架构待填（阶段 3）」段且 T-01~T-11 留白；④ `model_inferred` 归零 = 全文检索仅剩「归零」说明行，8 处 `[user_confirmed MI-xx]` 保留裁决口径原文
+### 2026-09-14 11:16:30 · 派发 · architect
+
+- 阶段：阶段 3（技术架构）
+- 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
+- 输入：`docs/iterations/0022-agent-launcher-and-protocol-layer/prd.md`（v0.2.0，13 卡 + T-01~T-11）+ 工作区内 `oamp/` 现有代码库 + 0021 架构文档（体例参照）
+- 本轮前置硬要求：首步先做 **RPC 协议面真实实测**（M7 + M-1~M-5：会话模型 / 取消与超时 / argv 面完整性 / 宿主工具面 / 是否恒单门），探针脚本与证据落工作区（`clarifications/probes/`）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/architecture.md` + `prd/*.md` 架构段回填 + `clarifications/2026-09-14-architect-round1.md`
+
+### 2026-09-14 11:33:30 · 收到报告 · architect
+
+- 1. `architecture.md` 路径 + 核心组件：`architecture.md` v0.1.0（786 行 / §0~§13）；核心组件 = 新建 `src/launcher.js`（L1 profile + 唯一 argv + spawn）、`src/protocol.js`（L2 标准面 + 唯一注入点）、`src/rpc-client.js`（默认链路）、`src/oneshot-client.js`（无会话语义）；改造 `config.js` / `context-pool.js` / `agent.js` / `acp-client.js`（行为零变更）/ `web/app.js`
+- 2. L1 决策清单：**2 条**（L1-1 协议注入点落点与配置载体：三档解析链 + 单一字符串键；L1-2 L2 标准面写定为一份接口契约并成为消费层唯一依赖面）
+- 3. 新引入技术组件/技术栈：4 个新建模块（均为 `node:*` 内置，零第三方依赖）+ `config.json` 第 4 键 protocol / env `OAMP_PROTOCOL` / `agent start --protocol`；明确不引入：新目录 / 协议参数对象 / 能力位开关 / 新 SSE 事件类型 / 门翻译层
+- 4. `[架构待填]` 已填写条目数：**11/11**（T-01~T-11），覆盖 13 张卡
+- 5. 疑问/越界：M7 实测 5 组全部真实执行（会话模型 1:1 / abort 无参幂等且无协议级超时 / 9 组 argv 面全可用 / 宿主工具面默认零触发 / 一次受门禁调用恒一道门）；7 项 `[model_inferred]`（MI-A-1~7）待转呈；§12.2 三条疑问；未发现功能规格与技术约束的根本冲突
+
+### 2026-09-14 15:00:15 · 调度决策 · Gate确认
+
+- 决策内容：阶段 3 出现 **L1 决策 2 条** + 7 项 `[model_inferred MI-A]` ⇒ 按「用户决策点」真实阻塞式转呈 4 组裁决；用户全部采纳推荐项（L1-1 三档解析链 + 单一字符串键 / L1-2 一份标准面 + 三实现 / MI-A 七项全采纳 / 零侵入三条判据固化为**新增**机械断言测试）；§12.2-1「API.md 零改动」与 §12.2-2「style.css 属实现阶段确认」由主 agent 依 architect 判断裁定（非用户决策点）
+- 触发依据：`architecture.md` v0.1.0 §4.1「⏳ 待主 agent 确认」2 条 + §12.1 七项 `[model_inferred]` + §12.2-3；裁决落盘 `clarifications/2026-09-14-architect-round1-verdicts.md`
+
+### 2026-09-14 15:00:40 · 派发 · architect
+
+- 阶段：阶段 3（技术架构）·第 2 轮收口
+- 任务：按用户裁决收口 L1 与 `[model_inferred]`，把 `architecture.md` 升至 v0.2.0
+- 输入：`clarifications/2026-09-14-architect-round1-verdicts.md`（本轮主输入）+ `architecture.md` v0.1.0
+- 输出：`architecture.md` v0.2.0 + `clarifications/2026-09-14-architect-round2.md`
+
+### 2026-09-14 15:00:40 · 派发 · progress-observer
+
+- 阶段：阶段 1~3 推进后的客观进度快照（**补做**：工作流要求阶段 1~4 每次推进后自动触发一次，本迭代阶段 1/2 推进后未即时触发，此处一次性补齐；偏差如实登记，供阶段 6 核查）
+- 任务：独立核实真实 git 状态，产出 `progress.md`（六部分）
+- 输入：迭代 ID + 工作区地址 + 仓库主工作区路径（不接收执行过程上下文）
+- 输出：`docs/iterations/0022-agent-launcher-and-protocol-layer/progress.md`
+
+### 2026-09-14 15:02:49 · 收到报告 · architect
+
+- 1. `architecture.md` 路径 + 核心组件：**v0.2.0（799 行）**；核心组件与第 1 轮一致（未增删组件），4 个新文件由「L1 待确认」转为「生效架构契约」
+- 2. L1 决策清单：**2 条均 ✅ 已用户确认**（采纳推荐项①）；备选与否决理由逐字保留
+- 3. 新引入技术组件/技术栈：无新增技术栈；新增测试面（非产品组件）B-17 零侵入机械断言测试
+- 4. `[架构待填]` 已填写条目数：T-01~T-11 = 11/11（第 1 轮已填，本轮仅同步 F02 的 T-03 行状态 + 7 处 MI-A 落点标记）
+- 5. 疑问/越界：转呈件为空（未产生新 `[model_inferred]`）；未改动功能卡产品维度、未增删组件、未变更 L2 决策结论；诚实登记 3 条（README 文档面属阶段 5 / style.css 属实现阶段确认 / 本轮未跑测试与探针）
+
+### 2026-09-14 15:04:30 · 收到报告 · progress-observer
+
+- 1. `progress.md` 路径：`docs/iterations/0022-agent-launcher-and-protocol-layer/progress.md`
+- 2. 六部分摘要：阶段完成度 = 阶段 1 ✅ / 阶段 2 ✅ 一致、阶段 3 产物侧已收口至 v0.2.0；依赖核实 = 无可核实对象（阶段 4 未开始，`prs/` 不存在）；PR 实现状态 = （无）；并发度 = 已规划 PR 0、闲置 PR 0（结构性不存在，非漏查）；**不一致 7 条**；无法核实 7 条
+- 3. 最需主 agent 关注的发现：① status.md / history.md 在观测窗口内零写入（阶段 3 全链路无记录）；② **迭代分支相对 main 提交数 = 0、整个迭代目录未被 git 跟踪**（阶段 1~3 产物无提交背书）；③ 观测窗口起点 ~2 分钟的内容/裁决瞬时不一致（窗口内已消除）；④ 无闲置 PR（结构上不存在）。**observer 未给调度建议**
+- 4. 疑问/越界：无越界；如实登记 status.md 结构性问题（滞后于一手记录）
+
+### 2026-09-14 15:04:42 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 3（技术架构）三项推进条件**逐项核查通过**（主 agent 读取 `architecture.md` v0.2.0 文首状态行与 §4.1 / §12.1 核查）⇒ 阶段 3 标记 ✅；同时处置 progress-observer 的两项发现——补记 `status.md` / `history.md`（本条即补记）与**将阶段 1~3 产物提交到迭代分支**；随后进入阶段 4（PR 规划），派发 `pr-planner`
+- 触发依据：① L1 决策经用户确认 = §4.1 两行 `✅ 用户确认（2026-09-14，采纳推荐项①）`（裁决原件 `clarifications/2026-09-14-architect-round1-verdicts.md`）；② 所有功能卡有技术路径 = §6 F01~F13 = 13/13；③ 无架构内部冲突 = §12.1 标题 `[user_confirmed]` 归零、待决标记全文检索零命中；④ progress-observer 发现①②（`progress.md` §5 不一致条目 1/3/5）
