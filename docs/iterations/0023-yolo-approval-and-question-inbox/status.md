@@ -2,10 +2,10 @@
 
 **工作流**: workflow-pb v0.10.0
 **迭代**: 0023-yolo-approval-and-question-inbox
-**当前阶段**: 收口（迭代分支合并进 main）
-**迭代分支**: iteration/0023-yolo-approval-and-question-inbox
+**当前阶段**: **已完成**（6/6 阶段收口）
+**迭代分支**: iteration/0023-yolo-approval-and-question-inbox（**已合并进 main**：merge `60a70de`；分支与工作区已清理）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0023-yolo-approval-and-question-inbox
-**状态**: 进行中（阶段 6 已验证 PASS；待收口）
+**状态**: **已完成**（阶段 6 独立验证 PASS 34/34；迭代分支已合并 main；主分支全量 387/387 绿）
 **history**: 开启
 **执行方式**: 本地 sub agent（宿主 `task` 工具）派发
 

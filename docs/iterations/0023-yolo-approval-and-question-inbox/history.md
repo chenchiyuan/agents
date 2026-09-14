@@ -359,3 +359,13 @@
 
 - 决策内容：**阶段 6 判定 PASS** ⇒ 阶段 6 标记 ✅ 且「已验证」列打勾；按规范执行收口三步（主工作区 `checkout main` → `merge --no-ff` → `branch -d`），前置动作 = 迭代工作区 `checkout --detach`。同步处置阶段 6 的 **D-9/D-10**（`status.md` 状态修正 + 未落库产物随收口提交落库）；其余 8 条偏差登记为下一迭代候选（文档面同步/体例口径），**收口前不做返工**（偏差记录不阻塞迭代关闭）
 - 触发依据：`clarifications/verify-stage6-20260914.md` 结论 PASS（fail 0）；工作流规范「迭代分支合并进 main：阶段 6 对本迭代最终产物判定 pass 之后」
+
+### 2026-09-14 21:27:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**迭代收口**——① 迭代工作区 `git checkout --detach` 让出 `iteration/0023-*` 的检出；② 在**仓库主工作区**执行 `git checkout main` + `git merge --no-ff iteration/0023-yolo-approval-and-question-inbox` ⇒ merge **`60a70de`**；③ `git branch -d iteration/0023-yolo-approval-and-question-inbox`（was `8b6cabf`）；④ 主分支 `oamp` 全量测试复跑 **387/387 绿**（69.8s）
+- 触发依据：阶段 6 结论 PASS（fail 0，偏差记录不阻塞关闭）；工作流规范 §「迭代分支合并进 main」三步 + 第 3 步前置游离动作
+
+### 2026-09-14 21:28:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**迭代 0023 关闭**——`status.md` 头部改为「已完成（6/6 阶段收口）/ 迭代分支已合并进 main（merge `60a70de`）/ 状态已完成」；迭代工作区与分支清理。本轮交付：3/3 PR 合并、6/6 阶段收口、每 PR 均经独立验收 PASS、阶段 6 真机验证 PASS（10 套隔离栈 / E1~E9 全过）、偏差 10 条已登记为下一迭代候选
+- 触发依据：merge 提交 `60a70de` 真实存在；主分支全量 387/387 绿；清理后 `git worktree list` 仅剩仓库主工作区
