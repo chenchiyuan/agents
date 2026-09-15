@@ -3,7 +3,7 @@
 **工作流**: workflow-pb v0.12.0
 **迭代**: 0026-test-protocol-and-suite-reset
 **当前阶段**: 阶段 5（PR 实现）
-**迭代分支**: `iteration/0026-test-protocol-and-suite-reset`（tip `cb248dd`；base = `main` @ `ea8943e`）
+**迭代分支**: `iteration/0026-test-protocol-and-suite-reset`（tip `43d82ff`；base = `main` @ `ea8943e`）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0026-test-protocol-and-suite-reset
 **状态**: 进行中
 **history**: 开启
@@ -18,15 +18,15 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.3.0** + **3 张卡**（F01 / F02 / F09）；0 条 `[架构待填]` |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **v0.2.0**：**L1 = 无、L2 = 无、新增实体 = 0** |
 | 4 | PR 规划 | ✅ | ⬜ | `prs/` **3 个 PR 文件**；四项推进条件核查通过 |
-| 5 | PR 实现 | ⏸ | ⬜ | **2/3 已合并**（pr-002 / pr-001，两份验证均 PASS）；pr-003 verifier 进行中 |
-| 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
+| 5 | PR 实现 | ✅ | ⬜ | **3/3 已合并**（pr-002 / pr-001 / pr-003，三份验证均 PASS） |
+| 6 | 独立验证 | ⏸ | ⬜ | 已派发迭代级 verifier（核心对象 = F09 验收 3/4，判定面为三 PR 合并态） |
 
 ## 并发配置（阶段 5）
 
 - **起始并发数**：3
 - **硬上限**：5（公式 `2×起始-1`）
-- **当前有效上限**：**5**（`min(3 + 2×3, 5)`；因两次合并释放槛位而爬升至硬上限并封顶）
-- **累计槛位释放次数**：**2**（pr-002、pr-001 各 1 次）
+- **当前有效上限**：**5**（`min(3 + 3×3, 5)`；因三次合并释放槛位而爬升至硬上限并封顶）
+- **累计槛位释放次数**：**3**（pr-002 / pr-001 / pr-003 各 1 次）
 - **已派发总数**：3
 - **已解锁且排队中**：无（3 个 PR 已全部派发）⇒ 释放出的槛位按协议保持空置，不触发新派发
 
@@ -36,7 +36,7 @@
 |---|---|---|---|---|---|
 | pr-001-test-assets-zeroing.md | （无） | ✅ | feat/0026-pr-001-test-assets-zeroing（`f4dc4b8` → 归档 `159ca44`） | ✅ `cb248dd` | 已释放 |
 | pr-002-stage5-output-contract-drop-tests.md | （无） | ✅ | feat/0026-pr-002-stage5-output-contract-drop-tests（`cff511d` → 归档 `2e3b700`） | ✅ `b3022be` | 已释放 |
-| pr-003-impact-surface-registration.md | （无） | ⏸ 验证中 | feat/0026-pr-003-impact-surface-registration（`f98c985`） | ⬜ | 占用 |
+| pr-003-impact-surface-registration.md | （无） | ✅ | feat/0026-pr-003-impact-surface-registration（`f98c985` → 归档 `cf519e9`） | ✅ `43d82ff` | 已释放 |
 
 > 三个 PR 的 `depends_on` 全为空 ⇒ 无「依赖解锁」发生（判据读取边归阶段 6，Q-PR-1 裁决）。
 
@@ -81,4 +81,6 @@
 - 2026-09-15: **pr-002 全链完成** → merge `b3022be`；槛位释放 ×1
 - 2026-09-15: pr-001 dev 报告越界写入事故（已复原，独立核实），记录于 `58210bf`
 - 2026-09-15: **pr-001 全链完成** → merge `cb248dd`；槛位释放 ×2，有效上限封顶 5
-- 2026-09-15: `progress-observer` 独立快照产出（`progress.md`），发现 4 处 status 视图滞后（本次已修正）与 6 项无法核实项
+- 2026-09-15: `progress-observer` 独立快照产出（`progress.md`），发现 4 处 status 视图滞后与 6 项无法核实项
+- 2026-09-15: **pr-003 全链完成** → merge `43d82ff`；**阶段 5 达成 3/3**；槛位释放 ×3，有效上限封顶 5
+- 2026-09-15: **阶段 6 触发**——迭代级独立验证已派发（核心对象 = F09 验收 3/4）
