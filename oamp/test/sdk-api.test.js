@@ -799,6 +799,30 @@ test('T4-4 `api stream call <call_id>`：单次调用作用域起流即得帧（
   }
 });
 
+test('T4-5 SSE 集合核对：运行侧 `kind === "sse"` 与四条订阅用例 fixture 4↔4（F02 验收 2/4、F06）', async (t) => {
+  // 与 T2（`kind === 'json'`）/ T3（写端点）同形的双向核对：运行侧**现算**（`api docs` 的 routes）↔ 逐字 fixture。
+  // fixture 逐字给出、不从运行侧反推（否则断言自我满足）：四条订阅入口与 T4-1~T4-4 四条用例一一对位。
+  const fx = await setup(t, { warm: false });
+  const rows = [
+    { no: 1, cmd: 'hub api stream chat <chat_id>', sig: 'GET /api/stream' },
+    { no: 2, cmd: 'hub api stream events', sig: 'GET /api/events' },
+    { no: 3, cmd: 'hub api stream calls --chat-id <id>', sig: 'GET /api/calls/stream' },
+    { no: 4, cmd: 'hub api stream call <call_id>', sig: 'GET /api/calls/:call_id/stream' },
+  ];
+  const runtime = await routeSet(fx.hub, (route) => route.method === 'GET' && route.kind === 'sse');
+  const declared = rows.map((row) => row.sig);
+  const missing = runtime.filter((sig) => !declared.includes(sig));
+  const extra = declared.filter((sig) => !runtime.includes(sig));
+  assert.deepEqual(missing, [], `运行侧订阅集合有 fixture 未覆盖的缺项: ${missing.join(' | ')}`);
+  assert.deepEqual(extra, [], `fixture 多出运行侧不存在的签名: ${extra.join(' | ')}`);
+  assert.equal(new Set(declared).size, declared.length, 'fixture 行签名应两两不同');
+  assert.equal(declared.length, runtime.length, `订阅端点条数应为 4（fixture=${declared.length} 运行侧=${runtime.length}）`);
+  assert.equal(runtime.length, 4, `运行侧 SSE 端点应为 4 条（实际 ${runtime.length}: ${runtime.join(' | ')}）`);
+  for (const row of rows) {
+    t.diagnostic(`T4-${row.no}\t${row.cmd}\t↔\t${row.sig}`);
+  }
+});
+
 // ============================== T5：错误面 + --human 两态 ==============================
 
 test('T5 服务端错误可见：上游 code 原样 / 退出码 1 / stdout 干净 + 用法错误 2 可区分（F02 验收 3、F05 验收 4）', async (t) => {

@@ -1,6 +1,6 @@
 // test/sdk-cli-contract.test.js — pr-009：统一调用契约的**进程面**用例（F04 / F05 / F06 / F07 / F08 / F09 / F10 / G01 / G02）
 // 判据面（architecture §10 T4）：退出码四类（`0`/`1`/`2`/`3`）+ 用法错误样本集（零连接零副作用）+ 默认 JSON / `--human`
-//   两态 + stdout / stderr 分离 + `--wait` 超时（`WAIT_TIMEOUT`）与其 5000ms 上限偏差锁 + P-1 口径的 background 取回
+//   两态 + stdout / stderr 分离 + `--wait` 超时（`WAIT_TIMEOUT`）与其上限支配响应头预算 + P-1 口径的 background 取回
 //   + 订阅管道截断（`| head -1`）+ 层 C 逐字节透传 + 跨进程无状态。
 // 三宿主（F05-1 / F07-1 / E4）：①shell 与 ③"另一 agent 经 shell 调用"同形（同一 `bin/hub.js` 入口，见全部用例）；
 //   ②Node import 面 = T1 的 `createHub()` 对照组的对照侧（库面读**调用方进程 env** ⇒ 该组在组内设、用后还原 —— A18）。
@@ -787,25 +787,148 @@ test('T4 · --wait 超时：WAIT_TIMEOUT/1、上限有序、上限内成功、�
   assert.equal(new Set(errorTexts).size, errorTexts.length, `四类的 error 文案必须互异，实际 ${JSON.stringify(errorTexts)}`);
 });
 
-test('T4 [已知偏差 · 归 pr-011 收口修复] · --wait 8000 时 5000ms 响应头上限先行（当前行为锁 + 翻转点已登记）', async (t) => {
-  // 已知偏差（pr-003 / pr-004 独立验收登记，主 agent 裁决由 pr-011 收口修复）：
-  //   规格期望 = `WAIT_TIMEOUT` / 退出码 1（`--wait` 上限 8000ms 先到）；
-  //   当前实现 = `oamp/sdk/http.js` 的响应头上限（5000ms）**先行**终止在途请求，按连接失败收场
-  //   ⇒ `REQUEST_TIMEOUT` / 退出码 3、error 含 `5000`、耗时 ~5000ms。
-  // 修复点 = `oamp/sdk/http.js` 的响应头上限与 `--wait` 的先后关系；**本 PR 不改 `oamp/sdk/**`**。
-  // 修复后本断言应改为：`code === 'WAIT_TIMEOUT'`、`exit_code === 1`、error 含 `8000`。
+test('T4 · --wait 8000 对黑障：`--wait` 上限先到（WAIT_TIMEOUT/1、耗时 ≈ 上限、恰 1 次请求）', async (t) => {
+  // 规格期望（F10 验收 3/5；§5.4 `1` 类 ②）：可阻塞形态（`--mode block`）的响应头预算由 `--wait` 上限支配
+  //   ⇒ 8000ms 上限先到 = `WAIT_TIMEOUT` / 退出码 1、error 含 `8000`、本地中止在途请求（不重发、不换端口）。
+  // 修复点 = `oamp/sdk/http.js` 的响应头上限按 `spec.headerTimeoutMs` 生效（缺省仍 5000ms）
+  //   ＋ `oamp/sdk/surface.js` 的 `runApi` 单点派生（仅 `mode === 'block'`）。
   const blackhole = await startStubServer(t, {});
   const args = ['api', 'calls', 'create', '--chat-id', 'c', '--agent', 'a', '--task', 't', '--mode', 'block', '--wait', '8000', '--port', String(blackhole.port)];
-  const r = await hubCall(args, {});
-  const where = '已知偏差锁（--wait 8000 + 黑障）';
-  assert.equal(r.code, 3, `${where}：当前行为 = 退出码 3（pr-011 修复后应为 1），实际 ${r.code}（stderr=${JSON.stringify(r.stderr)}）`);
+  const r = await hubCall(args, { timeoutMs: 15000 });
+  const where = '--wait 8000 + 黑障';
+  assert.equal(r.code, 1, `${where}：期望退出码 1，实际 ${r.code}（stderr=${JSON.stringify(r.stderr)}）`);
   assert.equal(r.stdout, '', `${where}：stdout 必须为空`);
   const error = parseErrorLine(where, r.stderr, ['code', 'error', 'exit_code']);
-  assert.equal(error.code, 'REQUEST_TIMEOUT', `${where}：当前行为 = REQUEST_TIMEOUT（pr-011 修复后应为 WAIT_TIMEOUT），实际 ${error.code}`);
-  assert.equal(error.exit_code, 3, `${where}：当前行为 = exit_code 3（pr-011 修复后应为 1），实际 ${error.exit_code}`);
-  assert.ok(error.error.includes('5000'), `${where}：error 应含 5000（响应头上限），实际 ${JSON.stringify(error.error)}`);
-  assert.ok(r.elapsedMs > 4900 && r.elapsedMs < 5400, `${where}：耗时应落在 (4900, 5400)ms，实际 ${r.elapsedMs}ms`);
-  assert.equal(blackhole.counts().requests, 1, `${where}：服务端应恰收到 1 次请求，实际 ${JSON.stringify(blackhole.counts())}`);
+  assert.equal(error.code, 'WAIT_TIMEOUT', `${where}：期望 WAIT_TIMEOUT，实际 ${error.code}`);
+  assert.equal(error.exit_code, 1, `${where}：期望 exit_code 1，实际 ${error.exit_code}`);
+  assert.ok(error.error.includes('8000'), `${where}：error 应含「--wait」上限 8000，实际 ${JSON.stringify(error.error)}`);
+  assert.ok(error.error.includes('调用仍在进行'), `${where}：error 应含「调用仍在进行」，实际 ${JSON.stringify(error.error)}`);
+  assert.ok(r.elapsedMs > 7600 && r.elapsedMs < 9000, `${where}：耗时应落在 (7600, 9000)ms（响应头上限不得先行），实际 ${r.elapsedMs}ms`);
+  assert.equal(blackhole.counts().requests, 1, `${where}：服务端应恰收到 1 次请求（本地中止、不重发），实际 ${JSON.stringify(blackhole.counts())}`);
+});
+
+test('T4 · >5000ms 段：6000ms 响应在 `--wait 8000` 与缺省上限内均可达 ⇒ 退出码 0 + 响应体原样', async (t) => {
+  // F10 验收 2（显式上限）/ 验收 1（缺省 1800000）的可实测面：响应头到达晚于 5000ms ⇒ 旧实现（响应头上限
+  //   恒 5000ms）会在此退化为 `REQUEST_TIMEOUT`/3。缺省上限的**完全可达性不可实测**（30 分钟），由
+  //   `oamp/sdk/cli.js` 的 `DEFAULT_WAIT_MS` 常量面 + 本条「6000ms > 5000ms 仍走等待上限」共同闭合。
+  const body = { calls: [{ call_id: 'stub-call-6000', state: 'completed', text: '' }] };
+  const slow = await startStubServer(t, { delayMs: 6000, status: 200, body });
+  const callArgs = (waitMs) => {
+    const args = ['api', 'calls', 'create', '--chat-id', 'c', '--agent', 'a', '--task', 't', '--mode', 'block', '--port', String(slow.port)];
+    return waitMs === null ? args : [...args, '--wait', String(waitMs)];
+  };
+
+  // ① 显式 `--wait 8000`：6000ms 后响应头到达 ⇒ 上限内成功（不加信封、不改字段名、不裁剪）
+  const explicit = await hubCall(callArgs(8000), { timeoutMs: 12000 });
+  assert.equal(explicit.code, 0, `6000ms 桩 + --wait 8000：期望退出码 0，实际 ${explicit.code}（stderr=${JSON.stringify(explicit.stderr)}）`);
+  assert.equal(explicit.stderr, '', `6000ms 桩 + --wait 8000：stderr 必须为空，实际 ${JSON.stringify(explicit.stderr)}`);
+  assert.deepEqual(JSON.parse(explicit.stdout), body, `6000ms 桩 + --wait 8000：stdout 应为桩响应体原样，实际 ${JSON.stringify(explicit.stdout)}`);
+  assert.ok(explicit.elapsedMs > 6000 && explicit.elapsedMs < 7000, `6000ms 桩 + --wait 8000：耗时应落在 (6000, 7000)ms，实际 ${explicit.elapsedMs}ms`);
+
+  // ② 不给 `--wait`（缺省 1800000 ms）：同一 6000ms 桩仍在上限内返回
+  const defaultWait = await hubCall(callArgs(null), { timeoutMs: 12000 });
+  assert.equal(defaultWait.code, 0, `6000ms 桩 + 缺省上限：期望退出码 0，实际 ${defaultWait.code}（stderr=${JSON.stringify(defaultWait.stderr)}）`);
+  assert.deepEqual(JSON.parse(defaultWait.stdout), body, `6000ms 桩 + 缺省上限：stdout 应为桩响应体原样，实际 ${JSON.stringify(defaultWait.stdout)}`);
+  assert.ok(defaultWait.elapsedMs > 6000 && defaultWait.elapsedMs < 7000, `6000ms 桩 + 缺省上限：耗时应落在 (6000, 7000)ms，实际 ${defaultWait.elapsedMs}ms`);
+  assert.equal(slow.counts().requests, 2, `6000ms 桩：两形态各应恰收到 1 次请求，实际 ${JSON.stringify(slow.counts())}`);
+});
+
+test('T4 · 非 block 形态不放大：`--mode background`（含 `mode` 缺省、非可阻塞条目）遇挂起服务端仍是 5000ms 级失败', async (t) => {
+  // 裁决 D1 的判据面（架构 §5.4：可阻塞条目恒有上限、**非可阻塞条目走 5000ms**）：`--wait` 的缺省 1800000
+  //   只在 `--mode block` 下支配响应头预算；其余形态沿用 5000ms 缺省，不随 `--wait` 放大。
+  const blackhole = await startStubServer(t, {});
+  const P = String(blackhole.port);
+  const create = (extra) => ['api', 'calls', 'create', '--chat-id', 'c', '--agent', 'a', '--task', 't', ...extra, '--port', P];
+  const forms = [
+    { label: '(i) `--mode background --wait 8000`', args: create(['--mode', 'background', '--wait', '8000']), what: '按 `mode` 分支，而非按「`--wait` 是否显式给出」分支' },
+    { label: '(ii) `mode` 缺省（flag 不出现）+ 不给 `--wait`', args: create([]), what: '`waitMs` 被授予 1800000 但不得放大响应头预算（0021 事故的最常见形态）' },
+    { label: '(iii) 不带 `wait` 声明的条目（api docs）', args: ['api', 'docs', '--port', P], what: '非可阻塞条目的 5000ms 缺省未被放大' },
+  ];
+  for (const form of forms) {
+    const before = blackhole.counts().requests;
+    const r = await hubCall(form.args, {});
+    const where = `非 block 形态 ${form.label}（判别：${form.what}）`;
+    assert.equal(r.code, 3, `${where}：期望退出码 3，实际 ${r.code}（stderr=${JSON.stringify(r.stderr)}）`);
+    assert.equal(r.stdout, '', `${where}：stdout 必须为空`);
+    const error = parseErrorLine(where, r.stderr, ['code', 'error', 'exit_code']);
+    assert.equal(error.code, 'REQUEST_TIMEOUT', `${where}：期望 REQUEST_TIMEOUT，实际 ${error.code}`);
+    assert.equal(error.exit_code, 3, `${where}：期望 exit_code 3，实际 ${error.exit_code}`);
+    assert.ok(error.error.includes('5000'), `${where}：error 应含 5000（响应头缺省上限未被放大），实际 ${JSON.stringify(error.error)}`);
+    assert.ok(r.elapsedMs > 4900 && r.elapsedMs < 5400, `${where}：耗时应落在 (4900, 5400)ms，实际 ${r.elapsedMs}ms`);
+    assert.equal(blackhole.counts().requests - before, 1, `${where}：服务端应恰收到 1 次请求，实际 ${JSON.stringify(blackhole.counts())}`);
+  }
+});
+
+test('T4 · 单点派生的两宿主同码：CLI 面与库面对同一黑障桩同 code（WAIT_TIMEOUT）同退出码（1）', async (t) => {
+  // 派生点恰 1（`surface.js` 的 `runApi`）⇒ 库面（`params.waitMs` 走第二槽）与 CLI 面对同一黑障桩同归类。
+  const blackhole = await startStubServer(t, {});
+  const { createHub } = await import('../sdk/index.js');
+  const args = ['api', 'calls', 'create', '--chat-id', 'c', '--agent', 'a', '--task', 't', '--mode', 'block', '--wait', '8000', '--port', String(blackhole.port)];
+
+  const cli = await hubCall(args, { timeoutMs: 15000 });
+  const cliError = parseErrorLine('两宿主同码（进程面）', cli.stderr, ['code', 'error', 'exit_code']);
+  assert.equal(cli.code, 1, `两宿主同码（进程面）：期望退出码 1，实际 ${cli.code}（stderr=${JSON.stringify(cli.stderr)}）`);
+  assert.equal(cliError.code, 'WAIT_TIMEOUT', `两宿主同码（进程面）：期望 WAIT_TIMEOUT，实际 ${cliError.code}`);
+
+  const started = Date.now();
+  const lib = await callLibrary('两宿主同码（库面 api.calls.create）', () =>
+    createHub({ port: blackhole.port }).api.calls.create({ 'chat-id': 'c', agent: 'a', task: 't', mode: 'block' }, { waitMs: 8000 }),
+  );
+  const libElapsedMs = Date.now() - started;
+  assert.equal(lib.exitCode, cli.code, `两宿主同码：库面退出码 ${lib.exitCode} 与进程面 ${cli.code} 不一致`);
+  assert.equal(lib.errorCode, cliError.code, `两宿主同码：库面 code ${lib.errorCode} 与进程面 ${cliError.code} 不一致`);
+  assert.ok(lib.errorText.includes('8000'), `两宿主同码：库面 error 应含「--wait」上限 8000，实际 ${JSON.stringify(lib.errorText)}`);
+  assert.ok(libElapsedMs > 7600 && libElapsedMs < 9000, `两宿主同码：库面耗时应落在 (7600, 9000)ms，实际 ${libElapsedMs}ms`);
+  assert.equal(blackhole.counts().requests, 2, `两宿主同码：两宿主各应恰收到 1 次请求，实际 ${JSON.stringify(blackhole.counts())}`);
+});
+
+test('T4 · 库面缺省上限：`mode: "block"` 不传 `waitMs` 对 6000ms 桩仍可达（库面不再是 5000ms 死区）', async (t) => {
+  // 库面的 `waitMs` 缺省（`options.waitMs` 省略 ⇒ `null`）由 surface.js 的**同一派生点**补上与 cli.js
+  //   `DEFAULT_WAIT_MS` 同值的兜底（CLI 面由 cli.js 把该缺省落进 `params.waitMs`）⇒ 两个消费面在
+  //   `mode: 'block'` 下等价（F01）。桩延时必须**跨过 5000ms** 才判得出：未兜底时响应头上限仍是 5000ms，
+  //   6000ms 的响应会在 5040ms 前后被本地终止（`REQUEST_TIMEOUT`/3）。
+  const body = { calls: [{ call_id: 'lib-default-call-6000', state: 'completed', text: '' }] };
+  const slow = await startStubServer(t, { delayMs: 6000, status: 200, body });
+  const { createHub } = await import('../sdk/index.js');
+
+  const started = Date.now();
+  const lib = await callLibrary('库面 api.calls.create（mode block、不传 waitMs）', () =>
+    createHub({ port: slow.port }).api.calls.create({ 'chat-id': 'c', agent: 'a', task: 't', mode: 'block' }),
+  );
+  const elapsedMs = Date.now() - started;
+  assert.equal(
+    lib.exitCode,
+    0,
+    `库面（mode block、不传 waitMs、6000ms 桩）：期望 exitCode 0，实际 ${lib.exitCode}（code=${lib.errorCode} error=${JSON.stringify(lib.errorText)}）`,
+  );
+  assert.deepEqual(lib.body, body, `库面（mode block、不传 waitMs、6000ms 桩）：响应体应为桩原样，实际 ${JSON.stringify(lib.body)}`);
+  assert.ok(elapsedMs > 6000 && elapsedMs < 7000, `库面（mode block、不传 waitMs、6000ms 桩）：耗时应落在 (6000, 7000)ms，实际 ${elapsedMs}ms`);
+  assert.equal(slow.counts().requests, 1, `库面（mode block、不传 waitMs、6000ms 桩）：服务端应恰收到 1 次请求，实际 ${JSON.stringify(slow.counts())}`);
+});
+
+test('T4 · 上游业务错误优先于本地超时：`--mode block --wait 8000` 下 404 / 400 仍即时归类', async (t) => {
+  // 放宽响应头预算不改变「上游错误即时归类」的次序：上游 4xx 在 `--wait` 上限内到达 ⇒ 仍按上游 `code` 归类。
+  const notFound = await startStubServer(t, { delayMs: 0, status: 404, body: { error: 'chat 不存在: ghost', code: 'NOT_FOUND' } });
+  const badRequest = await startStubServer(t, { delayMs: 0, status: 400, body: { error: '缺少 agent 字段', code: 'INVALID_PARAM' } });
+  const samples = [
+    { label: '上游 404', stub: notFound, code: 'NOT_FOUND', status: 404, error: 'chat 不存在: ghost' },
+    { label: '上游 400', stub: badRequest, code: 'INVALID_PARAM', status: 400, error: '缺少 agent 字段' },
+  ];
+  for (const sample of samples) {
+    const r = await hubCall(
+      ['api', 'calls', 'create', '--chat-id', 'c', '--agent', 'a', '--task', 't', '--mode', 'block', '--wait', '8000', '--port', String(sample.stub.port)],
+      {},
+    );
+    const where = `${sample.label}（--mode block --wait 8000）`;
+    assert.equal(r.code, 1, `${where}：期望退出码 1，实际 ${r.code}（stderr=${JSON.stringify(r.stderr)}）`);
+    assert.equal(r.stdout, '', `${where}：失败面 stdout 不得有残片，实际 ${JSON.stringify(r.stdout)}`);
+    const error = parseErrorLine(where, r.stderr, ['code', 'error', 'exit_code', 'http_status']);
+    assert.equal(error.code, sample.code, `${where}：期望 ${sample.code}，实际 ${error.code}`);
+    assert.equal(error.exit_code, 1, `${where}：期望 exit_code 1，实际 ${error.exit_code}`);
+    assert.equal(error.http_status, sample.status, `${where}：http_status 应为上游真实状态码，实际 ${error.http_status}`);
+    assert.equal(error.error, sample.error, `${where}：error 应为上游原文，实际 ${JSON.stringify(error.error)}`);
+    assert.ok(r.elapsedMs < 4900, `${where}：上游错误应即时归类（未被本地超时抢先），实际 ${r.elapsedMs}ms`);
+  }
 });
 
 // ────────────────────────────── T5 · P-1 口径的 background 取回终态 ──────────────────────────────
@@ -1069,12 +1192,12 @@ test('T7 · 层 C 逐字节：hub cli ↔ 直跑 oamp 一致、零现场变化�
   // 2) 只读类对照：live Router **零节点** ⇒ 表头单行（非空，防"空 vs 空"的虚假相等）
   const statusRead = await compare({ label: '只读组 · status', tokens: ['status'], runEnv: env });
   assert.equal(statusRead.viaHub.code, 0, `status（零节点）：期望退出码 0，实际 ${statusRead.viaHub.code}`);
-  assert.ok(statusRead.viaHub.stdout.length > 0, 'status（零节点）：stdout 应为表头单行（非空）');
+  assert.ok(statusRead.viaHub.stdout.trim().length > 0, 'status（零节点）：stdout trim 后应为表头单行（非空，防"空 vs 空"的虚假相等）');
   assert.equal(statusRead.viaHub.stderr, '', 'status（零节点）：stderr 必须为空');
   const tasksBefore = await runHub(['api', 'calls', 'list', '--port', String(hub.port)], { env });
   const taskList = await compare({ label: '只读组 · task list', tokens: ['task', 'list'], runEnv: env });
   assert.equal(taskList.viaHub.code, 0, `task list：期望退出码 0，实际 ${taskList.viaHub.code}`);
-  assert.ok(taskList.viaHub.stdout.length > 0, 'task list（零任务）：stdout 应为「（无任务）」单行（非空，防"空 vs 空"的虚假相等）');
+  assert.ok(taskList.viaHub.stdout.trim().length > 0, 'task list（零任务）：stdout trim 后应为「（无任务）」单行（非空，防"空 vs 空"的虚假相等）');
   assert.equal(taskList.viaHub.stderr, '', 'task list（零任务）：stderr 必须为空');
   const tasksAfter = await runHub(['api', 'calls', 'list', '--port', String(hub.port)], { env });
   assertSameBytes('task list 前后（任务面）', tasksBefore.stdout, tasksAfter.stdout);
@@ -1083,7 +1206,7 @@ test('T7 · 层 C 逐字节：hub cli ↔ 直跑 oamp 一致、零现场变化�
   const unreachable = await compare({ label: '不可达态 · status', tokens: ['status'], runEnv: unreachableEnv });
   assert.equal(unreachable.viaHub.code, 1, `不可达态 status：期望退出码 1，实际 ${unreachable.viaHub.code}`);
   assert.equal(unreachable.viaHub.stdout, '', '不可达态 status：stdout 必须为空');
-  assert.ok(unreachable.viaHub.stderr.length > 0, '不可达态 status：stderr 应明确报错（不静默空结果）');
+  assert.ok(unreachable.viaHub.stderr.trim().length > 0, '不可达态 status：stderr trim 后应明确报错（不静默空结果）');
 
   // 4) 启停类命令的**用法面**对照（零现场副作用）
   const usage = await compare({ label: '启停类用法面 · agent start', tokens: ['agent', 'start'], runEnv: env });
@@ -1174,4 +1297,22 @@ test('T9 · 拾取性：本文件落在 `node --test test/*.test.js` 的拾取�
   assert.deepEqual(pkg.dependencies, {}, '本 PR 零新依赖（只用 node 内置）');
   assert.equal(path.dirname(THIS_FILE), path.join(ROOT, 'test'), '用例必须落在 test/ 平铺面内');
   assert.ok(path.basename(THIS_FILE).endsWith('.test.js'), '文件名必须匹配 `test/*.test.js`');
+});
+
+test('T9b · 常量同值：`cli.js` 的 `DEFAULT_WAIT_MS` 与 `surface.js` 的 `BLOCK_WAIT_DEFAULT_MS` 相等（只读比对，防静默漂移）', () => {
+  // 库面的 `--wait` 缺省由 `surface.js` 自持同值常量（反向 import `cli.js` 会成环 ⇒ 不 import、不改 `cli.js`）；
+  //   两处一旦漂移，CLI 面与库面在 `mode: 'block'` 下不再等价（F01）。本条只读源文本比对，零运行时耦合。
+  const sourceOf = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  const valueOf = (rel, name) => {
+    const found = new RegExp(`const ${name} = (\\d+);`).exec(sourceOf(rel));
+    assert.ok(found !== null, `${rel}：未找到「const ${name} = <数字>;」声明（常量被改名 ⇒ 本条判据失效，需同步更新）`);
+    return Number(found[1]);
+  };
+  const cliValue = valueOf('sdk/cli.js', 'DEFAULT_WAIT_MS');
+  const surfaceValue = valueOf('sdk/surface.js', 'BLOCK_WAIT_DEFAULT_MS');
+  assert.equal(
+    surfaceValue,
+    cliValue,
+    `库面缺省 ${surfaceValue} 与 CLI 面缺省 ${cliValue} 必须同值（否则「mode: block」下两个消费面不等价）`,
+  );
 });

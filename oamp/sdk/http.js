@@ -2,7 +2,8 @@
 // 一次调用 = 恰好一次请求：method / path（路径参数已由调用方替换）/ query / body 原样下行，
 // 响应体与上游错误体原样上行（§5.2 规则 2 / W3）——不加信封、不改字段名、不裁剪、不补默认值，
 // 不做跨端点组合（截断正文重建 / 节点清单反查 / 分页续取 / 批量编排）——跨端点语义不属本条目的薄封装。
-// 三条上限语义不同、不混淆（§5.4 要点）：连接建立 2000ms ｜ 响应头 5000ms ｜ `--wait` 显式上限。
+// 三条上限语义不同、不混淆（§5.4 要点）：连接建立 2000ms ｜ 响应头 5000ms（缺省值 —— 可阻塞条目的该预算
+// 由 `--wait` 上限支配，派生点 = surface.js 的 runApi）｜ `--wait` 显式上限。
 // 零状态（F09 / §8 C8）：零本地写、零模块级可变状态、每请求一连接（agent: false）且结束即关、无重试。
 // 端口只接受显式入参——`OAMP_WEB_PORT` 缺省链的唯一落点在 createHub()（§5.2，归 pr-003 / pr-004）。
 
@@ -12,7 +13,7 @@ import { HubError, classify } from './errors.js';
 
 const HOST = '127.0.0.1';
 const CONNECT_TIMEOUT_MS = 2000; // 连接建立上限（沿用 src/node-client.js / src/status.js 同值先例）
-const RESPONSE_TIMEOUT_MS = 5000; // 非阻塞条目的响应上限，计到响应头到达为止（§5.4 序 ②）
+const RESPONSE_TIMEOUT_MS = 5000; // 非阻塞条目的响应上限缺省值，计到响应头到达为止（§5.4 序 ②）；可阻塞条目由 `spec.headerTimeoutMs` 覆盖
 const FRAME_SEPARATOR = '\n\n'; // SSE 帧界（transport.js 逐帧写 `…\n\n`）
 
 /** 目标地址（错误文案与归类共用一处构造）。 */
@@ -31,9 +32,10 @@ function unreachable(target) {
   return hubError({ kind: 'connect' }, `无法连接 hub（${target}；服务未运行？）`);
 }
 
-/** 非阻塞条目响应超时（§5.4 `3` 类 ②）——与 `WAIT_TIMEOUT` 文案不同类、不混淆。 */
-function responseTimeout(target) {
-  return hubError({ kind: 'response-timeout' }, `等待响应超时（${RESPONSE_TIMEOUT_MS}ms；${target}）`);
+/** 响应头未在本次生效上限内到达（§5.4 `3` 类 ②）——与 `WAIT_TIMEOUT` 文案不同类、不混淆。
+ * `headerTimeoutMs` = 本次生效上限（缺省 = 模块常量）：与响应头定时器**同源** ⇒ 不出现「文案与实际上限不符」。 */
+function responseTimeout(target, headerTimeoutMs) {
+  return hubError({ kind: 'response-timeout' }, `等待响应超时（${headerTimeoutMs}ms；${target}）`);
 }
 
 /** 已建立的订阅被服务端异常终止（§5.4 `3` 类 ③）。 */
@@ -62,12 +64,14 @@ function requestPath(path, query) {
 }
 
 /**
- * 建连 + 写请求，并施加两道上限（§5.4 `3` 类 ①②）：连接建立 2000ms、响应头 5000ms。
+ * 建连 + 写请求，并施加两道上限（§5.4 `3` 类 ①②）：连接建立 2000ms、响应头（缺省 5000ms）。
  * 响应头到达即两道定时器都清除（MI-3）——长响应体与 SSE 长流因此不会被误判超时。
+ * @param {object} spec 传输入参；`headerTimeoutMs` 给定时即本次生效的响应头上限（层 A 只读该值，不判「该用多少」）
  * @returns {{req: import('node:http').ClientRequest, response: Promise<import('node:http').IncomingMessage>}}
  */
 function open(spec, headers, payload) {
   const target = addressOf(spec);
+  const headerTimeoutMs = spec.headerTimeoutMs ?? RESPONSE_TIMEOUT_MS; // 本次生效上限（未给 ⇒ 与既有行为逐字一致）
   const req = http.request({
     host: HOST,
     port: spec.port,
@@ -91,8 +95,8 @@ function open(spec, headers, payload) {
     }, CONNECT_TIMEOUT_MS);
     const responseTimer = setTimeout(() => {
       req.destroy();
-      settle(reject, responseTimeout(target));
-    }, RESPONSE_TIMEOUT_MS);
+      settle(reject, responseTimeout(target, headerTimeoutMs));
+    }, headerTimeoutMs);
     req.on('socket', (socket) => {
       if (socket.connecting) socket.once('connect', () => clearTimeout(connectTimer));
       else clearTimeout(connectTimer);
@@ -118,7 +122,7 @@ function readBody(res, target) {
 
 /**
  * 层 A 一次请求（F02 / §2.2 流 1）。
- * @param {{port: number, method: string, path: string, query?: object|null, body?: object|null, waitMs?: number|null}} spec
+ * @param {{port: number, method: string, path: string, query?: object|null, body?: object|null, waitMs?: number|null, headerTimeoutMs?: number}} spec
  * @returns {Promise<object|null>} 成功 → 服务端响应体原对象（不加信封）；失败 → 抛 `HubError`
  */
 export async function request(spec) {

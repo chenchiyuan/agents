@@ -27,6 +27,13 @@ const OAMP_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
 const SELF_FILE = fileURLToPath(import.meta.url);
 const BIN = path.join(OAMP_ROOT, 'bin', 'oamp.js');
 
+// 仓库运行态基线（B2 / DEV-01）：在**任何** hub 调用之前（模块加载期）采集 ⇒ 本文件内更早的调用若向
+//   仓库内 `.runtime` / `data` 写入，末条用例的前后一致判据必红。基线放用例体内会被"更早的写入"重置
+//   ⇒ 观测盲区（`entriesOf` 是函数声明，前向引用成立；每文件独立子进程 ⇒ 基线不跨文件共享）。
+const RUNTIME_DIR = path.join(OAMP_ROOT, '.runtime');
+const DATA_DIR = path.join(OAMP_ROOT, 'data');
+const RUNTIME_BASELINE = { runtime: entriesOf(RUNTIME_DIR), data: entriesOf(DATA_DIR) };
+
 // C6 / A20：端口段（主 agent 冻结分配）——本 PR 独占 [52000, 52999]；下列对照区间只用于"零交集"判定。
 const PORT_SEGMENT = { min: 52000, max: 52999 };
 const SIBLING_SEGMENTS = [
@@ -881,10 +888,6 @@ test('无跨调用状态：四个互不相干进程的观测 + 两次独立只�
 });
 
 test('零仓库运行态：临时 socket 目录与包根 .runtime / data 前后一致（§10 测试基建约束）', async (t) => {
-  const runtimeDir = path.join(OAMP_ROOT, '.runtime');
-  const dataDir = path.join(OAMP_ROOT, 'data');
-  const before = { runtime: entriesOf(runtimeDir), data: entriesOf(dataDir) };
-
   const router = await startRouterFor(t);
   const reg = await runHub(['uds', 'agent.register', '--params', JSON.stringify({ instance_id: 'temp-1' })], {
     env: { OAMP_SOCKET: router.socketPath },
@@ -897,8 +900,12 @@ test('零仓库运行态：临时 socket 目录与包根 .runtime / data 前后�
     ['router.sock'],
     `临时 socket 目录应只含 router.sock（无状态文件）：实测 ${fmt(entriesOf(socketDir))}（${socketDir}）`,
   );
-  const after = { runtime: entriesOf(runtimeDir), data: entriesOf(dataDir) };
-  assert.deepEqual(after, before, `仓库运行态目录在用例前后应一致：before=${fmt(before)}，after=${fmt(after)}`);
+  const after = { runtime: entriesOf(RUNTIME_DIR), data: entriesOf(DATA_DIR) };
+  assert.deepEqual(
+    after,
+    RUNTIME_BASELINE,
+    `仓库运行态目录应与**模块基线**（早于本文件任何 hub 调用）一致：baseline=${fmt(RUNTIME_BASELINE)}，after=${fmt(after)}`,
+  );
 });
 
 // ────────────────────────────── T7 · 收口：端口段 / 静态守门 / 拾取性 ──────────────────────────────
