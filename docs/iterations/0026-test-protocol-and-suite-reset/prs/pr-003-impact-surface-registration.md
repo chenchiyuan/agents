@@ -28,7 +28,7 @@
   | 4 | `workflow-pb.md:56` 同行推进条件「该 PR 验收标准全部通过」 | 随协议延期，只登记（Q15） | 登记在案，无文件动作 |
   | 5 | `roles/verifier/verifier.md`（全文未提跑什么测试） | 随协议延期，只登记（Q15） | 登记在案，无文件动作 |
   | 6 | `docs/iteration-time-analysis.md:236` | 本 PR 行尾加注失效说明 | 本 PR 验收 1（V-5） |
-  | 7 | `oamp/scripts/testenv.mjs:11`（可执行 `import`） | pr-001 删除整个文件（Q18） | pr-001 验收 6（V-1 同族） |
+  | 7 | `oamp/scripts/testenv.mjs:11`（可执行 `import`） | pr-001 删除整个文件（Q18） | pr-001 验收 4（= F01 卡验收 6；V-1 同族） |
   | 8 | `oamp/src/cluster-config.js:19`（注释） | 只登记不处置（Q19） | 登记在案，无文件动作 |
 
 - [ ] 本 PR 不新增文件、不为其他历史文档追加失效标注、不承载协议内容（无替代卡、无占位文件）
