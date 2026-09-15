@@ -3,7 +3,7 @@
 **工作流**: workflow-pb v0.12.0
 **迭代**: 0025-hub-sdk-and-skill
 **当前阶段**: 阶段 5（PR 实现）
-**迭代分支**: iteration/0025-hub-sdk-and-skill（tip `14ca2cf`）
+**迭代分支**: iteration/0025-hub-sdk-and-skill（tip `ec7fc84`）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0025-hub-sdk-and-skill
 **状态**: 进行中
 **history**: 开启
@@ -16,56 +16,54 @@
 |---|---|---|---|---|
 | 1 | 需求收敛 | ✅ | ⬜ | `demand.md` v1.0.1：15 项决策全 `user_confirmed` |
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` v0.1.0 + 17 张卡 |
-| 3 | 技术架构 | ✅ | ⬜ | `architecture.md` v1.0.0（687 行）；T-01~T-09 全落定；L1-1 与 P-1~P-4 经用户确认 |
-| 4 | PR 规划 | ✅ | ⬜ | `prs/` 10 个 PR 文件；四项推进条件核查通过 |
-| 5 | PR 实现 | ⏸ | ⬜ | **3/10 已合并**（pr-001 / pr-002 / pr-005，三份 verifier 均 PASS）；pr-003 派发 planner 中 |
+| 3 | 技术架构 | ✅ | ⬜ | `architecture.md` v1.0.0（687 行）；T-01~T-09 全落定 |
+| 4 | PR 规划 | ✅ | ⬜ | `prs/` 10 个 PR 文件 |
+| 5 | PR 实现 | ⏸ | ⬜ | **9/10 已合并**；pr-009 返工中 |
 | 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
 
 ## 并发配置（阶段 5）
 
-- **起始并发数**：3
-- **硬上限**：5
-- **当前有效上限**：5（已因 3 次槛位释放爬升至硬上限）
-- **累计槛位释放次数**：3
-- **已派发总数**：4
+- **起始并发数**：3　**硬上限**：5　**当前有效上限**：5
+- **累计槛位释放次数**：8　**已派发总数**：10
+- 实测并发波形：**2 → 1 → 1 → 2 → 4**；槛位从未成为瓶颈（瓶颈是依赖图的单链中部）
 
 ## PR 实现子状态（阶段 5 展开）
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
 | pr-001-sdk-error-contract-and-web-channel.md | （无） | ✅ | feat/0025-pr-001-… | ✅ `f9327ad` | 已释放 |
-| pr-002-sdk-router-uds-channel.md | pr-001-… | ✅ | feat/0025-pr-002-… | ✅ `14ca2cf` | 已释放 |
-| pr-003-sdk-entry-surface-cli-and-doctor.md | pr-001-…, pr-002-… | ⏸ | feat/0025-pr-003-sdk-entry-surface-cli-and-doctor | ⬜ | 占用 |
-| pr-004-sdk-dual-entry-and-hub-harness.md | pr-003-… | ⬜ | | ⬜ | 排队(依赖未满足) |
+| pr-002-sdk-router-uds-channel.md | pr-001 | ✅ | feat/0025-pr-002-… | ✅ `14ca2cf` | 已释放 |
+| pr-003-sdk-entry-surface-cli-and-doctor.md | pr-001, pr-002 | ✅ | feat/0025-pr-003-… | ✅ `453326c` | 已释放 |
+| pr-004-sdk-dual-entry-and-hub-harness.md | pr-003 | ✅ | feat/0025-pr-004-… | ✅ `3ba06dd` | 已释放 |
 | pr-005-hub-skill-and-content-check.md | （无） | ✅ | feat/0025-pr-005-… | ✅ `4be4661` | 已释放 |
-| pr-006-sdk-surface-coverage-test.md | pr-003-… | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-007-sdk-api-behavior-test.md | pr-004-… | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-008-sdk-uds-behavior-test.md | pr-004-… | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-009-sdk-cli-contract-test.md | pr-004-… | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-010-sdk-doctor-test.md | pr-003-…, pr-004-… | ⬜ | | ⬜ | 排队(依赖未满足) |
+| pr-006-sdk-surface-coverage-test.md | pr-003 | ✅ | feat/0025-pr-006-… | ✅ `b93fead` | 已释放 |
+| pr-007-sdk-api-behavior-test.md | pr-001, pr-003, pr-004 | ✅ | feat/0025-pr-007-… | ✅ `f4b6aa7` | 已释放 |
+| pr-008-sdk-uds-behavior-test.md | pr-002, pr-004 | ✅ | feat/0025-pr-008-… | ✅ `46969a0` | 已释放 |
+| pr-009-sdk-cli-contract-test.md | pr-004 | **❌FAIL(现场保留)** | feat/0025-pr-009-… | ⬜ | 已释放（返工中） |
+| pr-010-sdk-doctor-test.md | pr-003, pr-004 | ✅ | feat/0025-pr-010-… | ✅ `ec7fc84` | 已释放 |
 
-> 「已合并」列填**该 PR 的 merge commit**；worktree 分支 tip 是该 PR 自身最后一个提交，两者不同属正常。
+> 注：pr-009 的 worktree 与分支**原样保留**（协议：不得对其执行 `git worktree remove` / `git branch -d`）；它正在第 2 轮返工，返工后重新走验收。
 
 ## 待确认项
 
-（无）
+- [ ] **pr-011（收口修复 PR）**：待 wave 5 全部合并后，按用户口径**跑一次全量测试**并据此生成。已知必含项 = `oamp/sdk/http.js` 5000ms 响应头上限先行于 `--wait`（block 调用超 5s 拿不到终态，实测 5048ms → `REQUEST_TIMEOUT/3` 而非规格要求 `WAIT_TIMEOUT/1`）
 
-**跨 PR 接口契约（主 agent 冻结，下游按此接入）**：
+## 跨 PR 契约与冻结口径（下游按此接入）
 
-- `oamp/sdk/errors.js` → `HubError` / `classify(observation)` / `serializeError(err)`；`classify` 入参为带 `kind` 判别式的对象（`usage` / `connect` / `response-timeout` / `stream-ended` / `response{status,body}` / `wait-timeout` / `config` / `success`，未知 kind 抛错）
+- `oamp/sdk/errors.js` → `HubError` / `classify(observation)` / `serializeError(err)`
 - `oamp/sdk/http.js` → `request(spec)` / `stream(spec)`，`spec = {port, method, path, query, body, waitMs}`
-- `oamp/sdk/uds.js` → `connect(opts)`（`opts` 可含 `socketPath` / `onDeliver`）；会话自有可调用项 = 8 方法 + `close`；对 `message.deliver` 恒回传输层应答 `{received:true, message_id}`，**不做自动 ack**
-
-## 已确认项
-
-- **方案确认门（2026-09-15 14:47:54）**：L1-1 / P-1~P-4 / MI-01~MI-03 全部确认生效
-- **阶段 5 授权（2026-09-15 14:57）**：启动 10 个 PR 的实现
+- `oamp/sdk/uds.js` → `connect(opts)`（`opts` 可含 `socketPath` / `onDeliver`）
+- `oamp/sdk/surface.js` → `LAYERS` / `ENTRIES`(40) / `createSurface(opts) → {ctx, api, uds, cli}`
+- `oamp/sdk/cli.js` → `main(argv)` 返回数字
+- `oamp/sdk/doctor.js` → `check({apiDocPath?, port?}) → {pass, items}`
+- `oamp/sdk/index.js` → `createHub({port, socketPath}) → {api, uds, cli, doctor}`
+- `oamp/test/helpers/hub-harness.js` → `runHub(args, {env, input, timeoutMs}) → {code, stdout, stderr}`
+- **端口段（主 agent 冻结）**：pr-007 `51000-51999`／pr-008 `52000-52999`／pr-009 `53000-53999`／pr-010 `54000-54999`
+- **两条跨 PR 已知约束**：① `createHub({socketPath})` 不达 `doctor` 的 R3；② 库面读**调用方进程 env**
 
 ## 更新日志
 
-- 2026-09-15: 工作流启动；阶段 1 内联执行完成；阶段 2 / 3 / 4 依次完成
-- 2026-09-15: 方案确认门通过；用户授权阶段 5
-- 2026-09-15: 阶段 1~4 产物提交至迭代分支（`4d162d7`）；并发配置初始化；首批 worktree 建立
-- 2026-09-15: **pr-001 与 pr-005 全链完成**（两份 verifier PASS）；合并 `f9327ad` / `4be4661`
-- 2026-09-15: 依赖图重扫 → pr-002 解锁；`progress-observer` 独立核实发现两处记录漂移，已修正（补记 history + 把状态视图提交到迭代分支）
-- 2026-09-15: **pr-002 全链完成**（verifier PASS，94 条判定 0 fail）；合并 `14ca2cf`；依赖图重扫 → **pr-003 解锁**并派发 planner
+- 2026-09-15: 工作流启动；阶段 1 内联执行完成；阶段 2 / 3 / 4 依次完成；方案确认门通过；用户授权阶段 5
+- 2026-09-15: wave 1~4 完成（pr-001 / pr-005 / pr-002 / pr-003 / pr-004 / pr-006 全链通过并合并）
+- 2026-09-15: **wave 5 四路并发**（pr-007 ~ pr-010 的 planner / dev / verifier 三阶）——pr-007 / pr-008 / pr-010 验收 PASS 并合并；**pr-009 验收 FAIL**（主 agent 裁决未落地 + 2 处判别力问题），已唤醒其 dev 返工
+- 2026-09-15: `progress-observer` 独立核实曾发现两处记录漂移（history 缺记 + 状态视图未提交），已修正

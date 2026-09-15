@@ -188,3 +188,22 @@
 - 阶段：阶段 5（PR 实现）
 - 任务：先拆该 PR 内部的任务，产出该 PR 的 tasks 文件
 - 备注：pr-003 文件范围含 `surface.js` / `cli.js` / `doctor.js` 三个文件（pr-planner 已登记：层 C 落点的两种读法拆分会成环，故合并进同一 PR 内自消化）
+
+### 2026-09-15 18:20:35 · 收到报告 · wave 5 四个测试 PR（planner / dev / verifier 三阶全绿四份）
+
+- **pr-007**（`oamp/test/sdk-api.test.js` 956 行）：dev 提交 `dbbb898`；verifier **PASS**（0 fail / 4 偏差）；它自注入 **5 处产品代码变异，用例 5/5 全红并正确点名**；独立探针 27/27
+- **pr-008**（`oamp/test/sdk-uds.test.js` 1005 行）：dev 提交 `3fa4eab`；verifier **PASS**（0 fail / 5 偏差）；它做了**判别力验证**——**15 个有效变异全部检出、零逃逸**，并实证一处观测盲区（M12 全文件跑时逃逸、隔离跑时检出）
+- **pr-010**（`oamp/test/sdk-doctor.test.js` 659 行）：dev 提交 `7a025e0`；verifier **PASS**（77/77，0 fail / 7 偏差）；它自建 **TCP 嗅探代理从线级证明"零写副作用"**（恰 10 个 GET、零 POST/SSE 探测）
+- **pr-009**（`oamp/test/sdk-cli-contract.test.js` 1082 行）：dev 提交 `9266740`；verifier **FAIL**（2 fail / 1 partial / 8 偏差）——见下条
+
+### 2026-09-15 18:20:35 · 调度决策 · 阶段推进核查
+
+- 决策内容：**pr-007 / pr-008 / pr-010 三份 verifier 结论 PASS ⇒ 归档后合并进迭代分支**（`f4b6aa7` → `46969a0` → `ec7fc84`）；**pr-009 FAIL ⇒ 唤醒其 dev 返工，不合并**
+- 触发依据：三份报告的结论字段；pr-009 报告 `fail_detail`
+- 跨 PR 协调（本轮新增）：**主 agent 冻结四个测试 PR 的端口段**——pr-007 `51000-51999`／pr-008 `52000-52999`／pr-009 `53000-53999`／pr-010 `54000-54999`；依据是既有套件占用止于 49999、且四个 PR 并发跑全量时会撞端口。由 pr-007 planner 发起协调、主 agent 裁决并广播给其余三个。四份 verifier 报告均独立复核了"端口落段内、与兄弟段零交集、未走 7788"
+
+### 2026-09-15 18:20:35 · 派发 · dev（pr-009 第 2 轮返工）
+
+- 任务：补上主 agent 裁决 #1 未落地的部分（`createHub()` 库面对照组 + 组内设进程 env），并修 verifier 点名的 D-1（恒真断言、零判别力）与 D-4（只读组 stdout 非空断言缺失）
+- 失败根因（verifier 证据）：`createHub` 在该用例文件中**零命中** ⇒ 受影响判据 = T1 修订条 + `prd/F05-1`、`F07-1` 的「三宿主」②Node import 面
+- 流程口径：中间 PR **不跑仓库级全量套件**（用户 2026-09-15 指令）——四份 verifier 报告均按此执行，并在报告里显式登记了该边界
