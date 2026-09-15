@@ -16,7 +16,7 @@
 |---|---|---|---|---|
 | 1 | `oamp/test/**` | **整目录删除** | 34 个受版本控制文件（32 个 `*.test.js` + `helpers/harness.js` + `helpers/fake-node.js`） | **T1** |
 | 2 | `oamp/scripts/testenv.mjs` | **整文件删除** | 1 文件 / 192 行（Q18 裁决） | **T2** |
-| 3 | `oamp/package.json` | **移除 `scripts.test` 一个 key** | 1 行（`:12`） | **T3** |
+| 3 | `oamp/package.json` | **整块移除 `scripts` 容器**（含 `test` 键；裁决 2） | 3 行（`:11-13`） | **T3** |
 | 4 | `oamp/README.md` | **删除两处失效承诺** | `:195` 内片段 + `:102` 整行（+ `:101` 行尾片段） | **T4** |
 | — | `prs/pr-001-tasks.md`（本文件） | 阶段 5 流程产物 | — | **不计入本 PR 改动面**（见 T5 判据 6） |
 
@@ -48,8 +48,8 @@
 ### 0.4 本 PR 内的口径与冻结契约（每个任务都必须遵守）
 
 1. **动作只有「删」**：四处动作不得夹杂任何改写、重排、格式化、"顺手修正"。删字之外若需改动，一律停止并报告。
-2. **README `:195` 的口径调和（[model_inferred]，待主 agent 确认；见 §3-② 与 §4-①）**：删除的是「由 `npm test` 强制」这一**承诺片段**；「元数据必填 / 索引快照逐字节 / `API.md` 路径登记三条锁」这一**事实描述逐字保留**。依据 = `prd/F01` 验收 3 原文「删的是"由 npm test 强制"这项承诺，**不是漂移锁本身**」+ `demand.md` §W-1「保留同段"存在三条漂移锁"的事实描述」。PR 文件「文件范围」所写「`:195` 整句」与上述两处**字面冲突**，取三者判据的**交集**（见 §4-①），故落为**片段删除**而非整行删除。
-3. **`package.json` 的 `scripts` 容器口径**：PR 文件命名动作 = 「移除 `scripts.test` **一个 key**」，故**只删该键，容器保留为空对象** `"scripts": {}`（判据 `grep '"test"'` 零命中 + `Object.keys(pkg.scripts).length === 0`）。若要求「整块移除」，属 PR 简报外动作，**须主 agent 明示**后方可（登记见 §3-③）。
+2. **README `:195` 的口径**（已由主 agent 裁定生效 2026-09-15，裁决 1；见 §4-①）：删除的是「由 `npm test` 强制」这一**承诺片段**；「元数据必填 / 索引快照逐字节 / `API.md` 路径登记三条锁」这一**事实描述逐字保留**。依据 = `prd/F01` 验收 3 原文「删的是"由 npm test 强制"这项承诺，**不是漂移锁本身**」+ `demand.md` §W-1「保留同段"存在三条漂移锁"的事实描述」；PR 文件「文件范围」所写「`:195` 整句」经裁定为**不精确措辞**，以上述两处上游口径为准 ⇒ 落为**片段删除**而非整行删除。
+3. **`package.json` 的 `scripts` 容器口径**（已由主 agent 裁定 2026-09-15，裁决 2 —— 已闭合）：**整块移除 `"scripts"` 容器**（文件内不再有 `scripts` 键），**不是**留空对象 `"scripts": {}`。裁定理由 = 只剩 `{}` 的空容器是残留物，与本次「不留悬空」取向相反；且 PR 验收 2 逐字枚举的「其余字段逐字不变」清单 = `name` / `private` / `type` / `bin` / `engines` / `dependencies`，**不含 `scripts`**，故整块移除不违反该条。判据见 T3 验收标准 2 / 5（登记见 §3-③）。
 4. **冻结面不动**：`oamp/src` / `oamp/web` / `oamp/bin` 零改动；`src/cluster-config.js:19` 只登记不处置（Q19）。
 5. **零机制替代**：不新增 CI / hook / 替代 script / 占位文件；不新增依赖。
 6. **本 PR 不含实现代码、不含架构新增**；一切验收判据 = git 面（`ls-files` / `status` / `diff`）+ 文本检索（`grep`）。
@@ -86,19 +86,19 @@
 - **优先级**: P0
 - **追溯**: PR 文件「文件范围」第 2 项 + 验收 4 / 5；`prd/F01` 验收 6（含"落在冻结面之外、无需开口子"的说明）；`architecture.md` §6.1 A（**Q18**）、§3.1 ①、§6.1「裁决结论与一处代价更正」；`demand.md` §W-1 第 5 条、§5 第 7 行；事实锚点 A7 / A8
 
-### T3: `oamp/package.json` —— 移除 `scripts.test` 一个 key
+### T3: `oamp/package.json` —— 整块移除 `scripts` 容器（裁决 2）
 
-- **一句话描述**：删掉指向不存在目录的测试入口键（**整体移除该 key，不是把它改指向空套件**），文件其余字段逐字不动。
+- **一句话描述**：把指向不存在目录的测试入口连同其容器一并删掉——**整块移除 `"scripts"` 容器（含 `test` 键），不是把它改指向空套件、也不留空对象**；文件其余字段逐字不动。裁定来源：主 agent 2026-09-15 **裁决 2**（§0.4 契约 3 / §3-③）。
 - **验收标准**:
-  1. **键零命中**：`grep -n '"test"' oamp/package.json` **零输出**——F01 验收 2 的 V-2 判据。
-  2. **容器留空对象**（§0.4 契约 3）：`node -e "const p=require('fs').readFileSync('oamp/package.json','utf8');const j=JSON.parse(p);console.log(j.scripts.test===undefined, Object.keys(j.scripts).length)"` ⇒ `true 0`；文件内 `scripts` 块保留为 `"scripts": {}`。
-  3. **其余字段逐字不变**：`name` = `"oamp"`、`private` = `true`、`type` = `"module"`、`bin` = `{"oamp":"./bin/oamp.js"}`、`engines` = `{"node":">=22"}`、`dependencies` = `{}`（**空对象，不是缺键**）；判据 = `git diff bffc336 -- oamp/package.json` 的 hunk **只含** `"test": "node --test test/*.test.js"` 那一行（`-` 行），其余行零改动（`git diff` 中该文件的 `+` 行数为 0）。
+  1. **`"test"` 零命中**：`grep -n '"test"' oamp/package.json` **零输出**——F01 验收 2 的 V-2 判据。
+  2. **容器整块移除**（§0.4 契约 3，裁决 2）：`grep -n '"scripts"' oamp/package.json` **零输出**；`node -e "const j=JSON.parse(require('fs').readFileSync('oamp/package.json','utf8'));console.log(j.scripts===undefined)"` ⇒ `true`（`scripts` 键不存在，script 替代面为空）。
+  3. **其余字段逐字不变**：`name` = `"oamp"`、`private` = `true`、`type` = `"module"`、`bin` = `{"oamp":"./bin/oamp.js"}`、`engines` = `{"node":">=22"}`、`dependencies` = `{}`（**空对象，不是缺键**）；判据 = `git diff bffc336 -- oamp/package.json` 的 hunk **恰为 `:11-13` 三行的删除**（`-"scripts": {` / `-"test": "node --test test/*.test.js"` / `-},`），该文件 `+` 行数 = 0、其余行零改动。
   4. **JSON 仍合法**：`node -e "JSON.parse(require('fs').readFileSync('oamp/package.json','utf8'))"` 退出 0（无尾逗号、无残缺括号）。
-  5. **不引入替代 script**：`Object.keys(j.scripts).length === 0`（无 `test:legacy` / `test:unit` / 任何替代键，PR 验收 4）。
+  5. **不引入替代 script**：文件中不存在任何 script 键——`j.scripts === undefined` ∧ `grep -n '"scripts"' oamp/package.json` 零命中（无 `test:legacy` / `test:unit` / 任何替代键，PR 验收 4）。
   6. **零越界**：本任务的改动只落在 `oamp/package.json`（不触碰同目录的 `README.md`，那属 T4）。
 - **前置依赖**: 无
 - **优先级**: P0
-- **追溯**: PR 文件「文件范围」第 3 项 + 验收 2；`prd/F01` 验收 2（V-2，含"是整体移除，不是把它改指向空套件"）；`architecture.md` §1.2 事实 D、§3.1 ①；`demand.md` §W-1 第 2 条、§5 第 2 行（Q12）；事实锚点 A3
+- **追溯**: PR 文件「文件范围」第 3 项 + 验收 2；`prd/F01` 验收 2（V-2，含"是整体移除，不是把它改指向空套件"）；`architecture.md` §1.2 事实 D、§3.1 ①；`demand.md` §W-1 第 2 条、§5 第 2 行（Q12）；事实锚点 A3；主 agent 2026-09-15 **裁决 2**（整块移除 `scripts` 容器，非留空对象）
 
 ### T4: `oamp/README.md` —— 删除两处失效承诺（`:195` 承诺片段 + `:101-102` 整句）
 
@@ -106,7 +106,7 @@
 - **验收标准**:
   1. **承诺零命中**：`grep -n "由 \`npm test\` 强制" oamp/README.md` 零输出；且 `grep -n "npm test" oamp/README.md` 零输出（全文件不再出现该命令）。
   2. **整句零命中（跨两行）**：`grep -n "自动化测试将 interval 缩到" oamp/README.md` 零输出；`grep -n "30–100ms\|200–400ms\|~300ms" oamp/README.md` 零输出（该句两行**整体**消失，不留半句）。
-  3. **`:195` 的事实描述逐字保留**（§0.4 契约 2 / §4-①）：`grep -n "元数据必填 / 索引快照逐字节 / \`API.md\` 路径登记三条锁" oamp/README.md` **命中 1 行**（该行最终形如 `- **漂移锁**：元数据必填 / 索引快照逐字节 / \`API.md\` 路径登记三条锁`；除可选补一个句末「。」外不得新增任何文字）。
+  3. **`:195` 的事实描述逐字保留**（已由主 agent 确认生效 2026-09-15，裁决 1；见 §0.4 契约 2 / §4-①）：生效判据 = **删掉「由 `npm test` 强制」这段承诺，逐字保留「元数据必填 / 索引快照逐字节 / `API.md` 路径登记」三条锁的事实描述**（上游 `prd/F01` 验收 3 与 `demand.md` §W-1 口径一致；PR 文件「文件范围」的「`:195` 整句」经裁定为不精确措辞）。判据 = `grep -n "元数据必填 / 索引快照逐字节 / \`API.md\` 路径登记三条锁" oamp/README.md` **命中 1 行**（该行最终形如 `- **漂移锁**：元数据必填 / 索引快照逐字节 / \`API.md\` 路径登记三条锁`；除可选补一个句末「。」外不得新增任何文字）。
   4. **`:101` 前半句逐字保留**：`grep -n "数值类 env 一律要求正整数，非法值启动即报错退出（快速失败）。" oamp/README.md` 命中 1 行。
   5. **`:194` 命令行为逐字不变**：`grep -n "重新生成索引快照" oamp/README.md` 命中 1 行，且该行含 `node scripts/gen-llms-txt.mjs`。
   6. **env 表零改动**：`:98` `OAMP_TMUX_BIN` 行与 `:99` `OAMP_CLUSTER_WAIT_MS` 行逐字在场（`git diff bffc336 -- oamp/README.md` 的 hunk **不落在** `:98-:99`）。
@@ -115,14 +115,14 @@
   9. **零越界**：本任务的改动只落在 `oamp/README.md`。
 - **前置依赖**: 无
 - **优先级**: P0
-- **追溯**: PR 文件「文件范围」第 4 项 + 验收 3；`prd/F01` 验收 3（V-3，含"删的是'由 npm test 强制'这项承诺，不是漂移锁本身"与"与第 3 行同文件同 PR"）；`architecture.md` §1.2 事实 C、§3.1 ①、§3.2 第 3 条、§5.4；`demand.md` §W-1 第 3/4 条、§5 第 3/3b 行（Q12 / Q17）；事实锚点 A4 / A5 / A6
+- **追溯**: PR 文件「文件范围」第 4 项 + 验收 3；`prd/F01` 验收 3（V-3，含"删的是'由 npm test 强制'这项承诺，不是漂移锁本身"与"与第 3 行同文件同 PR"）；`architecture.md` §1.2 事实 C、§3.1 ①、§3.2 第 3 条、§5.4；`demand.md` §W-1 第 3/4 条、§5 第 3/3b 行（Q12 / Q17）；事实锚点 A4 / A5 / A6；主 agent 2026-09-15 **裁决 1**（片段删除读法确认生效）
 
 ### T5: 收口核验 —— PR 级验收（跨 4 路径）+ 改动面封闭 + 零替代机制
 
 - **一句话描述**：把 PR 文件 7 条验收标准里"跨路径"的那几条（4 / 5 / 7）与本 PR 的改动面/提交卫生收敛成一次机械核验，产出可留痕的判据输出。**本任务不改任何文件**（纯证据任务）。
 - **验收标准**:
   1. **四条路径面各自成立**（T1~T4 判据的合取重放）：`git ls-files oamp/test` 零命中；`test ! -e oamp/scripts/testenv.mjs`；`git ls-files oamp/scripts` 恰 1 行；`grep -n '"test"' oamp/package.json` 零命中；README 两条目标检索零命中且 `:194` / `:98` / `:99` / `:101` 保留项在场。
-  2. **PR 验收 4 — 未引入替代机制**：`git diff --name-only bffc336..HEAD` 与 `git status --porcelain` 中**无任何 `A`（新增）条目**；补充检索 `ls -d .github` 无命中、`<git-common-dir>/hooks` 无非 sample 文件、`git config --get core.hooksPath` 为空、`Object.keys(pkg.scripts).length === 0`、`git ls-files oamp/test` 零命中（无占位）。
+  2. **PR 验收 4 — 未引入替代机制**：`git diff --name-only bffc336..HEAD` 与 `git status --porcelain` 中**无任何 `A`（新增）条目**；补充检索 `ls -d .github` 无命中、`<git-common-dir>/hooks` 无非 sample 文件、`git config --get core.hooksPath` 为空、`grep -n '"scripts"' oamp/package.json` 零命中（`scripts` 容器已整块移除，裁决 2）、`git ls-files oamp/test` 零命中（无占位）。
   3. **PR 验收 5 — 冻结面零改动**：`git diff --name-only bffc336..HEAD | grep -E '^oamp/(src|web|bin)/'` **零命中**；并单独核 `git diff bffc336..HEAD -- oamp/src/cluster-config.js` **零输出**（Q19 只登记不处置）。
   4. **PR 验收 7 — 改动面恰为 37 条**：`git diff --name-only bffc336..HEAD` 条数 = **37**，分类 = 34 条 `oamp/test/**`（`D`）+ `oamp/scripts/testenv.mjs` + `oamp/package.json` + `oamp/README.md`；**无第 38 条**（本阶段产物 `prs/pr-001-tasks.md` 属流程产物，若一并提交则单独说明、不计入 PR 改动面——它不在 PR 文件「文件范围」内）。
   5. **与他 PR 零交集**：同一 diff 面**不含** `roles/**`（pr-002）与 `docs/iteration-time-analysis.md`（pr-003）。
@@ -161,22 +161,22 @@ graph LR
 **② `testenv.mjs` 注释的措辞精度（一手实读，与上游台账的差异登记）**
 `demand.md` §5 第 7 行与 `prd/F01` 验收 6 记「另 `:3` / `:5` / `:7` 三处注释同指（`test/helpers/harness.js`）」。一手实读：`:3`（「复用 `test/helpers/harness.js`…」）与 `:7`（「…载体仍为 `test/*.test.js`」）**是路径引用**；`:5` 的 `test-sender` 是**实例名**、`:2` 的「最小测试环境」是标题文案，二者不是路径引用。**处置无差异**（整文件删除），此处只登记措辞精度，不构成新的越界项。
 
-**③ `package.json` 的 `scripts` 容器`（待主 agent 确认的口径，非阻塞）**
-PR 文件命名动作 = 「移除 `scripts.test` **一个 key**」⇒ 本任务图落为 `"scripts": {}`（§0.4 契约 3）。PR 文件验收标准的两条判据（`grep '"test"'` 零命中 + 其余字段逐字不变）在「容器留空对象」与「整块移除」两种形态下**均通过**。若主 agent 要求整块移除，属简报外动作，需明示；本任务图**不作架构/口径裁决**。
+**③ `package.json` 的 `scripts` 容器**（已由主 agent 裁定 2026-09-15，裁决 2 —— 已闭合）
+原登记：PR 文件命名动作 = 「移除 `scripts.test` **一个 key**」，且两种形态（留空对象 / 整块移除）在既有判据下**均通过**，本任务图不作口径裁决。**裁定结果：整块移除 `"scripts"` 容器**——理由：只剩 `{}` 的空容器是残留物，与本次「不留悬空」的取向相反；PR 验收 2 逐字枚举的「其余字段逐字不变」清单 = `name` / `private` / `type` / `bin` / `engines` / `dependencies`，**不含 `scripts`**，故整块移除不违反该条。落点 = §0.4 契约 3 + T3 验收标准 2 / 5。
 
 **④ 冒烟工具消失的代价（Q18 已裁决，本 PR 不补）**
 `oamp/scripts/testenv.mjs` 是仓库里唯一的人工端到端冒烟入口（文件头自述"demo/冒烟"）。删除后仓库无同类工具——代价已随 Q18 裁决登记（`demand.md` §4.4 Q18 行）；**本 PR 不引入替代机制**（PR 验收 4 硬约束），不新建冒烟脚本。
 
 ---
 
-## 4. 待确认项与粒度自查
+## 4. 裁决确认项与粒度自查
 
-**① `[model_inferred]` 验收标准（需主 agent 确认）——共 1 条**
+**① 原 `[model_inferred]` 项：已由主 agent 确认生效（2026-09-15，裁决 1）——共 1 条**
 
-- **T4 判据 3**（`README.md:195` 保留「元数据必填 / 索引快照逐字节 / `API.md` 路径登记三条锁」这一事实描述 ⇒ 落为**片段删除**而非整行删除）。
-  - **为什么是推导而非原文**：PR 文件「文件范围」写「`:195` **整句**」删除；而 `prd/F01` 验收 3 写「同段落中"存在三条漂移锁"这一事实描述…**保留不变**：删的是"由 npm test 强制"这项**承诺**，不是漂移锁本身」；`demand.md` §W-1 写「删除「漂移锁…**由 `npm test` 强制**」那一句；**保留**同段"存在三条漂移锁"的事实描述与「重新生成索引快照」命令」。后两者的"保留事实"要求与前者"整句"字面冲突。
-  - **本任务图的取法（三者交集）**：`grep "由 \`npm test\` 强制"` 零命中（承诺删除：PR 文件与 prd 同向）∧「元数据必填 / 索引快照逐字节 / `API.md` 路径登记三条锁」在场（事实保留：prd 与 demand 同向）⇒ **唯一同时满足三者的形态 = 删片段**。PR 文件自己的验收标准判据（两条 grep 零命中 + 保留项清单）对此**不构成冲突**（清单里的保留项 = `:194` 命令行 / env 表两行 / 数值类 env 句，均与片段删除相容）。
-  - **若主 agent 裁定「整行删除为准」**：T4 判据 3 作废，README `:195` 整行消失——届时由主 agent 明示后改判，本任务图不自行宣布生效。
+- **T4 判据 3**（`README.md:195` 保留「元数据必填 / 索引快照逐字节 / `API.md` 路径登记三条锁」这一事实描述 ⇒ 落为**片段删除**而非整行删除）：**`[model_inferred]` 标记已去除，判据生效**。
+  - **为什么曾判为推导而非原文**：PR 文件「文件范围」写「`:195` **整句**」删除；而 `prd/F01` 验收 3 写「同段落中"存在三条漂移锁"这一事实描述…**保留不变**：删的是"由 npm test 强制"这项**承诺**，不是漂移锁本身」；`demand.md` §W-1 写「删除「漂移锁…**由 `npm test` 强制**」那一句；**保留**同段"存在三条漂移锁"的事实描述与「重新生成索引快照」命令」。后两者的"保留事实"要求与前者"整句"字面冲突。
+  - **生效结论（裁决 1 原文口径）**：生效判据 = **删掉「由 `npm test` 强制」这段承诺，逐字保留「元数据必填 / 索引快照逐字节 / `API.md` 路径登记」三条锁的事实描述**；PR 文件「文件范围」的「`:195` 整句」是**不精确措辞**，以上游 `prd/F01` 验收 3 与 `demand.md` §W-1 的口径为准（二者一致）。
+  - **三方交集推导（保留备查）**：`grep "由 \`npm test\` 强制"` 零命中（承诺删除：PR 文件与 prd 同向）∧「元数据必填 / 索引快照逐字节 / `API.md` 路径登记三条锁」在场（事实保留：prd 与 demand 同向）⇒ **唯一同时满足三者的形态 = 删片段**。PR 文件自己的验收标准判据（两条 grep 零命中 + 保留项清单）对此**不构成冲突**（清单里的保留项 = `:194` 命令行 / env 表两行 / 数值类 env 句，均与片段删除相容）。
 
 **② 粒度自查（5 任务全部通过三条件）**
 
