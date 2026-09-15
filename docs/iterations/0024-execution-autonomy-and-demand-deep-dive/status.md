@@ -3,7 +3,7 @@
 **工作流**: workflow-pb v0.11.0
 **迭代**: 0024-execution-autonomy-and-demand-deep-dive
 **当前阶段**: 阶段 4（PR规划）已完成，推进阶段 5
-**迭代分支**: （待创建）
+**迭代分支**: iteration/0024-execution-autonomy-and-demand-deep-dive
 **工作区地址**: （待创建）
 **状态**: 进行中
 **history**: 开启
