@@ -321,3 +321,29 @@
 - 委托对象 = **三个 PR 全部合并后的迭代分支最终态**（`43d82ff`），不是任何单个 PR 分支
 - 验证标准 = F09 验收 3/4（本次核心）+ `demand.md` §4「达到什么效果」6 条与 §7 验证方法 V-1~V-6 + 三个 PR 文件的验收标准整体一致性
 - 简报要点：角色定义全文注入；**显式禁止相对路径形态**；报告落点 `clarifications/verify-0026-stage6-{timestamp}.md`
+
+### 2026-09-15 18:47:00 · 收到报告 · verifier（阶段 6，迭代级）
+
+- 报告路径：`docs/iterations/0026-test-protocol-and-suite-reset/clarifications/verify-0026-stage6-20260915-182946.md`
+- 结论：**PASS**；**34 pass / 0 fail / 1 partial / 0 blocked**；偏差 **5** 条；下一迭代候选 6 项
+- 验证者身份：仓库状态与改动面封闭性的独立审计员（release-state auditor）+ 文本检索判据复核者
+- 验证对象：`iteration/0026-test-protocol-and-suite-reset` HEAD = `43d82ff`（tree `505cfdc2…`），merge-base = `ea8943e`，工作树干净
+- **核心对象判定**：F09 验收 4 **pass**（五文件动作与处置列逐文件一致；第 4/5/8 行零文件动作；`verifier.md` 与 `cluster-config.js` 不在 diff）；F09 验收 3 的「可执行引用零命中」**pass**，其「注释类引用逐条登记」子项 **partial**
+- **partial 的实质发现**：判据面内另有**第 10 处未登记引用** —— `roles/architect/data/0013-chat-archive-arch-decision-notes.md:15` 叙述中提及裸文件名 `persist.test.js`
+- 标准②：`demand.md` §4 六条裸判定 **6/6 pass**；§7 V-1~V-6 **6/6 pass**
+- 标准③：pr-001 七条 / pr-002 五条 / pr-003 五条验收标准全部 pass；三 PR 整体一致性 pass
+- 备注：`deferred-demand-changes.md` 不存在（无搭置的需求变更需透传）；报告未提交；未修改任何被验证产物；主工作区未被本次写入
+
+### 2026-09-15 18:50:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**阶段 6 核查通过**，标记 ✅；**补齐第 10 处引用的登记**，消除 partial 的成因；迭代进入收口
+- **主 agent 独立复核（不采信自述）**：亲自补扫全仓**裸文件名**形态（`grep -rnoE "[A-Za-z0-9_-]+\.test\.js"`，排除 `.git` / `.pb-agents` / `docs/iterations` / `oamp/test` / `oamp/data`）⇒ 此类引用**全仓恰 2 处**：`oamp/src/cluster-config.js:19`（`hygiene.test.js`，已在 Q19 登记）与 `roles/architect/data/0013-chat-archive-arch-decision-notes.md:15`（`persist.test.js`，**未登记**）。verifier 的判定成立
+- **根因确认**：本迭代 §5 的扫描口径只用了**路径形态**（`oamp/test`、`test/helpers`、`../test/`、`test/hygiene`），漏了**裸文件名**形态。这是主 agent 的取证口径漏洞，与 pr-001 阶段同类的"扫描面不完整"问题（当时漏了 `oamp/scripts/`）
+- **处置（按 Q19 同口径：只登记不处置）**：`demand.md` §5 补第 9 行、计数 9 行 → **10 行**（只登记 3 行 → 4 行）、W-3 标题、F-5、§4 效果第 6 条同步；F09 卡标题/来源/验收 1 表格/验收 3/验收 4/边界段同步；`prd.md` 索引与覆盖关系同步。`demand.md` 升 **v1.2.1**、`prd.md` 升 **v0.3.1**，修订依据登记在各自文档头
+- 提交：`1ca703a`
+
+### 2026-09-15 18:52:00 · 调度决策 · 收口搁置
+
+- 决策内容：**不擅自执行「迭代分支合并进 main」**，登记为待用户决策项
+- 触发依据（仓库事实）：`main` 检出在**仓库主工作区**，而该工作区当前存在**用户自己的未提交改动**（`roles/demand/demand.md`、`roles/demand/data/demand-changelog.md`、`roles/pr-planner/pr-planner.md`、`roles/pr-planner/data/pr-planner-changelog.md`，mtime 15:32–16:01，内容指向 0025 迭代的 skill 改进）。在这些改动未落盘前执行 merge 会与它们纠缠
+- 备注：按 `data/scm-protocol.md`，「`main` 上的合并动作只能在仓库主工作区发生」；本迭代其余全部产物已在迭代分支上完整落盘，收口动作随时可执行

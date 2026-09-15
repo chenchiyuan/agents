@@ -2,74 +2,71 @@
 
 **工作流**: workflow-pb v0.12.0
 **迭代**: 0026-test-protocol-and-suite-reset
-**当前阶段**: 阶段 5（PR 实现）
-**迭代分支**: `iteration/0026-test-protocol-and-suite-reset`（tip `43d82ff`；base = `main` @ `ea8943e`）
+**当前阶段**: **阶段 1~6 全部完成**；迭代分支待合并进 `main`（见下方「收口待办」）
+**迭代分支**: `iteration/0026-test-protocol-and-suite-reset`（tip `1ca703a`；base = `main` @ `ea8943e`）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0026-test-protocol-and-suite-reset
-**状态**: 进行中
+**状态**: 进行中（仅剩收口）
 **history**: 开启
-**方案确认门**: enabled — **已行使完毕**（阶段 3→4 处暂停，用户据此完成 Q15~Q19 五项裁决；阶段 3 无 L1，故放行）
+**方案确认门**: enabled — **已行使完毕**（阶段 3→4 处暂停，用户据此完成 Q15~Q19 五项裁决）
 **执行方式**: 本地 sub agent（宿主 `task` 工具）派发；阶段 1 由主 agent 内联执行
 
 ## 阶段状态
 
 | # | 阶段 | 完成 | 已验证 | 备注 |
 |---|---|---|---|---|
-| 1 | 需求收敛 | ✅ | ✅ | `demand.md` **v1.2.0**：19 项决策全 `user_confirmed` |
-| 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.3.0** + **3 张卡**（F01 / F02 / F09）；0 条 `[架构待填]` |
+| 1 | 需求收敛 | ✅ | ✅ | `demand.md` **v1.2.1**：19 项决策全 `user_confirmed` + 两轮勘误 + 第 10 处引用登记 |
+| 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.3.1** + **3 张卡**（F01 / F02 / F09）；0 条 `[架构待填]` |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **v0.2.0**：**L1 = 无、L2 = 无、新增实体 = 0** |
 | 4 | PR 规划 | ✅ | ⬜ | `prs/` **3 个 PR 文件**；四项推进条件核查通过 |
-| 5 | PR 实现 | ✅ | ⬜ | **3/3 已合并**（pr-002 / pr-001 / pr-003，三份验证均 PASS） |
-| 6 | 独立验证 | ⏸ | ⬜ | 已派发迭代级 verifier（核心对象 = F09 验收 3/4，判定面为三 PR 合并态） |
+| 5 | PR 实现 | ✅ | ✅ | **3/3 已合并**（`b3022be` / `cb248dd` / `43d82ff`）；三份 PR 级验证均 PASS |
+| 6 | 独立验证 | ✅ | ⬜ | 迭代级验证 **PASS**（34 pass / 0 fail / 1 partial / 0 blocked） |
 
-## 并发配置（阶段 5）
+## 并发配置（阶段 5，已终结）
 
-- **起始并发数**：3
-- **硬上限**：5（公式 `2×起始-1`）
-- **当前有效上限**：**5**（`min(3 + 3×3, 5)`；因三次合并释放槛位而爬升至硬上限并封顶）
-- **累计槛位释放次数**：**3**（pr-002 / pr-001 / pr-003 各 1 次）
-- **已派发总数**：3
-- **已解锁且排队中**：无（3 个 PR 已全部派发）⇒ 释放出的槛位按协议保持空置，不触发新派发
+- **起始并发数**：3 ｜ **硬上限**：5 ｜ **当前有效上限**：5（封顶）
+- **累计槛位释放次数**：**3**（三个 PR 各 1 次）｜ **已派发总数**：3
+- 三个 PR 全部 `depends_on` 为空 ⇒ 自始两两并发，无「依赖解锁」发生
 
-## PR 实现子状态（阶段 5 展开）
+## PR 实现子状态（阶段 5，已终结）
 
-| PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
-|---|---|---|---|---|---|
-| pr-001-test-assets-zeroing.md | （无） | ✅ | feat/0026-pr-001-test-assets-zeroing（`f4dc4b8` → 归档 `159ca44`） | ✅ `cb248dd` | 已释放 |
-| pr-002-stage5-output-contract-drop-tests.md | （无） | ✅ | feat/0026-pr-002-stage5-output-contract-drop-tests（`cff511d` → 归档 `2e3b700`） | ✅ `b3022be` | 已释放 |
-| pr-003-impact-surface-registration.md | （无） | ✅ | feat/0026-pr-003-impact-surface-registration（`f98c985` → 归档 `cf519e9`） | ✅ `43d82ff` | 已释放 |
+| PR 文件 | 状态 | worktree 分支 | 已合并 | 独立验证 |
+|---|---|---|---|---|
+| pr-001-test-assets-zeroing.md | ✅ | feat/0026-pr-001-…（`f4dc4b8` → 归档 `159ca44`） | ✅ `cb248dd` | **PASS** 34 / 0 / 0 / 0（6 偏差） |
+| pr-002-stage5-output-contract-drop-tests.md | ✅ | feat/0026-pr-002-…（`cff511d` → 归档 `2e3b700`） | ✅ `b3022be` | **PASS** 22 / 0 / 0 / 0（4 偏差） |
+| pr-003-impact-surface-registration.md | ✅ | feat/0026-pr-003-…（`f98c985` → 归档 `cf519e9`） | ✅ `43d82ff` | **PASS** 25 / 0 / 0 / 2（3 偏差） |
 
-> 三个 PR 的 `depends_on` 全为空 ⇒ 无「依赖解锁」发生（判据读取边归阶段 6，Q-PR-1 裁决）。
+> pr-003 的 2 条 blocked 是 F09 验收 3/4（跨 PR 判据，判定面为三 PR 合并态）——已由阶段 6 判定：验收 4 **pass**、验收 3 **pass（含 1 个 partial，成因已消除）**。
 
-## 两份独立验证结论
+## 交付物实测结果（三 PR 合并后的迭代分支最终态）
 
-| PR | 验证者身份 | 结论 | pass | fail | partial | blocked | 偏差 |
-|---|---|---|---|---|---|---|---|
-| pr-002 | 工作流协议文档的独立逐字审计者 | **PASS** | 22 | 0 | 0 | 0 | 4 |
-| pr-001 | 版本库卫生审查者（repo-hygiene / deletion-cutover） | **PASS** | 34 | 0 | 0 | 0 | 6 |
+| # | 判据 | 结果 |
+|---|---|---|
+| V-1 | `oamp/test/` 不存在 | ✅ 磁盘与索引双零（基线 34 个受控文件 + `helpers/` 全消） |
+| V-2 | `oamp/package.json` 无 `scripts` 容器 / 无 `"test"` 键 | ✅ 双零命中；`dependencies` 仍为空对象；其余六字段逐字不变 |
+| V-3 | `oamp/README.md` 两处失效承诺零命中 | ✅ `由 \`npm test\` 强制` 与 `自动化测试将 interval 缩到` 均零命中；保留项（三条锁事实、快照命令、env 表、数值类 env 句）全部在场 |
+| V-4 | `通过验证标准的测试` 零命中 | ✅ `roles/workflow-pb/workflow-pb.md` 单 hunk、`1 1`、版本号未动 |
+| V-5 | `docs/iteration-time-analysis.md:236` 失效标注 | ✅ 行尾**同行**追加，`--numstat` = `1 1`，行数 284 不变，原句四条字串仍在场 |
+| V-6 | 改动面封闭 | ✅ 实现面 = 5 个文件（`oamp/package.json`、`oamp/README.md`、`oamp/scripts/testenv.mjs`、`roles/workflow-pb/workflow-pb.md`、`docs/iteration-time-analysis.md`）+ `oamp/test/**` 34 文件删除；`oamp/src` / `web` / `bin` 零 diff |
 
-两份报告的偏差全部为「文档同步类」（PR 文件措辞与实现形态的差异、行号位移、计数口径），实证均不影响判定。
+## 影响面 10 行清单（最终态）
 
-## 待确认项
+有文件动作 6 行：1（`workflow-pb.md:56`，pr-002）/ 2（`package.json`，pr-001）/ 3（`README.md:195`，pr-001）/ 3b（`README.md:101-102`，pr-001）/ 6（`iteration-time-analysis.md:236`，pr-003）/ 7（`scripts/testenv.mjs` 整文件删除，pr-001）。
+只登记无动作 4 行：4、5（随协议延期，Q15）/ 8（`src/cluster-config.js:19` 注释，Q19）/ 9（`roles/architect/data/0013-…:15` 叙述，阶段 6 报出后按 Q19 同口径登记）。
 
-（无）
+## 收口待办（需用户决策）
 
-## 已确认项
+**迭代分支合并进 `main` 的动作尚未执行**，原因：`main` 检出在**仓库主工作区**，而该工作区当前存在**用户自己的未提交改动**（`roles/demand/demand.md`、`roles/demand/data/demand-changelog.md`、`roles/pr-planner/pr-planner.md`、`roles/pr-planner/data/pr-planner-changelog.md`，mtime 15:32–16:01，属 0025 迭代的 skill 改进）。在其未落盘前执行合并会与这些改动纠缠。**主 agent 未擅自处理**，等用户决定。
 
-- **迭代容器（2026-09-15）**：新开 0026；0025 按现状跑完
-- **存量测试全删**（Q8）：`oamp/test/**`（含 `helpers/`）+ `package.json` 的 `scripts` 容器 + `oamp/README.md` 两处（`:195` 片段 / `:101-102`）+ `oamp/scripts/testenv.mjs` 整文件（Q18）
-- **本次只改工作流阶段 5 输出契约那一行**（Q7，已由 pr-002 落地）
-- **维护主体**：新增横切角色（暂名 test-keeper），本次先不做（Q10）
-- **测试协议整块移出 0026**（Q15）／**变更历史不留痕**（Q16）／**`oamp/src/cluster-config.js:19` 只登记不处置**（Q19）
-- **Q-PR-1**：pr-003 的 `depends_on` 保持「（无）」，跨 PR 判据归阶段 6
-- **三条全迭代判据口径**：① diff 基线取 `bffc336` ② 阶段 5 产物 `prs/*-tasks.md` 不计入「改动面封闭」类判据面 ③ 判据编号以 `prd/*` 功能卡序号为准
-- **两条 PR 内形态裁决**：pr-001 的 T4 `:195` 为**片段删除**；T3 **整块移除 `scripts` 键**（不留 `{}` 空容器）
+## 已知事故与登记
 
-## 需主 agent 关注的事故与登记（progress-observer 独立核实过）
+- **越界写入事件（已复原，两方独立核实）**：pr-001 的 dev 用 `edit` 工具的相对路径形态时被解析到会话 cwd（仓库主工作区），误写 `oamp/package.json` 与 `oamp/README.md`；已复原。主 agent 与 progress-observer **两方独立核实**主工作区 `oamp/` 面零残留、两文件与 HEAD 逐字节一致
+- **根因（工具面）**：`edit` / `grep` 的相对路径按会话 cwd 解析，不按「工作区地址」解析。已在 pr-001/pr-002/pr-003 的 verifier 简报与阶段 6 简报中显式禁止相对路径形态
+- **§5 扫描口径漏洞（阶段 6 报出，已补）**：原扫描只用路径形态，漏了**裸文件名**形态；补扫确认全仓此类 2 处，第 10 处已登记
+- **主 agent 的三处上游勘误**：`README.md` 行号 `100-101`→`101-102`；影响面计数多轮同步（6 处→7 行→9 行→10 行）；`demand.md` §3 顺序条款的错误引用已更正
 
-- **越界写入事件（已复原）**：pr-001 的 dev 用 `edit` 工具的相对路径形态时被解析到**会话 cwd（仓库主工作区）**，误写 `oamp/package.json` 与 `oamp/README.md`；已 `checkout` 复原。**主 agent 与 progress-observer 两方独立核实**：主工作区 `oamp/` 面 `diff --stat` 与 `status --porcelain` 均为空，两文件与 HEAD 逐字节一致
-- **根因（工具面）**：`edit` / `grep` 的**相对路径按会话 cwd 解析**，不按「工作区地址」解析。后续所有派发已显式禁止相对路径形态（pr-001/pr-002/pr-003 的 verifier 简报均含此约束）
-- **主工作区其余 4 处改动**（`roles/demand/*`、`roles/pr-planner/*`）mtime 15:32–16:01，内容指向 0025 迭代的 skill 改进 ⇒ **用户自己的未提交工作，早于本迭代开工（17:22）**，本迭代零触碰
-- **history.md 条目时刻超前于承载提交**（progress-observer 报，1–6 分钟）：主 agent 按「事件发生时刻」记录，提交在之后发生。登记为已知的记录层特性，不影响 git 面的真实性
+## 本迭代的性质（`demand.md` §6 / §8 已登记）
+
+清存量不是解，是"清零重建"策略的前置动作；协议移出后，本次是**只有代价、收益待兑现**的清理。三处空缺（零回归保护窗口 / 阶段 5 失去方便判据 / 保留集空集无出口）全部依赖后续的协议迭代闭合。
 
 ## 更新日志
 
@@ -78,9 +75,7 @@
 - 2026-09-15: `architecture.md` v0.2.0 + `prd.md` v0.3.0 + `demand.md` v1.2.0（`75d567f`）
 - 2026-09-15: 阶段 4 完成（`bffc336`）；阶段 5 启动 + 3 个 PR worktree + 首波 planner（`7d5c954`）
 - 2026-09-15: 三条全迭代判据口径裁决（`2cb66f1`）
-- 2026-09-15: **pr-002 全链完成** → merge `b3022be`；槛位释放 ×1
-- 2026-09-15: pr-001 dev 报告越界写入事故（已复原，独立核实），记录于 `58210bf`
-- 2026-09-15: **pr-001 全链完成** → merge `cb248dd`；槛位释放 ×2，有效上限封顶 5
-- 2026-09-15: `progress-observer` 独立快照产出（`progress.md`），发现 4 处 status 视图滞后与 6 项无法核实项
-- 2026-09-15: **pr-003 全链完成** → merge `43d82ff`；**阶段 5 达成 3/3**；槛位释放 ×3，有效上限封顶 5
-- 2026-09-15: **阶段 6 触发**——迭代级独立验证已派发（核心对象 = F09 验收 3/4）
+- 2026-09-15: **pr-002 全链完成** → `b3022be`；**pr-001 全链完成** → `cb248dd`；**pr-003 全链完成** → `43d82ff`（阶段 5 达成 3/3）
+- 2026-09-15: pr-001 dev 报告越界写入事故（已复原，两方独立核实）
+- 2026-09-15: `progress-observer` 独立快照产出
+- 2026-09-15: **阶段 6 迭代级验证 PASS**；补齐第 10 处引用登记（`1ca703a`）；`demand.md` v1.2.1 / `prd.md` v0.3.1
