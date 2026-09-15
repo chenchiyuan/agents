@@ -8,7 +8,8 @@
 // 每条 = { id, layer, cmd, args, flags, kind, method, path, acceptsAs, run }：
 //   · `id` = `<layer>.<cmd.join(' ')>`（唯一，用于 doctor / 用例点名）；`layer` 是分层唯一依据（F14）；
 //   · `args` 位置参数声明（顺序 = 路径中 `:param` 出现序；含必填性）；
-//   · `flags` 选项声明（`name` 由 API.md 字段名机械推导：`_` → `-`；含 kind / 必填性，不含取值域 —— P-3）；
+//   · `flags` 选项声明（`name` 由 API.md 字段名机械推导：`_` → `-`；kind ∈ string/int/json/bool/array，
+//     其中 array = §5.1 规则 3 的"数组字段以逗号分隔"；含必填性、不含取值域 —— P-3）；
 //   · `method` / `path`：层 A = HTTP 端点（`:` 为路径参数），层 B = Router 方法名，层 C = null；
 //   · `kind`：`'result'`（一次调用一个结果）| `'stream'`（订阅，逐帧）；
 //   · `run(ctx, params)`：一次调用。params 各层只读自己需要的字段：
@@ -97,6 +98,7 @@ const str = (name, required = false) => ({ name, kind: 'string', required });
 const int = (name, required = false) => ({ name, kind: 'int', required });
 const json = (name, required = false) => ({ name, kind: 'json', required });
 const bool = (name, required = false) => ({ name, kind: 'bool', required });
+const arr = (name, required = false) => ({ name, kind: 'array', required }); // §5.1 规则 3：数组字段以逗号分隔
 
 const API_ENTRIES = [
   apiEntry({ cmd: ['agents'], method: 'GET', path: '/api/agents', args: [], flags: [str('state')] }),
@@ -133,7 +135,9 @@ const API_ENTRIES = [
     method: 'POST',
     path: '/api/messages',
     args: [],
-    flags: [str('chat-id', true), str('project-id'), str('agent-id', true), str('text', true), str('model'), bool('one-shot')],
+    // 必填面以 `API.md` 的「必填」列为准（A-4 唯一真源 / P-3）：`text` = 是；
+    // `chat_id` = 否（省略即自动新建对话）、`agent_id` = 条件必填（可自 `@agent` 前缀解析，属跨字段约束 ⇒ 交服务端）
+    flags: [str('chat-id'), str('project-id'), str('agent-id'), str('text', true), str('model'), bool('one-shot')],
   }),
   apiEntry({ cmd: ['stream', 'chat'], method: 'GET', path: '/api/stream', args: [arg('chat_id')], flags: [], kind: 'stream' }),
   apiEntry({ cmd: ['stream', 'events'], method: 'GET', path: '/api/events', args: [], flags: [], kind: 'stream' }),
@@ -195,7 +199,7 @@ const API_ENTRIES = [
     method: 'POST',
     path: '/api/confirmations/:confirmation_id/decision',
     args: [arg('confirmation_id')],
-    flags: [str('option-id'), str('option-ids'), str('text')],
+    flags: [str('option-id'), arr('option-ids'), str('text')], // option_ids 是数组字段（逗号分隔）
   }),
 ];
 

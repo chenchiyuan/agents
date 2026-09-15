@@ -30,7 +30,7 @@ function builtinOption(entry, name) {
   return null; // `--wait` 给非阻塞条目、`--as` 给非身份方法、`--port` 给非层 A、`--params` 给层 A……
 }
 
-/** 选项取值形态校验（P-3：只判"构造请求所必需"的部分 —— 整数 / 可解析 JSON；取值域交服务端）。 */
+/** 选项取值形态校验（P-3：只判"构造请求所必需"的部分 —— 整数 / 可解析 JSON / 数组切分；取值域交服务端）。 */
 function parseValue(kind, name, raw) {
   if (kind === 'int') {
     if (!/^-?\d+$/.test(raw)) return { error: `选项取值非法: --${name} 需为整数（当前值 ${raw}）` };
@@ -43,6 +43,8 @@ function parseValue(kind, name, raw) {
       return { error: `选项取值非法: --${name} 不是合法 JSON` };
     }
   }
+  // 数组字段：§5.1 规则 3 的"以逗号分隔"（元素原样、不改写不补默认值）
+  if (kind === 'array') return { parsed: raw.split(',') };
   return { parsed: raw };
 }
 
