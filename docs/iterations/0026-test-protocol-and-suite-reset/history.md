@@ -347,3 +347,16 @@
 - 决策内容：**不擅自执行「迭代分支合并进 main」**，登记为待用户决策项
 - 触发依据（仓库事实）：`main` 检出在**仓库主工作区**，而该工作区当前存在**用户自己的未提交改动**（`roles/demand/demand.md`、`roles/demand/data/demand-changelog.md`、`roles/pr-planner/pr-planner.md`、`roles/pr-planner/data/pr-planner-changelog.md`，mtime 15:32–16:01，内容指向 0025 迭代的 skill 改进）。在这些改动未落盘前执行 merge 会与它们纠缠
 - 备注：按 `data/scm-protocol.md`，「`main` 上的合并动作只能在仓库主工作区发生」；本迭代其余全部产物已在迭代分支上完整落盘，收口动作随时可执行
+
+### 2026-09-15 19:05:00 · 调度决策 · 收口执行
+
+- 触发依据：用户指令「good，请整理并提交代码」——解除前一步登记的收口阻塞（主工作区存在用户未提交改动）
+- 执行序：
+  1. **先行核对**：`main` = `ea8943e`（= 迭代分支 base）；主工作区 4 处未提交改动的文件面与迭代分支改动面 **comm 交集为空**（零重叠）⇒ 合并无冲突风险
+  2. **提交用户 WIP**（拆两个独立提交，理由分别写在信息里）：`42a4ccb`（demand skill v0.7.0：问题结构判断 + 追问反射机制）/ `87485f3`（pr-planner 变更说明外移到 `data/` 变更历史）
+  3. **合并**：`d8c2cb6 merge: iteration 0026-test-protocol-and-suite-reset … into main`（`--no-ff`，保留迭代边界；合并信息含交付物清单与四份验证结论）
+  4. **合并后复核**：`main` 上 V-1~V-6 全绿（`oamp/test` 不存在且索引 0 / 无 `test` 键无 `scripts` 容器 / README 两处失效承诺零命中 / `通过验证标准的测试` 零命中 / `:236` 行尾加注且行数 284 不变 / 冻结面零改动）；全仓残留引用恰为登记在案的两处
+  5. **清理**：三个 PR worktree 均先核实「工作区干净 + 分支已合并进 main」，再 `worktree remove` 并以 `branch -d`（非 `-D`）删除三个 `feat/0026-pr-*` 分支
+- **保留项**：`iteration/0026-test-protocol-and-suite-reset` 分支与迭代工作区（本仓库惯例：`iteration/0024-…` 等迭代分支均留存）
+- **零触碰**：0025 的 11 个现场（含 `iteration/0025-…`）与另一个会话新建的 `0027-pr-planner-wave-cap` worktree
+- 备注：合并动作按 `data/scm-protocol.md` 在**仓库主工作区**执行

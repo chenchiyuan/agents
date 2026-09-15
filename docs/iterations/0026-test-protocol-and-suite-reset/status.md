@@ -2,10 +2,10 @@
 
 **工作流**: workflow-pb v0.12.0
 **迭代**: 0026-test-protocol-and-suite-reset
-**当前阶段**: **阶段 1~6 全部完成**；迭代分支待合并进 `main`（见下方「收口待办」）
+**当前阶段**: **已收口** —— 阶段 1~6 全部完成，迭代分支已合并进 `main`（`d8c2cb6`），现场已清理
 **迭代分支**: `iteration/0026-test-protocol-and-suite-reset`（tip `1ca703a`；base = `main` @ `ea8943e`）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0026-test-protocol-and-suite-reset
-**状态**: 进行中（仅剩收口）
+**状态**: **已完成**
 **history**: 开启
 **方案确认门**: enabled — **已行使完毕**（阶段 3→4 处暂停，用户据此完成 Q15~Q19 五项裁决）
 **执行方式**: 本地 sub agent（宿主 `task` 工具）派发；阶段 1 由主 agent 内联执行
@@ -53,9 +53,16 @@
 有文件动作 6 行：1（`workflow-pb.md:56`，pr-002）/ 2（`package.json`，pr-001）/ 3（`README.md:195`，pr-001）/ 3b（`README.md:101-102`，pr-001）/ 6（`iteration-time-analysis.md:236`，pr-003）/ 7（`scripts/testenv.mjs` 整文件删除，pr-001）。
 只登记无动作 4 行：4、5（随协议延期，Q15）/ 8（`src/cluster-config.js:19` 注释，Q19）/ 9（`roles/architect/data/0013-…:15` 叙述，阶段 6 报出后按 Q19 同口径登记）。
 
-## 收口待办（需用户决策）
+## 收口（已完成）
 
-**迭代分支合并进 `main` 的动作尚未执行**，原因：`main` 检出在**仓库主工作区**，而该工作区当前存在**用户自己的未提交改动**（`roles/demand/demand.md`、`roles/demand/data/demand-changelog.md`、`roles/pr-planner/pr-planner.md`、`roles/pr-planner/data/pr-planner-changelog.md`，mtime 15:32–16:01，属 0025 迭代的 skill 改进）。在其未落盘前执行合并会与这些改动纠缠。**主 agent 未擅自处理**，等用户决定。
+- **用户授权**：2026-09-15「good，请整理并提交代码」
+- **主工作区 WIP 先行提交**（两批独立改动，各一个提交）：
+  - `42a4ccb feat(demand): 问题结构判断 + 追问反射机制（v0.6.0 → v0.7.0）`
+  - `87485f3 refactor(pr-planner): 变更说明外移到 data/ 变更历史`
+- **迭代分支合并进 `main`**：`d8c2cb6 merge: iteration 0026-test-protocol-and-suite-reset … into main`（`--no-ff`，保留迭代边界）
+- **合并后 `main` 复核**：V-1~V-6 全绿；全仓残留引用恰为登记在案的两处（`:236` 自身的加注、`src/cluster-config.js:19` 注释）
+- **现场清理**：三个 PR worktree 已移除、三个已合并的 `feat/0026-pr-*` 分支已删除；**保留** `iteration/0026-test-protocol-and-suite-reset`（本仓库惯例：迭代分支留存）与迭代工作区
+- **未触碰**：0025 的 11 个现场与 `iteration/0025-…`；另观察到 `iteration/0027-pr-planner-wave-cap`（另一个会话新建，基于 `ea8943e`）亦未触碰
 
 ## 已知事故与登记
 
@@ -79,3 +86,4 @@
 - 2026-09-15: pr-001 dev 报告越界写入事故（已复原，两方独立核实）
 - 2026-09-15: `progress-observer` 独立快照产出
 - 2026-09-15: **阶段 6 迭代级验证 PASS**；补齐第 10 处引用登记（`1ca703a`）；`demand.md` v1.2.1 / `prd.md` v0.3.1
+- 2026-09-15: **收口**：用户授权后提交主工作区 WIP（`42a4ccb` / `87485f3`）→ 迭代分支合并 main（`d8c2cb6`）→ 清理三个 PR worktree 与分支
