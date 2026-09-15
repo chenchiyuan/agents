@@ -1,6 +1,6 @@
 # F01 · 存量测试资产清零
 
-**来源**：demand.md 做什么 W-1（三条动作）；结论 Q8 / Q12；§5 影响面表第 2/3 行
+**来源**：demand.md 做什么 W-1（四条动作）；结论 Q8 / Q12 / Q17；§5 影响面表第 2/3/3b 行
 
 ## 用户价值
 
@@ -10,7 +10,9 @@
 
 1. `oamp/test/` 目录不存在（整目录移除，含 `helpers/harness.js`、`helpers/fake-node.js`）；`git ls-files oamp/test` 零命中（V-1）。
 2. `oamp/package.json` 不含 `scripts.test` 这个 key（是整体移除，不是把它改指向空套件）；该文件其余字段（`name` / `private` / `type` / `bin` / `engines` / `dependencies`）逐字不变，`dependencies` 仍为空对象；`grep -n '"test"' oamp/package.json` 零命中（V-2）。
-3. `oamp/README.md` 全文不含「由 `npm test` 强制」字样——「漂移锁…三条锁由 `npm test` 强制」整句移除（V-2）；同段落中"存在三条漂移锁"这一事实描述与「重新生成索引快照」命令保留不变：删的是"由 npm test 强制"这项承诺，不是漂移锁本身。
+3. `oamp/README.md` 全文不含两处已失效承诺（V-3 的两条检索均零命中）：
+   - `:195`「漂移锁…三条锁由 `npm test` 强制」整句移除；同段落中"存在三条漂移锁"这一事实描述与「重新生成索引快照」命令保留不变：删的是"由 npm test 强制"这项承诺，不是漂移锁本身。
+   - 「自动化测试将 interval 缩到 30–100ms、timeout 缩到 200–400ms、日志窗口缩到 ~300ms，使全链路秒级完成」这一句移除（`demand.md` §5 第 3b 行记作 `:100-101`，主工作区一手核对位于 `:101-102`；判据以引文为准）；同段前半的「数值类 env 一律要求正整数，非法值启动即报错退出（快速失败）」与之上的 `OAMP_TMUX_BIN` / `OAMP_CLUSTER_WAIT_MS` 两行 env 表保留不变——该句描述的是本次清理之后不再存在的机制，env 表与数值类校验本身不受影响。
 4. 清理不引入任何替代机制：仓库内不因本次清理新增 CI 配置、git hook、`package.json` 的替代 script（如 `test:legacy`）、或 `oamp/test/` 占位文件。
 5. `oamp/src`、`oamp/web`、`oamp/bin` 三个目录零改动（`git diff` 无命中）——"删除存量测试对运行时零影响"的既有结论（F-5）在改动后仍成立。
 
@@ -19,8 +21,9 @@
 - 不新增任何测试用例——零测试交付是预期终态（§2）。
 - 不保留 `helpers/` 脚手架（§6 被否决路径 3；"保留集首次重建需重写测试基建"的代价已登记）。
 - 不改任何生产代码（§2）。
-- 不处置 `oamp/test/` 之外的引用：`workflow-pb.md:56` 归 F02，§5 的第 4/5/6 处归 F05 / F06 / F09。
-- 不定义"何时、是否重建测试"——归 F07。
+- 不处置 `oamp/test/`、`oamp/package.json`、`oamp/README.md` 三处之外的文件面：`roles/workflow-pb/workflow-pb.md:56` 归 F02；§5 全部 7 行的归属核查与登记归 F09。
+- 不处置 §5 第 4/5 处（`workflow-pb.md:56` 同行的推进条件、`roles/verifier/verifier.md`）——随协议延期，本迭代只登记（Q15；F09 承载）。
+- 不新增测试用例、不定义"何时、是否重建测试"——零测试交付是预期终态（§2），保留集重建触发条件随协议延期（Q15）。
 
 ## 架构维度
 

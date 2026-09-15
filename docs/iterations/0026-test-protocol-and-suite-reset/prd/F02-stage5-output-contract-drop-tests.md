@@ -1,6 +1,6 @@
 # F02 · 阶段 5 输出契约去掉测试产出
 
-**来源**：demand.md 做什么 W-2；结论 Q7；§5 影响面表第 1 行；验证方法 V-3
+**来源**：demand.md 做什么 W-2；结论 Q7；§5 影响面表第 1 行；验证方法 V-4
 
 ## 用户价值
 
@@ -8,18 +8,18 @@
 
 ## 验收标准
 
-1. `roles/workflow-pb/workflow-pb.md` 阶段定义表阶段 5 那一行的「输出」列不含"测试"字样（由「… + 代码 + 通过验证标准的测试」改为「… + 代码」）；`grep -n "通过验证标准的测试" roles/workflow-pb/workflow-pb.md` 零命中（V-3）。
+1. `roles/workflow-pb/workflow-pb.md` 阶段定义表阶段 5 那一行的「输出」列不含"测试"字样（由「… + 代码 + 通过验证标准的测试」改为「… + 代码」）；`grep -n "通过验证标准的测试" roles/workflow-pb/workflow-pb.md` 零命中（V-4）。
 2. 同一行的其余内容逐字不变：输出列仍含 `prs/pr-{NNN}-tasks.md`；推进条件列仍为「该 PR 验收标准全部通过；无简报外改动；对应 PR 文件存在（合并前置）」。
 3. 该行改动后与 `roles/dev/dev.md`（:107 不写测试用例、:110 不跑全量测试套件）不再冲突：工作流不再向 dev 要求测试产出。
 4. 改动范围仅限该表格行——`git diff roles/workflow-pb/workflow-pb.md` 只出现这一行。
 
 ## 边界（不包含）
 
-- 不改阶段 5 的推进条件文字（「验收标准全部通过」的判定方式由 F05 的协议口径补，不在本卡改）。
+- 不改阶段 5 的推进条件文字（「验收标准全部通过」的判定方式随协议延期——本迭代不补判据，Q15；该处的登记归 F09）。
 - 不改阶段 2~4、阶段 6 的输出契约。
-- 不改 `roles/verifier/verifier.md`（→ F06）与 `roles/dev/dev.md`（现行规则已与 Q4 一致）。
+- 不改 `roles/verifier/verifier.md`（其取证口径随协议延期，Q15；登记归 F09）与 `roles/dev/dev.md`（现行规则已与 Q4 一致）。
 - 不新增任何解释性章节或说明文字（Q1 / Q7：本次只改这一行）。
-- 判据面仅限该文件本身：历史迭代产物（如 `docs/iterations/0003-*/clarifications/`）中的同名引用是历史引文，不在判据面内（V-3 口径）。
+- 判据面仅限该文件本身：历史迭代产物（如 `docs/iterations/0003-*/clarifications/`）中的同名引用是历史引文，不在判据面内（V-4 口径）。
 - `SKILL.md` 不需要同步：实测 `.claude/skills/workflow-pb/SKILL.md` 全文不含"测试"字样。
 
 ## 架构维度
