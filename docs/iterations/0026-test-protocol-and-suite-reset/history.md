@@ -263,3 +263,35 @@
   - 主工作区其余 4 处改动（`roles/demand/demand.md`、`roles/demand/data/demand-changelog.md`、`roles/pr-planner/pr-planner.md`、`roles/pr-planner/data/pr-planner-changelog.md`）mtime 为 **15:32–16:01**，内容指向 0025 迭代的 skill 改进 ⇒ **属用户自己的未提交工作，早于 0026 开工时刻（17:22）**，与本迭代无关，**主 agent 零触碰**
 - **根因登记（工具面，非本 PR 缺陷）**：`edit` / `grep` 等工具的**相对路径按会话 cwd 解析**，不按「工作区地址」解析。本次简报已声明「一切写入以工作区地址为根、以绝对路径进行」，但相对路径形态仍被解析到主工作区 ⇒ **后续所有派发必须显式禁止相对路径形态**
 - 备注：dev 另报两处工具面事实（`edit` 对含中文行多次匹配失败，改用「绝对路径 + 脚本化精确改写」完成）——不改变产物
+
+### 2026-09-15 18:33:00 · 收到报告 · verifier（pr-001）
+
+- 报告路径：`docs/iterations/0026-test-protocol-and-suite-reset/clarifications/verify-pr-001-20260915-182559.md`
+- 结论：**PASS**；**34 pass / 0 fail / 0 partial / 0 blocked**；偏差 **6** 条；下一迭代候选 5 项
+- 验证者身份：版本库卫生审查者（repo-hygiene / deletion-cutover reviewer）
+- 判定构成：`prd/F01` 验收 6/6 pass；PR 文件验收 7/7 pass；T1~T5 任务判据 35 子项全 pass；F01 边界段 6/6 pass
+- 独立取证要点：`oamp/test/` 磁盘与索引双零（`test -d` ABSENT + `git ls-files` = 0，基线 `git ls-tree` = 34）；`package.json` 的 `"test"`/`"scripts"` 双零命中 + `JSON.parse` 通过 + `j.scripts === undefined` + diff 单 hunk 恰 3 行删除且 `+` 行 0；README 三条失效串全零命中而 `:193` 快照命令 / `:194` 三条锁事实 / `:98`/`:99` env 表 / `:101` 数值类 env 句全部在场；冻结面 `oamp/src|web|bin` 零 diff（含 `cluster-config.js` = Q19）；零替代机制；T5-6 复扫命中集合恰为 `{oamp/src/cluster-config.js:19}`
+- 偏差全部为**文档同步类**：D-1/D-2 是 PR 文件措辞未回写两条 PR 内裁决；D-3 `testenv.mjs` 注释处数记 3 实为 2；D-4 PR 验收 7 的「三个路径」实为三非删除路径 + 34 删除；D-5 行号锚点为基线编号、HEAD 位移 −1；D-6 README 仍存 9 处「测试」env 表备注（与边界段一致，非破损引用）
+- 方法说明：verifier 自行处理了三处取证口径（已提交后 `status` 为空 ⇒ 改用 `diff --diff-filter=D` 等价核实；`:98/:99` 仅作 hunk 上下文无变更 ⇒ pass；阶段 5 产物按口径豁免）
+
+### 2026-09-15 18:35:00 · 调度决策 · PR合并
+
+- 决策内容：**pr-001 全链完成**（planner → dev → verifier → merge）；归档其 tasks 图与验证报告后合并进迭代分支
+- 合并动作：先归档（`159ca44`）→ 合并（`cb248dd`）
+- 合并结果：`oamp/README.md` 5 行改、`oamp/package.json` 3 行删、`oamp/scripts/testenv.mjs` 192 行删、`oamp/test/**` 34 文件删除，另附两份阶段 5 产物
+- **槛位释放 ×2**：累计 2；当前有效上限 = `min(3 + 2×3, 5)` = **5（封顶）**
+- 依赖图重扫：无新解锁；「已解锁且排队中」为空 ⇒ 释放出的槛位按协议空置
+
+### 2026-09-15 18:36:00 · 收到报告 · progress-observer
+
+- `progress.md` 路径：`docs/iterations/0026-test-protocol-and-suite-reset/progress.md`（整体覆盖）
+- 六部分摘要：阶段完成度 6/6 与产物实际存在性一致；PR 依赖核实三个 PR 的 `depends_on` 全为「（无）」⇒ 依赖图确为三个孤立节点；PR 实现状态核实 1 一致 / 2 不一致；并发度分析无闲置 PR；**发现的不一致 4 条**；**无法核实项 6 条**
+- 一致项：pr-002 已合并（`git branch --merged` + ancestry 双证）
+- **4 条不一致全部是 `status.md` 视图滞后**（分支 tip 落后 2 个 docs commit；pr-001 行仍记 dev 进行中而实测已有实现提交；pr-003 的 `f98c985` 未登记；history 条目时刻超前承载提交 1–6 分钟）——本次 status 更新已修正前三项，第四项登记为已知的记录层特性
+- **事故的第三方独立复核**：progress-observer 自述「越界写入事件已独立复核——主工作区 `oamp/` 面 `status --porcelain` 与 `diff --stat` 均为空，history.md 所述「已复原」成立；主工作区 4 条未提交改动实测 mtime 15:32–16:01，早于本迭代开工，本次零触碰」——与主 agent 的核实结论**两方独立一致**
+- 备注：该快照时刻为 18:25:32，早于 pr-001 合并（18:35），故其「pr-001 未合并」判断在当时为真；合并后需再触发一次（协议：每次 merge 后自动触发）
+
+### 2026-09-15 18:36:00 · 派发 · verifier（pr-003）
+
+- 任务：独立验证 pr-003（`:236` 行尾加注）；委托只给产出物路径与验证标准
+- 简报要点：角色定义全文注入；**显式禁止相对路径形态**（附工具面根因说明）；明确「跨 PR 判据归阶段 6，不在本次判定面内，若认为必须判请记 blocked 而非猜测」
