@@ -2,7 +2,7 @@
 // 一张表两用（§5.2 规则 1）：CLI 面按 `cmd` 查表分派、库面按同一份 `ENTRIES` 装配命名空间 ⇒
 //   "某条命令的行为"只写一处，不存在"改一处另一处没变"。
 // 名面逐字锁定（A14）：40 条 `cmd` = `oamp/skill/hub.md` 的三层清单（层 A 21 / 层 B 8 / 层 C 11），
-//   改名 / 增删立即撞已合并的 `test/sdk-skill.test.js`。
+//   改名 / 增删立即撞已合并的 `oamp/skill/hub.md` 的三层清单（该清单是本合约的机械锁）。
 // 分层与 doctor（P-4）：`doctor` 是第四顶层入口，不属于三层封装，不在 `ENTRIES` 的 40 条内
 //   （doctor 命名空间由 sdk/index.js 组合，本模块不装配）。
 // 每条 = { id, layer, cmd, args, flags, kind, method, path, acceptsAs, run }：
