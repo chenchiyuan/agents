@@ -45,10 +45,17 @@ function fieldOf(flagName) {
   return flagName.replaceAll('-', '_');
 }
 
-/** 层 A 的一次调用（§2.2 流 1）：路径参数替换 + query / body 分流，之下全走 http.js 的 request / stream。 */
+/** 可阻塞条目的响应头预算余量（ms）：只为保证上限③（`--wait`）先于上限②（响应头）触发（`http.js` 的
+ *  响应头定时器先注册，两者延迟相等时先到的是响应头）—— 两条上限的语义不合并（§5.4 要点）。 */
+const HEADER_TIMEOUT_MARGIN_MS = 1000;
+
+/** 层 A 的一次调用（§2.2 流 1）：路径参数替换 + query / body 分流，之下全走 http.js 的 request / stream。
+ *  可阻塞形态（`--mode block`）的响应头预算由 `--wait` 上限支配 —— 派生点即本函数，全仓唯一。
+ */
 function runApi(ctx, spec, params) {
   const args = params.args ?? [];
   const flags = params.flags ?? {};
+  const waitMs = params.waitMs ?? null;
   let target = spec.path;
   const query = {};
   const body = {};
@@ -72,7 +79,10 @@ function runApi(ctx, spec, params) {
     path: target,
     query: spec.method === 'GET' && Object.keys(query).length > 0 ? query : null,
     body: spec.method === 'GET' || Object.keys(body).length === 0 ? null : body, // 无字段 ⇒ 无请求体（API.md §3.4/§3.5/§3.6）
-    waitMs: params.waitMs ?? null,
+    waitMs,
+    // 可阻塞形态（`--mode block`）的响应头上限由 `--wait` 上限支配（§5.4：可阻塞条目恒有上限、非可阻塞
+    // 条目走 5000ms 缺省）；其余形态（含 `mode` 缺省 = 服务端 background）一律沿用缺省，不随 `--wait` 放大。
+    headerTimeoutMs: waitMs !== null && flags.mode === 'block' ? waitMs + HEADER_TIMEOUT_MARGIN_MS : undefined,
   };
   return spec.kind === 'stream' ? stream(requestSpec) : request(requestSpec);
 }
