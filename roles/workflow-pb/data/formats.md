@@ -101,7 +101,7 @@
 **工作区地址**: {该迭代的迭代工作区绝对地址，见 `scm-protocol.md` §规则 D}
 **状态**: {进行中 / 等待确认 / 已完成 / 已终止}
 **history**: 开启
-**方案确认门**: enabled / disabled（默认 enabled，见 `workflow-pb.md` §启动工作流 的启动前询问；供阶段3→4推进逻辑查询）
+**方案确认门**: enabled / disabled（默认 enabled，见 `workflow-pb.md` §启动工作流 的启动前询问；供阶段4→5推进逻辑查询）
 
 ## 阶段状态
 
