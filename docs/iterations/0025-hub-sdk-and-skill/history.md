@@ -154,3 +154,37 @@
 - 触发依据：`progress.md` 的「发现的不一致」第 1/2 条；pr-002 planner 报告的 `task5_blockers_and_scope`
 - **裁决 1（接受 planner 推荐口径）**：F03 验收 3 的"消息收发"环节——`connect({…, onDeliver})` 对 `message.deliver` 恒回**传输层应答** `{received:true, message_id}`（与既有 `NodeClient` 同源，是协议必需的传输应答，非生命周期自动性），**不做自动 ack**；消息交调用方钩子，由调用方显式 `ack()`。命令面仍为 8 方法，不撞 PR 验收 1 与 G02 验收 3
 - **裁决 2（PR 文件验收 1 在本 PR 内优先）**：`uds.js` 用 `loadConfig(env).socketPath` 解析地址；但须**在 `connect()` 内惰性动态 import** `config.js`，并把 import / 解析失败经 `classify` 映射为 `CONFIG_ERROR`——依据：`oamp/src/config.js:166` 是顶层 `export default loadConfig()`，静态 import 期即执行，坏配置会绕过 `classify` 抛裸异常（撞 F08 验收 1）
+
+### 2026-09-15 15:31:00 · 派发 · dev（pr-002）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：按 tasks 文件产出让验证标准通过的最小实现，不做架构决策
+- 附带：主 agent 的两项裁决（`onDeliver` 传输层应答不做自动 ack；`loadConfig` 惰性动态 import + CONFIG_ERROR 映射）
+
+### 2026-09-15 15:45:00 · 收到报告 · dev（pr-002）
+
+- 1. 改了什么文件：`oamp/sdk/uds.js`（新建，180 行）；提交 `847899d`
+- 2. 测试结果：T1~T5 全部通过；PR 文件 10 条验收逐条对位；另跑真 Router 端到端（8 方法 + 注册闭环含真实消息往返 + 拓扑三步）
+- 3. 疑问/待办：按简报口径实现 MI-1~MI-6；无新增阻塞
+- 4. 违反边界：无（`oamp/sdk/errors.js` / `http.js` 零 diff；`package.json` 零 diff；未新增测试文件）
+
+### 2026-09-15 15:51:06 · 收到报告 · verifier（pr-002）
+
+- 报告路径：`docs/iterations/0025-hub-sdk-and-skill/clarifications/verify-pr-002-20260915-155106.md`
+- 结论：**PASS**；94 条判定（86 pass / 0 fail / 4 partial / 4 blocked）；偏差 **9** 条；下一迭代候选 6 项
+- 验证者身份：模块级协议契约实测审查者（UDS/JSON-RPC 客户端实现 + 错误归类表消费面）
+- 独立取证（不采信自述）：自写 7 个临时脚本 80 项动态检查 0 fail；命令面恰 8 方法 + `close`；`message.deliver` 恒回 `{received:true,message_id}` 且此后 1.5s 零自动 ack；坏配置下 `connect()` 得 `CONFIG_ERROR/1` 无裸异常逃逸；`REQUEST_TIMEOUT/3` 实测 5001ms vs `HUB_UNREACHABLE/3`（ENOENT 2ms / ECONNREFUSED 0ms）；真 Router E2E 与直连 `RpcPeer` deepEqual；改动面封闭（唯一 `oamp/sdk/uds.js`）
+- 重点偏差：D-1 tasks.md 称测试文件 32 个实为 33（base 亦然）；D-5 T1-5 把 ENOTSOCK 态写成 ECONNREFUSED（两态均归 `HUB_UNREACHABLE/3`）；D-3 不可达文案与 architecture §5.4 样例措辞不同（含 errno）
+- 报告自陈局限：2000ms 连接上限在本平台不可动态触发（SIGSTOP+backlog 满得 ECONNREFUSED）；仓库无生效 git 钩子（只有 `*.sample`）
+
+### 2026-09-15 15:53:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：**pr-002 全链完成**（planner → dev → verifier → merge），verifier 结论 PASS ⇒ 归档其 tasks/验证报告（`fc4ccd8`）后合并进迭代分支（`14ca2cf`）；**槛位释放 ×3**，`累计槛位释放次数` 3、`当前有效上限` 维持硬上限 5
+- 触发依据：pr-002 verifier 报告结论 PASS；合并输出逐文件核对（3 files changed, 794 insertions）
+- 备注：依赖图重扫 → **pr-003 解锁**（依赖 pr-001 + pr-002 均已合并）
+
+### 2026-09-15 15:53:00 · 派发 · planner（pr-003）
+
+- 阶段：阶段 5（PR 实现）
+- 任务：先拆该 PR 内部的任务，产出该 PR 的 tasks 文件
+- 备注：pr-003 文件范围含 `surface.js` / `cli.js` / `doctor.js` 三个文件（pr-planner 已登记：层 C 落点的两种读法拆分会成环，故合并进同一 PR 内自消化）
