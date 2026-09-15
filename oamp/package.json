@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "bin": {
-    "oamp": "./bin/oamp.js"
+    "oamp": "./bin/oamp.js",
+    "hub": "./bin/hub.js"
   },
   "engines": {
     "node": ">=22"
