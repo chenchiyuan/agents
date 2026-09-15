@@ -24,7 +24,10 @@
 
 ## 架构维度
 
-`[架构待填]`——协议承载形态未定，见 F08 边界。
+**协议承载形态（阶段 3 定稿 · 决策 D-1，L1）**：本卡定义的规则文本落在 `roles/workflow-pb/data/formats.md` **末尾新增**的 `## 测试协议（Test Protocol）` 一节，即其中的**规则 T4（阶段 6 零测试态取证口径）**——条款正文后紧随一行 `判断方式：…`。
+
+- 不新增文件、不新增主文件的索引段、不改任何角色文件（`roles/verifier/verifier.md` 零改动）；本节即 `demand.md` §5 影响面第 5 处「由协议补口径」的落点。
+- 择取理由、备选方案对比与规则 T4 的结构规格见 `docs/iterations/0026-test-protocol-and-suite-reset/architecture.md` §3 D-1、§5。
 
 ## model_inferred
 

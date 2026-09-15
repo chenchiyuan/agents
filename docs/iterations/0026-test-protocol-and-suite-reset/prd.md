@@ -16,12 +16,12 @@
 |---|---|---|---|---|---|
 | F01 | 存量测试资产清零 | 仓库里不再有"看起来能跑"的测试入口，派发里也不再重付全量套件的固定成本 | [F01](prd/F01-test-assets-zeroing.md) | 做什么 W-1；Q8 / Q12；§5 第 2/3 行 | 无待填项 |
 | F02 | 阶段 5 输出契约去掉测试产出 | 工作流口径与"PR 不落测试"一致，执行角色不再临场取舍 | [F02](prd/F02-stage5-output-contract-drop-tests.md) | 做什么 W-2；Q7；§5 第 1 行 | 无待填项 |
-| F03 | 协议·运行粒度规则 | 每次派发只跑本 PR 的用例，全量只在迭代交付时跑 | [F03](prd/F03-protocol-run-granularity.md) | 做什么 W-3 第 1 条；Q2 | `[架构待填]`（协议承载形态） |
-| F04 | 协议·测试归属与一次性脚本处置 | 用例与一次性脚本不回流成仓库资产，跑完即清 | [F04](prd/F04-protocol-test-ownership-and-throwaway-scripts.md) | 做什么 W-3 第 2/3 条；Q4 / Q5 | `[架构待填]`（协议承载形态） |
-| F05 | 协议·阶段 5 零测试态验收判据 | 没有套件可跑时验收仍可判定，不降级成主观感觉 | [F05](prd/F05-protocol-zero-test-stage5-verdict.md) | 做什么 W-3 第 4 条前半；Q13；§5 第 4 行 | `[架构待填]`（协议承载形态） |
-| F06 | 协议·阶段 6 零测试态取证口径 | "本次无跨迭代回归证据"被显式写进报告，不静默消失 | [F06](prd/F06-protocol-zero-test-stage6-evidence.md) | 做什么 W-3 第 4 条后半；Q13；§5 第 5 行 | `[架构待填]`（协议承载形态） |
-| F07 | 协议·保留集重建触发条件 | 空集状态有明确出口，回归保护不会永久缺席 | [F07](prd/F07-protocol-retention-set-rebuild-trigger.md) | 做什么 W-3 第 5 条；Q14 | `[架构待填]`（协议承载形态） |
-| F08 | 协议·约束可独立裁决（每条附判断方式） | 没参与讨论的人也能判定某次派发是否违规，不问作者 | [F08](prd/F08-protocol-judgeable-constraints.md) | §3「大概怎么做」协议写法；§4 第 3/4 条；V-4 | `[架构待填]`（协议承载形态） |
+| F03 | 协议·运行粒度规则 | 每次派发只跑本 PR 的用例，全量只在迭代交付时跑 | [F03](prd/F03-protocol-run-granularity.md) | 做什么 W-3 第 1 条；Q2 | 阶段 3 定稿 → `data/formats.md` §测试协议 · 规则 T1 |
+| F04 | 协议·测试归属与一次性脚本处置 | 用例与一次性脚本不回流成仓库资产，跑完即清 | [F04](prd/F04-protocol-test-ownership-and-throwaway-scripts.md) | 做什么 W-3 第 2/3 条；Q4 / Q5 | 阶段 3 定稿 → `data/formats.md` §测试协议 · 规则 T2 |
+| F05 | 协议·阶段 5 零测试态验收判据 | 没有套件可跑时验收仍可判定，不降级成主观感觉 | [F05](prd/F05-protocol-zero-test-stage5-verdict.md) | 做什么 W-3 第 4 条前半；Q13；§5 第 4 行 | 阶段 3 定稿 → `data/formats.md` §测试协议 · 规则 T3 |
+| F06 | 协议·阶段 6 零测试态取证口径 | "本次无跨迭代回归证据"被显式写进报告，不静默消失 | [F06](prd/F06-protocol-zero-test-stage6-evidence.md) | 做什么 W-3 第 4 条后半；Q13；§5 第 5 行 | 阶段 3 定稿 → `data/formats.md` §测试协议 · 规则 T4 |
+| F07 | 协议·保留集重建触发条件 | 空集状态有明确出口，回归保护不会永久缺席 | [F07](prd/F07-protocol-retention-set-rebuild-trigger.md) | 做什么 W-3 第 5 条；Q14 | 阶段 3 定稿 → `data/formats.md` §测试协议 · 规则 T5 |
+| F08 | 协议·约束可独立裁决（每条附判断方式） | 没参与讨论的人也能判定某次派发是否违规，不问作者 | [F08](prd/F08-protocol-judgeable-constraints.md) | §3「大概怎么做」协议写法；§4 第 3/4 条；V-4 | 阶段 3 定稿 → `data/formats.md` §测试协议（可裁决性形态） |
 | F09 | 影响面闭环登记（6 处引用全部有归属） | 删测试不留悬空承诺，每处引用都有归宿 | [F09](prd/F09-impact-surface-registration.md) | 做什么 W-4；§5 六处清单；V-1 / V-2 / V-3 | 无待填项 |
 
 **合计**：**9 张功能卡**。
@@ -78,11 +78,11 @@ F01 → F05/F06/F07/F08（协议内容）→ F02 与 F09 的第 1/2/3 处。清�
 
 ---
 
-## 架构待填汇总（交阶段 3）
+## 架构待填汇总（阶段 3 已定稿）
 
 | 卡片 | 待填项 |
 |---|---|
-| F03 / F04 / F05 / F06 / F07 / F08 | 协议承载形态：协议文本落在哪个文件（demand.md §7 明示 `user_deferred`，本阶段不作判定；§7 记录的默认读数仅供参考，需在阶段 3 或撰写协议时定稿） |
+| F03 / F04 / F05 / F06 / F07 / F08 | 协议承载形态（阶段 3 决策 D-1，L1）：协议文本落在 `roles/workflow-pb/data/formats.md` **末尾新增**的 `## 测试协议（Test Protocol）` 一节，F03~F08 分别对应其中的规则 T1~T5（F08 另约束整节的可裁决性形态）。不新增文件、不新增主文件的索引段、不改任何角色文件。备选方案（新增 `data/test-protocol.md`）与择取理由见 `architecture.md` §3 D-1 |
 
 F01 / F02 / F09 无架构待填项（纯删除、纯文本行改动、纯加注，不涉及技术选型 / 数据模型 / 接口设计）。
 

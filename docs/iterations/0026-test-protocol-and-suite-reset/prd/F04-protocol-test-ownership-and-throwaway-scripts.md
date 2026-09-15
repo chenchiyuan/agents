@@ -25,7 +25,10 @@
 
 ## 架构维度
 
-`[架构待填]`——协议承载形态未定，见 F08 边界。
+**协议承载形态（阶段 3 定稿 · 决策 D-1，L1）**：本卡定义的规则文本落在 `roles/workflow-pb/data/formats.md` **末尾新增**的 `## 测试协议（Test Protocol）` 一节，即其中的**规则 T2（归属与一次性脚本处置）**——条款正文后紧随一行 `判断方式：…`。
+
+- 不新增文件、不新增主文件的索引段、不改任何角色文件（`roles/dev/dev.md` 零改动，一致性靠 T2 的例外入口锚定 `dev.md:107` 的既有措辞达成）。
+- 择取理由、备选方案对比与规则 T2 的结构规格见 `docs/iterations/0026-test-protocol-and-suite-reset/architecture.md` §3 D-1、§5。
 
 ## model_inferred
 
