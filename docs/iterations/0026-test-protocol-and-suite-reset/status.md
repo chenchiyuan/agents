@@ -3,7 +3,7 @@
 **工作流**: workflow-pb v0.12.0
 **迭代**: 0026-test-protocol-and-suite-reset
 **当前阶段**: 阶段 5（PR 实现）
-**迭代分支**: `iteration/0026-test-protocol-and-suite-reset`（base = `main` @ `ea8943e`）
+**迭代分支**: `iteration/0026-test-protocol-and-suite-reset`（tip `b3022be`；base = `main` @ `ea8943e`）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0026-test-protocol-and-suite-reset
 **状态**: 进行中
 **history**: 开启
@@ -17,27 +17,28 @@
 | 1 | 需求收敛 | ✅ | ✅ | `demand.md` **v1.2.0**：19 项决策全 `user_confirmed` |
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` **v0.3.0** + **3 张卡**（F01 / F02 / F09）；0 条 `[架构待填]` |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` **v0.2.0**：**L1 = 无、L2 = 无、新增实体 = 0** |
-| 4 | PR 规划 | ✅ | ⬜ | `prs/` **3 个 PR 文件**（pr-001 / pr-002 / pr-003）；四项推进条件核查通过 |
-| 5 | PR 实现 | ⏸ | ⬜ | **0/3 已合并**；已派发首波 3 个 planner |
+| 4 | PR 规划 | ✅ | ⬜ | `prs/` **3 个 PR 文件**；四项推进条件核查通过 |
+| 5 | PR 实现 | ⏸ | ⬜ | **1/3 已合并**（pr-002，验证 PASS）；pr-001 / pr-003 的 dev 进行中 |
 | 6 | 独立验证 | — | — | 按需触发，不计入线性进度 |
 
 ## 并发配置（阶段 5）
 
 - **起始并发数**：3
 - **硬上限**：5（公式 `2×起始-1`）
-- **当前有效上限**：3（初始等于起始并发数）
-- **累计槛位释放次数**：0
+- **当前有效上限**：**5**（`min(3 + 1×3, 5)`；因 pr-002 合并释放 1 次槛位而爬升至硬上限）
+- **累计槛位释放次数**：**1**
 - **已派发总数**：3
+- **已解锁且排队中**：无（3 个 PR 已全部派发）⇒ 释放出的槛位按协议保持空置，不触发新派发
 
 ## PR 实现子状态（阶段 5 展开）
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-test-assets-zeroing.md | （无） | ⏸ | feat/0026-pr-001-test-assets-zeroing | ⬜ | 占用 |
-| pr-002-stage5-output-contract-drop-tests.md | （无） | ⏸ | feat/0026-pr-002-stage5-output-contract-drop-tests | ⬜ | 占用 |
-| pr-003-impact-surface-registration.md | （无） | ⏸ | feat/0026-pr-003-impact-surface-registration | ⬜ | 占用 |
+| pr-001-test-assets-zeroing.md | （无） | ⏸ dev 进行中 | feat/0026-pr-001-test-assets-zeroing（`97b5c63`） | ⬜ | 占用 |
+| pr-002-stage5-output-contract-drop-tests.md | （无） | ✅ | feat/0026-pr-002-stage5-output-contract-drop-tests（`2e3b700`） | ✅ `b3022be` | 已释放 |
+| pr-003-impact-surface-registration.md | （无） | ⏸ dev 进行中 | feat/0026-pr-003-impact-surface-registration（`8440605`） | ⬜ | 占用 |
 
-> 三个 PR 的 `depends_on` 全为空 ⇒ 依赖图是三个孤立节点 ⇒ 可全波并发（当前有效上限 3 恰好容纳）。
+> 三个 PR 的 `depends_on` 全为空 ⇒ 直接执行依赖边的判据读取边归阶段 6（Q-PR-1 裁决），故无「新解锁」发生。
 
 ## 待确认项
 
@@ -46,12 +47,15 @@
 ## 已确认项
 
 - **迭代容器（2026-09-15）**：新开 0026；0025 按现状跑完
-- **存量测试全删**（Q8）；删除边界：`oamp/test/**`（含 `helpers/`）+ `package.json` 的 `test` script + `oamp/README.md` 两处（`:195` / `:101-102`）+ `oamp/scripts/testenv.mjs` 整文件（Q18）
-- **本次只改工作流阶段 5 输出契约那一行**（Q7）
+- **存量测试全删**（Q8）：`oamp/test/**`（含 `helpers/`）+ `package.json` 的 `test` script + `oamp/README.md` 两处（`:195` 片段 / `:101-102` 整句）+ `oamp/scripts/testenv.mjs` 整文件（Q18）
+- **本次只改工作流阶段 5 输出契约那一行**（Q7，已由 pr-002 落地）
 - **维护主体**：新增横切角色（暂名 test-keeper），本次先不做（Q10）
 - **测试协议整块移出 0026**（Q15）／**变更历史不留痕**（Q16）／**`oamp/src/cluster-config.js:19` 只登记不处置**（Q19）
-- **交付确认（2026-09-15 17:25）**：用户授权「继续迭代然后实施」
-- **Q-PR-1 裁决（2026-09-15 18:16，主 agent）**：**接受 pr-planner 的判定**——pr-003 的 `depends_on` 保持「（无）」，跨 PR 判据由「跨 PR 判据归属声明」显式归属给 pr-001/pr-002 的自身验收与阶段 6 端到端验证。依据：① 角色红线要求 `depends_on` 每条有代码级证据（共享符号/接口/文件），而此处只有「下游判据读上游产物状态」；② 登记后 pr-003 与所有 PR 均有依赖路径 ⇒ 无并发窗口 ⇒ 命中角色明列的"反向实践"，且其补救（合并回其他 PR）会把缺陷传递给吸收方；③ 与仓库先例一致（0023 pr-003 把跨 PR 端到端链路写入阶段 6 而非 PR 依赖）
+- **Q-PR-1（2026-09-15 18:16）**：pr-003 的 `depends_on` 保持「（无）」，跨 PR 判据归阶段 6
+- **三条全迭代判据口径（2026-09-15 18:24）**：
+  1. **diff 基线取 `bffc336`**（各 PR 分支与迭代分支的 fork 点），不取迭代分支当前尖
+  2. 本迭代阶段 5 产物 `docs/iterations/0026-*/prs/*-tasks.md` 不计入「改动面封闭 / 不新增文件」类判据面
+  3. 判据编号一律以 **`prd/*` 功能卡序号**为准（PR 文件的 bullet 是其投影）
 
 ## 本迭代的性质（`demand.md` §6 / §8 已登记）
 
@@ -59,8 +63,9 @@
 
 ## 更新日志
 
-- 2026-09-15: 工作区建立（`ea8943e`）；阶段 1 完成（`21f7bea`）；阶段 2 完成（`02fcc33`）
-- 2026-09-15: `architect` 第 1 次派发因 API 证书错误中断（零产物）；第 2 次成功，阶段 3 落盘（`a0fa71c`）
+- 2026-09-15: 工作区建立（`ea8943e`）；阶段 1（`21f7bea`）→ 阶段 2（`02fcc33`）→ 阶段 3 v0.1.0（`a0fa71c`）
 - 2026-09-15: **方案确认门**；用户裁决 Q15~Q19；回退阶段 2（`5aa8461`）
-- 2026-09-15: `architect` 第 3 次重做 → `architecture.md` v0.2.0；prd 第 2/3 次补充 → `prd.md` v0.3.0；`demand.md` v1.2.0（`75d567f`）
-- 2026-09-15: 阶段 4 完成 → `prs/` 3 个 PR 文件；Q-PR-1 裁决采纳；并发配置初始化；进入阶段 5
+- 2026-09-15: `architecture.md` v0.2.0 + `prd.md` v0.3.0 + `demand.md` v1.2.0（`75d567f`）
+- 2026-09-15: 阶段 4 完成（`bffc336`）；阶段 5 启动 + 3 个 PR worktree + 首波 planner（`7d5c954`）
+- 2026-09-15: 三条全迭代判据口径裁决（`2cb66f1`）
+- 2026-09-15: **pr-002 全链完成**（planner → dev → verifier PASS 22/0/0/0 → merge `b3022be`）；槛位释放 ×1，有效上限爬升至硬上限 5

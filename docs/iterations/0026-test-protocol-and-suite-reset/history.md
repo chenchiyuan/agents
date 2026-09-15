@@ -224,3 +224,29 @@
 - **verifier(pr-002)**：任务=独立验证。委托只给「产出物路径 + 验证标准」两件事，**不给执行过程信息**（角色红线）；报告落点覆盖角色默认的 `roles/verifier/data/`，按本工作流「文档路径协议」统一落在迭代的 `clarifications/` 下
 - **planner(pr-003) 回改**：令其把 MI-1~MI-4 的确认与四条疑问的裁定落进 `prs/pr-003-tasks.md` 并提交
 - 并发：当前有效上限 3，三个 PR 均在执行中；本轮新增 3 个 sub agent 不改变 PR 级槛位计数
+
+### 2026-09-15 18:26:00 · 收到报告 · verifier（pr-002）
+
+- 报告路径：`docs/iterations/0026-test-protocol-and-suite-reset/clarifications/verify-pr-002-20260915-182252.md`
+- 结论：**PASS**；**22 pass / 0 fail / 0 partial / 0 blocked**；偏差 **4** 条；下一迭代候选 4 项
+- 验证者身份：工作流协议文档的独立逐字审计者（字节级文本锁 + git 改动面封闭）
+- 独立取证（不采信自述）：`grep -n "通过验证标准的测试"` 零命中；`sed -n '56p' | md5sum` = `c1d0f512203ad136f44ef3b2e8fbff89`（与契约 A9 期望值逐字相符）、`wc -c` = 421；difflib 比对仅删除 ` + 通过验证标准的测试` 零新增；`git diff -U0 bffc336` 单 hunk `@@ -56 +56 @@`、`--numstat` = `1 1`；枚举的四条对照路径逐个 diff 为空；`SKILL.md` 对「test/测试」零命中
+- 重点偏差：**D-1** 任务图的验收命令写成无基线参数的 `git diff`（提交后输出为空），须以 `git diff bffc336` 重放——这正是 MI-2 那条全迭代约定的必要性证明；D-2/D-3 字节与汉字计数的精度问题；D-4 再次指向「阶段 5 产物不计入验收 5 判据面」的约定
+- 备注：报告未提交（`??` 未跟踪），按角色定义只写不改；归档由主 agent 统一处理
+
+### 2026-09-15 18:28:00 · 调度决策 · PR合并
+
+- 决策内容：**pr-002 全链完成**（planner → dev → verifier → merge）；归档其 tasks 图与验证报告后合并进迭代分支
+- 触发依据：verifier 报告结论 **PASS**；合并前交叉核对改动面（`roles/workflow-pb/workflow-pb.md` 单文件、单 hunk）
+- 合并动作：先归档（`2e3b700` `chore(iteration): 归档 pr-002 阶段5 产物（任务图 + 独立验证报告）`）→ 合并（`b3022be` `merge: pr-002 stage5 output contract drop tests into iteration/0026`）
+- 合并结果：3 files changed（`verify-pr-002-*.md` 154 行 + `pr-002-tasks.md` 154 行 + `workflow-pb.md` 2 行），insertions 309 / deletions 1
+- **合并前先归档**的理由：阶段 5 产物在 PR worktree 内是未跟踪/未提交状态，直接 merge 会丢失（0025 的 `0eb2d72` / `17a7c5` 是先例）
+- **槛位释放 ×1**：累计槛位释放次数 0 → 1；当前有效上限 = `min(3 + 1×3, 5)` = **5（硬上限）**
+- **依赖图重扫**：三个 PR 的 `depends_on` 全为空 ⇒ **无新解锁**；已派发总数 3、仍在执行中 2（pr-001 / pr-003）⇒「已解锁且排队中」为空，按协议**释放出的槛位保持空置，不触发任何派发**
+
+### 2026-09-15 18:29:00 · 派发 · progress-observer（自动触发）
+
+- 触发依据：协议规定「每次一个 PR 完成 merge 之后…主 agent 自动派发一次 `progress-observer`」
+- 任务：独立核实本迭代真实进度（不采信任何自我声明），产出 `progress.md`（整体覆盖）
+- 简报要点：角色定义全文注入；显式给出迭代分支名与三个 PR 的分支/worktree 命名（供定位，不代替其自行核实）；明确核实基准是**迭代分支**而非 `main`
+- 备注：同时仍在执行中的有 pr-001 与 pr-003 的 dev（首波 3 个 PR 的流水线阶段不同步，属正常）
