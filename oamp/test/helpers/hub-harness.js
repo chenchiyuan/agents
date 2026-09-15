@@ -6,6 +6,10 @@
 // `env` = `{ ...process.env, ...opts.env }`：调用方只给增量；本文件**不补**任何默认路径
 //   （socket / 库 / 端口一律由调用方经 `env` 传入 —— 临时状态须用绝对临时路径，勿落仓库）。
 // `input` 给出 ⇒ 写入 stdin 后 `end()`；未给出 ⇒ `stdin: 'ignore'`（子进程绝不因等 stdin 挂起）。
+// 进程组收口（跨 PR 契约，用户 2026-09-15 裁决扩容）：`detached` ⇒ 子进程自成进程组（pgid = 其 pid），
+//   一次调用结束（正常或超时）即 SIGKILL 整个进程组 —— 层 C 的长驻 / 派生命令（`web start`、`router start`、
+//   `cluster up`）会派生孙进程并持有端口 / 文件，若只收直连子进程会让用例之间相互污染。零自动性：
+//   只 SIGKILL，不重试、不重连、不补跑。
 // 零本地写（§10 测试基建约束）：本文件零 fs 写 API、零运行态目录字面量，不 import `src/**`。
 
 import { spawn } from 'node:child_process';
@@ -29,6 +33,7 @@ export async function runHub(args, { env, input, timeoutMs = DEFAULT_TIMEOUT_MS 
       cwd: os.tmpdir(),
       env: { ...process.env, ...(env ?? {}) },
       stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      detached: true, // 自成进程组（pgid = 子进程 pid）：一次调用 = 一棵可整体收口的进程树
     });
     let stdout = '';
     let stderr = '';
@@ -41,19 +46,28 @@ export async function runHub(args, { env, input, timeoutMs = DEFAULT_TIMEOUT_MS 
     child.stderr.on('data', (chunk) => {
       stderr += chunk;
     });
+    // 收口整个进程组（孙进程随调用一并结束）；组已不存在时 `kill` 抛 ESRCH ⇒ 吞掉即已收口
+    const killGroup = () => {
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        /* 进程组已不存在（ESRCH）—— 无需再收 */
+      }
+    };
     const settle = (code) => {
       clearTimeout(timer);
+      killGroup(); // 正常路径同样收口：长驻命令即使没超时也不把孙进程留在后台
       resolve({ code, stdout, stderr });
     };
-    // 到限强杀并等它退出（信号终止的退出码即 null）；不走重试 / 不补跑 —— 零自动性
+    // 到限强杀整组并等它退出（信号终止的退出码即 null）
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill('SIGKILL');
+      killGroup();
     }, timeoutMs);
     if (input !== undefined) child.stdin.end(input);
     // 正常路径等两流收口（`close` ⇒ stdout / stderr 逐字节完整）；
-    // 超时路径等**子进程退出**即返回：层 C 的长驻命令会留下持有同一对管道的孙进程（P-2 原样透传），
-    //   只等 `close` 会永不返回 —— 冻结契约要求"SIGKILL 后返回"。
+    // 超时路径等**子进程退出**即返回：孙进程会持有同一对管道，只等 `close` 会永不返回
+    //   —— 冻结契约要求"SIGKILL 后返回"。
     child.once('exit', (code) => {
       if (timedOut) settle(code);
     });
