@@ -1,11 +1,11 @@
 # 工作流进度
 
-**工作流**: workflow-pb v0.11.0
+**工作流**: workflow-pb v0.12.0（本迭代自身产出，迭代开始时为v0.11.0）
 **迭代**: 0024-execution-autonomy-and-demand-deep-dive
-**当前阶段**: 阶段 4（PR规划）已完成，推进阶段 5
+**当前阶段**: 阶段 6（独立验证）PASS，迭代收口
 **迭代分支**: iteration/0024-execution-autonomy-and-demand-deep-dive
 **工作区地址**: （待创建）
-**状态**: 进行中
+**状态**: 已完成
 **history**: 开启
 **执行方式**: 本地 sub agent（宿主 `task` 工具）派发；阶段1由主 agent 内联执行
 
@@ -17,8 +17,8 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` + 9 张功能卡（F01~F09）；3 项 model_inferred 均 user_confirmed |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md`：9张功能卡全部有技术路径；4个架构待填项已定稿；3项L1决策均 user_confirmed |
 | 4 | PR 规划 | ✅ | ⬜ | `prs/`目录：3个PR（pr-001/pr-002/pr-003），依赖图无环；应用并发可行性判断，否决3个无并发收益候选拆分点 |
-| 5 | PR 实现 | ⬜ | ⬜ | |
-| 6 | 独立验证 | ⬜ | ⬜ | |
+| 5 | PR 实现 | ✅ | ⬜ | PR-001/002/003全部落地，4份目标文件改写完成，无阻塞 |
+| 6 | 独立验证 | ✅ | ✅ | `verification-report.md`：PASS，27 pass/0 fail；deferred-demand-changes.md不存在；2处非阻塞偏差已记录 |
 
 ## 待确认项
 
@@ -31,3 +31,4 @@
 - 2026-09-15: 阶段 3 完成——architect 角色产出 `architecture.md`，为9张功能卡逐一给出实施路径，回填4个`[架构待填]`项（F02状态字段/F05并发窗口算法/F07摘要模板/F08收敛标记格式）；3项L1决策（F06角色反射机制/F08 Work循环整段替换/F09六维诊断与提问机制解耦）经用户确认，全部 user_confirmed。未新增技术组件，全部改动集中在4份既有规范文件内。
 - 2026-09-15: 方案确认门通过——用户对产品+架构整体方案明确确认，推进阶段4（PR规划）。（本次迭代协议文本尚未落地此门，先按demand.md结论#2/#3的精神提前执行）
 - 2026-09-15: 阶段 4 完成——pr-planner 角色产出 3 个 PR（pr-001涵盖F01-F04/workflow-pb.md+SKILL.md、pr-002涵盖F05/pr-planner.md、pr-003涵盖F06-F09/demand.md），依赖图无环；**应用新增的并发可行性标准**，否决3个无并发收益候选拆分点（workflow-pb.md与SKILL.md不拆两个PR、F01-F04不按功能点拆四个PR、F06-F09不按章节拆四个PR），理由均为"不存在真实并发执行窗口"。
+- 2026-09-15: 阶段 5 完成——3个PR的dev角色并发执行，全部落地：PR-001（workflow-pb.md v0.11.0→v0.12.0 + SKILL.md）、PR-002（pr-planner.md v0.1.0→v0.2.0）、PR-003（demand.md v0.5.0→v0.6.0 + data/demand-changelog.md），验收标准全部通过，无阻塞。
