@@ -2,7 +2,11 @@
 
 ## 上下文摘要
 
-`surface.js` 用一张入口表单点定义 40 条入口（层 A 21 / 层 B 8 / 层 C 11），`cli.js` 做 argv 解析→分派→渲染→退出码，`doctor.js` 做三段自检。三者同 PR 是结构性要求：`hub doctor` 是第四顶层入口，`cli.js` 分派须引用 `doctor.js`，拆开则互为对方产出、依赖图成环。约束：零依赖、flag 名机械推导、路径按 `import.meta.url` 推导。
+`surface.js` 单点定义 40 条入口，`cli.js` 做 argv 解析→分派→渲染→退出码，`doctor.js` 做三段自检。三者同 PR 的原始理由（「拆开则成环」）经阶段 6 独立验证**证伪**：已交付依赖图上 `cli` 是唯一上层、`surface` 与 `doctor` 互不依赖 ⇒ 本 PR 属过度打包（见事后登记①②）。约束：零依赖、flag 名机械推导、路径按 `import.meta.url` 推导。
+
+> **事后登记 ①（分组理由订正 · 依据阶段 6 独立验证）**：本 PR 原始的合包理由——「`surface.js` 与 `cli.js` 拆开则互为对方产出、依赖图成环」——**已被证伪**：该判断建立在 architecture.md 层 C `spawn` 落点的**两种读法之一**（§2.1 组件图的 `SUR --> spawn` 与 §7 F04 的「层 C 段在 `sdk/cli.js`」）**会**产生反向边这一**假设**之上；实际实现选定「`spawn` 落 `surface.js`、`cli.js` 只做 token 交付」，**已交付 DAG 无环**，三条代码级证据：① `oamp/sdk/cli.js:14` import `./surface.js`、`:15` import `./doctor.js`；② `oamp/sdk/doctor.js:132` 明写「本模块不 import surface.js」；③ `oamp/sdk/surface.js` 只 import `./http.js` / `./uds.js`（不 import `cli.js`），与 architecture.md §2.1 一致、无反向边。⇒「拆开成环」不构成本 PR 必须合包的理由。
+
+> **事后登记 ②（粒度教训 · 已批准偏差）**：本 PR 被阶段 6 独立验证判定为**过度打包**——粒度锚点「逻辑原子性」「可审查性」两条均不通过（3 个模块 / 15 张功能卡 / 925 行）。更好的边界是 `surface` 与 `cli+doctor` 两个 PR（`doctor` 只需与引用它的 `cli` 同批），或三者各自成 PR，依赖边为 `cli → { surface, doctor }`。**未回改**（产出已合并、重排收益不抵成本），由主 agent 于阶段 6 后批准保留现状，登记为**已批准偏差**。教训：**只有当两模块互为对方的产出时才是合包理由；「不确定会不会成环」应在拆分时按已交付形状核对（此处实质只有 `cli → surface` 一条边），不能以假设充当边界依据。**
 
 ## 涉及功能点
 
@@ -27,6 +31,8 @@
 - `oamp/sdk/surface.js`（新建：三层入口表单点定义，每条含 `{ id, cmd, args, run(ctx, params) }`；层 C 的 `spawn` 段）
 - `oamp/sdk/cli.js`（新建：argv 解析 + 分派 + 默认 JSON / `--human` 渲染 + 进程退出码 + 层 C 子进程透传）
 - `oamp/sdk/doctor.js`（新建：R1 清单双向比对 / R2 只读可达性 / R3 UDS 方法存在性）
+
+> **事后登记 ③（协议空白 · 阶段 4 出口条件对中途新增收口 PR 的适用）**：阶段 4 的出口条件「PR 间文件范围无重叠」**未定义对迭代中途新增的收口 PR 如何适用**。本迭代的 `pr-011-closeout-wait-limit-and-assertion-strength.md` 是阶段 5 期间新增的末端收口节点，其文件范围与**已合并的 5 个 PR 故意重叠**：`oamp/sdk/http.js`（pr-001）、`oamp/sdk/surface.js`（本 PR）、`oamp/test/sdk-api.test.js`（pr-007）、`oamp/test/sdk-uds.test.js`（pr-008）、`oamp/test/sdk-cli-contract.test.js`（pr-009）。该重叠在阶段 4 的时点不可能被预见（pr-011 尚未产生），已由主 agent 裁决接受（被重叠方均已关闭、无并发合并窗口；本 PR 的文件范围不因此变更）。**建议补充的协议口径（供后续迭代）**：重叠判定的对象是「**同一时刻处于开放状态的 PR 集合**」——已合并 / 已关闭的 PR 不再参与重叠判定，其文件可被后续收口 PR 复用，只需在该收口 PR 内登记重叠清单与理由。
 
 ## 验收标准
 

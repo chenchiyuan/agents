@@ -151,6 +151,7 @@ graph TB
   DOC --> HTTP
   DOC -->|"逐条比对"| APIDOC
   DOC -->|"方法存在性探测（零写入）"| UDS
+  CLI -->|"顶层 doctor 入口"| DOC
   HTTP -->|"HTTP / SSE"| WEB
   UDS --> RP
   UDS --> CF
@@ -270,7 +271,7 @@ hub api stream chat <id> ／ stream events ／ stream calls --chat <id> ／ stre
 | N-3 | `sdk/surface.js` | ~300 行 | **三层入口表**（层 A 21 条 / 层 B 8 条 / 层 C 11 条）——每条含 `{ id, cmd, args, run(ctx, params) }`；表是 CLI 分派与库方法的**单点定义** | F01~F04 / F14 |
 | N-4 | `sdk/http.js` | ~180 行 | `node:http` 客户端（method/path/query/body 原样）+ SSE 读取器（逐帧 → `{event, data}`）+ 连接/响应上限 | F02 / F06 |
 | N-5 | `sdk/uds.js` | ~120 行 | UDS 会话：`connect()` → 8 个方法 + `close()`；复用 `src/rpc.js` 与 `src/config.js` | F03 |
-| N-6 | `sdk/cli.js` | ~200 行 | argv 解析（层/子命令/位置参数/选项）→ 分派入口表 → 渲染 → 进程退出码；层 C 走子进程透传 | F04 / F05 / F07 / F14 |
+| N-6 | `sdk/cli.js` | ~200 行 | argv 解析（层/子命令/位置参数/选项）→ 分派入口表 → 渲染 → 进程退出码；层 C 走子进程透传；**另分派第四个顶层入口 `doctor`（→ N-7，即 §2.1 的 `CLI --> DOC` 边）** | F04 / F05 / F07 / F11 / F14 |
 | N-7 | `sdk/doctor.js` | ~150 行 | 契约自检三段（R1 / R2 / R3）+ 逐项依据 | F11 |
 | N-8 | `sdk/errors.js` | ~50 行 | `HubError` + 四类归类表（`0/1/2/3`）+ 错误对象序列化 | F07 / F08 / F10 |
 | N-9 | `skill/hub.md` | 三段式 | `hub` skill（何时用 / 怎么用 + 4 序列 / 红线），自包含、不复制 schema | F12 / F13 |
@@ -300,7 +301,7 @@ hub api stream chat <id> ／ stream events ／ stream calls --chat <id> ／ stre
 1. **入口表先行**（N-3 `surface.js`）：CLI 分派与库方法共用它 ⇒ 它先于 `cli.js` / `index.js` 定稿。
 2. **错误与输出契约次之**（N-8 `errors.js` + N-6 的渲染段）：三层共用同一张归类表与同一套渲染。
 3. **三条通道各自独立**（N-4 `http.js` / N-5 `uds.js` / N-6 的层 C 段）——**互不依赖**，可并发。
-4. **`doctor` 依赖层 A 与层 B**（R1/R2 走 HTTP、R3 走 UDS）⇒ 排在那两者之后。
+4. **`doctor` 依赖层 A 与层 B**（R1/R2 走 HTTP、R3 走 UDS）⇒ 排在那两者之后。**此处有一条反向依赖需一并满足**：`sdk/cli.js` 的顶层 `doctor` 入口要落到 `doctor.js`（§2.1 的 `CLI --> DOC`）⇒ 该 import 采用既有 `src/cli.js:loadAndRun` 的**延迟 import** 体例（`await import('./doctor.js')`），否则 `cli.js` 在 `doctor.js` 落地前无法被加载，"doctor 排在三通道之后"就会变成对 `cli.js` 的阻塞。
 5. **skill 依赖三层子命令名定稿**（F12 的清单只到子命令名）⇒ 排在入口表之后；skill 与 `bin/hub.js` 无相互依赖，可并发。
 6. **`package.json` 的 bin 一行**与 `bin/hub.js` **同一提交**（否则 bin 指向不存在的文件）。
 
@@ -358,7 +359,7 @@ hub api stream chat <id> ／ stream events ／ stream calls --chat <id> ／ stre
 4. **本地校验的范围（P-3）**：SDK 只校验"**构造请求所必需**"的部分 —— 位置参数是否给齐、flag 是否缺值、数值型 flag 是否为整数、JSON 型 flag（`--tasks` / `--output-schema`）是否可解析、**入口表声明的必填 flag 是否给齐**（必填性与 `API.md` 各接口的「必填」列一致）；命中任一 ⇒ 用法错误 `2`（**不发请求**）。**其余取值合法性（业务范围 / 枚举 / 跨字段约束，如 `limit ≤ 200`、`archived ∈ {0,1}`）交服务端判** ⇒ `400 INVALID_PARAM` ⇒ 业务失败 `1`（`error` / `code` 原样透出，提示仍指向具体错误点）；
 5. 订阅类 4 条（#9/#10/#16/#17）输出 NDJSON（§5.3），其余 17 条输出单个 JSON 文档。
 
-**`doctor` 的层归属（P-4）**：`hub doctor` 是**第四个顶层入口**，**不属于三层封装中的任何一层** —— 它不对应单一端点 / 单一方法 / 单一条既有命令，而是对三个面做自检的独立能力（F11）。因此：F14 验收 1 的"分层判定面"= **三层封装的 40 条覆盖入口**（`api` / `uds` / `cli`）；skill 的子命令清单里 `doctor` **单列**并标注"自检（不属于三层封装）"。
+**`doctor` 的层归属（P-4）**：`hub doctor` 是**第四个顶层入口**，**不属于三层封装中的任何一层** —— 它不对应单一端点 / 单一方法 / 单一条既有命令，而是对三个面做自检的独立能力（F11）。**入口的分派点在 `sdk/cli.js`、实现落在 `sdk/doctor.js`**（§2.1 的 `CLI --> DOC` 边；顺序约束见 §4.4 第 4 条）。因此：F14 验收 1 的"分层判定面"= **三层封装的 40 条覆盖入口**（`api` / `uds` / `cli`）；skill 的子命令清单里 `doctor` **单列**并标注"自检（不属于三层封装）"。
 
 #### 层 B · 8 条（`hub uds …` ↔ 8 个方法）
 

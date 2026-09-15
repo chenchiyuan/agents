@@ -2,10 +2,10 @@
 
 **工作流**: workflow-pb v0.12.0
 **迭代**: 0025-hub-sdk-and-skill
-**当前阶段**: 阶段 6（独立验证）
-**迭代分支**: iteration/0025-hub-sdk-and-skill（tip `833eeb1`）
+**当前阶段**: 阶段 6（独立验证）已了结
+**迭代分支**: iteration/0025-hub-sdk-and-skill（tip 见 `git log`）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0025-hub-sdk-and-skill
-**状态**: 进行中
+**状态**: 已完成
 **history**: 开启
 **方案确认门**: enabled
 **执行方式**: 本地 sub agent（宿主 `task` 工具）派发；阶段 1 由主 agent 内联执行
@@ -16,45 +16,36 @@
 |---|---|---|---|---|
 | 1 | 需求收敛 | ✅ | ⬜ | `demand.md` v1.0.1：15 项决策全 `user_confirmed` |
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` v0.1.0 + 17 张卡 |
-| 3 | 技术架构 | ✅ | ⬜ | `architecture.md` v1.0.0（687 行）；T-01~T-09 全落定 |
-| 4 | PR 规划 | ✅ | ⬜ | `prs/` 原 10 个 PR 文件 + 收口增补 pr-011 = **11 个** |
+| 3 | 技术架构 | ✅ | ⬜ | `architecture.md` v1.0.0；T-01~T-09 全落定；阶段 6 后补 `CLI --> DOC` 边 |
+| 4 | PR 规划 | ✅ | ⬜ | `prs/` 11 个 PR 文件（原 10 + 收口增补 pr-011） |
 | 5 | PR 实现 | ✅ | ⬜ | **11/11 全部合并**；迭代全量改动 = 17 文件 / +6456 / −1 |
-| 6 | 独立验证 | ⏸ | — | 派发 verifier 中；三项并发调度真实执行证据须额外核查 |
+| 6 | 独立验证 | ✅ | — | 结论 **FAIL**，但 **fail 条目 = 0**；经用户裁决登记为已批准偏差后关闭，不开重做 |
 
-## 并发配置（阶段 5）
+## 阶段 6 结果与处置（2026-09-15 19:38，verifier 独立执行）
 
-- **起始并发数**：3　**硬上限**：5　**当前有效上限**：5
-- **累计槛位释放次数**：11　**已派发总数**：11
-- 实测并发波形：**2 → 1 → 1 → 2 → 4 → 1**（wave 6 = pr-011 收口，单节点无兄弟）；槛位从未成为瓶颈
+**verifier 报告**：`clarifications/verify-20260915-193854.md`
 
-## PR 实现子状态
+| 验证目标 | 判定 | 要点 |
+|---|---|---|
+| 甲 PR 粒度判断框架 | **partial** | 11 个 PR 中 9 个三条判据全满足；`pr-003` 过度打包（3 模块/15 卡/925 行，逻辑原子性·可审查性不通过），其「拆开则成环」理由被已交付 import DAG **证伪**；`pr-011` 承载 4 类独立修复 |
+| 乙 依赖正确性 | **partial** | 乙-1 16/16 依赖边均有代码级证据 ✅；乙-2 依赖图无环 ✅；**乙-3「PR 间文件范围无重叠」字面不成立**（pr-011 与 5 个已合并 PR 重叠，属迭代中途新增收口 PR 的协议空白）；乙-4 17/17 功能点无遗漏 ✅ |
+| 丙 并发调度真实执行证据 | **pass 3/3** | worktree 时间窗口真实重叠 / 并发配置区块真实初始化并逐次更新 / 爬升公式真实触发 |
+| 丁 `deferred-demand-changes.md` | 不适用 | 文件不存在（阶段 4/5 无搭置） |
 
-| PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
-|---|---|---|---|---|---|
-| pr-001-sdk-error-contract-and-web-channel.md | （无） | ✅ | feat/0025-pr-001-… | ✅ `f9327ad` | 已释放 |
-| pr-002-sdk-router-uds-channel.md | pr-001 | ✅ | feat/0025-pr-002-… | ✅ `14ca2cf` | 已释放 |
-| pr-003-sdk-entry-surface-cli-and-doctor.md | pr-001, pr-002 | ✅ | feat/0025-pr-003-… | ✅ `453326c` | 已释放 |
-| pr-004-sdk-dual-entry-and-hub-harness.md | pr-003 | ✅ | feat/0025-pr-004-… | ✅ `3ba06dd` | 已释放 |
-| pr-005-hub-skill-and-content-check.md | （无） | ✅ | feat/0025-pr-005-… | ✅ `4be4661` | 已释放 |
-| pr-006-sdk-surface-coverage-test.md | pr-003 | ✅ | feat/0025-pr-006-… | ✅ `b93fead` | 已释放 |
-| pr-007-sdk-api-behavior-test.md | pr-001, pr-003, pr-004 | ✅ | feat/0025-pr-007-… | ✅ `f4b6aa7` | 已释放 |
-| pr-008-sdk-uds-behavior-test.md | pr-002, pr-004 | ✅ | feat/0025-pr-008-… | ✅ `46969a0` | 已释放 |
-| pr-009-sdk-cli-contract-test.md | pr-004 | ✅ | feat/0025-pr-009-… | ✅ `5dc04c4` | 已释放（经一轮返工） |
-| pr-010-sdk-doctor-test.md | pr-003, pr-004 | ✅ | feat/0025-pr-010-… | ✅ `ec7fc84` | 已释放 |
-| pr-011-closeout-wait-limit-and-assertion-strength.md | pr-001, pr-003, pr-006, pr-007, pr-008, pr-009 | ✅ | feat/0025-pr-011-… | ✅ `833eeb1` | 已释放（经两轮返工） |
+**用户裁决（2026-09-15 19:38）**：两条 partial **登记为已批准偏差 + 修正记录，不开重做**（理由：交付物本身已逐 PR 独立验收 PASS；pr-011 的合并打包是用户自己的口径选择；pr-003 重拆只改 PR 边界、代码零变化、却要重开已验收 PASS 的 PR）。
 
-## 用户决策点记录（阶段 4/5）
+**已执行的记录修正**（均由产出者本人回写，主 agent 未代改）：
+1. `prs/pr-003-*.md`：订正分组理由（如实登记为「基于假设、事后被证伪」）+ 粒度教训 + 协议空白登记（新增「事后登记 ①②③」三段）
+2. `architecture.md §2.1`：补 `CLI --> DOC` 边；同步 `§4.1 N-6`（卡号补 F11）与 `§4.4` 顺序约束第 4 条的反向依赖说明（`cli.js` 对 `doctor.js` 采用延迟 import）
 
-- **pr-003 的 `--wait` 缺陷**（`http.js` 5000ms 响应头上限先行于 `--wait`，block 调用超 5s 拿不到终态）→ 用户裁定：**新增 pr-011 排在 pr-003 之后修**，且**中间 PR 不跑仓库级全量套件**，全量集中到最后跑一次并驱动收口修复 PR
-- **全量测试口径**：阶段 5 完成后跑过 **2 次**（10/10 合并后 473/473；11/11 合并后 **480/480 全绿**）
+**留给下一迭代的协议候选**（verifier 提出，未在本迭代处理）：
+- 「PR 间文件范围无重叠」的判定对象应定义为**同一时刻处于开放状态的 PR 集合**；已合并/已关闭的 PR 不再参与重叠判定
+- `depends_on` 证据强度要求提升到**文件/符号级**（本迭代部分条目以架构章节为主要证据）
+- `累计槛位释放次数` 的计数口径需在格式定义中明确（失败/阻塞是否计入——规范文字计入，但某中间版本的记录值可被读成未计入）
+- 阶段 4 的 PR 粒度判据应增加一条：**只有当两模块互为对方的产出时才是合包理由**；「不确定会不会成环」不能充当边界依据
 
-## 待确认项
+## 交付物
 
-（无）
-
-## 更新日志
-
-- 2026-09-15: 工作流启动；阶段 1 内联执行；阶段 2 / 3 / 4 依次完成；方案确认门通过；用户授权阶段 5
-- 2026-09-15: wave 1~6 全部完成，**11/11 PR 合并**；pr-009 经一轮返工、pr-011 经两轮返工后均 PASS
-- 2026-09-15: 最终全量 `node --test test/*.test.js` = **480/480 pass / 0 fail**（81.3s）
-- 2026-09-15: 进入阶段 6（独立验证）
+`oamp/` 新增/修改 17 文件 / +6456 / −1：`sdk/{errors,http,uds,surface,cli,doctor,index}.js`、`bin/hub.js`、`skill/hub.md`、`test/helpers/hub-harness.js`、`test/sdk-{api,cli-contract,doctor,skill,surface,uds}.test.js`、`package.json`（仅加 `bin.hub` 一行）。
+**零第三方依赖**（`dependencies` 仍 `{}`）；`oamp/src/**`、`API.md`、`llms.txt`、`web/**`、`roles/**`、`tools/**`、`.claude/skills/**` **零改动**。
+**最终全量**：`node --test test/*.test.js` = **480/480 pass / 0 fail**（81.3s）。
