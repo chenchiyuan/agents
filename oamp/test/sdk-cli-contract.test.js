@@ -2,7 +2,9 @@
 // 判据面（architecture §10 T4）：退出码四类（`0`/`1`/`2`/`3`）+ 用法错误样本集（零连接零副作用）+ 默认 JSON / `--human`
 //   两态 + stdout / stderr 分离 + `--wait` 超时（`WAIT_TIMEOUT`）与其 5000ms 上限偏差锁 + P-1 口径的 background 取回
 //   + 订阅管道截断（`| head -1`）+ 层 C 逐字节透传 + 跨进程无状态。
-// 载体：一切 hub 调用经 pr-004 的 `runHub()` 起 `bin/hub.js` 子进程（唯一例外 = T6 的 shell 管道，理由见该用例）；
+// 三宿主（F05-1 / F07-1 / E4）：①shell 与 ③"另一 agent 经 shell 调用"同形（同一 `bin/hub.js` 入口，见全部用例）；
+//   ②Node import 面 = T1 的 `createHub()` 对照组的对照侧（库面读**调用方进程 env** ⇒ 该组在组内设、用后还原 —— A18）。
+// 载体：一切 hub 调用经 pr-004 的 `runHub()` 起 `bin/hub.js` 子进程（例外 = T6 的 shell 管道（理由见该用例）+ T1 的 `createHub()` 库面对照组）；
 //   容器 = harness 的 `startRouter` + 本地 `startWeb`（临时 `OAMP_DB` / 临时 socket / 运行时探测的空闲端口）。
 // 临时态：一律 `fs.mkdtempSync(os.tmpdir())` 下的绝对路径 —— 零仓库写（T8 以 `oamp/` 路径集合快照闭合）。
 // 端口：本 PR 独占 `53000-53999`（与其余三个测试 PR 的段零交集）；取值一律 `pickFreePort()` 运行时探测空闲。
@@ -340,6 +342,21 @@ async function hubCall(args, opts) {
   const r = await runHub(args, opts);
   return { ...r, elapsedMs: Date.now() - started };
 }
+/**
+ * 库面调用的统一形态（`bin/hub.js` 进程面的对位：CLI 面 = 进程退出码，库面 = `HubError.exitCode` —— errors.js 的双面落点）。
+ * 成功 ⇒ `{ exitCode: 0, body }`；失败 ⇒ `{ exitCode, errorCode, httpStatus, errorText }`。
+ */
+async function callLibrary(label, fn) {
+  try {
+    return { exitCode: 0, body: await fn() };
+  } catch (err) {
+    assert.ok(
+      typeof err.exitCode === 'number',
+      `${label}：库面失败应抛带归类结果的 HubError（exitCode），实际 ${err && err.message}`,
+    );
+    return { exitCode: err.exitCode, errorCode: err.code, httpStatus: err.httpStatus, errorText: err.message };
+  }
+}
 
 // ────────────────────────────── T1 · 基础设施 ──────────────────────────────
 
@@ -460,14 +477,9 @@ test('T1 · 退出码四类矩阵：0/1/2/3 各一例、固定落码且仅凭退
   // 仅凭退出码即可区分四类：四值齐全（丢弃 stdout / stderr 后仍是这四个数）
   assert.deepEqual([...codes].sort(), [0, 1, 2, 3], `退出码集合应为 {0,1,2,3}，实际 ${JSON.stringify([...codes])}`);
 
-  // 「不存在一码两义」：逐类核对 —— `1` 只由业务失败样本命中、`2` 只由本地解析命中、`3` 只由连接失败命中
-  const classOf = { 0: [0], 1: [1], 2: [2], 3: [3] };
-  for (const row of rows) {
-    assert.ok(
-      classOf[row.expectClass].includes(row.expectClass),
-      `${row.label}：类 ${row.expectClass} 的落码必须是 ${JSON.stringify(classOf[row.expectClass])}`,
-    );
-  }
+  // 「不存在一码两义」：上一循环的逐行 `r.code === row.expectClass` 已把"每个样本只落它那一类的码"钉死（`1` 只由业务失败样本命中、
+  // `2` 只由本地解析命中、`3` 只由连接失败命中），上面那条四值齐全的断言据此闭合"仅凭退出码即可区分四类"。
+  // 原先此处另有一段 `classOf[x].includes(x)` 的核对循环 —— 它是恒真断言（零判别力），已删除而非保留。
 });
 
 test('T1 · 不可达态的形状与恢复：单行 JSON / 无堆栈 / 恢复后无需额外动作', async (t) => {
@@ -492,6 +504,87 @@ test('T1 · 不可达态的形状与恢复：单行 JSON / 无堆栈 / 恢复后
   const recovered = await runHubJson(['api', 'agents', '--port', String(hub.port)]);
   assert.equal(recovered.code, 0, 'Router + web 已运行：同一命令应直接恢复为 0');
   assert.ok(Array.isArray(recovered.body.agents), `恢复后 stdout 应为 {agents: [...]}，实际 ${JSON.stringify(recovered.body)}`);
+});
+
+// 三宿主②（Node import 面）：同一命令在 `bin/hub.js` 进程面与 `createHub()` 库面各跑一次，比对退出码与 JSON 结构。
+// 库面读**调用方进程 env**（`createHub()` 没有 env 选项 ⇒ A18 约束）：本组在组内设、用后逐键还原。
+test('T1 · 三宿主②Node import 面：createHub() 库面与进程面对同一命令的退出码与 JSON 结构一致', async (t) => {
+  const hub = await setupHub(t);
+  const releasedPort = await pickFreePort();
+
+  const savedEnv = { OAMP_SOCKET: process.env.OAMP_SOCKET, OAMP_WEB_PORT: process.env.OAMP_WEB_PORT };
+  process.env.OAMP_SOCKET = hub.socketPath;
+  process.env.OAMP_WEB_PORT = String(hub.port); // 两面同环境：进程面同样经该 env 取值（跨宿主一致的观测条件）
+  t.after(() => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+
+  const { createHub } = await import('../sdk/index.js');
+
+  // ① 成功面：`api docs` ⇒ 两面退出码 0，且 JSON 结构深等（同一份 ENTRIES 表的同一份投影）
+  const cliOk = await runHubJson(['api', 'docs'], {});
+  const libOk = await callLibrary('库面 api.docs()', () => createHub().api.docs());
+  assert.equal(libOk.exitCode, cliOk.code, `api docs：库面退出码 ${libOk.exitCode} 与进程面 ${cliOk.code} 不一致`);
+  assert.deepEqual(
+    libOk.body,
+    cliOk.body,
+    `api docs：两面 JSON 结构应一致（库面 ${JSON.stringify(libOk.body).slice(0, 160)} vs 进程 ${cliOk.stdout.slice(0, 160)}）`,
+  );
+  t.diagnostic(
+    `① api docs ｜ 进程面（bin/hub.js）code=${cliOk.code}、顶层键=[${Object.keys(cliOk.body)}]、routes=${cliOk.body.routes.length} ｜ ` +
+      `库面（createHub）exitCode=${libOk.exitCode}、顶层键=[${Object.keys(libOk.body)}]、routes=${libOk.body.routes.length} ｜ deepEqual 通过（字节数 ${Buffer.byteLength(libOk.body === null ? '' : JSON.stringify(libOk.body))}）`,
+  );
+
+  // ② 上游业务失败面：`api chats get` 不存在 ⇒ 同退出码 / 同 code / 同 http_status / 同 error 文案
+  const cliMissing = await runHub(['api', 'chats', 'get', 'chat-does-not-exist'], {});
+  const libMissing = await callLibrary('库面 api.chats.get()', () => createHub().api.chats.get('chat-does-not-exist'));
+  const cliMissingError = parseErrorLine('api chats get（进程面）', cliMissing.stderr, ['code', 'error', 'exit_code', 'http_status']);
+  assert.equal(cliMissing.code, 1, `api chats get（进程面）：期望退出码 1，实际 ${cliMissing.code}`);
+  assert.equal(libMissing.exitCode, cliMissing.code, `api chats get：库面退出码 ${libMissing.exitCode} 与进程面 ${cliMissing.code} 不一致`);
+  assert.equal(libMissing.errorCode, cliMissingError.code, `api chats get：code 不一致（库面 ${libMissing.errorCode} vs 进程 ${cliMissingError.code}）`);
+  assert.equal(libMissing.httpStatus, cliMissingError.http_status, `api chats get：http_status 不一致（库面 ${libMissing.httpStatus} vs 进程 ${cliMissingError.http_status}）`);
+  assert.equal(
+    libMissing.errorText,
+    cliMissingError.error,
+    `api chats get：error 文案不一致（库面 ${JSON.stringify(libMissing.errorText)} vs 进程 ${JSON.stringify(cliMissingError.error)}）`,
+  );
+  t.diagnostic(
+    `② api chats get（不存在）｜ 进程面 code=${cliMissing.code}、code字段=${cliMissingError.code}、http_status=${cliMissingError.http_status} ｜ ` +
+      `库面 exitCode=${libMissing.exitCode}、code字段=${libMissing.errorCode}、http_status=${libMissing.httpStatus} ｜ error=「${cliMissingError.error}」两侧逐字相同`,
+  );
+
+  // ③ 连接失败面：`api agents` 指向已释放端口 ⇒ 同退出码 / 同 code / 同 error 文案
+  const cliDown = await runHub(['api', 'agents', '--port', String(releasedPort)], {});
+  const libDown = await callLibrary('库面 api.agents()', () => createHub({ port: releasedPort }).api.agents());
+  const cliDownError = parseErrorLine('api agents（进程面）', cliDown.stderr, ['code', 'error', 'exit_code']);
+  assert.equal(cliDown.code, 3, `api agents（进程面）：期望退出码 3，实际 ${cliDown.code}`);
+  assert.equal(libDown.exitCode, cliDown.code, `api agents：库面退出码 ${libDown.exitCode} 与进程面 ${cliDown.code} 不一致`);
+  assert.equal(libDown.errorCode, cliDownError.code, `api agents：code 不一致（库面 ${libDown.errorCode} vs 进程 ${cliDownError.code}）`);
+  assert.equal(
+    libDown.errorText,
+    cliDownError.error,
+    `api agents：error 文案不一致（库面 ${JSON.stringify(libDown.errorText)} vs 进程 ${JSON.stringify(cliDownError.error)}）`,
+  );
+  t.diagnostic(
+    `③ api agents（已释放端口 ${releasedPort}）｜ 进程面 code=${cliDown.code}、code字段=${cliDownError.code} ｜ ` +
+      `库面 exitCode=${libDown.exitCode}、code字段=${libDown.errorCode} ｜ error=「${cliDownError.error}」两侧逐字相同`,
+  );
+
+  // ④ 层 C 的库面（`hub.cli.run`，capture 形态）：同命令、同 stdout 逐字节、同退出码
+  const cliStatus = await runHub(['cli', 'status'], {});
+  const libCli = await callLibrary('库面 cli.run()', () => createHub().cli.run(['status']));
+  assert.equal(cliStatus.code, 0, `hub cli status（进程面）：期望退出码 0，实际 ${cliStatus.code}（stderr=${JSON.stringify(cliStatus.stderr)}）`);
+  assert.equal(libCli.body.exit_code, cliStatus.code, `层 C：库面 exit_code ${libCli.body.exit_code} 与进程面 ${cliStatus.code} 不一致`);
+  assert.equal(libCli.body.stderr, '', `层 C：库面 stderr 应为空，实际 ${JSON.stringify(libCli.body.stderr)}`);
+  assert.ok(libCli.body.stdout.length > 0, '层 C：库面 stdout 不得为空（防空 vs 空的虚假相等）');
+  assertSameBytes('层 C：库面 stdout 与进程面', cliStatus.stdout, libCli.body.stdout);
+  t.diagnostic(
+    `④ hub cli status ｜ 进程面 code=${cliStatus.code}、stdout=${JSON.stringify(cliStatus.stdout)} ｜ ` +
+      `库面 exit_code=${libCli.body.exit_code}、stdout=${JSON.stringify(libCli.body.stdout)} ｜ 逐字节一致`,
+  );
 });
 
 // ────────────────────────────── T2 · 用法错误样本集（零连接零副作用） ──────────────────────────────
@@ -981,6 +1074,8 @@ test('T7 · 层 C 逐字节：hub cli ↔ 直跑 oamp 一致、零现场变化�
   const tasksBefore = await runHub(['api', 'calls', 'list', '--port', String(hub.port)], { env });
   const taskList = await compare({ label: '只读组 · task list', tokens: ['task', 'list'], runEnv: env });
   assert.equal(taskList.viaHub.code, 0, `task list：期望退出码 0，实际 ${taskList.viaHub.code}`);
+  assert.ok(taskList.viaHub.stdout.length > 0, 'task list（零任务）：stdout 应为「（无任务）」单行（非空，防"空 vs 空"的虚假相等）');
+  assert.equal(taskList.viaHub.stderr, '', 'task list（零任务）：stderr 必须为空');
   const tasksAfter = await runHub(['api', 'calls', 'list', '--port', String(hub.port)], { env });
   assertSameBytes('task list 前后（任务面）', tasksBefore.stdout, tasksAfter.stdout);
 
