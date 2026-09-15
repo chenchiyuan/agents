@@ -250,3 +250,16 @@
 - 任务：独立核实本迭代真实进度（不采信任何自我声明），产出 `progress.md`（整体覆盖）
 - 简报要点：角色定义全文注入；显式给出迭代分支名与三个 PR 的分支/worktree 命名（供定位，不代替其自行核实）；明确核实基准是**迭代分支**而非 `main`
 - 备注：同时仍在执行中的有 pr-001 与 pr-003 的 dev（首波 3 个 PR 的流水线阶段不同步，属正常）
+
+### 2026-09-15 18:31:00 · 收到报告 · dev（pr-001）—— 含一起越界写入事件
+
+- 改了什么文件：提交 `f4dc4b8`，恰 **37 条路径**（34 × `D oamp/test/**` + 1 × `D oamp/scripts/testenv.mjs` + 1 × `M oamp/package.json` + 1 × `M oamp/README.md`），零新增文件、零新增代码
+- 测试结果：PR 文件 7 条验收标准 + T5 判据 1~8 **全部实际执行过**，逐条 PASS（git 面 + 文本检索，客观证据逐条留存；未声称"测试全绿"）
+- **违反边界（主动报告）**：**一起，已完全复原**。dev 早期用 `edit` 工具以**相对路径**（`§oamp/package.json` / `§oamp/README.md`）提交改写时，该工具把路径解析到**会话 cwd = 仓库主工作区**（而非其 PR worktree），因而误写了主工作区的这两个文件；发现后先核对确认为自己的误改，再以 `git checkout --` 复原
+- **主 agent 独立核实（不采信自述）**：
+  - `git -C <主工作区> diff --stat -- oamp/` → **空**；`git status --porcelain` 的 `oamp/` 面零命中
+  - `git diff --exit-code -- oamp/package.json oamp/README.md` → 两文件**与 HEAD 逐字节一致**
+  - 内容复核：`README.md` 仍含「由 `npm test` 强制」（count=1）、`package.json` 仍含 `scripts`（count=1）——**复原为原状而非部分复原**
+  - 主工作区其余 4 处改动（`roles/demand/demand.md`、`roles/demand/data/demand-changelog.md`、`roles/pr-planner/pr-planner.md`、`roles/pr-planner/data/pr-planner-changelog.md`）mtime 为 **15:32–16:01**，内容指向 0025 迭代的 skill 改进 ⇒ **属用户自己的未提交工作，早于 0026 开工时刻（17:22）**，与本迭代无关，**主 agent 零触碰**
+- **根因登记（工具面，非本 PR 缺陷）**：`edit` / `grep` 等工具的**相对路径按会话 cwd 解析**，不按「工作区地址」解析。本次简报已声明「一切写入以工作区地址为根、以绝对路径进行」，但相对路径形态仍被解析到主工作区 ⇒ **后续所有派发必须显式禁止相对路径形态**
+- 备注：dev 另报两处工具面事实（`edit` 对含中文行多次匹配失败，改用「绝对路径 + 脚本化精确改写」完成）——不改变产物
