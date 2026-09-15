@@ -882,6 +882,30 @@ test('T4 · 单点派生的两宿主同码：CLI 面与库面对同一黑障桩�
   assert.equal(blackhole.counts().requests, 2, `两宿主同码：两宿主各应恰收到 1 次请求，实际 ${JSON.stringify(blackhole.counts())}`);
 });
 
+test('T4 · 库面缺省上限：`mode: "block"` 不传 `waitMs` 对 6000ms 桩仍可达（库面不再是 5000ms 死区）', async (t) => {
+  // 库面的 `waitMs` 缺省（`options.waitMs` 省略 ⇒ `null`）由 surface.js 的**同一派生点**补上与 cli.js
+  //   `DEFAULT_WAIT_MS` 同值的兜底（CLI 面由 cli.js 把该缺省落进 `params.waitMs`）⇒ 两个消费面在
+  //   `mode: 'block'` 下等价（F01）。桩延时必须**跨过 5000ms** 才判得出：未兜底时响应头上限仍是 5000ms，
+  //   6000ms 的响应会在 5040ms 前后被本地终止（`REQUEST_TIMEOUT`/3）。
+  const body = { calls: [{ call_id: 'lib-default-call-6000', state: 'completed', text: '' }] };
+  const slow = await startStubServer(t, { delayMs: 6000, status: 200, body });
+  const { createHub } = await import('../sdk/index.js');
+
+  const started = Date.now();
+  const lib = await callLibrary('库面 api.calls.create（mode block、不传 waitMs）', () =>
+    createHub({ port: slow.port }).api.calls.create({ 'chat-id': 'c', agent: 'a', task: 't', mode: 'block' }),
+  );
+  const elapsedMs = Date.now() - started;
+  assert.equal(
+    lib.exitCode,
+    0,
+    `库面（mode block、不传 waitMs、6000ms 桩）：期望 exitCode 0，实际 ${lib.exitCode}（code=${lib.errorCode} error=${JSON.stringify(lib.errorText)}）`,
+  );
+  assert.deepEqual(lib.body, body, `库面（mode block、不传 waitMs、6000ms 桩）：响应体应为桩原样，实际 ${JSON.stringify(lib.body)}`);
+  assert.ok(elapsedMs > 6000 && elapsedMs < 7000, `库面（mode block、不传 waitMs、6000ms 桩）：耗时应落在 (6000, 7000)ms，实际 ${elapsedMs}ms`);
+  assert.equal(slow.counts().requests, 1, `库面（mode block、不传 waitMs、6000ms 桩）：服务端应恰收到 1 次请求，实际 ${JSON.stringify(slow.counts())}`);
+});
+
 test('T4 · 上游业务错误优先于本地超时：`--mode block --wait 8000` 下 404 / 400 仍即时归类', async (t) => {
   // 放宽响应头预算不改变「上游错误即时归类」的次序：上游 4xx 在 `--wait` 上限内到达 ⇒ 仍按上游 `code` 归类。
   const notFound = await startStubServer(t, { delayMs: 0, status: 404, body: { error: 'chat 不存在: ghost', code: 'NOT_FOUND' } });
@@ -1273,4 +1297,22 @@ test('T9 · 拾取性：本文件落在 `node --test test/*.test.js` 的拾取�
   assert.deepEqual(pkg.dependencies, {}, '本 PR 零新依赖（只用 node 内置）');
   assert.equal(path.dirname(THIS_FILE), path.join(ROOT, 'test'), '用例必须落在 test/ 平铺面内');
   assert.ok(path.basename(THIS_FILE).endsWith('.test.js'), '文件名必须匹配 `test/*.test.js`');
+});
+
+test('T9b · 常量同值：`cli.js` 的 `DEFAULT_WAIT_MS` 与 `surface.js` 的 `BLOCK_WAIT_DEFAULT_MS` 相等（只读比对，防静默漂移）', () => {
+  // 库面的 `--wait` 缺省由 `surface.js` 自持同值常量（反向 import `cli.js` 会成环 ⇒ 不 import、不改 `cli.js`）；
+  //   两处一旦漂移，CLI 面与库面在 `mode: 'block'` 下不再等价（F01）。本条只读源文本比对，零运行时耦合。
+  const sourceOf = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
+  const valueOf = (rel, name) => {
+    const found = new RegExp(`const ${name} = (\\d+);`).exec(sourceOf(rel));
+    assert.ok(found !== null, `${rel}：未找到「const ${name} = <数字>;」声明（常量被改名 ⇒ 本条判据失效，需同步更新）`);
+    return Number(found[1]);
+  };
+  const cliValue = valueOf('sdk/cli.js', 'DEFAULT_WAIT_MS');
+  const surfaceValue = valueOf('sdk/surface.js', 'BLOCK_WAIT_DEFAULT_MS');
+  assert.equal(
+    surfaceValue,
+    cliValue,
+    `库面缺省 ${surfaceValue} 与 CLI 面缺省 ${cliValue} 必须同值（否则「mode: block」下两个消费面不等价）`,
+  );
 });
