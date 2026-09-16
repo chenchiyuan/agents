@@ -1303,7 +1303,7 @@ export function createApiRoutes({
             : done);
         }
         const calls = await Promise.all(waits);
-        if (!res.writableEnded && !res.destroyed) sendJson(res, 200, { calls }); // 客户端断连 ⇒ 写入是 no-op，调用仍在后台完成（MI-05）
+        if (!res.writableEnded && !res.destroyed) sendJson(res, 200, { calls, ...(requester === null ? {} : { warnings }) }); // 客户端断连 ⇒ 写入是 no-op，调用仍在后台完成（MI-05）
         return;
       },
     },
