@@ -1787,6 +1787,7 @@ export default async function startWeb(restArgs) {
   // ★ FIX-1：该登记同时是调用**终态的单一写点/读点**（`publishCallResult` 写 `terminal`，信封 / roster / 转录读它）——
   // 覆写只可能发生在带 output_schema 的调用上，故与登记范围天然一致，既有面不受影响。
   const callSchemas = new Map();
+  const waiters = new Map();
   const reconcileIntervalMs = readPositiveMs('OAMP_WEB_RECONCILE_INTERVAL_MS', RECONCILE_DEFAULT_MS);
   const reconcileSlowMs = readPositiveMs('OAMP_WEB_RECONCILE_SLOW_MS', RECONCILE_SLOW_DEFAULT_MS);
   const reconcileTtlMs = readPositiveMs('OAMP_WEB_RECONCILE_TTL_MS', RECONCILE_TTL_DEFAULT_MS);
@@ -1816,9 +1817,25 @@ export default async function startWeb(restArgs) {
     if (envelope !== null) {
       // ★ FIX-1：终态在此**写入**调用登记——strict 覆写随信封一并落到真源，roster / 转录读同一记录，零漂移
       call.terminal = { state: envelope.state, error: envelope.error };
+      if (call.requester !== null) {
+        pickup.add({
+          call_id: call.callId,
+          requester: call.requester,
+          agent: call.role,
+          chat_id: call.chatId,
+          terminal_at: Date.now(),
+          acked: false,
+        });
+      }
       transport.publishCall(call.callId, { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } });
+      transport.closeCallSubscriptions(call.callId);
     }
     if (call.resolve !== null) call.resolve(envelope);
+    const waitersForCall = waiters.get(call.callId);
+    if (waitersForCall) {
+      waiters.delete(call.callId);
+      for (const resolve of waitersForCall) resolve(envelope);
+    }
   };
 
   /** 终态落盘：恰一条 out 记录 + `message`(out) + `chat_state`（状态取库值，closed 哨兵不被迟到结果覆盖）。 */
@@ -2013,7 +2030,6 @@ export default async function startWeb(restArgs) {
         sender = null;
       }
     }
-    throw lastErr;
   };
   /** web → agent 控制消息：`notice{kind:'context_release', chat_id}`（§6.4；best-effort，失败忽略）。 */
   const sendControlNotice = async (agentId, body) => {
@@ -2028,7 +2044,7 @@ export default async function startWeb(restArgs) {
 
   // 路由表（F01）：表顺序 = 匹配优先级 = 改造前 if 链顺序；在依赖构造完成之后、createServer 之前构造，
   // handler 直接闭包引用本作用域局部名（handler 体零改写）。
-  const routes = createApiRoutes({ db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile });
+  const routes = createApiRoutes({ db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile, waiters });
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
