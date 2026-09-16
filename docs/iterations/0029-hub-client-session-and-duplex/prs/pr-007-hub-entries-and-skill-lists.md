@@ -536,44 +536,26 @@ git status --short; echo "（以上为空 = 工作区干净）"
 
 ### §14 证据段自检（无临时目录依赖、无自造占位符）
 
-全文件扫描（含七字段与引用块）：
+两种口径各跑一次：① 全文件（含七字段、引用块、本节命令行自身）；② 排除代码块（只扫代码块以外的文本）。
 
 ```bash
 cd $WS && P=docs/iterations/0029-hub-client-session-and-duplex/prs/pr-007-hub-entries-and-skill-lists.md
-grep -nE '/tmp/|<[a-z_]+>' $P
-grep -cE '/tmp/' $P
+echo "全文件命中行数=$(grep -E '/tmp/|<[a-z_]+>' $P | wc -l | tr -d ' ')"
+echo "非引用区命中行数=$(awk '/^```/{f=!f;next} !f' $P | grep -cE '/tmp/|<[a-z_]+>')"
+echo "临时目录前缀命中行数=$(grep -cE '/tmp/' $P)"
+echo "非引用区临时目录前缀命中行数=$(awk '/^```/{f=!f;next} !f' $P | grep -cE '/tmp/')"
 ```
 
-排除代码块后的扫描（只扫散文）：
+原样输出（本段只贴读数、不贴命令行回显 ⇒ 读数自身不含任何模式串，重跑读数是不动点）：
 
-```bash
-cd $WS && P=docs/iterations/0029-hub-client-session-and-duplex/prs/pr-007-hub-entries-and-skill-lists.md
-awk '/^```/{f=!f;next} !f' $P | grep -nE '/tmp/|<[a-z_]+>'; echo "非引用区命中数=$(awk '/^```/{f=!f;next} !f' $P | grep -cE '/tmp/|<[a-z_]+>')"
+```
+全文件命中行数=13
+非引用区命中行数=0
+临时目录前缀命中行数=4
+非引用区临时目录前缀命中行数=0
 ```
 
-**两次扫描的原样输出**（下方读数）：
+读数解释：
 
-```bash
-$ cd $WS && P=docs/iterations/0029-hub-client-session-and-duplex/prs/pr-007-hub-entries-and-skill-lists.md
-$ grep -nE '/tmp/|<[a-z_]+>' $P
-186:  hub api pickup ack <call_id> [--principal] [--epoch]
-188:  hub api calls cancel <call_id>
-191:  hub api principals get <principal_id>
-424:-2. 取终态：`node "<项目根>/oamp/bin/hub.js" api calls get <call_id>`，读该调用的终态信封。
-437:110:   - `cli task watch <task_id>`：**已派发之后的盯进度 / 补看**，逐条打印进展、到终态收尾退出。**何时用它**：手上已经有 `task_id`（派发时选了后台形态，或这次调用是别处派发的），或想在终端里边跑边看。
-448:114:兜底（仅在上述现成原语都用不上时才用）：`api calls get <call_id>` 配 `sleep` 型定期查询——**轮询是兜底，不是主推路径**，且它拿到的"还没结果"不等于失败判据。
-463:   - `cli task watch <task_id>`：**已派发之后的盯进度 / 补看**，逐条打印进展、到终态收尾退出。**何时用它**：手上已经有 `task_id`（派发时选了后台形态，或这次调用是别处派发的），或想在终端里边跑边看。
-465:3. 取件：`node "<项目根>/oamp/bin/hub.js" api pickup list` 拿回自己尚未取件的终态结果（含完整信封），`api pickup ack <call_id>` 确认取走后从清单里划掉——**离线期间跑完的调用，结论不会丢**。
-467:兜底（仅在上述现成原语都用不上时才用）：`api calls get <call_id>` 配 `sleep` 型定期查询——**轮询是兜底，不是主推路径**，且它拿到的"还没结果"不等于失败判据。
-500:grep -nE '/tmp/|<[a-z_]+>' $P
-501:grep -cE '/tmp/' $P
-508:awk '/^```/{f=!f;next} !f' $P | grep -nE '/tmp/|<[a-z_]+>'; echo "非引用区命中数=$(awk '/^```/{f=!f;next} !f' $P | grep -cE '/tmp/|<[a-z_]+>')"
-$ grep -cE '/tmp/' $P
-3
-$ awk '/^```/{f=!f;next} !f' $P | grep -nE '/tmp/|<[a-z_]+>'; echo "非引用区命中数=$(awk '/^```/{f=!f;next} !f' $P | grep -cE '/tmp/|<[a-z_]+>')"
-非引用区命中数=0
-```
-
-读数：命中分两类，都不是本 PR 自造的占位符／临时依赖 —— ① **引用块的原文**（§4 的 `hub --help` 投影、§9 / §12 的 `oamp/skill/hub.md` 原文；该文件体例本身就用尖括号写法表达位置参数：项目根路径 / `task_id` / `call_id` 三处）；② **本节自检命令行自身**（`grep` 的模式串含临时目录前缀与尖括号形态 ⇒ 自匹配）。**排除代码块后的散文零命中**（第二段的输出）。
-
-> 说明：扫描在回填本段之前执行；回填后若再扫，新增命中只可能落在**本段引用的原样输出**里（同上属引用内容）。
+1. **全文件的命中全部是引用内容**：§4 的 `hub --help` 投影、§9 / §12 的 `oamp/skill/hub.md` 原文（该文件体例本身就用尖括号写法表达位置参数：项目根路径 / `task_id` / `call_id`），以及本节自检命令行自身（模式串自匹配，含临时目录前缀那一串）。
+2. **排除代码块后为零**（第二、四行读数）：本 PR 自写的散文与命令不含尖括号占位符、不引入临时目录依赖 —— 全部真集群取证命令都用工作区相对短 socket 路径 + `curl` / `node` / `git` 仓内形态（§0）。
