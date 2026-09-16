@@ -447,10 +447,11 @@ cli status 归一化后 = 逐字节相同
 
 ### §5 AC5：`hub uds router.task_cancel` 两条判据（working ⇒ `failed` + `cancelled`；已终态 ⇒ `TASK_ALREADY_FINAL` + 退出码 1）
 
-车辆：`!sleep 45`（shell 分支，不触发模型调用）⇒ 任务处于 `working` 时取消。
+车辆：`!sleep 45`（shell 分支，不触发模型调用）⇒ 任务处于 `working` 时取消。**块自足**：从零可跑（含建项目一步；`repo_url` 用 `date +%s` 取唯一值 ⇒ 重复执行不撞 409；本仓写 projects 表的唯一入口就是 `POST /api/projects`，web 启动不播种）：
 
 ```bash
-cd $WS && PRJ=$(curl -s http://127.0.0.1:8437/api/projects | jq -r '.projects[0].project_id') && echo "PRJ=$PRJ"
+cd $WS && export OAMP_SOCKET=.pb-agents/pr007/router.sock OAMP_DB=.pb-agents/pr007/sql.db OAMP_WEB_PORT=8437
+PRJ=$(curl -s -X POST http://127.0.0.1:8437/api/projects -H 'content-type: application/json' -d "{\"repo_url\":\"https://example.com/pr007-$(date +%s).git\",\"name\":\"pr007\"}" | jq -r '.project.project_id') && echo "PRJ=$PRJ"
 CH=$(curl -s -X POST http://127.0.0.1:8437/api/messages -H 'content-type: application/json' -d "{\"project_id\":\"$PRJ\",\"agent_id\":\"dev-1\",\"text\":\"!true\"}" | jq -r '.chat_id') && echo "CH=$CH"
 CALL=$(curl -s -X POST http://127.0.0.1:8437/api/messages -H 'content-type: application/json' -d "{\"chat_id\":\"$CH\",\"agent_id\":\"dev-1\",\"text\":\"!sleep 45\"}" | jq -r '.task_id') && echo "CALL=$CALL"
 node oamp/bin/hub.js uds router.task_get --params "{\"task_id\":\"$CALL\"}" | jq -c '.task.state'
@@ -461,9 +462,9 @@ node oamp/bin/hub.js api calls get "$CALL" | jq -c '{state,error}'
 ```
 
 ```
-PRJ=prj-9cbfd831-98a9-49ec-8c67-95adf3f7618f
-CH=chat-72cafadb-efd4-4f3d-8bf9-41963d4b719b
-CALL=task-1c677761-09d8-4b89-b231-47122f635dd9
+PRJ=prj-c1ea6389-300d-439d-aaa2-d0acd45179b0
+CH=chat-2c488b6a-4c4f-4ab7-a4db-fdbaea4158d9
+CALL=task-759fbc41-d4d1-4037-ac9b-10d799339085
 "working"
 {"state":"failed","error":"cancelled"}
 exit=0
@@ -471,6 +472,16 @@ exit=0
 {"code":"TASK_ALREADY_FINAL","error":"task_cancel: task already final","exit_code":1}
 exit=1
 {"state":"failed","error":"cancelled"}
+```
+
+**自足性实测**（本轮在**全新库**上先跑 §0、再跑上面这块；建项目前 `GET /api/projects` 为空 ⇒ 块内这一步确实是从零建起来的）：
+
+```bash
+cd $WS && curl -s http://127.0.0.1:8437/api/projects
+```
+
+```
+{"projects":[]}
 ```
 
 要点：取消**当刻**即可经调用面看到终态（`calls get` = `failed` / `cancelled`，F13 验收 3）；第二次取消**不改写**已定终态（逐字相同，F13 验收 5）；不存在 id ⇒ `TASK_NOT_FOUND`、退出码 `1`。
