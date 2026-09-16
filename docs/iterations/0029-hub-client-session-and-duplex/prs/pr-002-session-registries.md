@@ -50,4 +50,9 @@
 
 ## 验收证据
 
-（本 PR 执行时填写：两模块的一次性验证脚本 + 输出（幂等 / `created_at` 不变 / `last_seen_at` 前移 / 非法形态拒绝 / `ack` 幂等 / 导出面与 import 行计数）+ `grep` 计数原始输出。载体约定见 `architecture.md` §5.4。）
+- 实跑脚本：`node /tmp/pr002-verify.mjs`，输出 `RESULT: PASS`；AC3–AC10 的 `upsert` 幂等、时间字段、实例形态拒绝、`touch`、`requesterOf` 纯读、`pickup.add` 去重、按 requester 列表、`ack` 幂等均通过。
+- 边界脚本：缺省 pickup 字段均为 `null`；`ack` 后条目仍保留且重复 `add` 返回 `false`。
+- 导出面：`principals: get,requesterOf,touch,upsert`；`pickup: ack,add,listByRequester`。`^import` 扫描无匹配；两模块均无 import，符合零 import 约束。
+- 形态等价脚本：对 15 个边界输入与 `registry.js:isValidInstanceId` 逐项比较，输出 `equivalence 15/15`。
+- 静态计数（`/tmp/pr002-grep-counts.out`）：两文件寿命短语各 1；`setTimeout|setInterval`、文件写入 API、`process.*`、`EventEmitter|emit(`、`principals.js` 的 `.delete(` 均为 0。
+- 开工基线实际为 `3f3fd729372623112b2b4f8e24e7d8c5f021fb44`，开工时工作区干净；本 PR 的 `oamp/` 改动仅新增 `oamp/src/principals.js` 与 `oamp/src/pickup.js`，`oamp/package.json` 无改动。
