@@ -699,8 +699,8 @@ req 'wrong method' DELETE /api/agents
 ```bash
 sh "$RT/probe.sh" "$B" "$PRJ" "$RT/base-endpoints.txt"   # 基线 web.js（51eb893 副本）
 sh "$RT/probe.sh" "$B" "$PRJ" "$RT/cur-endpoints.txt"    # 当前 web.js
-awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip' base-endpoints.txt > base-rest.txt
-awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip' cur-endpoints.txt > cur-rest.txt
+awk '/^### /{skip = ($0 ~ /^### agents/ || $0 == "### calls roster")} !skip' base-endpoints.txt > base-rest.txt
+awk '/^### /{skip = ($0 ~ /^### agents/ || $0 == "### calls roster")} !skip' cur-endpoints.txt > cur-rest.txt
 diff base-rest.txt cur-rest.txt && echo "IDENTICAL / 0 differences"
 ```
 
@@ -708,7 +708,7 @@ diff base-rest.txt cur-rest.txt && echo "IDENTICAL / 0 differences"
 IDENTICAL / 0 differences
 ```
 
-（对照覆盖 15 个请求块逐字相同，含全部 400/404 与错误文案、`/api/chats` 的过滤/分页、`/api/projects`、`/api/confirmations`、`GET /api/stream` 无 chat_id 的 400、`GET /api/events`、`DELETE /api/agents` 的方法不匹配 404 兜底；请求清单见 §11 探针脚本的 15 条 `###` 标签。唯一被剔除的是两条**明文追加字段**的面，单列如下。）
+（对照覆盖 **23 个请求块逐字相同**（`diff_exit=0`；`docs: base=21 cur=29`），含全部 400/404 与错误文案、**调用面的全部枚举校验与 404**（`calls unknown` / `calls bad mode` / `calls bad schema` / `calls empty tasks` / `calls bad role` / `calls task+tasks` / `calls unknown transcript` / `calls unknown stream`）、`/api/chats` 的过滤/分页、`/api/projects`、`/api/confirmations`、`GET /api/stream` 无 chat_id 的 400、`GET /api/events`、`DELETE /api/agents` 的方法不匹配 404 兜底；**27 条探针请求 = 23 比对 + 4 剔除**（`agents*` 三块承载本 PR 明文追加字段 + `calls roster` 一块）。**口径更正（2026-09-16，主 agent 执行）**：本节早先所用过滤式 `awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip'` 因 `$2` 仅取首个 token，**误剔了全部 `### calls …` 块**，故旧记录的「15 个请求块」**小于**实做口径；已按收紧后的过滤式（见上方两行）重跑，**结论不变且覆盖更强**。）
 
 ```bash
 sed -n '2p' base-endpoints.txt | jq -c '[.agents[] | del(.last_heartbeat)]'
@@ -781,7 +781,7 @@ node --check oamp/src/web.js && echo SYNTAX_OK
 SYNTAX_OK
 ```
 
-**未在本 PR 取证范围内的三条（如实登记，见回报 ④）**：① 位置纪律的**反证**（临时把 `/api/calls/wait` 移到 `:call_id` 之后 ⇒ 404 `call 不存在: wait`，随后恢复原位）本轮未执行 —— 原因：该取证需在最终交付态上临时代码移位再恢复，改动"顺序纪律"这一本 PR 核心可达性契约的风险大于收益，正向可达性已足以证明该行未被 `call_id='wait'` 吞掉（主 agent 已裁决接受）；② 四推送面"迭代前后事件名序列"的全量采集只做了同窗口事件类集合对照（§4 表），未做"同一会话在基线与当前各跑一遍再 diff 序列"的完整版，因为既有四面代码路径零改动（§11 的 15 条逐字比对已覆盖其参数与错误面；主 agent 已裁决接受）；③ F14 验收 4 的字面形态"批量两项、仅第二项自派发"在当前请求契约下不可构造（批量形态的 `agent` 是请求级单值 ⇒ 两项必然同目标），已用"两项都自派发 + `index` 0/1 各指向本项 `call_id`"作等价对照 —— **字面形态需请求契约支持逐项 `agent`，超出本 PR 文件范围**（主 agent 已采纳该等价对照，登记 DC-32）；本迭代对既有 `sendTask` 静默吞掉投递失败的缺陷**不修**（修它会动既有响应形态、触及 G01，登记 DC-33）。
+**未在本 PR 取证范围内的三条（如实登记，见回报 ④）**：① 位置纪律的**反证**（临时把 `/api/calls/wait` 移到 `:call_id` 之后 ⇒ 404 `call 不存在: wait`，随后恢复原位）本轮未执行 —— 原因：该取证需在最终交付态上临时代码移位再恢复，改动"顺序纪律"这一本 PR 核心可达性契约的风险大于收益，正向可达性已足以证明该行未被 `call_id='wait'` 吞掉（主 agent 已裁决接受）；② 四推送面"迭代前后事件名序列"的全量采集只做了同窗口事件类集合对照（§4 表），未做"同一会话在基线与当前各跑一遍再 diff 序列"的完整版，因为既有四面代码路径零改动（§11 的 23 块逐字比对已覆盖其参数与错误面；主 agent 已裁决接受）；③ F14 验收 4 的字面形态"批量两项、仅第二项自派发"在当前请求契约下不可构造（批量形态的 `agent` 是请求级单值 ⇒ 两项必然同目标），已用"两项都自派发 + `index` 0/1 各指向本项 `call_id`"作等价对照 —— **字面形态需请求契约支持逐项 `agent`，超出本 PR 文件范围**（主 agent 已采纳该等价对照，登记 DC-32）；本迭代对既有 `sendTask` 静默吞掉投递失败的缺陷**不修**（修它会动既有响应形态、触及 G01，登记 DC-33）。
 
 ## 建议的内部拆分点（实现阶段用 · 非 PR 边界）
 
