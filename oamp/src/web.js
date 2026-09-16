@@ -76,6 +76,8 @@ const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，�
 const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟；2026-09-13 起 agent 侧 omp 超时上限亦为 30 分钟 ⇒ 覆盖关系由「有余」变为「持平」，待优化）
 // pr-002（F05 / architecture §4.2）：全局拓扑轮询间隔（仅存在全局订阅者时运行）；测试用 env 压缩时间轴。
 const TOPOLOGY_POLL_DEFAULT_MS = 2000;
+// 等待句柄兜底复查间隔（A-09）：只为"已登记等待句柄的 id"复查终态，无等待者时不发任何 UDS 请求。
+const WAIT_RECHECK_MS = 1000;
 // ★ 0021 pr-004 第 2 轮（F07 验收 3 / N5，主 agent 裁决 Q6）：调用面驱动的 chat 状态变化**不进**全局
 // `chat_state` 链路——全局 chat_state 的唯一消费者是前端「对话完成 / 失败」通知派生，而调用面完成明确不
 // 产生通知（N5：事件集合不含 `call_completed`）。传此选项 ⇒ 只发定向 `chat:<id>` 帧（形态与时机逐字不变，
@@ -305,6 +307,45 @@ export function createAgentStateWatch({ transport, subscribers, queryNodes, quer
   }
 
   return { ensureRunning, stop };
+}
+
+/** 等待句柄的兜底复查（A-09 / F11 验收 7 / F12 验收 3）：只复查**已登记等待句柄**的调用 id —— 覆盖
+ *  「终态已产生，但本进程没有经唯一发布点送达」的窗口（另一进程派发的调用 / web 重启后仍在跑的调用 /
+ *  非调用面派发的任务）。无等待者时每 tick 立即返回 ⇒ 零 UDS 流量；复查**只读**：不产生结论、不改调用状态，
+ *  判据恒为"该 id 当刻终态"（非终态 ⇒ 什么都不做，继续等）。 */
+export function createWaiterWatch({ waiters, queryEnvelope, release, pollMs }) {
+  let timer = null;
+
+  async function tick() {
+    if (waiters.size === 0) return;
+    for (const callId of [...waiters.keys()]) {
+      if (!waiters.has(callId)) continue; // 本轮前已被唯一发布点释放
+      let envelope = null;
+      try {
+        envelope = await queryEnvelope(callId);
+      } catch {
+        continue; // Router 暂不可达：本轮跳过（不产生虚假结论）
+      }
+      if (envelope === null) continue;
+      release(callId, envelope);
+    }
+  }
+
+  /** 进程启动即起表（unref；无等待者时是空转判断，不发任何 UDS 请求）。 */
+  function start() {
+    if (timer !== null) return;
+    timer = setInterval(() => {
+      tick().catch(() => {});
+    }, pollMs);
+    timer.unref(); // 不阻滞进程退出
+  }
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  return { start, stop };
 }
 
 /** 全局事件差值（F05 / architecture §4.2「纯函数边界」）：prev = 上一 tick 的在线集合
@@ -2084,6 +2125,23 @@ export default async function startWeb(restArgs) {
     if (kinds.length === 0 || kinds.includes('agent_state')) agentStateWatch.ensureRunning();
   };
 
+  // ★ 0029 pr-005（A-09 / F11 验收 7）：等待句柄的兜底复查表 —— 常驻（unref）但**无等待者即空转**（零 UDS 流量）；
+  //   只覆盖"终态已产生但本进程未经唯一发布点送达"的窗口（跨进程派发 / web 重启后仍在跑 / 非调用面任务）。
+  const waiters = new Map();
+  const waiterWatch = createWaiterWatch({
+    waiters,
+    pollMs: WAIT_RECHECK_MS,
+    queryEnvelope: async (callId) => {
+      const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+      const task = r && r.task ? r.task : null;
+      if (task === null) return null;
+      const state = callState(task, callSchemas.get(callId) ?? null);
+      if (state !== 'completed' && state !== 'failed') return null;
+      return composeCallEnvelope(task, callSchemas.get(callId) ?? null);
+    },
+    release: (callId, envelope) => releaseWaiters(callId, envelope),
+  });
+
   // task_id → { chatId, agentId, lines, landed, attempts, slow, registeredAt, timer }：agent 侧的
   // task.update/task.result body 不带 chat_id，派发前登记；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
   // landed = 该 task 已落过 out（投递路径与对账路径共用，保证恰一条 out）；attempts / slow = 对账进度（快速预算
@@ -2097,7 +2155,6 @@ export default async function startWeb(restArgs) {
   // ★ FIX-1：该登记同时是调用**终态的单一写点/读点**（`publishCallResult` 写 `terminal`，信封 / roster / 转录读它）——
   // 覆写只可能发生在带 output_schema 的调用上，故与登记范围天然一致，既有面不受影响。
   const callSchemas = new Map();
-  const waiters = new Map();
   const reconcileIntervalMs = readPositiveMs('OAMP_WEB_RECONCILE_INTERVAL_MS', RECONCILE_DEFAULT_MS);
   const reconcileSlowMs = readPositiveMs('OAMP_WEB_RECONCILE_SLOW_MS', RECONCILE_SLOW_DEFAULT_MS);
   const reconcileTtlMs = readPositiveMs('OAMP_WEB_RECONCILE_TTL_MS', RECONCILE_TTL_DEFAULT_MS);
@@ -2397,6 +2454,7 @@ export default async function startWeb(restArgs) {
     db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
     waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription, settleCancelledCall, rosterHintRows,
   });
+  waiterWatch.start(); // 等待句柄兜底复查（无等待者时空转；unref ⇒ 不阻滞退出）
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -2440,6 +2498,7 @@ export default async function startWeb(restArgs) {
       callSchemas.clear(); // 退出不留调用面登记（与任务表同生命周期）
       topologyWatch.stop(); // 退出不留拓扑轮询表
       agentStateWatch.stop(); // 退出不留投影轮询表
+      waiterWatch.stop(); // 退出不留等待兜底复查表
       writeRoster(lastRosterNodes); // 正常退出前刷新运行态名册（best-effort，L1-01：软重启窗口的提示来源）
       server.close(() => {
         transport.closeAll();
