@@ -1309,7 +1309,11 @@ export function createApiRoutes({
           return;
         }
         const requesterDecl = requester === null ? null : principals.requesterOf({ principal_id: requester });
-        if (requesterDecl !== null) principals.upsert(requesterDecl);
+        if (requesterDecl !== null) principals.upsert(requesterDecl); // 未注册 ⇒ 按需幂等建立、**不阻断**派发（MI-3）
+        // ★ 0029 pr-005（F14 / A-02）：自派发判定的依据是**该身份声明的 instance_id** —— 声明来自
+        // `POST /api/principals {principal_id, instance_id}`（`requesterOf` 只读请求体，故此处读登记表的当刻值；
+        // 未声明 ⇒ null ⇒ 一律不判自派发），不是请求体里临时给的字段。
+        const requesterInstanceId = requesterDecl === null ? null : (principals.get(requester)?.instance_id ?? null);
         const warnings = [];
         // ④ 入参形态：上下文类型 / 单批互斥 / 逐项枚举与子集校验（全部先于任何写库与登记）
         if (body.context !== undefined && body.context !== null && typeof body.context !== 'string') {
@@ -1396,7 +1400,7 @@ export function createApiRoutes({
           let resolve = null;
           const done = item.mode === CALL_MODES[1] ? new Promise((r) => { resolve = r; }) : null; // 阻塞等待句柄（释放点 = 终态单一发布点）
           const call = { callId, role, chatId, requester, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
-          if (requesterDecl !== null && requesterDecl.instance_id === agentId) {
+          if (requesterInstanceId !== null && requesterInstanceId === agentId) {
             warnings.push({ index: i, call_id: callId, kind: 'self_dispatch', message: 'requester 与目标 agent 相同' });
           }
           const entry = { chatId, agentId, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null, call };
