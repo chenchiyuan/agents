@@ -154,7 +154,7 @@ data: <JSON>
 
 ---
 
-## 3. 接口清单（21 条）
+## 3. 接口清单（29 条）
 
 | # | 方法 + 路径 | 用途 |
 |---|---|---|
@@ -179,6 +179,14 @@ data: <JSON>
 | 19 | `GET /api/calls/<call_id>` | 按调用取终态（进行中给状态） |
 | 20 | `GET /api/confirmations` | 在途确认项列表（跨对话；进程内，不持久） |
 | 21 | `POST /api/confirmations/<confirmation_id>/decision` | 提交确认项裁决（选项 + 可选文本；随即移出在途表并回传） |
+| 22 | `GET /api/subscribe` | 实时订阅（按事件类型 / agent 过滤；SSE） |
+| 23 | `GET /api/pickup` | 未取件的终态结果（离线也不丢结论） |
+| 24 | `POST /api/pickup/<call_id>/ack` | 取件确认（幂等） |
+| 25 | `GET /api/calls/wait` | 等待一组调用达到终态（一次调用即返回） |
+| 26 | `POST /api/calls/<call_id>/cancel` | 取消调用（幂等；已终态调用不改状态） |
+| 27 | `GET /api/health` | 恢复判据（router / web / agents 三问 + 可调用结论） |
+| 28 | `POST /api/principals` | 注册客户端身份（幂等） |
+| 29 | `GET /api/principals/<principal_id>` | 查询客户端身份 |
 
 > 非 API 面的静态资源（`/`、`/app.js`、`/style.css`）不在错误契约范围内：静态面只按固定文件名提供（不做路径拼接），路径穿越类请求落 404 兜底（`{"error":"not found: …","code":"NOT_FOUND"}`）。
 
