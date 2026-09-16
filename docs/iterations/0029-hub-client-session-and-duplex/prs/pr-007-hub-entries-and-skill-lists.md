@@ -419,7 +419,7 @@ rm oamp/sdk/.surface-base.tmp.mjs
 【当前 49 条（含新增 9 条）】非 GET 层 A 条目 11 条 ｜ 其中登记含 in:'query' 字段的 = 1 条 [{"id":"api.pickup ack","method":"POST","path":"/api/pickup/:call_id/ack","queryFields":["principal","epoch"]}]
 ```
 
-再用**真集群前后实跑**同一组既有条目命令，逐条比对：改动前基线在修复前（`3ed309b`）捕获、改动后在同一隔离集群上重跑（同一 socket / 端口 / DB）：
+再用**真集群前后实跑**同一组既有条目命令，逐条比对：改动前基线在修复前（`3ed309b`）捕获、改动后在同一隔离集群上重跑（同一 socket / 端口 / DB）。复现方式：`git checkout 3ed309b -- oamp/sdk/surface.js` 跑一遍落在 `$B`，再 `git checkout HEAD -- oamp/sdk/surface.js` 跑一遍落在 `$A`（两组命令逐字相同）。
 
 ```bash
 cd $WS && export OAMP_SOCKET=.pb-agents/pr007/router.sock OAMP_DB=.pb-agents/pr007/sql.db OAMP_WEB_PORT=8437
