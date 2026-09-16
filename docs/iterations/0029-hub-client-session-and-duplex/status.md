@@ -26,37 +26,50 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **累计槛位释放次数**：1（pr-002 合并）
-- **当前有效上限**：5（`min(3 + 1×3, 5)`，已达硬上限）
-- **已派发总数**：5（+ pr-004 / pr-008 的 planner）
+- **累计槛位释放次数**：4（pr-002、pr-003、pr-001、pr-004 合并）
+- **当前有效上限**：5（`min(3 + 4×3, 5)`，维持硬上限）
+- **已派发总数**：6（+ pr-005 的 planner）
 
 ## PR 实现子状态（阶段 5 展开）
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-router-status-primitives.md | （无） | ❌失败(现场保留)→**返工中** | feat/0029-pr-001-router-status-primitives(保留) | ⬜ | 占用 |
+| pr-001-router-status-primitives.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 | pr-002-session-registries.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
-| pr-003-sse-transport-additions.md | （无） | ⏸（dev 在途） | feat/0029-pr-003-sse-transport-additions | ⬜ | 占用 |
-| pr-004-console-call-stream-stop.md | （无） | ⏸ | （派发时创建） | ⬜ | 占用 |
-| pr-005-web-session-and-call-surface.md | pr-001、pr-002、pr-003 | ⬜ | （待派发时创建） | ⬜ | 排队(依赖未满足) |
+| pr-003-sse-transport-additions.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
+| pr-004-console-call-stream-stop.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
+| pr-005-web-session-and-call-surface.md | pr-001、pr-002、pr-003 | ⏸ | （派发时创建） | ⬜ | 占用 |
 | pr-006-protocol-docs-and-index.md | pr-005 | ⬜ | （待派发时创建） | ⬜ | 排队(依赖未满足) |
 | pr-007-hub-entries-and-skill-lists.md | pr-001-router-status-primitives.md、pr-005-web-session-and-call-surface.md〔**调度附加约束**：还须待 pr-006 合并——见 verify-20260916-153039 缺边〕 | ⬜ | feat/0029-pr-007-hub-entries-and-skill-lists | ⬜ | 排队(依赖未满足) |
 | pr-008-friction-log-completion.md | （无） | ⏸ | （派发时创建） | ⬜ | 占用 |
 
 ## 派发台账
 
-| 时点 | 角色（节点） | 用途 | call_id | 终态 | 实报 model | truncated |
-|---|---|---|---|---|---|---|
+**口径**：本迭代**所有派发一律经 `hub`**（`oamp/skill/hub.md`，遵守其四条红线）。本表同时是 **F18 验收 2/3 / D-13 体感度量** 的载体，逐行回答三问：**① 是否需额外盯守 ② 结果如何到手 ③ 耗时**。
 
-**口径**：本迭代的**所有派发一律经 `hub`**（`oamp/skill/hub.md`，遵守其四条红线）；台账同时作为 D-13「hub 体感」的度量载体——每行额外记录**结果到手方式**（自动送达 / 主动查询 / 阻塞等待）。
+| 时点 | 角色（节点） | 用途 | call_id | 终态 | ① 是否需盯守 | ② 结果到手方式 | ③ 耗时 | 实报 model |
+|---|---|---|---|---|---|---|---|---|
+| 14:17 | prd（`pb-prd`） | 阶段 2 · 功能规格 | `task-3d15749f` | failed（`timeout`，产物已完整） | **需**（30 分钟内多次人工查状态） | 我自建 `cli task watch`（摩擦①） | 30.0 min（**空耗 ~24 min**） | `deepseek/deepseek-v4-flash` |
+| 14:47 | architect（`pb-architect`） | 阶段 3 · 技术架构 | `task-8a80a749` | failed（`timeout`，产物已完整） | **需**（靠 `ps`/日志取证判活性） | 首次误用 `nohup &`（**无自动送达**，DC-08a） | 30.0 min（**空耗 ~20 min**） | — |
+| 15:14 | pr-planner（`pb-pr-planner`） | 阶段 4 · PR 规划 | `task-63f31c78` | failed（`timeout`，产物已完整） | **需**（同型） | **产物稳定器提前 ~21 min 推进** | 30.0 min（**空耗 ~26 min**） | — |
+| 15:27 | verifier（`pb-verifier`） | 阶段 6 · 验 `prs/`（阶段 4 门口） | `task-08bac0b6` | completed | 不需 | 推送面 `call_result` | 3.5 min | `powerby/grok-4.6` |
+| 15:32 | planner ×3（`pb-planner`） | 阶段 5 · pr-001/002/003 的 tasks | `task-251b7e7b` / `2a34ff72` / `3fbe57f1` | completed ×3 | 不需 | 产物面 + 推送 | 4.5 / 7 / 12 min（**实例串行**） | `deepseek/deepseek-v4-flash` |
+| 15:37 | dev（`pb-dev`） | 阶段 5 · pr-001 实现 | `task-49b58dd8` | completed | 不需 | 推送面 | 14.3 min | `openai/gpt-5.6-luna` |
+| 15:39 | dev | 阶段 5 · pr-002 实现 | `task-3a39e75d` | completed | 不需 | 推送面 | 18.9 min | `openai/gpt-5.6-luna` |
+| 15:45 | dev | 阶段 5 · pr-003 实现 | `task-32302e96` | completed | 不需 | 推送面 | 22.0 min | `openai/gpt-5.6-luna` |
+| 15:52 | verifier | 阶段 6 · pr-001 验收（首轮） | `task-43b380ca` | completed（**FAIL**） | 不需 | 推送面 | 7.0 min | `powerby/grok-4.6` |
+| 15:58 | verifier | 阶段 6 · pr-002 验收（首轮） | `task-370c1288` | completed（**FAIL**） | 不需 | 推送面 | 2.9 min | `powerby/grok-4.6` |
+| 16:07 | verifier | 阶段 6 · pr-003 验收（首轮） | `task-a87a7c03` | completed（**FAIL**） | 不需 | 推送面 | 4.4 min | `powerby/grok-4.6` |
+| 15:37–16:32 | dev ×6（`pb-dev`） | 阶段 5 · pr-001/002/003 返工（证据形态） | `88d09f25` / `b7bd0a9c` / `8c97d4bd` / `7207f08a` / `efcf2e6b` / `37a215fe` | completed（其中 `efcf2e6b` 记录脱落，判未落地后重派） | 不需 | 推送面 | 20.3 / 29.6 / 12.5 / 20.3 / — / 18.5 min | `openai/gpt-5.6-luna` |
+| 16:20 | verifier | 阶段 6 · pr-001 重验 | `task-509a1241` | completed（**FAIL**，仅标准 3） | 不需 | 推送面 | 2.8 min | `powerby/grok-4.6` |
+| 19:22 | dev | 阶段 5 · pr-001 收尾修复 | `task-eba25366` → 重派 `task-5393eaed` | failed（`context_crashed`，DC-21）→ completed | 不需 | 推送面 | 0 → 20.3 min | `openai/gpt-5.6-luna` |
+| 19:23 | dev | 阶段 5 · pr-002 返工#2 | `task-c3cdaff6` | completed | 不需 | 推送面 | 10.2 min | `openai/gpt-5.6-luna` |
+| 19:33 | verifier | 阶段 6 · pr-002 重验 | `task-afc70338` | completed（**PASS** ⇒ 合并 `cfb6736`） | 不需 | 推送面 | 4.6 min | `powerby/grok-4.6` |
+| 19:42 | verifier | 阶段 6 · pr-003 重验 | `task-cc60948d` | completed（**PASS** ⇒ 合并 `f8f382a`） | 不需 | 推送面 | 3.6 min | `powerby/grok-4.6` |
+| 19:38 | planner ×2 | 阶段 5 · pr-004 / pr-008 的 tasks | `task-c48ac1f4` / `task-5c579e20` | completed ×2 | 不需 | 推送面 | 4.6 / — min | `deepseek/deepseek-v4-flash` |
+| 19:43 | dev | 阶段 5 · pr-004 实现 | `task-7553a07d` | 在途 | 不需 | 推送面 | — | `openai/gpt-5.6-luna` |
 
-| 时点 | 角色（节点） | 用途 | call_id | 终态 | 实报 model | 结果到手方式 |
-|---|---|---|---|---|---|---|
-| 14:17 | prd（`pb-prd`） | **阶段 2 · 功能规格**（demand.md → prd.md + prd/*.md） | `task-3d15749f-6a37-49d7-a1b0-870ce78f5e26` | **failed**（`error=timeout`，30.0 分钟命中节点上限；**产物已完整**，报告未回） | `deepseek/deepseek-v4-flash` | **我自建 `cli task watch` 拉起等待**＝摩擦①（+ 报告未回⇒只能靠**产物**判定成败＝摩擦③） |
-| 14:47 | architect（`pb-architect`） | **阶段 3 · 技术架构**（prd.md + prd/*.md → architecture.md） | `task-8a80a749-6edf-447a-a862-74ba85fefbf3` | **failed**（`error=timeout`，30.0 分钟上限；产物 14:57 已完整，报告未回） | — | 我自建 `cli task watch`（**首次误用 `nohup &` 无自动送达**，见 DC-08a） |
-| 15:14 | pr-planner（`pb-pr-planner`） | **阶段 4 · PR 规划**（architecture.md + prd/*.md → prs/pr-NNN.md） | `task-63f31c78-993d-4303-8089-113122ee0271` | **failed**（`error=timeout`，30.0 分钟上限；产物 15:18 已完整） | — | **产物稳定器提前 ~21 分钟推进**（上限 15:44，实际 15:23:41 判定）✓ |
-
-**体感基线（派发时记录，用于 D-13 对比）**：派发即时返回 `call_id`（0.08s）；但**要拿到结果必须由我自己拉起一个等待进程**（本次用 hub 自带的 `cli task watch`，而非自建 watchdog）。理想形态是"结果自动到手、无需拉起等待"——这正是本迭代要实现的能力，因此本次记录为 **`需人工/编排层拉起等待` = 摩擦点 ①**。
+**体感基线（用于 D-13 对照）**：**阶段 2~4 的三条长调用全部"需盯守"且空耗 ≈70 分钟**（产物早已落盘、调用仍烧满 30 分钟）；**阶段 5 起改用推送订阅（`api stream calls`）后，所有调用均"不需盯守"、结果自动到手**——这正是本迭代要交付的形态，实测对比见上表 ① 列由「需」转「不需」。
 
 ## 待确认项
 
@@ -94,3 +107,6 @@
 - 2026-09-16: 阶段 4 验证 verdict PASS（2 partial：缺边 pr-007→pr-006 转调度约束；pr-005 可审查性/独立性登记为结构性张力）；阶段 5 首批派发 pr-001/002/003 planner
 - 2026-09-16: pr-001 首轮独立验收 **FAIL**（标准3 证据为散文 / 标准1 partial 缺基线对照；标准2 的「tasks 文件不在文件范围」已由主 agent 改判为计划陈述缺口 DC-18）⇒ 派 dev **返工**（同 worktree/分支，**现场保留**）
 - 2026-09-16: **pr-002 独立验收 PASS ⇒ 合并进迭代分支 `cfb6736`**（首个合并）；槛位释放 1、有效上限升至 5；补位派发 pr-004/pr-008 的 planner
+- 2026-09-16: **pr-003 独立验收（重验）PASS ⇒ 合并 `f8f382a`**；槛位释放累计 2、有效上限维持 5
+- 2026-09-16: **pr-001 第二次重验 PASS ⇒ 合并 `51eb893`**；槛位释放累计 3；**pr-005 解锁**（依赖三条经合并提交祖先链 + 代码符号双重校验）并派其 planner
+- 2026-09-16: **pr-004 独立验收 PASS ⇒ 合并 `4c6ddba`**；累计 4/8 已合并；槛位释放 4
