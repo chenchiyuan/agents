@@ -196,3 +196,176 @@ index e1c7baf..b8f7af7 100644
 $ git -C <WS> diff main...iteration/0028-role-model-binding -- cluster.json | grep '^+' | grep -o '"model"' | wc -l
 2                          # 两处新增行的字段名均为既有字段 `model`（非新增字段）
 ```
+
+#### ③ 复用的两条探针回执引用（PR 验收 3｜F13 验收 2；**证据复用，本卡不重复取证**）
+
+来源 = `<WT>/docs/iterations/0028-role-model-binding/prs/pr-004-resident-backend-probes.md`（sha256 = `64f65a96575896468c4c0f0ab76197ae8bc01a008aa9ba9ae1c52e6efa5ce48a`）的「验收证据」小节，两条回执的第 52 / 63 行：
+
+```
+$ grep -n '^- `派发命令`：' <WT>/docs/iterations/0028-role-model-binding/prs/pr-004-resident-backend-probes.md
+52:- `派发命令`：`node <MAIN>/oamp/bin/hub.js api calls create --chat-id chat-6c89902c-0a9f-4513-a299-90a7f98ae611 --agent dev --model openai/gpt-5.6-luna --task "后端连通性探针（迭代 0028）：只回复两个字“探针”。不要调用任何工具，不要读写任何文件。"` —— **按登记面重建的命令形，非当时的命令原文**（原文未留存，判据见「效力边界登记」①）
+63:- `派发命令`：`node <MAIN>/oamp/bin/hub.js api calls create --chat-id chat-6c89902c-0a9f-4513-a299-90a7f98ae611 --agent verifier --model powerby/grok-4.6 --task "后端连通性探针（迭代 0028）：只回复两个字“探针”。不要调用任何工具，不要读写任何文件。"` —— **按登记面重建的命令形，非当时的命令原文**（同左）
+```
+
+**效力边界随引用转记（E7，不得省略）**：该 `派发命令` 为 **按登记面重建的命令形**（当时的命令原文未留存；两条信封已不可达，与 G-15 同类）；`终态字段` 的 `state` / `model` 与 `耗时` 来自 **20:52 / 20:56 时点由当时的活体信封记入台账的记录**（`error` / `exit_code` 台账未记录 ⇒ 标「不可得」）。⇒ 本节是**复用上游已落盘的回执**，**不是**又复现了一次活体证据。
+
+**三条成立条件逐条核对（三条同时成立即通过）**：
+
+| 条件 | 判据命令（逐字可粘贴） | 原样输出 | 判定 |
+|---|---|---|---|
+| ① 派发携带 `--model` | 上引 `pr-004` 两条 `派发命令` 原文 | `--model openai/gpt-5.6-luna`（gpt 探针）/ `--model powerby/grok-4.6`（grok 探针） | **成立**（效力边界 = 登记面重建形） |
+| ② 目标角色在当时集群配置中**无** `model` 绑定 | `git -C <WS> show main:cluster.json \| grep -c '"model"'` | `0` | **成立** |
+| ② 补（旁证） | `grep -c '"model"' /Users/chenchiyuan/projects/agents/cluster.json`（主集群现文） | `0` | **成立**（绑定从未落到主集群配置） |
+| ③ 实报与请求值解析到**同一后端** | 实报值取 `sed -n '62,63p' <WS>/docs/iterations/0028-role-model-binding/status.md` 第 6 列 | `` `openai/gpt-5.6-luna` `` / `` `powerby/grok-4.6` `` | **成立**：`openai/*` ↔ `openai/*`；`powerby/*` ↔ `powerby/*` |
+
+```
+$ git -C <WS> show main:cluster.json | grep -c '"model"'
+0                          # 探针时点的目标集群配置（main 分支版本）无任何 model 绑定
+$ git -C <WS> diff main...iteration/0028-role-model-binding -- cluster.json | grep '^+' | grep -c '"model"'
+2                          # 两处 model 绑定是「迭代分支上的新增」（见 ② 节的 diff 原文）
+$ grep -c '"model"' /Users/chenchiyuan/projects/agents/cluster.json
+0                          # 旁证：主集群配置现文亦无 model 键
+$ sed -n '62,63p' <WS>/docs/iterations/0028-role-model-binding/status.md | awk -F'|' '{gsub(/^ +| +$/,"",$7); print $7}'
+`openai/gpt-5.6-luna`
+`powerby/grok-4.6`
+```
+
+**后端口径**（MI-3）：判定 = **同一 provider 前缀**，**不要求**字符串逐字相等——上游理由见 `deferred-demand-changes.md:168` **C-1**：「默认模型 id 与 provider 清单不同名」（`~/.omp/agent/config.yml` 的默认 id 与 `models.yml` 的清单不同名，靠 fuzzy 解析）。
+
+**机制链旁证**：`oamp/src/cluster.js:200-201`：
+
+```
+$ sed -n '200,201p' <WS>/oamp/src/cluster.js
+    if (entry.model !== undefined) {
+      argv.push('--model', entry.model);
+```
+
+⇒ 角色级 `model` 的唯一追加点是配置键 `roles.<role>.model`；条件 ② 证明探针时点该键**不存在** ⇒ 两条实报的模型来源**只能**是 per-call 参数 ⇒ **per-call `model` 的既有优先级语义（请求参数优先）未被本次迭代改写**（F13 验收 2 的 why）。
+
+**汇总结论**：条件 ①②③ **同时成立** ⇒ PR 验收 3 / F13 验收 2 **通过**。
+
+#### ④ `cluster.second.json` 的 untracked 性质登记与回退路径（PR 验收 4）
+
+```
+$ ls -l <WS>/cluster.second.json
+-rw-r--r-- 1 chenchiyuan staff 518 Sep 16 09:53 <WS>/cluster.second.json
+$ shasum -a 256 <WS>/cluster.second.json <WS>/cluster.json
+52e971ad5a204de3cce73fc616941f2baf771530f9c8b9145f021a252c207fe9  <WS>/cluster.second.json
+4d8e476a05e48f4ad428d87810b6bd8dbf6bb4e7a297c0a63b84515c20743bd0  <WS>/cluster.json
+$ git -C <WS> status --porcelain | grep cluster.second
+?? cluster.second.json
+$ git -C <WS> diff --name-only main...iteration/0028-role-model-binding | grep -c 'cluster.second.json'
+0                          # 不进验收 1 的 git diff 判据面
+```
+
+**逐字内容（回退路径的载体；`cat` 原样输出，518 B）**：
+
+```
+$ cat <WS>/cluster.second.json
+{
+  "session": "oamp-cluster-0028",
+  "web": {
+    "port": 7789
+  },
+  "router": {
+    "socket": "/tmp/oamp-0028-router.sock"
+  },
+  "roles": {
+    "architect": {},
+    "demand": {},
+    "dev": {
+      "enabled": true,
+      "model": "openai/gpt-5.6-luna",
+      "tools": true,
+      "permission": "allow",
+      "cwd": "."
+    },
+    "planner": {},
+    "pr-planner": {},
+    "prd": {},
+    "progress-observer": {},
+    "retrospective": {},
+    "verifier": { "model": "powerby/grok-4.6" },
+    "workflow-pb": {}
+  }
+}
+```
+
+**与 `cluster.json` 的逐键差异表（恰三键，即 G-17 方案 A 的取值）**：
+
+```
+$ diff <WS>/cluster.json <WS>/cluster.second.json
+2c2
+<   "session": "oamp-cluster",
+---
+>   "session": "oamp-cluster-0028",
+4c4
+<     "port": 7788
+---
+>     "port": 7789
+7c7
+<     "socket": null
+---
+>     "socket": "/tmp/oamp-0028-router.sock"
+```
+
+| # | 键 | `cluster.json` | `cluster.second.json` | 依据 |
+|---|---|---|---|---|
+| 1 | `session` | `oamp-cluster` | `oamp-cluster-0028` | F04 三项隔离 ①（`architecture.md` §4 A-01） |
+| 2 | `web.port` | `7788` | `7789` | F04 三项隔离 ② |
+| 3 | `router.socket` | `null` | `/tmp/oamp-0028-router.sock` | G-17 方案 A（UDS 30 行路径上限规避） |
+
+**性质与回退路径（PR 硬约束 4 / `architecture.md` §6 · §7⑤）**：该副本是**运行态产物**（与 socket / 集群日志同类），不是迭代分支的改动路径 ⇒ 不出现在 ① 的清单中（上表 `grep -c` = 0）。**本 PR 不执行回退**：第二集群仍在运行（`tmux ls` 含 `oamp-cluster-0028`，12 窗口），副本即其正在使用的配置 ⇒ 不删除、不停集群；若阶段 6 取 `git status` 口径需要回退，动作 = 删除该副本（其逐字内容已在上方 `cat` 原样留存，可据此逐字复原），由主 agent 在取证后执行。
+
+```
+$ test -f <WS>/cluster.second.json && echo present
+present
+$ tmux ls
+oamp-cluster: 12 windows (created Wed Sep 16 08:47:42 2026)
+oamp-cluster-0028: 12 windows (created Wed Sep 16 09:53:43 2026)
+```
+
+#### ⑤ 边界项核对（PR 验收 5）
+
+**① 0027 迭代现场保留（`prd/F13:18`：不清理 0027 迭代现场，worktree 与分支原样保留）**：
+
+```
+$ git -C <WS> worktree list | grep 0027
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0027-pr-planner-wave-cap                                       a059c0b [iteration/0027-pr-planner-wave-cap]
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0027-pr-planner-wave-cap/.pb-agents/worktrees/0027-pr-001-critical-path-constraint-and-gate-migration  d134abc [feat/0027-pr-001-critical-path-constraint-and-gate-migration]
+$ git -C <WS> branch --list '*0027*'
++ feat/0027-pr-001-critical-path-constraint-and-gate-migration
++ iteration/0027-pr-planner-wave-cap
+```
+
+⇒ 0027 的两条 worktree（`a059c0b` / `d134abc`）与两条分支**均在**、未被清理。
+
+**② C-1 只记录、不修（`prd/F13:20`）**：C-1（默认模型 id 与 provider 清单不同名、靠 fuzzy 解析）由 `deferred-demand-changes.md:168` 记录，本迭代**不修**。判据：① ① 节的清单不含任何 `~/.omp/**` 或 `models.yml` 类路径（清单 32 条全部落在 {`cluster.json`} ∪ {迭代产物}，见 ②）；② 本 PR 零写入（`git -C <WT> status --porcelain` 仅本 PR 文件 + 本任务图文件，见 ⑥）。
+
+**③ 不新增测试 / CI / hook / 依赖（`prd/F13:21`）**：
+
+```
+$ git -C <WS> diff --name-only main...iteration/0028-role-model-binding | grep -Eic 'test|spec|\.github|\.githooks|package\.json'
+0
+```
+
+`architecture.md:281` 原文：「**不新增**：运行时代码（`oamp/src|web|bin|sdk`）、角色定义（`roles/**`）、集群配置的字段集合（只用既有 `session` / `web.port` / `router.socket` / `roles.<role>.model`）、端点、参数、依赖、脚本、测试框架。」
+
+**④ 正向边界说明（`prd/F13:22`，防止误读）**：本卡**不是**「任何文件都不许动」的宽泛约束——`prd/F13:22` 原文：「不把本卡当作"任何文件都不许动"的宽泛约束：`cluster.json` 与迭代产物是本迭代的正当改动面（F03 / F12）。」⇒ ① 节的清单中 `cluster.json` 与 31 条迭代产物正是**正当改动面**。
+
+**回退路径上游原文（`architecture.md:316` §7⑤）**：「可推翻性（本方案最薄的一环，如实登记）：`cluster.second.json` 是 untracked 文件，`git status --porcelain` 会显示它。F13 验收 1 的判据是 `git diff --name-only`（副本不出现），本方案据此判定为合规，并在承载 F13 的证据小节里显式登记该文件的存在与性质。」
+
+#### ⑥ 五条验收标准逐条判定
+
+| # | 验收标准（本 PR 文件原文摘要） | 判定 | 判据 |
+|---|---|---|---|
+| 1 | 改动面清单 ⊆ {`cluster.json`, `docs/iterations/0028-role-model-binding/**`}；不含 `oamp/src|web|bin|sdk`、`oamp/README.md`、`oamp/API.md`、`roles/**` | **通过** | ① 的 32 行原文 + ② 的逐项表（七项全 0；反向 `grep -Evc` = 0） |
+| 2 | 不新增接口 / 字段 / 参数（判据 = 清单不含 `oamp/**`；不另立重复条款） | **通过** | ② 的推论链 + `cluster.json` diff 两处新增行的字段名均为既有 `model`（`grep -o '"model"' \| wc -l` = 2） |
+| 3 | per-call `model` 既有优先级语义保持（三条件复用 pr-004 回执） | **通过** | ③ 的三条件表：① `--model openai/gpt-5.6-luna` / `--model powerby/grok-4.6`（pr-004 回执，含效力边界转记）；② `git show main:cluster.json \| grep -c '"model"'` = **0**；③ 实报 `openai/gpt-5.6-luna` / `powerby/grok-4.6` 与请求同前缀 |
+| 4 | 运行态副本登记（untracked + 回退路径 + 不进判据面） | **通过** | ④：`?? cluster.second.json`；`grep -c 'cluster.second.json'`（判据清单内）= **0**；518 B 逐字内容 + 三键差异表（回退可复原）；本 PR 未删除、集群仍在运行 |
+| 5 | 不清理 0027 现场 / C-1 只记录 / 不新增测试·CI·hook·依赖 | **通过** | ⑤ ①②③（0027 两 worktree + 两分支在场；C-1 由 `deferred-demand-changes.md:168` 记录；`grep -Eic` = 0） |
+
+**执行窗口**：执行时点 `2026-09-16 10:35:35 CST`，`main` = `162682d`、`iteration/0028-role-model-binding` = `46b9dcf`；窗口 = **敞开**（见「执行记录」的 `merge-base --is-ancestor` 双向判据）；SHA 形式的等价判据输出与符号形式逐行一致 ⇒ 分支被删后仍可复算。
+
+**验收手段声明**：本 PR 无套件可跑（改动面清单中 `test|spec|\.github|\.githooks|package\.json` 类路径命中 0）——结论以只读 git 命令的原始输出与文件内容核验为准，**不声称**测试全绿。
+
