@@ -18,7 +18,12 @@
 - [ ] `cluster.json` 的 `roles.dev.model` === `"openai/gpt-5.6-luna"`（F03 验收 1）
 - [ ] `cluster.json` 的 `roles.verifier.model` === `"powerby/grok-4.6"`（F03 验收 2）
 - [ ] `roles` 段其余 8 个角色（`architect` / `demand` / `planner` / `pr-planner` / `prd` / `progress-observer` / `retrospective` / `workflow-pb`）的对象中不含 `model` 键（F03 验收 3）
-- [ ] `git diff main -- cluster.json` 恰含 2 行新增、无其它变更行（无键序重排、无缩进风格改写；`session` / `web` / `router` 与 8 个未绑定角色段逐字不变）（F03 验收 4）
+- [ ] `git diff main...HEAD -- cluster.json` 的形态取 **形态 A（单行内联）**：`roles.verifier` 被改写为单行对象 `"verifier": { "model": "powerby/grok-4.6" },`（形态 B「多行展开」不满足本条）；`roles.verifier` 原为单行空对象 `"verifier": {},`，加键必然改写该行，故本条允许且仅允许 1 条删除行（F03 验收 4）：
+  - 计数：`git diff --numstat main...HEAD -- cluster.json` 恰输出 `2\t1\tcluster.json`（`\t` 为字面 Tab，即 2 条新增行 / 1 条删除行）；
+  - 该条删除行恰为 `-    "verifier": {},`；由它改写而来的新增行恰为 `+    "verifier": { "model": "powerby/grok-4.6" },`（`roles.verifier` 段 1 删 1 增）；
+  - 另一条新增行恰为 `+      "model": "openai/gpt-5.6-luna",`，位于 `roles.dev` 段内 `"enabled": true,` 之后——`roles.dev` 段为纯插入，该段零删除行；
+  - 除上述 3 条变更行外零变更行：`git diff -U0 main...HEAD -- cluster.json | grep -c '^-[^-]'` = `1`、`git diff -U0 main...HEAD -- cluster.json | grep -c '^+[^+]'` = `2`（`^-[^-]` / `^+[^+]` 排除 `--- a/` / `+++ b/` 文件头）；无键序重排、无缩进风格改写；`session` / `web` / `router` 三处取值与 8 个未绑定角色段逐字不变；
+  - 两处新增 `model` 的字面取值即上文第 1 / 2 条所载，取值形态合法性判据见第 5 条。
 - [ ] 两个取值均匹配 `^[A-Za-z0-9._/-]{1,128}$`；`permission` / `tools` / `cwd` 与凭据类字段未被触碰（F03 验收 5）
 - [ ] 配置可被既有加载路径解析通过：`node <工作区>/oamp/bin/hub.js cli cluster status --config <工作区>/cluster.json` 的输出中**不出现** `配置错误`（配置加载失败的唯一出口，见 `oamp/src/cluster.js:342/440/507`）；`Router 不可达` 与退出码 1 属预期（工作区包根下尚无 socket），不计为失败（F03 验收 6）
 - [ ] 不做集群启动期模型存在性预检、不动 `oamp/**` 与 `roles/**`（F03 边界 / F13 验收 1）
@@ -46,9 +51,17 @@
 
 #### 改动后的两行原文
 
+命令：
+
+```sh
+grep -n '"model"' cluster.json
+```
+
+输出：
+
 ```text
-      "model": "openai/gpt-5.6-luna",
-    "verifier": { "model": "powerby/grok-4.6" },
+14:      "model": "openai/gpt-5.6-luna",
+24:    "verifier": { "model": "powerby/grok-4.6" },
 ```
 
 #### `git diff main -- cluster.json`
@@ -85,17 +98,43 @@ index e1c7baf..b8f7af7 100644
  }
 ```
 
+#### 改动行计数
+
+命令：
+
+```sh
+git diff --numstat main...HEAD -- cluster.json
+git diff -U0 main...HEAD -- cluster.json | grep -c '^-[^-]'
+git diff -U0 main...HEAD -- cluster.json | grep -c '^+[^+]'
+```
+
+输出：
+
+```text
+2	1	cluster.json
+1
+2
+```
+
 #### 配置加载检查
 
 命令：
 
 ```sh
-node oamp/bin/hub.js cli cluster status --config /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/cluster.json
+cd /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding
+node oamp/bin/hub.js cli cluster status --config /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/cluster.json > /tmp/pr-002-status.out 2> /tmp/pr-002-status.err
+echo "exit-code=$?"
+echo "--- stdout ---"
+cat /tmp/pr-002-status.out
+echo "--- stderr ---"
+cat /tmp/pr-002-status.err
 ```
 
-输出（退出码 `1`）：
+输出：
 
 ```text
+exit-code=1
+--- stdout ---
 [集群] session=oamp-cluster  运行中
 [窗口]
   router /Users/chenchiyuan/projects/agents 0
@@ -111,7 +150,6 @@ node oamp/bin/hub.js cli cluster status --config /Users/chenchiyuan/projects/age
   pb-verifier /Users/chenchiyuan/projects/agents 0
   pb-workflow-pb /Users/chenchiyuan/projects/agents 0
 [Router 拓扑]
-oamp cluster: Router 不可达（socket=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/router.sock）：无法连接 oamp router（socket=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/router.sock；router 未运行？先执行 oamp router start）
   （不可达，未取到拓扑）
 [日志]
   目录: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster
@@ -122,23 +160,57 @@ oamp cluster: Router 不可达（socket=/Users/chenchiyuan/projects/agents/.pb-a
   pb-dev  role=dev  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-dev.log
   pb-planner  role=planner  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-planner.log
   pb-pr-planner  role=pr-planner  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-pr-planner.log
-  pb-prd  role=prd  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-progress-observer.log
+  pb-prd  role=prd  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-prd.log
   pb-progress-observer  role=progress-observer  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-progress-observer.log
   pb-retrospective  role=retrospective  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-retrospective.log
   pb-verifier  role=verifier  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-verifier.log
   pb-workflow-pb  role=workflow-pb  window=yes  alive=yes  state=unknown  cwd=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding  log=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/cluster/pb-workflow-pb.log
-__EXIT_CODE__=1
+--- stderr ---
+oamp cluster: Router 不可达（socket=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/router.sock）：无法连接 oamp router（socket=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/oamp/.runtime/router.sock；router 未运行？先执行 oamp router start）
 ```
 
-加载结果：输出不含 `配置错误`；`Router 不可达` 与退出码 1 符合预期。
+#### `配置错误` 命中数
+
+命令：
+
+```sh
+grep -c '配置错误' /tmp/pr-002-status.out /tmp/pr-002-status.err || true
+```
+
+输出：
+
+```text
+/tmp/pr-002-status.out:0
+/tmp/pr-002-status.err:0
+```
 
 #### 其它验收核验
 
-```text
-models=dev,verifier
-unbound-model-roles=none
-model-values-shape=valid
-json=valid
-cluster-lines=27
-diff-numstat=2 1 cluster.json
+命令：
+
+```sh
+node -e "const j=require('/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/cluster.json');console.log('dev.model='+j.roles.dev.model);console.log('verifier.model='+j.roles.verifier.model);const hit=Object.keys(j.roles).filter(r=>Object.hasOwn(j.roles[r],'model'));console.log('roles-with-model='+hit.join(','));console.log('unbound-roles='+(Object.keys(j.roles).length-hit.length))"
+node -e "const j=require('/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/cluster.json');const re=/^[A-Za-z0-9._\/-]{1,128}$/;console.log('shape='+re.test(j.roles.dev.model)+','+re.test(j.roles.verifier.model));console.log('dev-keys='+Object.keys(j.roles.dev).join(','));console.log('verifier-keys='+Object.keys(j.roles.verifier).join(','))"
+node -e "JSON.parse(require('fs').readFileSync('/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/.pb-agents/worktrees/0028-pr-002-role-model-binding/cluster.json','utf8'));console.log('json=valid')"
+wc -l < cluster.json | tr -d ' '
+sed -n '/^\[角色实例\]/,$p' /tmp/pr-002-status.out | grep -c '^  pb-'
+git diff --name-only main...HEAD | grep -E '^oamp/|^roles/' | wc -l | tr -d ' '
 ```
+
+输出：
+
+```text
+dev.model=openai/gpt-5.6-luna
+verifier.model=powerby/grok-4.6
+roles-with-model=dev,verifier
+unbound-roles=8
+shape=true,true
+dev-keys=enabled,model,tools,permission,cwd
+verifier-keys=model
+json=valid
+27
+10
+0
+```
+
+说明（非证据）：本 PR 无测试套件可跑（任务图 §0.4 契约 6），验收判据 = 文件内容（JSON 取值 + diff 形态）+ 既有加载路径 `cluster status`；`Router 不可达` 与退出码 `1` 属预期（本 worktree 包根下无运行中的 router socket），配置加载失败的唯一出口是 `配置错误`（退出码 `2`），其上两处计数均为 `0`。
