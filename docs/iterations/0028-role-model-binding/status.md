@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.13.0
 **迭代**: 0028-role-model-binding
-**当前阶段**: 阶段 6（独立验证）· 阶段 5 已完成（**10/10** PR 全部落盘并合入 main）
+**当前阶段**: **阶段 6 完成 · 本迭代结项**（阶段 6 结论 **PASS**：2 pass / 2 partial / 0 fail；报告 `clarifications/verify-20260916-113008.md`）
 **迭代分支**: iteration/0028-role-model-binding（**已合并**，merge `fb7b8dc`；分支已删）
 **收口登记提交**: `3b23cba chore(0028): 收口登记——F08 合并后生效实证 + 迭代分支已合并回写`（+ 补录 `61601c7`；pr-010 文档订正另一次提交）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding
@@ -18,8 +18,8 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` v0.2.0 + 13 卡；A-01~A-05 待填；MI-1~MI-6 全部已确认；R-1~R-9 逐条核对通过（21:08） |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` 30829 字节（§0~§8，含 §7 自检、§8 补全记录）；A-01~A-05 全填；**L1 = 无**；执行异常（节点侧 30 分钟超时，call `task-191d2e14…`）已登记 G-9，产物在超时前完整落盘 |
 | 4 | PR 规划 | ✅ | ✅ | `prs/` 10 个 PR 文件；Gate 验证 `clarifications/verify-20260915-221935.md` 结论 **PASS**（0 fail/1 partial/4 偏差，偏差均已在 history 裁定不阻塞；4 条下迭代候选）|
-| 5 | PR 实现 | ✅ | ⬜ | **10/10 全部落盘并合入 main**（`iteration/0028-role-model-binding` → merge `fb7b8dc`，分支已删；pr-010 在 main 上直接落盘 `3b23cba`）；返工/重验纪录：pr-001 / pr-002 / pr-006 / pr-010 各 1 次 FAIL 或 partial → 返工/订正 → 重验 PASS；pr-007 dev 超时失败但产物落盘（G-9） |
-| 6 | 独立验证 | ⏸ | — | **进行中**（最终产物 + 本迭代的搭置记录） |
+| 5 | PR 实现 | ✅ | ✅ | **10/10 全部落盘并合入 main**（`iteration/0028-role-model-binding` → merge `fb7b8dc`，分支已删；pr-010 在 main 上直接落盘 `3b23cba`）；返工/重验纪录：pr-001 / pr-002 / pr-006 / pr-010 各 1 次 FAIL 或 partial → 返工/订正 → 重验 PASS；pr-007 dev 超时失败但产物落盘（G-9）；已验证 = 阶段 6 报告覆盖 PR 文件与证据（结论 PASS） |
+| 6 | 独立验证 | ✅ | ✅ | 结论 **PASS**（pass 2 / partial 2 / fail 0）；报告 `clarifications/verify-20260916-113008.md`（搭置记录**全文置顶**、并发调度三项必查均附文件证据）；2 项 partial：**PR 独立性**（pr-004/005/008/009/010 的验收条目跨 PR）、**3 条 `depends_on` 无代码级耦合**（004→008、008→006、009→004）；5 条偏差已登记 |
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -112,6 +112,7 @@
 | 11:11 | dev（`pb-dev`） | **F08 实报 ②**（重启后、主 agent 取得、不带 `--model`） | `task-84c498ea-6dfa-43b5-924d-5561dbe794c3` | completed（4834ms，`OK`，exit 0） | `openai/gpt-5.6-luna` | false |
 | 11:11 | dev（`pb-dev`） | 阶段 5 · pr-010 **落证 + 收口登记提交**（修正后：不再自派发） | `task-c8c9e09f-ad79-4703-bd5b-f74b25ef7bf3` | completed（360227ms，提交 `3b23cba`） | `openai/gpt-5.6-luna` | **true** |
 | 11:18 | verifier（`pb-verifier`） | 阶段 5 · pr-010 验收（合并/重启/实报/收口提交） | `task-97d20f95-9e95-4889-847d-3442c28a8aa3` | completed（**PASS**：8 pass / 1 partial（证据形态）） | `powerby/grok-4.6` | **true** |
+| 11:26 | verifier（`pb-verifier`） | **阶段 6 · 独立验证**（最终产物 + 并发调度三项必查 + 搭置记录原文置顶） | `task-a8c4f192-8221-46d0-9c75-c3c2b08c235d` | completed（384161ms，**PASS**：2 pass / 2 partial / 0 fail；提交 `8501612`） | `powerby/grok-4.6` | **true** |
 
 ## 待确认项
 
