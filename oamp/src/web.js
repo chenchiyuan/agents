@@ -602,6 +602,7 @@ export function createApiRoutes({
   db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
   getEpoch = async () => 'unknown', checkEpoch = async () => null, getAgentProjection = async (nodes) => nodes,
   onFilteredSubscription = () => {}, agentStateSubscribers = new Set(), waiters = new Map(), settleCancelledCall = () => {},
+  rosterHintRows = () => [],
 }) {
   const routes = [
     {
@@ -727,7 +728,7 @@ export function createApiRoutes({
         let webOk = true;
         let webDetail = '监听中；持久层可读';
         try {
-          db.listChats({ limit: 1 });
+          db.listProjects(); // 一次只读 SELECT（轻查询；不写、不建表、不改任何状态）
         } catch (err) {
           webOk = false;
           webDetail = `持久层不可读: ${err && err.message ? err.message : err}`;
@@ -2379,7 +2380,7 @@ export default async function startWeb(restArgs) {
   // 「纯构造」调用方）⇒ 必须在接线处显式传入，否则 epoch 恒为占位值、代次校验失效、名册提示不进视图。
   const routes = createApiRoutes({
     db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
-    waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription, settleCancelledCall,
+    waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription, settleCancelledCall, rosterHintRows,
   });
 
   const server = http.createServer(async (req, res) => {
