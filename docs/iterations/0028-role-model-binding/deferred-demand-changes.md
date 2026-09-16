@@ -133,13 +133,34 @@
 - **影响**：① **合并规程（本迭代生效）**——合并任何 PR 前，先把迭代工作区里"会与新提交同路径的 untracked 文件"移出（如移到 `/tmp` 备份），合并完成后**还原主 agent 的较新版本**（`status.md` / `history.md` 等活文档以迭代工作区版本为准）；② tasks 文件若要进版本控制，需某 PR 显式声明其文件范围（本迭代不追补）；③ **下迭代候选**：在 PR 文件格式里为"跨 PR 共享的活文档 + 阶段 5 任务文件"定义归属与合并语义，或在阶段 1 结束即入库一次以消除 untracked-vs-incoming 对撞面。
 
 
-### G-14 · 等价性缺口（信号 ③）：终态信封不可得与 `call_id` 查不回
+### G-14 · 主 agent 没有"被回调"的通道，且 `api stream call` 在终态**不退出** ⇒ 等机制必须自建终态探测
+
+- **现象**：① hub 的调用结果回传给**发送方**（经 hub 创建的调用其发送方是 web 进程 `SENDER_ID='web'`），主 agent 以 `main` 身份**收不到任何 call 结果**——`main` 身份只收到过确认裁决（G-8），从未收到 `call_result`；② `api stream call <call_id>` **在调用到达终态后不退出**，实测：7 个 `stream call` 作业在对应调用早已终态（最早 08:49:32、最晚 09:10:02）之后仍全部处于 Running，直到各自 `timeout`（15~30 分钟）到点才把输出交付。
+- **差异**：本地 subagent 的等待由宿主工具承担——派发即等结果、或结果自动投递；hub 侧对"CLI 驱动的主 agent"**既无回调身份也无终态退出的流**，等待只能靠自己实现。此前我收到的每一次"作业完成"，实际都是**超时触发**而非终态触发（最长延迟 ~30 分钟），这正是用户观察到的"卡住"。
+- **证据**：`hub api calls list` 在 09:14:57 显示 `task-fc99395f…` completed（09:10:02）、`task-2a20f315…` completed（09:08:48），而 `hub jobs` 同时列出 7 个等待作业仍在 Running（`bg_5…bg_13`，label 均为 `timeout 1800 node bin/hub.js api stream call … | tr | grep | tail`）；`oamp/src/web.js:45` 的 `SENDER_ID = 'web'` 与调用面"发送方 = web"的既有实现。
+- **影响**：**执行方式规范（本迭代生效，已替换旧写法）**——① **禁止**把 `api stream call | tail` 当等待机制（它不因终态退出）；② 正式等待一律用**有界 watchdog**：轮询 `api calls list`，当"未终态调用数 = 0"时**立即退出**并打印终态清单（退出即由宿主投递，延迟 ≤ 一个轮询周期），并设上限时间防止永久挂起；③ 派发后**必须立刻挂 watchdog**，不依赖 `--mode block`（其 `--wait` 上限与节点侧 30 分钟上限见 G-7 / G-9）；④ **下迭代候选**：给 hub 增加"发起方等待/回调"入口（例如 `calls create --wait` 对 CLI 也生效、或让 `stream call` 在终态时正常退出）——当前 `stream call` 不退出可视为实现层缺陷。
+
+### G-15 · 等价性缺口（信号 ③）：终态信封不可得与 `call_id` 查不回
 
 - **现象**：执行时点存在三类事实——① 21:09 `architect` 派发（`task-191d2e14-e852-412d-ab90-e6fc00092928`）被节点侧 30 分钟上限切断，终态 `failed`／`error: timeout`，**终态信封不可得**（`status.md:66`）；② 09:06 `dev` 派发（`task-92f31d55-3789-4184-a850-a43df30e54be`，本 PR 实现轮）在本 PR 执行时点仍为 `state: working`、`text: null`，**终态未到**；③ 历史 `call_id` **查不回**——G-5 正文所用的 `task-8e84f95f-b783-4477-8054-abf0b36f31ec` 在集群重建后于执行时点返回 404。
 - **差异**：本地 subagent 的每次派发结果直接交回调用方并随会话留存，不存在"信封取不到"与"标识查不回"两种形态；hub 侧的这两类形态使 `prd/F11` 验收 1 的逐次核对退化为"以台账文本与产物文件为据"，回读面不可复核。
 - **证据**：判据 = `prd/F11` 验收 2 ③（"终态信封不可得，或 `call_id` 查不回"即等价性缺口）。命令与原始输出：`node oamp/bin/hub.js api calls get task-8e84f95f-b783-4477-8054-abf0b36f31ec` ⇒ `{"code":"NOT_FOUND","error":"call 不存在: task-8e84f95f-b783-4477-8054-abf0b36f31ec","exit_code":1,"http_status":404}`；`node oamp/bin/hub.js api calls get task-92f31d55-3789-4184-a850-a43df30e54be` ⇒ `{"call_id":"task-92f31d55-3789-4184-a850-a43df30e54be","agent":"dev","state":"working","duration_ms":null,"model":null,"truncated":true,"text":null,"structured_output":null,"error":null,"exit_code":null}`；`status.md` §派发台账 21:09 行（`❌失败(超时·现场保留)`、`error: timeout`、1802661ms）与 `status.md:8`（"集群已重建，调用面清空、对话记录留存"）、`status.md:120`（2026-09-16 08:47 恢复记录）。
 - **复核（本 PR 执行时点，回读面一致性）**：同一 `call_id`（`task-92f31d55-3789-4184-a850-a43df30e54be`）在批量探针命令（7 条顺序执行）中返回 `{"code":"NOT_FOUND","error":"call 不存在: …","http_status":404}`，紧随其后的**单独**探针返回 `{"state":"working",…}` ⇒ 回读面对同一在途调用存在不一致（本 PR 只登记现象、不追因；两条命令与原始输出见本 PR 文件「验收证据」块 ⑤）。
 - **影响**：① 的机制面已由 G-9 记录，本条记其等价性缺口判定与 `call_id` 落点；② 的终态到达后由主 agent 回填台账并按 D-16 聚合到本条；③ 说明阶段 2~4 的历史调用在集群重建后不可回读 ⇒ "`call_id` 可核对"的可达形态限定为"条目文本载明 `call_id` + `status.md` 台账留痕"，`prd/F11` 验收 1 ① 的"`hub api calls get <call_id>` 可读"对历史调用不成立；下迭代候选：为调用面定义历史保留期或导出机制（记，不在本次迭代修）。
+- **回填（2026-09-16 09:49，主 agent）**：② 的调用 `task-92f31d55-3789-4184-a850-a43df30e54be` 终态 = **failed**（`error: timeout`、`duration_ms: 2111305`、「轮次超时（1800000ms）」）——**产物仍已落盘**于该 PR 分支提交 `b86fa80`，故按「现场保留 + 以文件系统为准」处置，直接进入验收（重验 PASS 9/9）。
+### G-16 · A-01 的副本落点（迭代工作区根）与 SCM 规则 F（写入限本工作区）冲突
+
+- **现象**：`prs/pr-005-second-cluster-bring-up.md` 的「文件范围」首项是 `<工作区>/cluster.second.json`、F04 验收 5 又要求 socket 与集群日志落 `<工作区>/oamp/.runtime/`（`<工作区>` = 迭代工作区）；而执行该 PR 的主体是 **PR worktree**（其 brief 的「工作区地址」字段 = 该 PR worktree）⇒ 完成该 PR 必然发生**跨工作区写入**。
+- **差异**：本迭代是"运行态实证"型迭代——被验证对象是**运行中的集群**，而集群 root 由配置路径唯一决定（`oamp/src/cluster-config.js:184` 的 `root = dirname(configPath)` 同时决定角色文件预检路径与角色 `cwd` 基准）。本地 subagent 不存在"产物工作区 ≠ 运行目录"这一层。
+- **证据**：`prs/pr-005-*.md`「文件范围」与验收 2/5 的原文；`architecture.md` §4 A-01 的落点论证（含"必须在这一级"的理由）；规则 F 的例外闭集仅含两项（工作区创建、收口三步）。
+- **影响**：① **处置（本迭代生效）**——按产物字面执行（root = `<WS>`），要求执行角色**除副本外零写 `<WS>`**，并把该跨工作区写入**显式记入证据**（不得静默）；② 阶段 6 核查此项时，应按"**已登记偏差**"处理而非直接判违规：它与 A-01 的既定设计一致、且经方案确认门批准；是否列入规则 F 的例外闭集由用户/下迭代裁定；③ **下迭代候选**：为"运行态实证"类迭代明确运行根（会话工作区），或在规则 F 例外闭集中增列"运行态集群配置副本与进程启动"。
+
+### G-17 · 迭代工作区路径长度越过 macOS UDS 上限（105 > 104 字节）⇒ 第二集群 router 无法启动；A-01 的否决依据与代码不符
+
+- **现象**：pr-005 起第二集群时 `router` 窗口立即死掉（`pane_dead=1`）、web 窗口从未创建、7789 无监听；`<WS>/oamp/.runtime/cluster/router.log` 原文 = `oamp: router start 失败: chmod 0600 失败: ENOENT: no such file or directory, chmod '<WS>/oamp/.runtime/router.sock'`。第二集群 socket 路径实测 = **105 字节** > macOS `sun_path` 上限 **104 字节**（主集群 60 字节，正常）。
+- **差异**：本地 subagent 不存在「运行根路径长度决定能否启动」这一层；本迭代把运行根放在迭代工作区（比主工作区路径长 45 字节），恰好越过物理上限。
+- **证据**：`printf '%s' '<WS>/oamp/.runtime/router.sock' | wc -c` ⇒ `105`；`printf '%s' '<主工作区>/oamp/.runtime/router.sock' | wc -c` ⇒ `60`；`tmux list-windows -t oamp-cluster-0028 -F '#{window_name} #{pane_dead}'` ⇒ `router 1`；`lsof -nP -iTCP:7789 -sTCP:LISTEN` ⇒ 空；`oamp/src/cluster.js:393`、`:177-184`、`oamp/src/config.js:144` 源码原文。
+- **影响**：① **A-01 的否决依据更正**——`architecture.md` §4 A-01 否决「副本设 `router.socket`」的理由是「就绪等待用 `queryNodes(runtimeConfig)`（socket 走包根推导），与子进程收到的 `OAMP_SOCKET` 不一致 ⇒ up 的就绪判定报废」；代码实际为 `cluster.js:393` 的 `const socketPath = config.router.socket ?? runtimeConfig.socketPath`，且 `socketEnvPrefix`（`:177-184`）把同一取值加给**所有**窗口（router/web/角色）⇒ **探测与子进程同源，否决理由不成立**；该支撑位自迭代 0012（`564f49c`，2026-09-11）即存在，非本次新造；**就 `:393` 这处（决定能否启动）否决理由不成立、就 `:415` 那处部分成立——见 ④**。② **用户裁决（2026-09-16 09:52）= 方案 A**：副本允许**第三键差异** `router.socket` = 短路径（`/tmp/oamp-0028-router.sock`）⇒ F04 验收 2 的「diff 恰 2 行」改判为「恰 3 行」、验收 5 的「socket 落 `.runtime/`」改判为「落短路径且与主集群不同」（隔离性判定不变）。③ **遗留（本迭代不修，下迭代候选）**：`cluster down` 的拓扑表用 `runtimeConfig.socketPath`（`cluster.js:550`）⇒ 设了 `router.socket` 后会提示「Router 不可达」，收口流程仍可用（仅提示降级）。④ **返工轮实测补正（2026-09-16 09:57）**：设了第三键后第二集群**成功就绪**（12 窗口全活、7789 监听、10 角色 `online`），但 `cluster up` **exit code 仍为 1**——根因 = `cluster.js:415` 的「实例 online 复核」传的是 `runtimeConfig`（其 `socketPath = env.OAMP_SOCKET || <包根>/.runtime/router.sock`，即那条 105 字节长路径），**而非** `:393` 解析出的 `config.router.socket` ⇒ 父进程连不上 Router、10 实例被一律列为 `missing`。**因此：精确表述应是"启动就绪门（`:393` Router 可连）与子进程同源 ✅，实例 online 复核（`:415`）不同源 ❌"**——A-01 的否决理由在 `:415` 这一处**部分成立**、在决定"能否启动"的 `:393` 处**不成立**；就绪判据应以 `api agents --port <web.port>` 为准，不得以 `up` 的 exit code 为准。⑤ **下迭代候选**：把 `:415`/`:550` 两处改为统一取"解析后的 socketPath"（一处真源），消除同族不一致。
 ### G-18 · `cluster up` 的幂等护栏按**前缀**匹配 session ⇒ 同前缀 session 存在时**误判"已在运行"并静默跳过启动**（exit 0）
 
 - **现象**：`cluster down --config <主工作区>/cluster.json` 成功收口（输出 `已收口（session=oamp-cluster，12 窗口）`、`exit=0`）后立即 `cluster up --config <主工作区>/cluster.json --wait 120000`，输出 `集群已在运行（session=oamp-cluster，12 窗口）` 且 **exit=0**，但主集群**实际未启动**（`tmux ls` 中无 `oamp-cluster`、7788 无监听）。根因：`oamp/src/cluster.js:132-134` 的 `hasSession(bin, session)` = `tmux has-session -t <session>`，而 tmux 对 `-t` 目标**按前缀匹配** ⇒ 目标 `oamp-cluster` 命中了同前缀的第二集群 session `oamp-cluster-0028`。实测判据：`tmux has-session -t 'oamp-cluster'` ⇒ **exit 0**（误命中）；`tmux has-session -t '=oamp-cluster'` ⇒ **exit 1**（精确匹配，反映真实状态）。
@@ -163,13 +184,9 @@
 
 ---
 
+---
+
 ## 澄清期登记的冲突
-
-
-
-
-
-
 
 ### C-1 · 默认模型 id 与 provider 清单不同名
 
