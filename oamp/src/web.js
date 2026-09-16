@@ -229,6 +229,84 @@ function deriveAgentWork(taskRows) {
   return work;
 }
 
+/** 实例状态投影（F05 / F16 / architecture §4 A-04）：节点快照 + 任务表 ⇒ 每实例五字段（`connected` + 四字段）。
+ *  快照面（`GET /api/agents`）与推送面（`agent_state` 帧）**共用本函数** ⇒ 两处同源、不各算一份；
+ *  四字段是**追加的投影列**，不参与 `?state=` 过滤（既有在线口径仍是 `state === 'online'`）。 */
+export function projectAgentState(nodes, taskRows) {
+  const work = deriveAgentWork(taskRows);
+  const rows = new Map();
+  for (const node of nodes || []) {
+    const w = work.get(node.instance_id);
+    rows.set(node.instance_id, {
+      connected: node.connected === true,
+      busy: w ? w.busy : false,
+      current_call_id: w ? w.current_call_id : null,
+      queued: w ? w.queued : 0,
+      since: w ? w.since : null,
+    });
+  }
+  return rows;
+}
+
+/** agent 状态投影轮询器（F05 验收 5 / A-04）：与拓扑轮询同间隔、**独立键控** —— 仅当存在 `agent_state` 订阅者
+ *  时运行（零订阅者 ⇒ 零新增 UDS 流量）；每 tick 拉 `router.status` + `router.task_list` 投影五字段，
+ *  与上一 tick **有变化才发**一帧 `agent_state`（播种基线不发事件、订阅建立不发初始帧：当前值走快照面）。 */
+export function createAgentStateWatch({ transport, subscribers, queryNodes, queryTasks, pollMs }) {
+  let timer = null;
+  let prev = null; // Map<instance_id, 五字段>；null = 尚未播种
+  const same = (a, b) => a.connected === b.connected && a.busy === b.busy &&
+    a.current_call_id === b.current_call_id && a.queued === b.queued && a.since === b.since;
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    prev = null; // 丢弃基线：下次订阅重新播种，不补发订阅空窗期的变化
+  }
+
+  async function tick() {
+    if (subscribers.size === 0) {
+      stop();
+      return;
+    }
+    let nodes;
+    let taskRows;
+    try {
+      nodes = await queryNodes();
+      taskRows = await queryTasks();
+    } catch {
+      return; // Router 暂不可达：本轮不更新基线（不产生虚假状态帧）
+    }
+    if (subscribers.size === 0) {
+      stop(); // 查询在途期间订阅者全部断开
+      return;
+    }
+    const rows = projectAgentState(nodes, taskRows);
+    const seeded = prev !== null;
+    const changed = [];
+    if (seeded) {
+      for (const [instanceId, row] of rows) {
+        const before = prev.get(instanceId);
+        if (before === undefined || !same(before, row)) changed.push({ instance_id: instanceId, ...row });
+      }
+    }
+    prev = rows;
+    for (const data of changed) transport.publishFiltered({ type: 'agent_state', data });
+  }
+
+  /** 订阅建立后调用：有 `agent_state` 订阅者而轮询未运行 ⇒ 起表并立即播种一次（重复调用不起第二个表）。 */
+  function ensureRunning() {
+    if (subscribers.size === 0 || timer !== null) return;
+    prev = null;
+    timer = setInterval(() => {
+      tick().catch(() => {});
+    }, pollMs);
+    timer.unref(); // 不阻滞进程退出
+    tick().catch(() => {});
+  }
+
+  return { ensureRunning, stop };
+}
+
 /** 全局事件差值（F05 / architecture §4.2「纯函数边界」）：prev = 上一 tick 的在线集合
  *  （Map<instance_id, last_heartbeat>），nodes = `router.status` 的 4 字段节点数组。
  *  返回 {online, offline, next}：online = 新增（带 last_heartbeat，订阅端无需回查即可插入列表项）；
@@ -533,7 +611,7 @@ export function createApiRoutes({
       params: [
         { name: 'state', in: 'query', type: 'string', required: false, enum: ['online'], desc: '只接受 online：只返回在线实例；省略或传空 = 返回全部（含 offline 墓碑）' },
       ],
-      response: '对象 { agents: [{ instance_id, session_id, state, last_heartbeat, role }] }',
+      response: '对象 { agents: [{ instance_id, session_id, state, last_heartbeat, role }] }（0029 pr-005：每行追加 connected / busy / current_call_id / queued / since）',
       errors: ['INVALID_PARAM'],
       kind: 'json',
       docLink: 'API.md#31-get-apiagents',
@@ -542,10 +620,15 @@ export function createApiRoutes({
         // ?state=online（F04 验收 2 / §6.2）：服务端过滤，响应形态与无参**同形状**；无参路径逐字透传
         // router.status（含 offline 墓碑）。在线口径 = `state === 'online'`（§16 R-10）。
         const projected = await getAgentProjection(r.nodes);
+        // ★ 0029 pr-005（F05 / F16 / A-04）：每行**追加** `connected` + 四字段（`busy / current_call_id / queued / since`）
+        // —— 服务端推导，来源 = 节点快照（`connected`）与 `router.task_list`（四字段）；四字段**不参与** `?state=` 过滤。
+        // 快照按请求现拉任务表 ⇒ 取值与当刻事实同源（与 `calls get` 不漂移）；后台投影 tick 只在有订阅者时运行。
+        const work = projectAgentState(projected, (await queryOnce(config.socketPath, 'router.task_list', {})).tasks);
         const agentState = qs.get('state');
         // ★ 0018（F03 / architecture §5）：每个节点**追加** role = 角色名（实例名可反解且角色文件存在时）或 null；
-        // 其余 4 字段名 / 值 / 顺序逐字不变（role 追加在末位）。推导只走 roleOfInstance，不复制公式。
-        const withRole = (nodes) => nodes.map((n) => ({ ...n, role: roleFromInstanceId(n.instance_id) }));
+        // 其余 4 字段名 / 值 / 顺序逐字不变（role 追加在末位）。
+        // ★ 0029 pr-005：五字段投影追加在 role 之后；推导只走 roleOfInstance 与 projectAgentState，不复制公式。
+        const withRole = (nodes) => nodes.map((n) => ({ ...n, role: roleFromInstanceId(n.instance_id), ...work.get(n.instance_id) }));
         if (agentState === null || agentState === '') {
           sendJson(res, 200, { agents: withRole(projected) });
           return;
@@ -924,12 +1007,13 @@ export function createApiRoutes({
           (kinds.length === 0 || kinds.includes(event.type)) &&
           matchesAgent(event)
         );
-        onFilteredSubscription({ principal: principal.principal, kinds, agents });
         transport.handleSubscribe(req, res, { predicate });
         if (kinds.length === 0 || kinds.includes('agent_state')) {
           agentStateSubscribers.add(res);
           req.once('close', () => agentStateSubscribers.delete(res));
         }
+        // 订阅者**已登记**后才起投影 tick（`ensureRunning` 以订阅者数为前提）。
+        onFilteredSubscription({ principal: principal.principal, kinds, agents });
         return;
       },
     },
@@ -1313,7 +1397,7 @@ export function createApiRoutes({
       path: '/api/calls',
       summary: '调用 roster（每次调用一行；无过滤 / 无分页 / 无编排）',
       params: [],
-      response: '对象 { calls: [{ call_id, agent, state, started_at, ended_at, model }] }（按 created_at 倒序；进行中 ended_at=null）',
+      response: '对象 { calls: [{ call_id, agent, state, started_at, ended_at, model }] }（按 created_at 倒序；进行中 ended_at=null）（0029 pr-005：每行追加 last_event_at）',
       errors: [],
       kind: 'json',
       docLink: 'API.md#315-get-apicalls',
@@ -1332,6 +1416,9 @@ export function createApiRoutes({
               started_at: t.created_at,
               ended_at: state === 'completed' || state === 'failed' ? t.updated_at : null,
               model: t.model ?? null, // listTasks 投影的 model = task.result?.model ?? null（进行中恒 null，不显示推测值）
+              // ★ 0029 pr-005（F06 / A-05）：追加"最后一次事件时刻" = 任务条目 `updated_at`；**不**由服务端给出
+              // `idle_ms`（停滞派生留给消费方，避免服务端口径漂移）。既有 6 列名 / 顺序 / 取值不变。
+              last_event_at: t.updated_at,
             };
           }),
         });
@@ -1872,6 +1959,25 @@ export default async function startWeb(restArgs) {
     pollMs: topologyPollMs,
   });
 
+  // ★ 0029 pr-005（F05 验收 5 / A-04）：`agent_state` 订阅者登记表 + 第二个投影 tick —— 只在**存在订阅者**时运行
+  //   （零常驻 UDS 流量）；订阅建立时经 `onFilteredSubscription` 起表。快照面（GET /api/agents）按请求现拉，
+  //   与本 tick 共用 `projectAgentState` ⇒ 两处同源。
+  const agentStateSubscribers = new Set();
+  const agentStateWatch = createAgentStateWatch({
+    transport,
+    subscribers: agentStateSubscribers,
+    queryNodes: async () => {
+      const nodes = (await queryOnce(config.socketPath, 'router.status', {})).nodes;
+      writeRoster(nodes); // 投影计算即刷新运行态名册（best-effort，L1-01）；失败已由 writeRoster 吞掉
+      return nodes;
+    },
+    queryTasks: async () => (await queryOnce(config.socketPath, 'router.task_list', {})).tasks,
+    pollMs: topologyPollMs,
+  });
+  const onFilteredSubscription = ({ kinds }) => {
+    if (kinds.length === 0 || kinds.includes('agent_state')) agentStateWatch.ensureRunning();
+  };
+
   // task_id → { chatId, agentId, lines, landed, attempts, slow, registeredAt, timer }：agent 侧的
   // task.update/task.result body 不带 chat_id，派发前登记；lines 供一次性 / shell 路径组装 out 文本（其终态 body 无 text）。
   // landed = 该 task 已落过 out（投递路径与对账路径共用，保证恰一条 out）；attempts / slow = 对账进度（快速预算
@@ -2142,7 +2248,12 @@ export default async function startWeb(restArgs) {
 
   // 路由表（F01）：表顺序 = 匹配优先级 = 改造前 if 链顺序；在依赖构造完成之后、createServer 之前构造，
   // handler 直接闭包引用本作用域局部名（handler 体零改写）。
-  const routes = createApiRoutes({ db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile, waiters });
+  // getEpoch / checkEpoch / getAgentProjection / agentStateSubscribers 都是本作用域的真实实现（默认值只服务
+  // 「纯构造」调用方）⇒ 必须在接线处显式传入，否则 epoch 恒为占位值、代次校验失效、名册提示不进视图。
+  const routes = createApiRoutes({
+    db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
+    waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription,
+  });
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -2185,6 +2296,8 @@ export default async function startWeb(restArgs) {
       tasks.clear();
       callSchemas.clear(); // 退出不留调用面登记（与任务表同生命周期）
       topologyWatch.stop(); // 退出不留拓扑轮询表
+      agentStateWatch.stop(); // 退出不留投影轮询表
+      writeRoster(lastRosterNodes); // 正常退出前刷新运行态名册（best-effort，L1-01：软重启窗口的提示来源）
       server.close(() => {
         transport.closeAll();
         db.close();
