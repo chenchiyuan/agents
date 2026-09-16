@@ -181,23 +181,23 @@ B=http://127.0.0.1:8431
 
 ```bash
 node --check oamp/src/web.js && echo SYNTAX_OK
-git -C . grep -n "path: '/api/principals'\|path: '/api/principals/:principal_id'\|path: '/api/subscribe'\|path: '/api/pickup'\|path: '/api/pickup/:call_id/ack'\|path: '/api/calls/wait'\|path: '/api/calls/:call_id/cancel'\|path: '/api/health'" -- oamp/src/web.js
+git grep -n "path: '/api/principals'\|path: '/api/principals/:principal_id'\|path: '/api/subscribe'\|path: '/api/pickup'\|path: '/api/pickup/:call_id/ack'\|path: '/api/calls/wait'\|path: '/api/calls/:call_id/cancel'\|path: '/api/health'\|path: '/api/calls/:call_id'," -- oamp/src/web.js
 ```
 
 ```
 SYNTAX_OK
-oamp/src/web.js:563:      path: '/api/principals',
-oamp/src/web.js:596:      path: '/api/principals/:principal_id',
-oamp/src/web.js:705:      path: '/api/health',
-oamp/src/web.js:876:      path: '/api/subscribe',
-oamp/src/web.js:1428:      path: '/api/pickup',
-oamp/src/web.js:1549:      path: '/api/calls/wait',
-oamp/src/web.js:1637:      path: '/api/calls/:call_id/cancel',
-oamp/src/web.js:1694:      path: '/api/pickup/:call_id/ack',
-oamp/src/web.js:1724:      path: '/api/calls/:call_id',
+oamp/src/web.js:688:      path: '/api/principals',
+oamp/src/web.js:721:      path: '/api/principals/:principal_id',
+oamp/src/web.js:747:      path: '/api/health',
+oamp/src/web.js:1051:      path: '/api/subscribe',
+oamp/src/web.js:1613:      path: '/api/pickup',
+oamp/src/web.js:1647:      path: '/api/calls/wait',
+oamp/src/web.js:1737:      path: '/api/calls/:call_id/cancel',
+oamp/src/web.js:1776:      path: '/api/pickup/:call_id/ack',
+oamp/src/web.js:1806:      path: '/api/calls/:call_id',
 ```
 
-位置纪律（`/api/calls/wait`(1549) 在 `/api/calls/:call_id`(1724) 之前）+ 可达性与 404 兜底：
+位置纪律（`/api/calls/wait`(1647) 在 `/api/calls/:call_id`(1806) 之前）+ 可达性与 404 兜底：
 
 ```bash
 curl -s -o /dev/null -w 'wait:%{http_code} ' "$B/api/calls/wait?ids=nope"; curl -s "$B/api/calls/wait?ids=nope"; echo
