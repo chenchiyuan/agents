@@ -356,3 +356,260 @@ $ diff -rq /Users/chenchiyuan/projects/agents/roles <WS>/roles
 | 8 | 启动记录（命令逐字 / 时间 / 三项隔离取值）写入证据小节；不收口 `down`、现场保留 | **通过（含失败记录）** | ②③④⑤；未执行 `down`、未删除副本、未停止现场 |
 
 **未通过项汇总（供主 agent 决策）**：验收 4、验收 6，以及验收 5 的 socket 半项，全部归因于 ⑤ 的**单一根因**（`<WS>/oamp/.runtime/router.sock` 长 105 > macOS UDS 上限 104 ⇒ `bind` 被内核截断、`chmod` 全长路径 `ENOENT` ⇒ `router start` 失败 ⇒ Router 永不就绪 ⇒ web / 角色窗口从不创建）。该根因与副本内任何取值无关，且在既有约束（副本落 `<WS>` 根 + `router.socket` 保持 `null`）下不能由本 PR 消解；需要的是架构层决策（例如缩短负载路径深度或改 socket 落点），超出本 PR 授权范围，**未实现、未试探、未掩盖**。
+
+---
+
+### 执行记录 · 返工轮（方案 A：副本增 `router.socket` 短路径；执行者 dev，2026-09-16）
+
+**判据变更依据**：用户 2026-09-16 09:52 裁决「方案 A」（本轮 brief 逐字记载，并登记为 brief 引用的 **G-17** 项）：副本允许**第三键差异** —— `router.socket` 由 `null` 改为绝对路径 **`/tmp/oamp-0028-router.sock`**；判据随之变为 `diff` 恰 **3 行**（`session` / `web.port` / `router.socket` 各一行），其余逐字一致。依据链（代码锚点，本轮复核）：`oamp/src/config.js:144`（`socketPath: env.OAMP_SOCKET || path.join(PKG_ROOT, '.runtime', 'router.sock')`）、`oamp/src/cluster.js:177-184`（`socketEnvPrefix` 把 `config.router.socket` 作为 `OAMP_SOCKET=` 前缀加给**所有**窗口，含 router / web / 角色）、`oamp/src/cluster.js:393`（`const socketPath = config.router.socket ?? runtimeConfig.socketPath;`）+ `cluster.js:397`（就绪探测用该 `socketPath`）。
+
+> 上一轮小节（`### 执行记录（执行者 dev，2026-09-16；分支 …）`）为**保留**的失败记录，本轮不改写、不删除它。
+
+**本轮结论**：第二集群**已就绪** —— 12 窗口全活（`pane_dead=0`）、7789 监听、10 个 `pb-<role>` 全 `online`、Router 实际绑定 `/tmp/oamp-0028-router.sock`。**一处未对齐**：`cluster up` 自身 exit code 仍为 `1`（其内置 online 复核不认 `config.router.socket`，见 ② 的根因说明）⇒ **不得以 `up` 的退出码作为本集群的就绪判据**。
+
+#### ⓪ 清理上一轮失败会话（本轮授权的前置动作，仅此一次）
+
+```
+$ node <WS>/oamp/bin/hub.js cli cluster down --config <WS>/cluster.second.json
+已收口（session=oamp-cluster-0028，1 窗口）
+（时点 2026-09-16 09:53:37 CST → 09:53:37 CST；exit code = 0）
+$ tmux ls
+oamp-cluster: 12 windows (created Wed Sep 16 08:47:42 2026)
+```
+
+（未出现「Router 不可达」原文；主集群 session 未受影响，7788 仍由 PID `64314` 监听。）
+
+#### ① 副本三键差异（判据变更后）｜PR 验收 1 / F04 验收 2
+
+```
+$ diff <WS>/cluster.json <WS>/cluster.second.json
+2c2
+<   "session": "oamp-cluster",
+---
+>   "session": "oamp-cluster-0028",
+4c4
+<     "port": 7788
+---
+>     "port": 7789
+7c7
+<     "socket": null
+---
+>     "socket": "/tmp/oamp-0028-router.sock"
+$ git diff --no-index --numstat <WS>/cluster.json <WS>/cluster.second.json
+3	3	<WS>/{cluster.json => cluster.second.json}
+```
+
+（读数口径同上一轮：变化**取值行** = 3（`2c2` / `4c4` / `7c7`）；`--numstat` = `3	3` 即"3 增 3 删 = 恰 3 处取值变化"。）
+
+- 副本 sha256（三键版）= `52e971ad5a204de3cce73fc616941f2baf771530f9c8b9145f021a252c207fe9`（上一轮两键版 = `bada5164…`）；行数 `27`；源 `<WS>/cluster.json` sha256 仍 = `4d8e476a05e48f4ad428d87810b6bd8dbf6bb4e7a297c0a63b84515c20743bd0`（未回写）。
+- 深比较（与上一轮同一脚本，逐字照录）：
+
+```
+$ node -e 'const fs=require("fs");const a=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const b=JSON.parse(fs.readFileSync(process.argv[2],"utf8"));const flat=(o,p="")=>Object.entries(o).flatMap(([k,v])=>v&&typeof v==="object"&&!Array.isArray(v)?flat(v,p?p+"."+k:k):[[p?p+"."+k:k,v]]);const ma=Object.fromEntries(flat(a)),mb=Object.fromEntries(flat(b));const keys=[...new Set([...Object.keys(ma),...Object.keys(mb)])];const diffs=keys.filter(k=>JSON.stringify(ma[k])!==JSON.stringify(mb[k])).map(k=>({key:k,src:ma[k],dst:mb[k]}));console.log("deep-diff keys:",JSON.stringify(diffs));console.log("router.socket src/dst:",JSON.stringify(ma["router.socket"]),JSON.stringify(mb["router.socket"]));console.log("roles keys count src/dst:",Object.keys(a.roles).length,Object.keys(b.roles).length);console.log("roles identical:",JSON.stringify(a.roles)===JSON.stringify(b.roles));console.log("dev.model src/second/equal:",ma["roles.dev.model"],"/",mb["roles.dev.model"],"/",ma["roles.dev.model"]===mb["roles.dev.model"]);console.log("verifier.model src/second/equal:",ma["roles.verifier.model"],"/",mb["roles.verifier.model"],"/",ma["roles.verifier.model"]===mb["roles.verifier.model"]);' <WS>/cluster.json <WS>/cluster.second.json
+deep-diff keys: [{"key":"session","src":"oamp-cluster","dst":"oamp-cluster-0028"},{"key":"web.port","src":7788,"dst":7789},{"key":"router.socket","src":null,"dst":"/tmp/oamp-0028-router.sock"}]
+router.socket src/dst: null "/tmp/oamp-0028-router.sock"
+roles keys count src/dst: 10 10
+roles identical: true
+dev.model src/second/equal: openai/gpt-5.6-luna / openai/gpt-5.6-luna / true
+verifier.model src/second/equal: powerby/grok-4.6 / powerby/grok-4.6 / true
+```
+
+- 三键取值行两版并列（含两处绑定，逐字一致 ⇒ PR 验收 2 / F04 验收 4）：
+
+```
+$ grep -n 'session\|"port"\|"socket"\|"model"' <WS>/cluster.json <WS>/cluster.second.json
+<WS>/cluster.json:2:  "session": "oamp-cluster",
+<WS>/cluster.json:4:    "port": 7788
+<WS>/cluster.json:7:    "socket": null
+<WS>/cluster.json:14:      "model": "openai/gpt-5.6-luna",
+<WS>/cluster.json:24:    "verifier": { "model": "powerby/grok-4.6" },
+<WS>/cluster.second.json:2:  "session": "oamp-cluster-0028",
+<WS>/cluster.second.json:4:    "port": 7789
+<WS>/cluster.second.json:7:    "socket": "/tmp/oamp-0028-router.sock"
+<WS>/cluster.second.json:14:      "model": "openai/gpt-5.6-luna",
+<WS>/cluster.second.json:24:    "verifier": { "model": "powerby/grok-4.6" },
+```
+
+#### ② 启动命令逐字 + 启动时间｜PR 验收 8
+
+```
+node /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/oamp/bin/hub.js cli cluster up --config /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/cluster.second.json --wait 120000
+```
+
+| 项 | 值 |
+|---|---|
+| 发起时点 | 2026-09-16 09:53:43 CST |
+| 返回时点 | 2026-09-16 09:55:43 CST |
+| 实测耗时 | 120.26 s（`--wait` 预算耗尽） |
+| exit code | `1` |
+
+原始输出（stderr 全文）：
+
+```
+oamp cluster: 等待超时（120000ms）：以下实例未 online: pb-architect pb-demand pb-dev pb-planner pb-pr-planner pb-prd pb-progress-observer pb-retrospective pb-verifier pb-workflow-pb
+oamp cluster: 保留现场（未自动回滚）；逐个查看窗口或日志目录 /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/oamp/.runtime/cluster，收口请执行 oamp cluster down
+```
+
+**exit 1 的根因（非集群故障，必须与就绪判据分开读）**：`oamp/src/cluster.js:415` 的 online 复核是 `await waitForOnline(runtimeConfig, instanceIds, deadline)` —— 传入的是 **`runtimeConfig`**（其 `socketPath = env.OAMP_SOCKET || <包根>/.runtime/router.sock` = 上一轮那条 **105 字符、本轮已废弃**的路径），而非 `cluster.js:393` 解析出的 `config.router.socket`。父进程因此连不上 Router，10 个实例被一律列为 `missing`。子进程侧（router / web / 角色）全部由 `cluster.js:177-184` 的 `socketEnvPrefix` 注入 `OAMP_SOCKET=/tmp/oamp-0028-router.sock` ⇒ **集群实际已就绪**，就绪证据见 ③④。
+
+#### ③ 三项隔离取值与核对命令（判据变更后）｜PR 验收 3 / 5 / 6、F04 验收 2
+
+**① session**：
+
+```
+$ tmux ls
+oamp-cluster: 12 windows (created Wed Sep 16 08:47:42 2026)
+oamp-cluster-0028: 12 windows (created Wed Sep 16 09:53:43 2026)
+```
+
+**② web 端口**：
+
+```
+$ lsof -nP -iTCP:7789 -sTCP:LISTEN
+COMMAND   PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+node    92023 chenchiyuan   15u  IPv4 0x869d19e49509361d      0t0  TCP 127.0.0.1:7789 (LISTEN)
+$ lsof -nP -iTCP:7788 -sTCP:LISTEN
+COMMAND   PID        USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+node    64314 chenchiyuan   15u  IPv4 0xcb7bf46c7e87e73e      0t0  TCP 127.0.0.1:7788 (LISTEN)
+$ cat <WS>/oamp/.runtime/cluster/web.log
+(node:92023) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+WEB_READY url=http://127.0.0.1:7789
+```
+
+（第二集群 web PID `92023` ≠ 主集群 `64314`。）
+
+**③ socket / 集群日志**（判据变更后的三行取值表）：
+
+| 侧 | socket 绝对路径 | 长度 | 依据 | 集群日志目录 |
+|---|---|---|---|---|
+| 第二 `<WS>` | `/tmp/oamp-0028-router.sock` | 26 | 副本 `router.socket` 显式取值（本轮裁决） | `<WS>/oamp/.runtime/cluster/` |
+| 主 `<MAIN>` | `/Users/chenchiyuan/projects/agents/oamp/.runtime/router.sock` | 60 | 包根推导（`config.js:144`） | `<MAIN>/oamp/.runtime/cluster/` |
+| ~~上一轮失败值~~ | `<WS>/oamp/.runtime/router.sock` | 105 | 包根推导（超 macOS 上限 104） | 本轮不再使用 |
+
+```
+$ ls -la /tmp/oamp-0028-router.sock
+srw------- 1 chenchiyuan wheel 0 Sep 16 09:53 /tmp/oamp-0028-router.sock
+$ grep -n ROUTER_READY <WS>/oamp/.runtime/cluster/router.log
+1:[2026-09-16T01:53:43.960Z] router ROUTER_READY socket=/tmp/oamp-0028-router.sock
+$ ls -la <WS>/oamp/.runtime/cluster/
+-rw-r--r-- 1 chenchiyuan staff 1534 Sep 16 09:55 pb-architect.log
+-rw-r--r-- 1 chenchiyuan staff 1483 Sep 16 09:55 pb-demand.log
+-rw-r--r-- 1 chenchiyuan staff 1425 Sep 16 09:55 pb-dev.log
+-rw-r--r-- 1 chenchiyuan staff 1500 Sep 16 09:55 pb-planner.log
+-rw-r--r-- 1 chenchiyuan staff 1551 Sep 16 09:55 pb-pr-planner.log
+-rw-r--r-- 1 chenchiyuan staff 1432 Sep 16 09:55 pb-prd.log
+-rw-r--r-- 1 chenchiyuan staff 1670 Sep 16 09:55 pb-progress-observer.log
+-rw-r--r-- 1 chenchiyuan staff 1602 Sep 16 09:55 pb-retrospective.log
+-rw-r--r-- 1 chenchiyuan staff 1507 Sep 16 09:55 pb-verifier.log
+-rw-r--r-- 1 chenchiyuan staff 1568 Sep 16 09:55 pb-workflow-pb.log
+-rw-r--r-- 1 chenchiyuan staff  205 Sep 16 09:53 web.log
+-rw-r--r-- 1 chenchiyuan staff 6973 Sep 16 09:55 router.log
+```
+
+`lsof -U` 复核（两集群 Unix socket 绑定侧，节选）：`node 64290 … /Users/chenchiyuan/projects/agents/oamp/.runtime/router.sock` ｜ `node 91999 … /tmp/oamp-0028-router.sock`。
+
+#### ④ 窗口态与 10 实例在线｜PR 验收 3 / 6、F04 验收 1
+
+```
+$ tmux list-windows -t oamp-cluster-0028 -F '#{window_index} name=#{window_name} panes=#{window_panes} dead=#{pane_dead} pid=#{pane_pid} cmd=#{pane_current_command}'
+0 name=router panes=1 dead=0 pid=91991 cmd=zsh
+1 name=web panes=1 dead=0 pid=92015 cmd=zsh
+2 name=pb-architect panes=1 dead=0 pid=92025 cmd=zsh
+3 name=pb-demand panes=1 dead=0 pid=92035 cmd=zsh
+4 name=pb-dev panes=1 dead=0 pid=92045 cmd=zsh
+5 name=pb-planner panes=1 dead=0 pid=92055 cmd=zsh
+6 name=pb-pr-planner panes=1 dead=0 pid=92076 cmd=zsh
+7 name=pb-prd panes=1 dead=0 pid=92086 cmd=zsh
+8 name=pb-progress-observer panes=1 dead=0 pid=92096 cmd=zsh
+9 name=pb-retrospective panes=1 dead=0 pid=92106 cmd=zsh
+10 name=pb-verifier panes=1 dead=0 pid=92116 cmd=zsh
+11 name=pb-workflow-pb panes=1 dead=0 pid=92126 cmd=zsh
+$ tmux list-windows -t oamp-cluster-0028 | wc -l
+12
+$ tmux list-panes -s -t oamp-cluster-0028 -F '#{window_name} dead=#{pane_dead}' | awk '{print $2}' | sort | uniq -c
+     12 dead=0
+```
+
+⇒ 窗口数 = 12（router + web + 10 角色），**12 个 pane 全 `dead=0`**。
+
+```
+$ node <WS>/oamp/bin/hub.js api agents --port 7789
+{"agents":[{"instance_id":"pb-architect","session_id":"11fc2cca-e3ec-4e0f-b952-690c5cce64c8","state":"online","last_heartbeat":1789523744070,"role":"architect"},{"instance_id":"pb-demand","session_id":"cc79221f-2b4e-46c7-b41d-65a108ca87dd","state":"online","last_heartbeat":1789523744094,"role":"demand"},{"instance_id":"pb-dev","session_id":"c3c0161e-055b-4053-a580-b99aa769746c","state":"online","last_heartbeat":1789523744125,"role":"dev"},{"instance_id":"pb-planner","session_id":"4d17cb82-614d-431d-baf5-287657e1586f","state":"online","last_heartbeat":1789523744149,"role":"planner"},{"instance_id":"pb-pr-planner","session_id":"92af9731-f367-4ed5-883c-93f4dec417d7","state":"online","last_heartbeat":1789523744173,"role":"pr-planner"},{"instance_id":"pb-prd",…}}
+```
+
+10 实例在线表（`state` 逐行取自上述 JSON）：
+
+| # | instance_id | state |
+|---|---|---|
+| 1 | `pb-architect` | `online` |
+| 2 | `pb-demand` | `online` |
+| 3 | `pb-dev` | `online` |
+| 4 | `pb-planner` | `online` |
+| 5 | `pb-pr-planner` | `online` |
+| 6 | `pb-prd` | `online` |
+| 7 | `pb-progress-observer` | `online` |
+| 8 | `pb-retrospective` | `online` |
+| 9 | `pb-verifier` | `online` |
+| 10 | `pb-workflow-pb` | `online` |
+
+判定口径（`API.md:1505`：无参含 `offline` 墓碑；本次用无参形态，未用 `--state online` 过滤；未产生任何调用）：
+
+```
+$ jq -r '.agents|map(.instance_id)|join(" ")' <上条输出>
+pb-architect pb-demand pb-dev pb-planner pb-pr-planner pb-prd pb-progress-observer pb-retrospective pb-verifier pb-workflow-pb
+$ jq -r '([.agents[]|select(.instance_id|startswith("pb-"))]|length)'  → 10
+$ jq -r '([.agents[]|select(.instance_id|startswith("pb-"))|select(.state!="online")]|length)'  → 0
+$ jq -r '([.agents[]|select(.instance_id=="web")]|length)'  → 0
+```
+
+⇒ 10 个 `pb-<role>` 全部 `online`、非 online 计数 = 0；固有节点 `web` 未出现在本集群返回集中（无需额外排除，判定面干净）。
+
+#### ⑤ `配置错误` 零命中 / 主集群零触碰 / 副本性质登记
+
+```
+$ grep -n '配置错误' <WS>/oamp/.runtime/cluster/*.log
+（零命中，exit=1）
+$ grep -n '配置错误' <启动输出原文>
+（零命中，exit=1）
+```
+
+主集群（对照上一轮基线，逐项同值）：
+
+| 项 | 基线（09:42:35 CST） | 本轮实测 | 判定 |
+|---|---|---|---|
+| `<MAIN>/cluster.json` sha256 | `7eaa38ef71db9794e3e8464469b0bdae8bdab5685ef76dca9d4431807cd5a258` | 同值 | ✅ 零配置改动 |
+| `oamp-cluster` session | `12 windows (created Wed Sep 16 08:47:42 2026)` | 逐字同值 | ✅ 无重建 |
+| `127.0.0.1:7788` LISTEN | PID `64314` | PID `64314` | ✅ |
+| `<MAIN>/oamp/.runtime/router.sock` | inode `115312821` | 同 inode | ✅ |
+| `<MAIN>/cluster.json` 的 `router.socket` | `null` | 仍 `null`（见 ①） | ✅ |
+
+命令面自证：本轮涉及 cluster 动作的只有 `cluster down --config <WS>/cluster.second.json`（1 次，见 ⓪）与 `cluster up --config <WS>/cluster.second.json`（1 次，见 ②）；`<MAIN>/cluster.json` **零次**作为 `--config`；`calls create` / `messages send` 零次。
+
+副本性质（仍为运行态产物、未纳入版本控制）：
+
+```
+$ git -C <WS> status --porcelain | grep cluster.second
+?? cluster.second.json
+$ git -C <WS> check-ignore -v cluster.second.json
+（无输出，exit=1 ⇒ 未命中任何 .gitignore 规则）
+$ git -C <WT> status --porcelain
+?? docs/iterations/0028-role-model-binding/prs/pr-005-second-cluster-bring-up-tasks.md
+```
+
+（`<WS>` 下本轮新增写入仅 `cluster.second.json` 与运行态 `<WS>/oamp/.runtime/**`（被 `oamp/.gitignore:1:.runtime/` 覆盖）；`<WS>/cluster.json` 未出现在 ` M` 列、sha256 与基线同值。执行期间 `<WS>` 另有主 agent 的在途改动（` M history.md` / ` M status.md` / ` M deferred-demand-changes.md` 等），非本次写入。）
+
+#### ⑥ 八条验收标准逐条判定（按变更后判据）
+
+| # | 验收标准（变更后） | 判定 | 证据 |
+|---|---|---|---|
+| 1 | 副本存在；`diff` 恰 3 行（`session` / `web.port` / `router.socket`）；其余逐字一致 | **通过** | ①（`diff` 3 hunk + `--numstat 3	3` + 深比较差集恰 3 键） |
+| 2 | 两处 `model` 与源逐字一致；启动输出与 `cluster/*.log` 无 `配置错误` | **通过** | ①（`roles identical: true` + 两处取值行）+ ⑤（两处 grep 零命中） |
+| 3 | `tmux ls` 同时存在 `oamp-cluster` 与 `oamp-cluster-0028` | **通过** | ③-①（两 session 均 12 窗口）+ ④（12 pane 全 `dead=0`） |
+| 4 | `lsof -nP -iTCP:7789 -sTCP:LISTEN` 有监听 | **通过** | ③-②（PID `92023` + `WEB_READY url=http://127.0.0.1:7789`） |
+| 5 | socket 落副本指定路径 `/tmp/oamp-0028-router.sock`、与主集群路径不同；集群日志落 `<WS>/oamp/.runtime/cluster/` | **通过** | ③-③（26 vs 60、`ROUTER_READY socket=/tmp/oamp-0028-router.sock`、`lsof -U` 双侧绑定） |
+| 6 | `api agents --port 7789` 返回 10 个 `pb-<role>` 全 `online`（排除 `web`） | **通过** | ④（10 / 0 / `web` 计数 0） |
+| 7 | 主集群零启停、零配置改动 | **通过** | ⑤ |
+| 8 | 启动记录（命令逐字 / 时间 / 三项隔离取值）写入证据小节；不收口 `down`、现场保留 | **通过** | ②③④；本轮除授权的前置清理（⓪）外未执行收口 `down`，未删副本、未停现场 |
+
+**与上一轮的差异（一段话）**：上一轮判 5 通过 / 2 不通过 / 1 部分，阻塞根因 = 包根推导出的 socket 路径 105 字符超 macOS `sun_path` 上限 104；本轮按方案 A 把 socket 显式钉到 26 字符的绝对路径 ⇒ 验收 4 / 6 与验收 5 的 socket 半项全部转为通过，三项隔离的 ②③ 判据面随之由"包根推导"变为"显式取值"（① session 不变）。**新增并须保留的事实**：`cluster up` 的 exit code 仍为 `1`（`cluster.js:415` 的 online 复核只认 `runtimeConfig`，不认 `config.router.socket`），因此本集群的就绪判据**必须以** `api agents --port 7789` / `lsof` / 窗口态为准，不可用 `up` 的退出码代理。
