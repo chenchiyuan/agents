@@ -52,18 +52,369 @@ Router 进程与 UDS 会话层的全部本次改动集中在一个 PR（三个�
 
 ## 验收证据
 
-- 基线：`HEAD=7fe0c1edf5ab8c37d00595eec244640f66c4a04a`，`git status --short` 为空；基线命令族原始输出已在实现前执行。
-- `generation` / `connected`：
-  - Router 首次启动两次 `router.status` 的 `generation` 均为 `012006d0-06ab-48ce-83d0-01db223a0c61`；在线节点为 `state=online, connected=true`。
-  - `SIGKILL` Agent 后同一 Router 返回 `state=online, connected=false`，generation 不变；Agent 重连后返回 `state=online, connected=true`。
-  - Router 重启后 generation 变为 `04eaf4e0-a7ce-426a-864a-821647e71cb4`，再次重启后的最终进程为 `d02d26fc-66ec-4bdd-9f32-1e0243d34f39`；进程内稳定、跨重启变化成立。注册表一次性原语实跑还验证 `markOffline()` 返回 `state=offline, connected=false`。
-- `started_at`：取消前的 `router.task_list` 返回 `state=working, created_at=1789544686881, started_at=1789544686882`；重复 working 更新不会覆盖。未开始任务的一次性注册表实跑返回 `started_at=null`。
-- `router.task_cancel`（经 `sdk/uds.js` `taskCancel`）：
-  - 生效：`state=failed`，`result={"error":"cancelled","at":1789544926372}`；随后 `task_get` 即返回同一 failed 任务。
-  - 重复：`{"code":"TASK_ALREADY_FINAL","message":"task_cancel: task already final"}`。
-  - 不存在：`{"code":"TASK_NOT_FOUND","message":"task_cancel: task not found"}`。
-  - 缺失/非法参数：均为 `{"code":"INVALID_PARAMS","message":"task_cancel 需携带合法 task_id"}`。
-- 终态与幂等：一次性注册表实跑得到的正常状态集合为 `submitted/completed/failed`（working 仅作为中间态），未出现第五种状态；重复 `finishTask` 返回 `TASK_ALREADY_FINAL`，原终态与结果未改写。
-- SDK 会话方法实跑返回：`["register","heartbeat","send","ack","status","taskGet","taskList","taskCancel","deregister","close"]`；既有 8 个方法签名与 `RpcPeer` 请求路径未改动。
-- 既有 8 方法回归：实现前后同一命令族的 `agent.register`、`agent.heartbeat`、`message.send`、`message.ack`、`agent.deregister`、`router.status`、`router.task_get`、`router.task_list` 均已实跑；除本 PR 明确追加的 `generation`、`connected`、`started_at` 与第 9 方法外，返回体/错误体一致。基线与更新后 `message.ack` 均为既有 `UNKNOWN_MESSAGE`，`oamp status` 表头仍为 `instance_id session_id state last_heartbeat`。
-- 依赖/配置/持久化：`git diff --stat` 仅含 `oamp/src/registry.js`、`oamp/src/router.js`、`oamp/sdk/uds.js` 三个实现文件；无依赖、env、配置键或 DB 改动；`git diff --check` 通过。
+以下代码块中的 `$` 行是执行命令；其后内容为该命令当次 stdout/stderr 原样输出。基线固定为 `72b659f`，临时导出目录与 socket 均位于 `/tmp`。
+
+### 当前实现：generation、connected、started_at、task_cancel、SDK 会话面
+
+```sh
+$ node /tmp/pr001-functional-compact.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-compact-router.sock
+{
+  "sessionMethods": [
+    "register",
+    "heartbeat",
+    "send",
+    "ack",
+    "status",
+    "taskGet",
+    "taskList",
+    "taskCancel",
+    "deregister",
+    "close"
+  ],
+  "generation": {
+    "first": "6d55b661-6ab9-44e0-9264-88d8416367d0",
+    "second": "6d55b661-6ab9-44e0-9264-88d8416367d0",
+    "stable": true
+  },
+  "connectedTrichotomy": {
+    "online": {
+      "instance_id": "tri-agent",
+      "session_id": "e730387b-faaa-40a5-a180-4409d2d9c0b0",
+      "state": "online",
+      "last_heartbeat": 1789546507023,
+      "connected": true
+    },
+    "disconnected": {
+      "instance_id": "tri-agent",
+      "session_id": "e730387b-faaa-40a5-a180-4409d2d9c0b0",
+      "state": "online",
+      "last_heartbeat": 1789546507023,
+      "connected": false
+    },
+    "reconnected": {
+      "instance_id": "tri-agent",
+      "session_id": "b0a882d2-81e3-4812-b58e-7f236ad55c51",
+      "state": "online",
+      "last_heartbeat": 1789546507125,
+      "connected": true
+    }
+  },
+  "taskCancel": {
+    "delivered": {
+      "type": "task.request",
+      "task_id": "task-7a59b851-5652-4d14-b8ac-edb5d1037637"
+    },
+    "working": {
+      "state": "working",
+      "started_at": 1789546507128,
+      "updates": 1
+    },
+    "cancelled": {
+      "state": "failed",
+      "result": {
+        "error": "cancelled",
+        "at": 1789546507128
+      }
+    },
+    "afterCancel": {
+      "state": "failed",
+      "result": {
+        "error": "cancelled",
+        "at": 1789546507128
+      }
+    },
+    "repeatedCancel": {
+      "ok": false,
+      "error": {
+        "code": "TASK_ALREADY_FINAL",
+        "message": "task_cancel: task already final"
+      }
+    },
+    "missingCancel": {
+      "ok": false,
+      "error": {
+        "code": "TASK_NOT_FOUND",
+        "message": "task_cancel: task not found"
+      }
+    },
+    "invalidCancel": {
+      "ok": false,
+      "error": {
+        "code": "INVALID_PARAMS",
+        "message": "task_cancel 需携带合法 task_id"
+      }
+    }
+  },
+  "registry": {
+    "submittedStartedAt": null,
+    "workingStartedAt": 30,
+    "workingUpdatedAt": 40,
+    "repeatedFinish": {
+      "error": "TASK_ALREADY_FINAL",
+      "state": "completed",
+      "result": {
+        "answer": 1,
+        "at": 50
+      }
+    },
+    "disconnectedProjection": [
+      {
+        "instance_id": "registry-agent",
+        "session_id": "registry-session",
+        "state": "online",
+        "last_heartbeat": 1000,
+        "connected": false
+      }
+    ],
+    "offlineProjection": [
+      {
+        "instance_id": "registry-agent",
+        "session_id": "registry-session",
+        "state": "offline",
+        "last_heartbeat": 1000,
+        "connected": false
+      }
+    ]
+  }
+}
+```
+
+```sh
+$ node /tmp/pr001-generation.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-generation-a.sock
+{"first":"dfce9ef4-dc43-4944-8601-a862a152fd54","second":"dfce9ef4-dc43-4944-8601-a862a152fd54","stable":true}
+$ node /tmp/pr001-generation.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-generation-b.sock
+{"first":"10576681-f2cc-49d8-9e59-5ea7840ab424","second":"10576681-f2cc-49d8-9e59-5ea7840ab424","stable":true}
+```
+
+### 基线与当前：八个既有 UDS 方法、router.status 既有字段、oamp status 列
+
+```sh
+$ rm -rf /tmp/pr001-base && mkdir -p /tmp/pr001-base && git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives archive 72b659f | tar -x -C /tmp/pr001-base
+$ node /tmp/pr001-probe.mjs /tmp/pr001-base /tmp/pr001-base-router.sock > /tmp/pr001-base-output.json
+$ node /tmp/pr001-probe.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-current-router.sock > /tmp/pr001-current-output.json
+$ cat /tmp/pr001-base-output.json
+{
+  "repo": "/tmp/pr001-base",
+  "socketPath": "/tmp/pr001-base-router.sock",
+  "results": {
+    "agent.register": {
+      "ok": true,
+      "value": {
+        "instance_id": "probe-agent",
+        "session_id": "<session_id>",
+        "state": "online",
+        "lease_timeout_ms": 30000,
+        "last_heartbeat": "<last_heartbeat>",
+        "lease_follows_interval": true
+      }
+    },
+    "agent.heartbeat": {
+      "ok": true,
+      "value": {
+        "notification": true
+      }
+    },
+    "message.send": {
+      "ok": false,
+      "error": {
+        "name": "HubError",
+        "code": "INVALID_MESSAGE",
+        "message": "invalid message envelope",
+        "exitCode": 1
+      }
+    },
+    "message.ack": {
+      "ok": false,
+      "error": {
+        "name": "HubError",
+        "code": "UNKNOWN_MESSAGE",
+        "message": "ack failed: unknown_message",
+        "exitCode": 1
+      }
+    },
+    "router.status": {
+      "ok": true,
+      "value": {
+        "nodes": [
+          {
+            "instance_id": "probe-agent",
+            "session_id": "<session_id>",
+            "state": "online",
+            "last_heartbeat": "<last_heartbeat>"
+          }
+        ]
+      }
+    },
+    "router.task_get": {
+      "ok": true,
+      "value": {
+        "task": null
+      }
+    },
+    "router.task_list": {
+      "ok": true,
+      "value": {
+        "tasks": []
+      }
+    },
+    "agent.deregister": {
+      "ok": true,
+      "value": {
+        "removed": true
+      }
+    }
+  },
+  "status": {
+    "exit": 0,
+    "stdout": "instance_id  session_id                            state   last_heartbeat\nprobe-agent  8f602f16-4d1f-4127-ba2b-4273b883ea3d  online  2026-09-16T08:11:21.061Z\n",
+    "stderr": ""
+  }
+}
+$ cat /tmp/pr001-current-output.json
+{
+  "repo": "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives",
+  "socketPath": "/tmp/pr001-current-router.sock",
+  "results": {
+    "agent.register": {
+      "ok": true,
+      "value": {
+        "instance_id": "probe-agent",
+        "session_id": "<session_id>",
+        "state": "online",
+        "lease_timeout_ms": 30000,
+        "last_heartbeat": "<last_heartbeat>",
+        "lease_follows_interval": true
+      }
+    },
+    "agent.heartbeat": {
+      "ok": true,
+      "value": {
+        "notification": true
+      }
+    },
+    "message.send": {
+      "ok": false,
+      "error": {
+        "name": "HubError",
+        "code": "INVALID_MESSAGE",
+        "message": "invalid message envelope",
+        "exitCode": 1
+      }
+    },
+    "message.ack": {
+      "ok": false,
+      "error": {
+        "name": "HubError",
+        "code": "UNKNOWN_MESSAGE",
+        "message": "ack failed: unknown_message",
+        "exitCode": 1
+      }
+    },
+    "router.status": {
+      "ok": true,
+      "value": {
+        "nodes": [
+          {
+            "instance_id": "probe-agent",
+            "session_id": "<session_id>",
+            "state": "online",
+            "last_heartbeat": "<last_heartbeat>",
+            "connected": true
+          }
+        ],
+        "generation": "3389ace7-5cd6-470f-9261-8d689b9325c7"
+      }
+    },
+    "router.task_get": {
+      "ok": true,
+      "value": {
+        "task": null
+      }
+    },
+    "router.task_list": {
+      "ok": true,
+      "value": {
+        "tasks": []
+      }
+    },
+    "agent.deregister": {
+      "ok": true,
+      "value": {
+        "removed": true
+      }
+    }
+  },
+  "status": {
+    "exit": 0,
+    "stdout": "instance_id  session_id                            state   last_heartbeat\nprobe-agent  2418d906-d238-49e7-8eb9-031a6066eb17  online  2026-09-16T08:11:47.625Z\n",
+    "stderr": ""
+  }
+}
+$ node /tmp/pr001-compare.mjs /tmp/pr001-base-output.json /tmp/pr001-current-output.json
+BASE_OAMP_STATUS_STDOUT_BEGIN
+instance_id  session_id                            state   last_heartbeat
+probe-agent  8f602f16-4d1f-4127-ba2b-4273b883ea3d  online  2026-09-16T08:11:21.061Z
+BASE_OAMP_STATUS_STDOUT_END
+CURRENT_OAMP_STATUS_STDOUT_BEGIN
+instance_id  session_id                            state   last_heartbeat
+probe-agent  2418d906-d238-49e7-8eb9-031a6066eb17  online  2026-09-16T08:11:47.625Z
+CURRENT_OAMP_STATUS_STDOUT_END
+COMPARISON_JSON_BEGIN
+{
+  "methodComparisons": {
+    "agent.register": true,
+    "agent.heartbeat": true,
+    "message.send": true,
+    "message.ack": true,
+    "router.status": true,
+    "router.task_get": true,
+    "router.task_list": true,
+    "agent.deregister": true
+  },
+  "allEightMethodsExistingShapeEqual": true,
+  "baseRouterStatus": {
+    "nodes": [
+      {
+        "instance_id": "probe-agent",
+        "session_id": "<session_id>",
+        "state": "online",
+        "last_heartbeat": "<last_heartbeat>"
+      }
+    ]
+  },
+  "currentRouterStatus": {
+    "nodes": [
+      {
+        "instance_id": "probe-agent",
+        "session_id": "<session_id>",
+        "state": "online",
+        "last_heartbeat": "<last_heartbeat>",
+        "connected": true
+      }
+    ],
+    "generation": "3389ace7-5cd6-470f-9261-8d689b9325c7"
+  },
+  "routerStatusExistingProjectionEqual": true,
+  "baseStatusColumns": [
+    "instance_id",
+    "session_id",
+    "state",
+    "last_heartbeat"
+  ],
+  "currentStatusColumns": [
+    "instance_id",
+    "session_id",
+    "state",
+    "last_heartbeat"
+  ],
+  "statusColumnsEqual": true
+}
+COMPARISON_JSON_END
+```
+
+### 静态边界命令
+
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives diff --name-status 72b659f -- oamp/package.json oamp/src/persist.js
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives diff --check 72b659f -- oamp/src/registry.js oamp/src/router.js oamp/sdk/uds.js
+```
