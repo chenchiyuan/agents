@@ -256,7 +256,8 @@ curl -s $B/api/principals/p1; echo
 curl -s -o /dev/null -w '%{http_code} ' $B/api/principals/nope; curl -s $B/api/principals/nope; echo
 curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":""}'; echo
 curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'; echo
-curl -s -X POST $B/api/principals -H "$H" --data-binary "$(printf '{"principal_id":"bad\u0007id"}')"; echo
+curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":"bad\u0007id"}'; echo   # JSON 转义字面量：可逐字复现
+curl -s -X POST $B/api/principals -H "$H" --data-binary "$(printf '{"principal_id":"bad\u0007id"}')"; echo   # 对照：管道形态把控制字符按字节送入，被 JSON 解析层拦下
 ```
 
 ```
@@ -267,9 +268,10 @@ curl -s -X POST $B/api/principals -H "$H" --data-binary "$(printf '{"principal_i
 {"error":"principal_id 非法（需为非空、<=64 字符的可打印 ASCII）","code":"INVALID_PARAM"}
 {"error":"principal_id 非法（需为非空、<=64 字符的可打印 ASCII）","code":"INVALID_PARAM"}
 {"error":"principal_id 非法（需为非空、<=64 字符的可打印 ASCII）","code":"INVALID_PARAM"}
+{"error":"请求体非法 JSON: Bad control character in string literal in JSON at position 20 (line 1 column 21)","code":"INVALID_PARAM"}
 ```
 
-（幂等：两次注册 `created_at` 恒为 1789569540634、`last_seen_at` 前移；按 id 查询前移 `last_seen_at`；查询不建条目见 404 复跑；未注册 requester 的按需建立见 §3 第 5 条。）
+（前两行 = 空 / 65 字符；第三行 = 含控制字符（`\u0007` JSON 转义字面量，走形态校验）；第四行 = 同一控制字符按**字节**送入（管道形态），属既有 JSON 解析层的 400（`请求体非法 JSON`），非本 PR 新增路径。幂等：两次注册 `created_at` 恒为 1789569540634、`last_seen_at` 前移；按 id 查询前移 `last_seen_at`；查询不建条目见 404 复跑；未注册 requester 的按需建立见 §3 第 5 条。）
 
 ### 3 F02 / F14 派发归属与自派发
 
