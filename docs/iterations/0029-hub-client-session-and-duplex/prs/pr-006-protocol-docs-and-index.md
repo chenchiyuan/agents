@@ -496,12 +496,22 @@ numstat 空 = 未修改
 ```
 
 ```bash
-git -C $WS status --short; echo "status 空 = 无未提交改动（既有未跟踪 clarifications/ 亦无）"
+git -C $WS status --short --untracked-files=no; echo "已跟踪文件零未提交改动（以上为空）"
 ```
 
 ```
-status 空 = 无未提交改动（既有未跟踪 clarifications/ 亦无）
+已跟踪文件零未提交改动（以上为空）
 ```
+
+```bash
+git -C $WS status --short
+```
+
+```
+?? docs/iterations/0029-hub-client-session-and-duplex/clarifications/verify-20260916-235108-pr-006-protocol-docs-and-index.md
+```
+
+（唯一未跟踪项 = **独立验收者**写入本工作区的验收报告（`clarifications/`），属本 PR 明许的既有未跟踪面；本 PR 自身零未跟踪产物。）
 
 ### AC10 条文与行为一致（反向验证：等待到超时后仍非终态、`error` 空、`exit_code` 未变）
 
