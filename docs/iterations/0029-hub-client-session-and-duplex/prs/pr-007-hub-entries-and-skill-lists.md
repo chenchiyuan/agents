@@ -62,10 +62,10 @@
 
 | # | 验收标准（摘要） | 结果 | 判据出处 |
 |---|---|---|---|
-| 1 | `ENTRIES` 恰 49（29 / 9 / 11）；既有 40 条八字段逐字不变 | **pass** | §1（差异 0 + 非注释删除行 0） |
-| 2 | 层 A 8 条与 pr-005 的 8 条新路由 1:1（`method` / `path` / `args` / `flags` 机械推导） | **pass** | §2（命中 8/8 + §1 字段原文） |
+| 1 | `ENTRIES` 恰 49（29 / 9 / 11）；既有 40 条八字段逐字不变 | **pass**（含 1 处已登记偏差：`runApi` 1 行修改 —— §1.1；实质判据"既有 40 条八字段逐字不变"成立：差异 0） | §1 + §1.1 |
+| 2 | 层 A 8 条与 pr-005 的 8 条新路由 1:1（`method` / `path` / `args` / `flags` 机械推导） | **pass**（`api pickup ack` 的两个 query 字段按既有先例走位置参数 —— §2 的偏差说明；其余 7 条逐字遵守 flags 推导规则） | §2（命中 8/8 + §1 字段原文） |
 | 3 | 层 B 1 条 `router.task_cancel`（`UDS_CALLS` → `uds.taskCancel`，`acceptsAs:false`） | **pass** | §3 |
-| 4 | 逐条真集群可执行、按既有退出码语义返回 | **pass**（口径见 §4.1：`api pickup ack` 的退出码归类正常，业务成功路径受既有 `runApi` 无 POST→query 通道所限） | §4 |
+| 4 | 逐条真集群可执行、按既有退出码语义返回 | **pass**（8 条层 A 新入口全跑通：成功 `0` / 业务失败 `1` / 用法错误 `2` / 连接失败 `3` 四类各一例；层 B 见 §5） | §4 + §4.1 |
 | 5 | `router.task_cancel`：working ⇒ `failed` + `cancelled`；已终态 ⇒ `TASK_ALREADY_FINAL` + 退出码 1 | **pass** | §5 |
 | 6 | `hub doctor` 三段全 `pass`，R3 探针集未扩 | **pass**（`pass:true` / `failed:[]` / R3 = 8 个既有方法） | §6 |
 | 7 | `hub doctor` R1：层 A 条数 = `API.md` §3 行数（29） | **pass** | §6（R1 = 29 = 层 A 条数） |
@@ -99,7 +99,7 @@ agent REGISTERED instance=dev-1 session=b4e95065-c036-41da-9ea3-96c224b33c72 lea
 - 运行态（socket / DB）与被忽略的临时文件都落在工作区内 `.pb-agents/`（`.gitignore` 第 2 行 `.pb-agents/`）⇒ `git status --short` 保持干净（§13）。
 - 取证完成后逐个停止（`Stopped pr007-web` / `pr007-agent` / `pr007-router`）；**未触碰主工作区与主集群进程**。
 
-### §1 AC1：`ENTRIES` 恰 49 条（29 / 9 / 11）+ 既有 40 条八字段逐字不变 + 新增 9 条字段原文 + 删除行全为注释计数行
+### §1 AC1：`ENTRIES` 恰 49 条（29 / 9 / 11）+ 既有 40 条八字段逐字不变 + 新增 9 条字段原文 + 删除行清单（含 §1.1 登记的 1 处修改行）
 
 ```bash
 cd $WS && node --input-type=module <<'NODE'
@@ -116,7 +116,7 @@ NODE
 总数 49 ｜ 层 A 29 ｜ 层 B 9 ｜ 层 C 11
 新增层A {"id":"api.subscribe","cmd":["subscribe"],"method":"GET","path":"/api/subscribe","args":[],"flags":["principal!","epoch","kinds","agents"],"kind":"stream"}
 新增层A {"id":"api.pickup list","cmd":["pickup","list"],"method":"GET","path":"/api/pickup","args":[],"flags":["principal!","epoch"],"kind":"result"}
-新增层A {"id":"api.pickup ack","cmd":["pickup","ack"],"method":"POST","path":"/api/pickup/:call_id/ack","args":["call_id!"],"flags":["principal!","epoch"],"kind":"result"}
+新增层A {"id":"api.pickup ack","cmd":["pickup","ack"],"method":"POST","path":"/api/pickup/:call_id/ack","args":["call_id!","principal!","epoch"],"flags":[],"kind":"result"}
 新增层A {"id":"api.calls wait","cmd":["calls","wait"],"method":"GET","path":"/api/calls/wait","args":[],"flags":["ids!","timeout-ms:int"],"kind":"result"}
 新增层A {"id":"api.calls cancel","cmd":["calls","cancel"],"method":"POST","path":"/api/calls/:call_id/cancel","args":["call_id!"],"flags":[],"kind":"result"}
 新增层A {"id":"api.health","cmd":["health"],"method":"GET","path":"/api/health","args":[],"flags":[],"kind":"result"}
@@ -148,7 +148,7 @@ base 40 条 × 8 字段 ↔ HEAD 中同名 40 条（保持原序）→ 差异 0
 条数：base 40 → HEAD 49（新增 ["api.subscribe","api.pickup list","api.pickup ack","api.calls wait","api.calls cancel","api.health","api.principals create","api.principals get","uds.router.task_cancel"]）
 ```
 
-**`git diff` 原文**（相对 base；删除行**全部**是注释计数行，非注释删除行 = 0 ⇒ 既有 40 条的声明行逐字未动）：
+**`git diff` 原文**（相对 base；删除行 = 8 条注释计数行 + **1 条修改行** ⇒ 见 §1.1 的偏差登记）：
 
 ```bash
 cd $WS && git diff 22f6859 -U0 -- oamp/sdk/surface.js | grep -E '^-[^-]'
@@ -166,9 +166,29 @@ node --check oamp/sdk/surface.js; echo "node --check exit=$?"
 -/** 层 A 条目构造（`run` 由同一工厂产出 ⇒ 21 条的行为只写一处）。 */
 -// ────────────────────────────── 层 B：8 条（`hub uds …` ↔ Router 的 8 个方法）──────────────────────────────
 -/** 三层入口表（恰 40 条；顺序 = 层 A 的 `API.md` §3 行序 ‖ 层 B 表序 ‖ 层 C 表序）。 */
-0
-69	8	oamp/sdk/surface.js
+-    query: spec.method === 'GET' && Object.keys(query).length > 0 ? query : null,
+1
+75	9	oamp/sdk/surface.js
 node --check exit=0
+```
+
+#### §1.1 与 AC1 括注的偏差登记（1 处**修改行**，主 agent 已裁决采纳）
+
+AC1 括注原要求 `surface.js` 的 diff"只含新增行 + 注释计数行"；本 PR 多出**恰好 1 处修改行**（上面 diff 的第 9 条删除行）：既有 `runApi` 的 query 发送条件不再限定 `spec.method === 'GET'`（`git diff` 全文见上）。
+
+**理由（主 agent 裁决，2026-09-17）**：不修则"新交付的 `api pickup ack` 在 hub 面注册了但恒 400"——比不登记更糟（等于广告一条坏路径，且逼接入方裸写 HTTP，触碰 `skill/hub.md` 红线 1）。该行对**既有 40 条严格等价**（机械证明见 §4），故 AC1 的实质判据（既有 40 条八字段逐字不变）不受影响。
+
+```bash
+cd $WS && git diff 22f6859 -U0 -- oamp/sdk/surface.js | grep -B 1 -A 4 "^-    query: spec.method"
+```
+
+```
+@@ -85 +85,4 @@ function runApi(ctx, spec, params) {
+-    query: spec.method === 'GET' && Object.keys(query).length > 0 ? query : null,
++    // 0029（pr-007，主 agent 裁决：采纳"去掉 GET 限定"）→ query 仅在**构造出字段**时发出，方法不限：
++    //   登记里 `in: 'query'` 的字段不分动词（`POST /api/pickup/:call_id/ack` 的 principal / epoch 即此形态）。
++    //   对既有 40 条**严格等价**：非 GET 条目里没有任何一条的登记含 query 字段 ⇒ 它们的 query 恒为空 ⇒ 仍为 null。
++    query: Object.keys(query).length > 0 ? query : null,
 ```
 
 ### §2 AC2：层 A 8 条与 pr-005 登记的 8 条新路由 1:1（`method` + `path` 逐条命中运行侧登记）
@@ -191,7 +211,7 @@ rm oamp/sdk/.surface-base.tmp.mjs
 未命中 = []
 ```
 
-**命名体例与字段推导面**（`cmd` = 既有 `<资源> <动作>` 体例；路径参数 → 位置参数；query / body 字段 → `--<字段名>`（`_` → `-`）；见 §1 的 9 行字段原文）——`hub --help` 的同源投影：
+**命名体例与字段推导面**（`cmd` = 既有 `<资源> <动作>` 体例；路径参数 → 位置参数；query / body 字段 → `--<字段名>`（`_` → `-`）或位置参数——见下方偏差说明；字段原文见 §1）——`hub --help` 的同源投影：
 
 ```bash
 cd $WS && node oamp/bin/hub.js --help | grep -E '层 |api (subscribe|pickup|principals|health|calls wait|calls cancel)|uds router.task_cancel'
@@ -201,7 +221,7 @@ cd $WS && node oamp/bin/hub.js --help | grep -E '层 |api (subscribe|pickup|prin
 层 A · api（29 条）
   hub api subscribe [--principal] [--epoch] [--kinds] [--agents]
   hub api pickup list [--principal] [--epoch]
-  hub api pickup ack <call_id> [--principal] [--epoch]
+  hub api pickup ack <call_id> <principal> [epoch]
   hub api calls wait [--ids] [--timeout-ms]
   hub api calls cancel <call_id>
   hub api health
@@ -211,6 +231,8 @@ cd $WS && node oamp/bin/hub.js --help | grep -E '层 |api (subscribe|pickup|prin
   hub uds router.task_cancel
 层 C · cli（11 条）
 ```
+
+**`api pickup ack` 的两个 query 字段走位置参数（与 AC2 括注的唯一偏差，附先例与实测）**：AC2 括注要求 query / body 字段一律走标志（`--` + 字段名），但既有 `runApi` 的通道规则是"非 GET 条目的 `flags` 一律进 `body`"（GET 才进 query）；若按字面把该路由的两个 query 字段声明成标志，请求会落在"无 query + 有 body"形态上而被服务端 400（§4.1 的改动前对照输出）。故按**既有先例**（`api stream chat` 的 `chat_id`：query 字段声明为位置参数 ⇒ `runApi` 落 `query`）把它声明成位置参数；实测两侧字段都真的送达 query（`principal` 成功 + `epoch` 触发 409 校验，见 §4.1）。其余 7 条新条目**逐字遵守** AC2 括注的 flags 推导规则。
 
 ### §3 AC3：层 B 1 条 `router.task_cancel`（经 `UDS_CALLS` 映射、`acceptsAs:false`，与 `router.*` 同列）
 
@@ -252,28 +274,31 @@ cd $WS && grep -n "udsEntry({ method: 'router" oamp/sdk/surface.js && grep -n "t
 前置：§0 集群在跑；`hub` 命令的工作目录 = `$WS`（§0 的 `cd` 与 `export` 已生效）。
 
 ```bash
-cd $WS && CH=$(curl -s -X POST http://127.0.0.1:8437/api/messages -H 'content-type: application/json' -d '{"project_id":"prj-9cbfd831-98a9-49ec-8c67-95adf3f7618f","agent_id":"dev-1","text":"!true"}' | jq -r '.chat_id')
-run() { echo "\$ $*"; "$@"; echo "exit=$?"; }
+cd $WS && run() { echo "\$ $*"; "$@"; echo "exit=$?"; }
 run node oamp/bin/hub.js api health
 run node oamp/bin/hub.js api principals create --principal-id pr007-cli --kind agent --instance-id pr007-cli
 run node oamp/bin/hub.js api principals get pr007-cli
 run node oamp/bin/hub.js api pickup list --principal pr007-cli
+run node oamp/bin/hub.js api pickup ack task-nope-0001 pr007-cli
 run node oamp/bin/hub.js api calls wait --ids task-nope-0001
 run node oamp/bin/hub.js api calls cancel task-nope-0001
 ```
 
 ```
 $ node oamp/bin/hub.js api health
-{"router":{"ok":true,"detail":"ok","generation":"af92e784-9e3d-440f-95a6-2639cedd6e89"},"web":{"ok":true,"detail":"监听中；持久层可读"},"agents":{"online":2,"reconnecting":0,"offline":1,"total":3},"callable":true,"epoch":"a75b64d1-64d3-40f9-9de8-c5b72ac2e05f.af92e784-9e3d-440f-95a6-2639cedd6e89"}
+{"router":{"ok":true,"detail":"ok","generation":"024cb613-19a0-43e8-af49-49b9d27b2e87"},"web":{"ok":true,"detail":"监听中；持久层可读"},"agents":{"online":1,"reconnecting":0,"offline":0,"total":1},"callable":true,"epoch":"b8c63fb9-7084-4a82-bbd9-fc3e4b23ea7e.024cb613-19a0-43e8-af49-49b9d27b2e87"}
 exit=0
 $ node oamp/bin/hub.js api principals create --principal-id pr007-cli --kind agent --instance-id pr007-cli
-{"principal":{"principal_id":"pr007-cli","kind":"agent","instance_id":"pr007-cli","created_at":1789574891972,"last_seen_at":1789574891972},"epoch":"a75b64d1-64d3-40f9-9de8-c5b72ac2e05f.af92e784-9e3d-440f-95a6-2639cedd6e89"}
+{"principal":{"principal_id":"pr007-cli","kind":"agent","instance_id":"pr007-cli","created_at":1789575308204,"last_seen_at":1789575416813},"epoch":"b8c63fb9-7084-4a82-bbd9-fc3e4b23ea7e.024cb613-19a0-43e8-af49-49b9d27b2e87"}
 exit=0
 $ node oamp/bin/hub.js api principals get pr007-cli
-{"principal":{"principal_id":"pr007-cli","kind":"agent","instance_id":"pr007-cli","created_at":1789574891972,"last_seen_at":1789574892039},"epoch":"a75b64d1-64d3-40f9-9de8-c5b72ac2e05f.af92e784-9e3d-440f-95a6-2639cedd6e89"}
+{"principal":{"principal_id":"pr007-cli","kind":"agent","instance_id":"pr007-cli","created_at":1789575308204,"last_seen_at":1789575416877},"epoch":"b8c63fb9-7084-4a82-bbd9-fc3e4b23ea7e.024cb613-19a0-43e8-af49-49b9d27b2e87"}
 exit=0
 $ node oamp/bin/hub.js api pickup list --principal pr007-cli
 {"pickup":[]}
+exit=0
+$ node oamp/bin/hub.js api pickup ack task-nope-0001 pr007-cli
+{"call_id":"task-nope-0001","acked":true}
 exit=0
 $ node oamp/bin/hub.js api calls wait --ids task-nope-0001
 {"timed_out":false,"timeout_ms":null,"results":[],"unresolved":[{"call_id":"task-nope-0001","state":null}]}
@@ -281,6 +306,20 @@ exit=0
 $ node oamp/bin/hub.js api calls cancel task-nope-0001
 {"code":"NOT_FOUND","error":"call 不存在: task-nope-0001","exit_code":1,"http_status":404}
 exit=1
+```
+
+读数：8 条层 A 新入口中 7 条在此（`api subscribe` 见下；`api pickup ack` 的改动前 400 / 改动后 200 对照见 §4.1）。四类退出码各有一例：
+
+```bash
+cd $WS && node oamp/bin/hub.js api calls wait; echo "exit=$?"
+OAMP_WEB_PORT=9999 node oamp/bin/hub.js api health; echo "exit=$?"
+```
+
+```
+{"code":"USAGE","error":"缺少必填选项: --ids","exit_code":2}
+exit=2
+{"code":"HUB_UNREACHABLE","error":"无法连接 hub（127.0.0.1:9999；服务未运行？）","exit_code":3}
+exit=3
 ```
 
 **流式条目 `api subscribe`**（订阅建立后才推送 ⇒ 用并发触发器制造一个 `agent_state` 事件，`head -1` 取首帧后走既有 EPIPE 收尾路径）：
@@ -306,20 +345,20 @@ node oamp/bin/hub.js cli status; echo "exit=$?"
 ```
 {"routes":29}
 exit=0
+{"calls":[]}
 api calls list exit=0
-["dev-1","dev-2","probe-pr007","web"]
+["dev-1"]
 exit=0
-instance_id  session_id                            state    last_heartbeat
-dev-1        b4e95065-c036-41da-9ea3-96c224b33c72  online   2026-09-16T16:09:24.371Z
-dev-2        214b8ddc-9952-4531-8d20-c782339f1d45  online   2026-09-16T16:09:51.745Z
-probe-pr007  da930387-837a-4434-b50e-87336995cf8a  offline  2026-09-16T16:06:44.343Z
-web          2dcebc78-9377-4898-a63a-ec3b11756743  online   2026-09-16T16:10:06.579Z
+instance_id  session_id                            state   last_heartbeat
+dev-1        2caa5f72-ee05-487c-af0c-e4af80ed1e9e  online  2026-09-16T16:16:01.505Z
 exit=0
 ```
 
-#### §4.1 已知跨 PR 缺口（`api pickup ack` 的 query 通道）——**需主 agent 裁决**
+（本轮隔离集群是**新建**的：实例表只有 `dev-1`，`web` 为发送方身份、不进 `cli status` 的节点清单；会话 id 与心跳时刻为当轮实际值。）
 
-`POST /api/pickup/:call_id/ack`（登记形态）的两个字段 `principal` / `epoch` 在登记里都是 `in: 'query'`，而既有 `runApi`（`oamp/sdk/surface.js:78-88`）**只在 `spec.method === 'GET'` 时把 query 随请求发出**（非 GET 的 `flags` 一律进 `body`）。⇒ 按 AC2 的机械规则（query 字段 → `--<字段名>` 标志）落地的 `api pickup ack` 条目，其请求落在"无 query"形态上，被服务端以 `400 INVALID_PARAM` 拒绝（**入口名解析、请求发出、退出码归类都正常**；不可达的只是该端点的业务成功路径）。本 PR 按 AC1 / AC2 的字面契约落地（追加式 diff），**未擅自改** `runApi`（那属超出文件面描述的请求构造逻辑改动）。最小修复选项：`runApi` 的 `query:` 条件去掉 `spec.method === 'GET'`（1 行；对既有 40 条等价 —— 既有 POST 条目均无 query 字段）。
+#### §4.1 `api pickup ack` 的 query 通道：缺陷 → 修复 → 对既有条目等价证明（主 agent 裁决采纳"方案①"）
+
+**① 缺陷（改动前实测，基线 = 修复前的 `3ed309b`）**：AC2 括注的机械规则（query 字段 → `--<字段名>` 标志）与既有 `runApi` 的通道规则（非 GET 的 `flags` 一律进 `body`、`query` 只在 GET 时随请求发出）冲突 ⇒ 该条目落在"无 query + 有 body"形态上，被服务端 400 拒绝：
 
 ```bash
 cd $WS && node oamp/bin/hub.js api pickup ack task-nope-0001 --principal pr007-cli; echo "exit=$?"
@@ -336,14 +375,84 @@ HTTP 200
 HTTP 400
 ```
 
+**② 修复（两处，均在 `oamp/sdk/surface.js`）**：a. `runApi` 的 query 发送条件去掉 `spec.method === 'GET'`（1 行，hunk 见 §1.1）；b. `api pickup ack` 条目的两个 query 字段改按**既有先例**（`api stream chat` 的 `chat_id`）声明为位置参数（`args: ['call_id','principal','epoch']`，`flags: []`，见 §2 的字段原文）。理由与实测：
+
+```bash
+cd $WS && node oamp/bin/hub.js api pickup ack task-nope-0001 pr007-cli; echo "exit=$?"
+node oamp/bin/hub.js api pickup ack task-nope-0001 pr007-cli bogus-epoch; echo "exit=$?"
+```
+
+```
+{"call_id":"task-nope-0001","acked":true}
+exit=0
+{"code":"STALE_EPOCH","error":"会话代次已过期: bogus-epoch","exit_code":1,"http_status":409}
+exit=1
+```
+
+第一行 = **业务成功路径跑通**（`principal` 经 query 送达 ⇒ 200 + 业务体 `{call_id, acked:true}`，与 §1 的改动前 400 对照）；第二行证明 `epoch` **同样**经 query 送达（触发服务端的代次校验，409 `STALE_EPOCH`）——两个查询字段都真的走 query。
+
+**③ 对既有 40 条严格等价的机械证明**：先证明"非 GET 且登记含 `in:'query'` 字段"的既有条目数 = **0**（⇒ 去掉 GET 限定后它们的 `query` 恒为空、行为不变）：
+
+```bash
+cd $WS && git show 22f6859:oamp/sdk/surface.js > oamp/sdk/.surface-base.tmp.mjs && node --input-type=module 2>/dev/null <<'NODE'
+import { ENTRIES } from './oamp/sdk/surface.js';
+import { ENTRIES as BASE } from './oamp/sdk/.surface-base.tmp.mjs';
+import { createApiRoutes } from './oamp/src/web.js';
+const shape = (p) => p.split(/[?#]/)[0].replace(/<[^>]*>/g, ':').replace(/:[^/]*/g, ':');
+const bySig = new Map(createApiRoutes({}).map((r) => [`${r.method} ${shape(r.path)}`, r]));
+const scan = (list, label) => {
+  const rows = list.filter((e) => e.layer === 'api' && e.method !== 'GET').map((e) => {
+    const r = bySig.get(`${e.method} ${shape(e.path)}`);
+    return { id: e.id, method: e.method, path: e.path, queryFields: r ? (r.params || []).filter((p) => p.in === 'query').map((p) => p.name) : null };
+  });
+  const hit = rows.filter((r) => r.queryFields !== null && r.queryFields.length > 0);
+  console.log(`【${label}】非 GET 层 A 条目 ${rows.length} 条 ｜ 其中登记含 in:'query' 字段的 = ${hit.length} 条 ${JSON.stringify(hit)}`);
+};
+scan(BASE, '既有 40 条（base 22f6859）');
+scan(ENTRIES, '当前 49 条（含新增 9 条）');
+NODE
+rm oamp/sdk/.surface-base.tmp.mjs
+```
+
+```
+【既有 40 条（base 22f6859）】非 GET 层 A 条目 8 条 ｜ 其中登记含 in:'query' 字段的 = 0 条 []
+【当前 49 条（含新增 9 条）】非 GET 层 A 条目 11 条 ｜ 其中登记含 in:'query' 字段的 = 1 条 [{"id":"api.pickup ack","method":"POST","path":"/api/pickup/:call_id/ack","queryFields":["principal","epoch"]}]
+```
+
+再用**真集群前后实跑**同一组既有条目命令，逐条比对：改动前基线在修复前（`3ed309b`）捕获、改动后在同一隔离集群上重跑（同一 socket / 端口 / DB）：
+
+```bash
+cd $WS && export OAMP_SOCKET=.pb-agents/pr007/router.sock OAMP_DB=.pb-agents/pr007/sql.db OAMP_WEB_PORT=8437
+B=.pb-agents/pr007/before A=.pb-agents/pr007/after2
+run() { n="$1"; shift; node oamp/bin/hub.js "$@" > $A/$n.txt 2>&1; echo "exit=$?" >> $A/$n.txt; }
+run docs api docs; run callslist api calls list; run status uds router.status; run clistatus cli status; run doctor doctor
+for f in docs callslist status clistatus doctor; do printf '%s: ' "$f"; diff -q $B/$f.txt $A/$f.txt > /dev/null && echo "逐字节相同" || echo "仅时变字段（last_heartbeat）差异"; done
+diff <(head -1 $B/status.txt | jq -c '[.nodes[]|{instance_id,session_id,state,connected}]') <(head -1 $A/status.txt | jq -c '[.nodes[]|{instance_id,session_id,state,connected}]') && echo "router.status 归一化后 = 逐字节相同"
+diff <(sed -n '2p' $B/clistatus.txt | awk '{print $1,$2,$3}') <(sed -n '2p' $A/clistatus.txt | awk '{print $1,$2,$3}') && echo "cli status 归一化后 = 逐字节相同"
+```
+
+```
+docs: 逐字节相同
+callslist: 逐字节相同
+status: 仅时变字段（last_heartbeat）差异
+clistatus: 仅时变字段（last_heartbeat）差异
+doctor: 逐字节相同
+router.status 归一化后 = 逐字节相同
+cli status 归一化后 = 逐字节相同
+```
+
+读数：`api docs`（29 条路由元数据全文）、`api calls list`、`hub doctor` 三段报告**逐字节相同**；`uds router.status` 与 `cli status` 只差 `last_heartbeat`（心跳时刻，两次运行相隔 30s），去掉该时变字段后**逐字节相同**；四条的**退出码**均不变（`exit=0`）。⇒ 该 1 行修改对既有条目等价。
+
+**④ 本次登记的两处偏差**（均不改 PR 文件的验收标准文字）：AC1 括注的"只含新增行 + 注释计数行"→ 多 1 处修改行（§1.1）；AC2 括注的"query 字段走标志"→ 仅 `api pickup ack` 一条按其两个 query 字段声明为位置参数（§2，附既有先例 `api stream chat`）。两处的共同判据都是"该端点的业务成功路径必须真通"（改动前 400 / 改动后 200，见 ①②）。
+
 ### §5 AC5：`hub uds router.task_cancel` 两条判据（working ⇒ `failed` + `cancelled`；已终态 ⇒ `TASK_ALREADY_FINAL` + 退出码 1）
 
 车辆：`!sleep 45`（shell 分支，不触发模型调用）⇒ 任务处于 `working` 时取消。
 
 ```bash
-cd $WS && CH=chat-b6027b50-c200-4635-8baa-517033766c14
-CALL=$(curl -s -X POST http://127.0.0.1:8437/api/messages -H 'content-type: application/json' -d "{\"chat_id\":\"$CH\",\"agent_id\":\"dev-1\",\"text\":\"!sleep 45\"}" | jq -r '.task_id')
-echo "CALL=$CALL"
+cd $WS && PRJ=$(curl -s http://127.0.0.1:8437/api/projects | jq -r '.projects[0].project_id') && echo "PRJ=$PRJ"
+CH=$(curl -s -X POST http://127.0.0.1:8437/api/messages -H 'content-type: application/json' -d "{\"project_id\":\"$PRJ\",\"agent_id\":\"dev-1\",\"text\":\"!true\"}" | jq -r '.chat_id') && echo "CH=$CH"
+CALL=$(curl -s -X POST http://127.0.0.1:8437/api/messages -H 'content-type: application/json' -d "{\"chat_id\":\"$CH\",\"agent_id\":\"dev-1\",\"text\":\"!sleep 45\"}" | jq -r '.task_id') && echo "CALL=$CALL"
 node oamp/bin/hub.js uds router.task_get --params "{\"task_id\":\"$CALL\"}" | jq -c '.task.state'
 node oamp/bin/hub.js uds router.task_cancel --params "{\"task_id\":\"$CALL\"}" | jq -c '{state:.task.state, error:.task.result.error}'; echo "exit=$?"
 node oamp/bin/hub.js api calls get "$CALL" | jq -c '{state,error}'
@@ -352,7 +461,9 @@ node oamp/bin/hub.js api calls get "$CALL" | jq -c '{state,error}'
 ```
 
 ```
-CALL=task-d9abff82-9515-4cfb-ba48-ee366766d2ff
+PRJ=prj-9cbfd831-98a9-49ec-8c67-95adf3f7618f
+CH=chat-72cafadb-efd4-4f3d-8bf9-41963d4b719b
+CALL=task-1c677761-09d8-4b89-b231-47122f635dd9
 "working"
 {"state":"failed","error":"cancelled"}
 exit=0
@@ -370,7 +481,7 @@ exit=1
 cd $WS && node oamp/bin/hub.js doctor > .pb-agents/pr007/doctor.json; echo "doctor exit=$?"
 jq -c '{pass, total:(.items|length), R1:([.items[]|select(.id|startswith("R1"))]|length), R2:([.items[]|select(.id|startswith("R2"))]|length), R3:([.items[]|select(.id|startswith("R3"))]|length), failed:[.items[]|select(.ok==false)]}' .pb-agents/pr007/doctor.json
 jq -r '[.items[]|select(.id|startswith("R3"))|.id] | join(", ")' .pb-agents/pr007/doctor.json
-jq -r '.items[]|select(.id|startswith("R3") and (.id|test("task_cancel")))' .pb-agents/pr007/doctor.json
+jq -r '.items[]|select(.id|startswith("R3") and test("task_cancel"))|.id' .pb-agents/pr007/doctor.json; echo "(R3 task_cancel 行数=$(jq -r '[.items[]|select(.id|startswith("R3") and test("task_cancel"))]|length' .pb-agents/pr007/doctor.json))"
 node --input-type=module -e "import {ENTRIES} from './oamp/sdk/surface.js'; console.log('层 A 条数 =', ENTRIES.filter((e)=>e.layer==='api').length)"
 grep -cE '^\| [0-9]+ \| `(GET|POST) /api/' oamp/API.md
 ```
@@ -379,6 +490,7 @@ grep -cE '^\| [0-9]+ \| `(GET|POST) /api/' oamp/API.md
 doctor exit=0
 {"pass":true,"total":66,"R1":29,"R2":29,"R3":8,"failed":[]}
 R3 agent.register, R3 agent.heartbeat, R3 agent.deregister, R3 message.send, R3 message.ack, R3 router.status, R3 router.task_get, R3 router.task_list
+(R3 task_cancel 行数=0)
 层 A 条数 = 29
 29
 ```
