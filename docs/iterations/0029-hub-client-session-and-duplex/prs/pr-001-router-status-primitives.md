@@ -52,4 +52,18 @@ Router 进程与 UDS 会话层的全部本次改动集中在一个 PR（三个�
 
 ## 验收证据
 
-（本 PR 执行时填写：`router.status` 两次调用输出（`generation` / 节点 `connected`）+ `task_list` 条目的 `started_at` + `task_cancel` 的四条判据输出（生效 / 重复 / 不存在 / 参数非法）+ 既有 8 方法回归比对 + `oamp status` 输出。载体约定见 `architecture.md` §5.3 与本迭代 `status.md` 的取证体例。）
+- 基线：`HEAD=7fe0c1edf5ab8c37d00595eec244640f66c4a04a`，`git status --short` 为空；基线命令族原始输出已在实现前执行。
+- `generation` / `connected`：
+  - Router 首次启动两次 `router.status` 的 `generation` 均为 `012006d0-06ab-48ce-83d0-01db223a0c61`；在线节点为 `state=online, connected=true`。
+  - `SIGKILL` Agent 后同一 Router 返回 `state=online, connected=false`，generation 不变；Agent 重连后返回 `state=online, connected=true`。
+  - Router 重启后 generation 变为 `04eaf4e0-a7ce-426a-864a-821647e71cb4`，再次重启后的最终进程为 `d02d26fc-66ec-4bdd-9f32-1e0243d34f39`；进程内稳定、跨重启变化成立。注册表一次性原语实跑还验证 `markOffline()` 返回 `state=offline, connected=false`。
+- `started_at`：取消前的 `router.task_list` 返回 `state=working, created_at=1789544686881, started_at=1789544686882`；重复 working 更新不会覆盖。未开始任务的一次性注册表实跑返回 `started_at=null`。
+- `router.task_cancel`（经 `sdk/uds.js` `taskCancel`）：
+  - 生效：`state=failed`，`result={"error":"cancelled","at":1789544926372}`；随后 `task_get` 即返回同一 failed 任务。
+  - 重复：`{"code":"TASK_ALREADY_FINAL","message":"task_cancel: task already final"}`。
+  - 不存在：`{"code":"TASK_NOT_FOUND","message":"task_cancel: task not found"}`。
+  - 缺失/非法参数：均为 `{"code":"INVALID_PARAMS","message":"task_cancel 需携带合法 task_id"}`。
+- 终态与幂等：一次性注册表实跑得到的正常状态集合为 `submitted/completed/failed`（working 仅作为中间态），未出现第五种状态；重复 `finishTask` 返回 `TASK_ALREADY_FINAL`，原终态与结果未改写。
+- SDK 会话方法实跑返回：`["register","heartbeat","send","ack","status","taskGet","taskList","taskCancel","deregister","close"]`；既有 8 个方法签名与 `RpcPeer` 请求路径未改动。
+- 既有 8 方法回归：实现前后同一命令族的 `agent.register`、`agent.heartbeat`、`message.send`、`message.ack`、`agent.deregister`、`router.status`、`router.task_get`、`router.task_list` 均已实跑；除本 PR 明确追加的 `generation`、`connected`、`started_at` 与第 9 方法外，返回体/错误体一致。基线与更新后 `message.ack` 均为既有 `UNKNOWN_MESSAGE`，`oamp status` 表头仍为 `instance_id session_id state last_heartbeat`。
+- 依赖/配置/持久化：`git diff --stat` 仅含 `oamp/src/registry.js`、`oamp/src/router.js`、`oamp/sdk/uds.js` 三个实现文件；无依赖、env、配置键或 DB 改动；`git diff --check` 通过。

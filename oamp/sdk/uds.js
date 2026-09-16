@@ -1,6 +1,6 @@
 // sdk/uds.js — Router UDS 通道（层 B；F03 / F08 / F09 / G02；architecture §2.2 流 2、§4.1 N-5、§5.1 层 B 表）
-// 会话形态：connect(opts) → { register, heartbeat, send, ack, status, taskGet, taskList, deregister, close }
-//   （8 个 Router 方法 1:1 + close()）；返回值 = JSON-RPC result 原对象（不加信封、不改字段名、不裁剪）。
+// 会话形态：connect(opts) → { register, heartbeat, send, ack, status, taskGet, taskList, taskCancel, deregister, close }
+//   （9 个 Router 方法 1:1 + close()）；返回值 = JSON-RPC result 原对象（不加信封、不改字段名、不裁剪）。
 // 复用而非重建（§2.3）：帧编解码全经 src/rpc.js 的 RpcPeer；socket 路径全经 src/config.js 的
 //   loadConfig(env).socketPath —— SDK 内无第二份帧编解码、无第二处默认路径。
 // 失败统一为 pr-001 的 HubError（errors.js 归类表）：连接建立失败 / 超时 → 3；上游 JSON-RPC 错误 → 1。
@@ -92,7 +92,7 @@ function toHubError(err) {
  * @param {string} [opts.socketPath] 显式 socket 路径（优先；给出即不读 env、不解析配置）
  * @param {object} [opts.env]        缺省路径时交给 loadConfig 的环境（默认 process.env）
  * @param {(message: object) => void} [opts.onDeliver] 收到 message.deliver 时取消息的钩子（受理由调用方显式 ack()）
- * @returns {Promise<object>} 会话：8 个方法 + close()
+ * @returns {Promise<object>} 会话：9 个方法 + close()
  */
 export async function connect(opts = {}) {
   const socketPath = await resolveSocketPath(opts);
@@ -166,6 +166,11 @@ export async function connect(opts = {}) {
     /** router.task_list → {tasks}；查询对象原样透传。 */
     taskList(query) {
       return request('router.task_list', query);
+    },
+
+    /** router.task_cancel → {task}；不校验调用方身份。 */
+    taskCancel(taskId) {
+      return request('router.task_cancel', { task_id: taskId });
     },
     /** agent.deregister → {removed:true}；身份由会话合成。 */
     deregister() {
