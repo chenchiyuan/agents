@@ -26,6 +26,9 @@ export function newSessionId() {
   return randomUUID();
 }
 
+/** Router 进程代次标识：模块加载时生成一次，同一进程内恒定。 */
+export const generation = randomUUID();
+
 /**
  * createRegistry — 注册表工厂。
  * 条目 schema（§5.2）：
@@ -149,7 +152,7 @@ export function createRegistry() {
     return { changed: true, connId: oldConnId };
   }
 
-  /** §4.4 router.status：按 instance_id 排序的 4 字段快照投影（不暴露连接句柄）。 */
+  /** §4.4 router.status：按 instance_id 排序的 5 字段快照投影（不暴露连接句柄）。 */
   function snapshot() {
     const nodes = [];
     for (const entry of entries.values()) {
@@ -158,6 +161,7 @@ export function createRegistry() {
         session_id: entry.session_id,
         state: entry.state,
         last_heartbeat: entry.last_heartbeat,
+        connected: entry.connId !== null,
       });
     }
     nodes.sort((a, b) => (a.instance_id < b.instance_id ? -1 : a.instance_id > b.instance_id ? 1 : 0));
@@ -192,7 +196,7 @@ export function createRegistry() {
 
   // ---- 任务表（demo 扩展：主 agent 指派任务 → agent 执行 → 进度/明细跟踪）----
 
-  /** 任务条目 schema：{ task_id, from, to, state, label, created_at, updated_at, updates[], result|null } */
+  /** 任务条目 schema：{ task_id, from, to, state, label, created_at, started_at, updated_at, updates[], result|null } */
   function createTask({ taskId, from, to, now, label, messageId = null }) {
     if (tasks.has(taskId)) return { task: tasks.get(taskId), created: false };
     const task = {
@@ -203,6 +207,7 @@ export function createRegistry() {
       label: label || null,
       message_id: messageId,
       created_at: now,
+      started_at: null,
       updated_at: now,
       updates: [],
       updatesTruncated: false,
@@ -226,6 +231,7 @@ export function createRegistry() {
     }
     task.updated_at = at;
     if (state === 'working' && task.state !== 'completed' && task.state !== 'failed') {
+      if (task.started_at === null) task.started_at = at;
       task.state = 'working';
     }
     return { task };
@@ -263,6 +269,7 @@ export function createRegistry() {
         state: task.state,
         label: task.label,
         created_at: task.created_at,
+        started_at: task.started_at,
         updated_at: task.updated_at,
         updates: task.updates.length,
         updatesTruncated: task.updatesTruncated,
