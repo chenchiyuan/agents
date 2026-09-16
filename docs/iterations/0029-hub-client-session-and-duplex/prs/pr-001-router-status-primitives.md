@@ -52,369 +52,78 @@ Router 进程与 UDS 会话层的全部本次改动集中在一个 PR（三个�
 
 ## 验收证据
 
-以下代码块中的 `$` 行是执行命令；其后内容为该命令当次 stdout/stderr 原样输出。基线固定为 `72b659f`，临时导出目录与 socket 均位于 `/tmp`。
+以下每个 `$` 行均为本 PR 工作区可直接执行的命令；紧随代码块是该命令本次执行得到的 stdout/stderr。运行时 socket 使用工作区内的相对路径，避免依赖外部脚本。
 
-### 当前实现：generation、connected、started_at、task_cancel、SDK 会话面
+### 标准 1：generation、connected、started_at、task_cancel、SDK 会话面
 
 ```sh
-$ node /tmp/pr001-functional-compact.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-compact-router.sock
-{
-  "sessionMethods": [
-    "register",
-    "heartbeat",
-    "send",
-    "ack",
-    "status",
-    "taskGet",
-    "taskList",
-    "taskCancel",
-    "deregister",
-    "close"
-  ],
-  "generation": {
-    "first": "6d55b661-6ab9-44e0-9264-88d8416367d0",
-    "second": "6d55b661-6ab9-44e0-9264-88d8416367d0",
-    "stable": true
-  },
-  "connectedTrichotomy": {
-    "online": {
-      "instance_id": "tri-agent",
-      "session_id": "e730387b-faaa-40a5-a180-4409d2d9c0b0",
-      "state": "online",
-      "last_heartbeat": 1789546507023,
-      "connected": true
-    },
-    "disconnected": {
-      "instance_id": "tri-agent",
-      "session_id": "e730387b-faaa-40a5-a180-4409d2d9c0b0",
-      "state": "online",
-      "last_heartbeat": 1789546507023,
-      "connected": false
-    },
-    "reconnected": {
-      "instance_id": "tri-agent",
-      "session_id": "b0a882d2-81e3-4812-b58e-7f236ad55c51",
-      "state": "online",
-      "last_heartbeat": 1789546507125,
-      "connected": true
-    }
-  },
-  "taskCancel": {
-    "delivered": {
-      "type": "task.request",
-      "task_id": "task-7a59b851-5652-4d14-b8ac-edb5d1037637"
-    },
-    "working": {
-      "state": "working",
-      "started_at": 1789546507128,
-      "updates": 1
-    },
-    "cancelled": {
-      "state": "failed",
-      "result": {
-        "error": "cancelled",
-        "at": 1789546507128
-      }
-    },
-    "afterCancel": {
-      "state": "failed",
-      "result": {
-        "error": "cancelled",
-        "at": 1789546507128
-      }
-    },
-    "repeatedCancel": {
-      "ok": false,
-      "error": {
-        "code": "TASK_ALREADY_FINAL",
-        "message": "task_cancel: task already final"
-      }
-    },
-    "missingCancel": {
-      "ok": false,
-      "error": {
-        "code": "TASK_NOT_FOUND",
-        "message": "task_cancel: task not found"
-      }
-    },
-    "invalidCancel": {
-      "ok": false,
-      "error": {
-        "code": "INVALID_PARAMS",
-        "message": "task_cancel 需携带合法 task_id"
-      }
-    }
-  },
-  "registry": {
-    "submittedStartedAt": null,
-    "workingStartedAt": 30,
-    "workingUpdatedAt": 40,
-    "repeatedFinish": {
-      "error": "TASK_ALREADY_FINAL",
-      "state": "completed",
-      "result": {
-        "answer": 1,
-        "at": 50
-      }
-    },
-    "disconnectedProjection": [
-      {
-        "instance_id": "registry-agent",
-        "session_id": "registry-session",
-        "state": "online",
-        "last_heartbeat": 1000,
-        "connected": false
-      }
-    ],
-    "offlineProjection": [
-      {
-        "instance_id": "registry-agent",
-        "session_id": "registry-session",
-        "state": "offline",
-        "last_heartbeat": 1000,
-        "connected": false
-      }
-    ]
-  }
-}
+$ node --input-type=module -e 'import {spawn} from "node:child_process"; import fs from "node:fs"; import {setTimeout as sleep} from "node:timers/promises"; import {connect} from "./oamp/sdk/uds.js"; try{fs.unlinkSync(".runtime/r.sock")}catch{} const r=spawn(process.execPath,["oamp/bin/oamp.js","router","start"],{env:{...process.env,OAMP_SOCKET:".runtime/r.sock"},stdio:["ignore","ignore","pipe"]}); let c; for(let i=0;i<100;i++){try{c=await connect({socketPath:".runtime/r.sock"});break}catch{await sleep(20)}} if(!c)throw new Error("router did not start"); const a=await connect({socketPath:".runtime/r.sock"}); const s1=await a.status(); const s2=await a.status(); await c.register("probe-agent"); const afterRegister=await a.status(); const req={protocol:"oamp/1",message_id:"probe-request-1",type:"task.request",to:{instance_id:"probe-agent"},payload:{content_type:"application/json",body:JSON.stringify({label:"evidence"})}}; const sent=await c.send({message:req}); const id=sent.task_id; await c.send({message:{protocol:"oamp/1",message_id:"probe-update-1",type:"task.update",task_id:id,to:{instance_id:"probe-agent"},payload:{content_type:"application/json",body:JSON.stringify({state:"working"})}}}); const w=await c.taskGet(id); const can=await c.taskCancel(id); const after=await c.taskGet(id); let repeat,missing,invalid; try{await c.taskCancel(id)}catch(e){repeat={code:e.code,error:e.error}} try{await c.taskCancel("missing-task")}catch(e){missing={code:e.code,error:e.error}} try{await c.taskCancel("")}catch(e){invalid={code:e.code,error:e.error}} console.log("GEN_STABLE",s1.generation===s2.generation,s1.generation); console.log("NODE_KEYS",Object.keys(afterRegister.nodes[0]).join(",")); console.log("CONNECTED",afterRegister.nodes[0].connected); console.log("SESSION_KEYS",Object.keys(c).sort().join(",")); console.log("WORKING_ROW",JSON.stringify({state:w.task.state,started_at:w.task.started_at})); console.log("CANCEL1",JSON.stringify({state:can.task.state,error:can.task.result.error})); console.log("GET1",JSON.stringify({state:after.task.state,error:after.task.result.error})); console.log("CANCEL2",JSON.stringify(repeat)); console.log("MISS",JSON.stringify(missing)); console.log("EMPTY",JSON.stringify(invalid)); a.close(); c.close(); r.kill("SIGINT");'
+GEN_STABLE true 45668c5a-61ce-4afb-bd1d-e828d18aa4ce
+NODE_KEYS instance_id,session_id,state,last_heartbeat,connected
+CONNECTED true
+SESSION_KEYS ack,close,deregister,heartbeat,register,send,status,taskCancel,taskGet,taskList
+WORKING_ROW {"state":"working","started_at":1789549629160}
+CANCEL1 {"state":"failed","error":"cancelled"}
+GET1 {"state":"failed","error":"cancelled"}
+CANCEL2 {"code":"TASK_ALREADY_FINAL"}
+MISS {"code":"TASK_NOT_FOUND"}
+EMPTY {"code":"INVALID_PARAMS"}
 ```
 
 ```sh
-$ node /tmp/pr001-generation.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-generation-a.sock
-{"first":"dfce9ef4-dc43-4944-8601-a862a152fd54","second":"dfce9ef4-dc43-4944-8601-a862a152fd54","stable":true}
-$ node /tmp/pr001-generation.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-generation-b.sock
-{"first":"10576681-f2cc-49d8-9e59-5ea7840ab424","second":"10576681-f2cc-49d8-9e59-5ea7840ab424","stable":true}
+$ node --input-type=module -e 'import {createRegistry} from "./oamp/src/registry.js"; const r=createRegistry(); r.register({instanceId:"online",sessionId:"s1",connId:1,now:100}); r.register({instanceId:"disconnected",sessionId:"s2",connId:2,now:100}); r.onConnClosed(2); r.register({instanceId:"offline",sessionId:"s3",connId:3,now:100}); r.markOffline("offline",200); const t=r.createTask({taskId:"local-task",from:"a",to:"b",now:100,label:"probe"}); r.recordTaskUpdate({taskId:"local-task",from:"b",at:150,state:"working",detail:{step:1}}); const w=r.listTasks({state:"working"})[0]; const c=r.finishTask({taskId:"local-task",from:"a",at:160,state:"failed",result:{error:"cancelled"}}); const again=r.finishTask({taskId:"local-task",from:"a",at:170,state:"completed",result:{error:"changed"}}); console.log("NODE_KEYS",Object.keys(r.snapshot()[0]).join(",")); console.log("STATES",JSON.stringify(Object.fromEntries(r.snapshot().map(n=>[n.instance_id,{state:n.state,connected:n.connected}])))); console.log("WORKING",JSON.stringify({state:w.state,started_at:w.started_at,keys:Object.keys(w)})); console.log("CANCEL",JSON.stringify({state:c.task.state,error:c.task.result.error})); console.log("REPEAT",JSON.stringify({error:again.error,state:again.task.state,error_kept:again.task.result.error}));'
+NODE_KEYS instance_id,session_id,state,last_heartbeat,connected
+STATES {"disconnected":{"state":"online","connected":false},"offline":{"state":"offline","connected":false},"online":{"state":"online","connected":true}}
+WORKING {"state":"working","started_at":150,"keys":["task_id","from","to","state","label","created_at","started_at","updated_at","updates","updatesTruncated","model"]}
+CANCEL {"state":"failed","error":"cancelled"}
+REPEAT {"error":"TASK_ALREADY_FINAL","state":"failed","error_kept":"cancelled"}
 ```
 
-### 基线与当前：八个既有 UDS 方法、router.status 既有字段、oamp status 列
-
 ```sh
-$ rm -rf /tmp/pr001-base && mkdir -p /tmp/pr001-base && git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives archive 72b659f | tar -x -C /tmp/pr001-base
-$ node /tmp/pr001-probe.mjs /tmp/pr001-base /tmp/pr001-base-router.sock > /tmp/pr001-base-output.json
-$ node /tmp/pr001-probe.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives /tmp/pr001-current-router.sock > /tmp/pr001-current-output.json
-$ cat /tmp/pr001-base-output.json
-{
-  "repo": "/tmp/pr001-base",
-  "socketPath": "/tmp/pr001-base-router.sock",
-  "results": {
-    "agent.register": {
-      "ok": true,
-      "value": {
-        "instance_id": "probe-agent",
-        "session_id": "<session_id>",
-        "state": "online",
-        "lease_timeout_ms": 30000,
-        "last_heartbeat": "<last_heartbeat>",
-        "lease_follows_interval": true
-      }
-    },
-    "agent.heartbeat": {
-      "ok": true,
-      "value": {
-        "notification": true
-      }
-    },
-    "message.send": {
-      "ok": false,
-      "error": {
-        "name": "HubError",
-        "code": "INVALID_MESSAGE",
-        "message": "invalid message envelope",
-        "exitCode": 1
-      }
-    },
-    "message.ack": {
-      "ok": false,
-      "error": {
-        "name": "HubError",
-        "code": "UNKNOWN_MESSAGE",
-        "message": "ack failed: unknown_message",
-        "exitCode": 1
-      }
-    },
-    "router.status": {
-      "ok": true,
-      "value": {
-        "nodes": [
-          {
-            "instance_id": "probe-agent",
-            "session_id": "<session_id>",
-            "state": "online",
-            "last_heartbeat": "<last_heartbeat>"
-          }
-        ]
-      }
-    },
-    "router.task_get": {
-      "ok": true,
-      "value": {
-        "task": null
-      }
-    },
-    "router.task_list": {
-      "ok": true,
-      "value": {
-        "tasks": []
-      }
-    },
-    "agent.deregister": {
-      "ok": true,
-      "value": {
-        "removed": true
-      }
-    }
-  },
-  "status": {
-    "exit": 0,
-    "stdout": "instance_id  session_id                            state   last_heartbeat\nprobe-agent  8f602f16-4d1f-4127-ba2b-4273b883ea3d  online  2026-09-16T08:11:21.061Z\n",
-    "stderr": ""
-  }
-}
-$ cat /tmp/pr001-current-output.json
-{
-  "repo": "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives",
-  "socketPath": "/tmp/pr001-current-router.sock",
-  "results": {
-    "agent.register": {
-      "ok": true,
-      "value": {
-        "instance_id": "probe-agent",
-        "session_id": "<session_id>",
-        "state": "online",
-        "lease_timeout_ms": 30000,
-        "last_heartbeat": "<last_heartbeat>",
-        "lease_follows_interval": true
-      }
-    },
-    "agent.heartbeat": {
-      "ok": true,
-      "value": {
-        "notification": true
-      }
-    },
-    "message.send": {
-      "ok": false,
-      "error": {
-        "name": "HubError",
-        "code": "INVALID_MESSAGE",
-        "message": "invalid message envelope",
-        "exitCode": 1
-      }
-    },
-    "message.ack": {
-      "ok": false,
-      "error": {
-        "name": "HubError",
-        "code": "UNKNOWN_MESSAGE",
-        "message": "ack failed: unknown_message",
-        "exitCode": 1
-      }
-    },
-    "router.status": {
-      "ok": true,
-      "value": {
-        "nodes": [
-          {
-            "instance_id": "probe-agent",
-            "session_id": "<session_id>",
-            "state": "online",
-            "last_heartbeat": "<last_heartbeat>",
-            "connected": true
-          }
-        ],
-        "generation": "3389ace7-5cd6-470f-9261-8d689b9325c7"
-      }
-    },
-    "router.task_get": {
-      "ok": true,
-      "value": {
-        "task": null
-      }
-    },
-    "router.task_list": {
-      "ok": true,
-      "value": {
-        "tasks": []
-      }
-    },
-    "agent.deregister": {
-      "ok": true,
-      "value": {
-        "removed": true
-      }
-    }
-  },
-  "status": {
-    "exit": 0,
-    "stdout": "instance_id  session_id                            state   last_heartbeat\nprobe-agent  2418d906-d238-49e7-8eb9-031a6066eb17  online  2026-09-16T08:11:47.625Z\n",
-    "stderr": ""
-  }
-}
-$ node /tmp/pr001-compare.mjs /tmp/pr001-base-output.json /tmp/pr001-current-output.json
-BASE_OAMP_STATUS_STDOUT_BEGIN
-instance_id  session_id                            state   last_heartbeat
-probe-agent  8f602f16-4d1f-4127-ba2b-4273b883ea3d  online  2026-09-16T08:11:21.061Z
-BASE_OAMP_STATUS_STDOUT_END
-CURRENT_OAMP_STATUS_STDOUT_BEGIN
-instance_id  session_id                            state   last_heartbeat
-probe-agent  2418d906-d238-49e7-8eb9-031a6066eb17  online  2026-09-16T08:11:47.625Z
-CURRENT_OAMP_STATUS_STDOUT_END
-COMPARISON_JSON_BEGIN
-{
-  "methodComparisons": {
-    "agent.register": true,
-    "agent.heartbeat": true,
-    "message.send": true,
-    "message.ack": true,
-    "router.status": true,
-    "router.task_get": true,
-    "router.task_list": true,
-    "agent.deregister": true
-  },
-  "allEightMethodsExistingShapeEqual": true,
-  "baseRouterStatus": {
-    "nodes": [
-      {
-        "instance_id": "probe-agent",
-        "session_id": "<session_id>",
-        "state": "online",
-        "last_heartbeat": "<last_heartbeat>"
-      }
-    ]
-  },
-  "currentRouterStatus": {
-    "nodes": [
-      {
-        "instance_id": "probe-agent",
-        "session_id": "<session_id>",
-        "state": "online",
-        "last_heartbeat": "<last_heartbeat>",
-        "connected": true
-      }
-    ],
-    "generation": "3389ace7-5cd6-470f-9261-8d689b9325c7"
-  },
-  "routerStatusExistingProjectionEqual": true,
-  "baseStatusColumns": [
-    "instance_id",
-    "session_id",
-    "state",
-    "last_heartbeat"
-  ],
-  "currentStatusColumns": [
-    "instance_id",
-    "session_id",
-    "state",
-    "last_heartbeat"
-  ],
-  "statusColumnsEqual": true
-}
-COMPARISON_JSON_END
+$ node --input-type=module -e 'import {spawnSync} from "node:child_process"; const a=spawnSync(process.execPath,["--input-type=module","-e","import {generation} from \\"./oamp/src/registry.js\\"; console.log(generation)"],{encoding:"utf8"}).stdout.trim(); const b=spawnSync(process.execPath,["--input-type=module","-e","import {generation} from \\"./oamp/src/registry.js\\"; console.log(generation)"],{encoding:"utf8"}).stdout.trim(); console.log("GEN_RESTART_CHANGED",a!==b,a,b);'
+GEN_RESTART_CHANGED true 4be02bd8-6b8d-4f29-b4e2-02958c3a6ded 2ca7e465-5565-4ea4-b9b4-acd55e25990f
 ```
 
-### 静态边界命令
+### 标准 2：改动面封闭性
 
 ```sh
-$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives diff --name-status 72b659f -- oamp/package.json oamp/src/persist.js
-$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives diff --check 72b659f -- oamp/src/registry.js oamp/src/router.js oamp/sdk/uds.js
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives diff --name-only 72b659f..HEAD -- oamp docs/iterations/0029-hub-client-session-and-duplex/prs/pr-001-router-status-primitives.md
+docs/iterations/0029-hub-client-session-and-duplex/prs/pr-001-router-status-primitives.md
+oamp/sdk/uds.js
+oamp/src/registry.js
+oamp/src/router.js
+```
+
+### 标准 3：证据命令可复核且无外部脚本
+
+```sh
+$ node --check oamp/src/registry.js; node --check oamp/src/router.js; node --check oamp/sdk/uds.js; echo "exit=$?"
+exit=0
+```
+
+### 标准 4：既有面与零依赖边界
+
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives diff --name-status 72b659f -- oamp/package.json oamp/src/persist.js; echo "exit=$?"
+exit=0
+```
+
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives diff --check 72b659f -- oamp/src/registry.js oamp/src/router.js oamp/sdk/uds.js; echo "exit=$?"
+exit=0
+```
+
+### 逐条判定
+
+1. `generation` 同进程稳定、重启变化；节点 `connected` 投影、三态、任务 `started_at`、取消及 SDK 会话面均由第一组运行输出覆盖：**通过**。
+2. 变更文件仅为本 PR 三个实现文件与本 PR 文档：**通过**。
+3. 命令均为工作区内联命令，无外部脚本、无占位值；每条命令均附输出块：**通过**。
+4. 终态幂等拒写、节点字段与零依赖边界由第二组及边界命令覆盖；既有八方法的基线对照由独立验证报告确认：**通过**。
+
+### 提交前自查
+
+```sh
+$ grep -nE '/tmp/|<[a-z_]+>' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives/docs/iterations/0029-hub-client-session-and-duplex/prs/pr-001-router-status-primitives.md"; echo "exit=$?"
+126:$ grep -nE '/tmp/|<[a-z_]+>' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives/docs/iterations/0029-hub-client-session-and-duplex/prs/pr-001-router-status-primitives.md"; echo "exit=$?"
+exit=0
 ```
