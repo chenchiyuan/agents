@@ -26,9 +26,9 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **累计槛位释放次数**：4（pr-002、pr-003、pr-001、pr-004 合并）
-- **当前有效上限**：5（`min(3 + 4×3, 5)`，维持硬上限）
-- **已派发总数**：6（+ pr-005 的 planner）
+- **累计槛位释放次数**：6（pr-002、pr-003、pr-001、pr-004、pr-008、pr-005 合并）
+- **当前有效上限**：5（`min(3 + 5×3, 5)`，维持硬上限）
+- **已派发总数**：7（+ pr-006 的 planner+dev 合一，本地 subagent）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -38,10 +38,10 @@
 | pr-002-session-registries.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 | pr-003-sse-transport-additions.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 | pr-004-console-call-stream-stop.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
-| pr-005-web-session-and-call-surface.md | pr-001、pr-002、pr-003 | ⏸ | （派发时创建） | ⬜ | 占用 |
-| pr-006-protocol-docs-and-index.md | pr-005 | ⬜ | （待派发时创建） | ⬜ | 排队(依赖未满足) |
+| pr-005-web-session-and-call-surface.md | pr-001、pr-002、pr-003 | ✅ | (已清理) | ✅ | 已释放 |
+| pr-006-protocol-docs-and-index.md | pr-005 | ⏸ | feat/0029-pr-006-protocol-docs-and-index | ⬜ | 占用 |
 | pr-007-hub-entries-and-skill-lists.md | pr-001-router-status-primitives.md、pr-005-web-session-and-call-surface.md〔**调度附加约束**：还须待 pr-006 合并——见 verify-20260916-153039 缺边〕 | ⬜ | feat/0029-pr-007-hub-entries-and-skill-lists | ⬜ | 排队(依赖未满足) |
-| pr-008-friction-log-completion.md | （无） | ⏸ | （派发时创建） | ⬜ | 占用 |
+| pr-008-friction-log-completion.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 
 ## 派发台账
 
@@ -110,3 +110,5 @@
 - 2026-09-16: **pr-003 独立验收（重验）PASS ⇒ 合并 `f8f382a`**；槛位释放累计 2、有效上限维持 5
 - 2026-09-16: **pr-001 第二次重验 PASS ⇒ 合并 `51eb893`**；槛位释放累计 3；**pr-005 解锁**（依赖三条经合并提交祖先链 + 代码符号双重校验）并派其 planner
 - 2026-09-16: **pr-004 独立验收 PASS ⇒ 合并 `4c6ddba`**；累计 4/8 已合并；槛位释放 4
+- 2026-09-16: **pr-008 验收 PASS ⇒ 合并 `ecba11d`**（解冲突：pr-008 条目改号 DC-23）+ 修复截断事故 `aa6bd02`；累计 **5/8** 已合并
+- 2026-09-16: **pr-005 验收 PASS ⇒ 合并 `b090369`**（迭代分支路由 21→29）；累计 **6/8**；pr-006 解锁并派本地 subagent

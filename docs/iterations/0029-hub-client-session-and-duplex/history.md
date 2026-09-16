@@ -684,3 +684,102 @@
 - 产出物路径：`feat/0029-pr-008-friction-log-completion` @ `9a76c80` + 本 PR 文件 + 目标文件（`deferred-demand-changes.md`）
 - 验证标准（4 条，含 DC-18 口径）
 - 通道：hub `api calls create`（background），agent=verifier → 节点 `pb-verifier`
+
+### 2026-09-16 21:00:24 · 收到报告 · verifier（pr-008）
+
+- 结论：**PASS**（"所有条目 pass 或 partial 且无 fail"）；报告 `clarifications/verify-20260916-203532-pr-008-friction-log-completion.md`（**33959 B**，按要求**原文摘录搭置记录并置顶** ✓，逐条判到 1.1/1.2 粒度）
+- 交付：目标文件补"指向 `status.md` §派发台账"的**度量口径行**；台账本体未回填（F18 边界 ✓）
+
+### 2026-09-16 21:00:24 · 调度决策 · 槛位释放 + 合并事故处置
+
+- 决策内容：① pr-008 **PASS ⇒ 合并**（合并提交 `ecba11d`；合并前收录报告 `0cbfd96`）⇒ 槛位释放累计 **5**、累计进度 **5/8**；② 合并过程发生**冲突**（我与 pr-008 各自在 `deferred` 末尾追加，且 `DC-22` **编号撞车**——我 20:02 占用 DC-22 时它的条目已按我的旧指令写 DC-22）⇒ 手工解冲突（保留我的 DC-22、它的条目改号 **DC-23**）；③ **主 agent 操作事故入档（DC-25）**：解冲突脚本失败后仍执行 `git add && git commit`，把**截断文件**（12 行）提交进 `ecba11d` ⇒ 从 `f3784f6` 恢复全文（221 行）并追加条目后提交修复 **`aa6bd02`**，校验 24 条目、无重复编号 ✓；④ pr-008 分支已清理 ✓
+- 触发依据：`verify-…-pr-008-…md` 结论 PASS；`git -C <迭代工作区> log`（`ecba11d` / `aa6bd02`）；文件体检（12 行 → 230 行、编号尾部 DC-21/22/23）
+
+### 2026-09-16 21:00:38 · 派发 · dev（pr-005 续做）
+
+- 阶段：阶段 5（PR 实现）· 同一 PR 的**续做**（上一轮 `timeout` 切断，现场保留）
+- 任务：以本工作区为唯一落点，**调和**两份分叉的 `oamp/src/web.js`（备份见简报）后按任务文件分段继续；**每段完成即提交**
+- 附加约束：**只用绝对路径**、写入仅限本工作区（DC-24 的纠正）；沿用证据格式硬规则与已裁决 MI
+- PR：prs/pr-005-web-session-and-call-surface.md；worktree 分支 feat/0029-pr-005-web-session-and-call-surface
+- 通道：hub `api calls create`（background），agent=dev → 节点 `pb-dev`
+
+### 2026-09-16 22:04:38 · 收到报告 · dev（pr-005 续做）
+
+- 结论：调用终态 `completed`（`duration_ms=1800588`，压线 30 分钟）；**报告正文为空**；**零提交** ✗
+- 实际进展（主 agent 实测）：`oamp/src/web.js` 未提交改动 **249 增 / 8 删**；路由数 **24**（基线 21）；已实现 `/api/principals`、`/api/subscribe`；**未实现** `/api/pickup`、`/api/pickup/:call_id/ack`、`/api/calls/wait`、`/api/calls/:call_id/cancel`、`/api/health` ⇒ 段 A 约半成
+
+### 2026-09-16 22:04:38 · 调度决策 · 阶段推进核查
+
+- 决策内容：① **主 agent 代为提交**该增量以保全现场（`00d348d`，提交信息注明"由主 agent 代为提交"）；② 派**第三轮** dev，收窄范围为"段 A 剩余"（5 条路由 + T4 的 `requester`/`warnings`），并针对性加硬要求：**每完成一条路由/一个任务立即提交**（上一轮零提交即因"憋到最后"）；③ 重申"只用绝对路径、只写本工作区"（DC-24 的纠正）
+- 触发依据：`git -C <pr-005 worktree> diff --numstat`（249/8 未提交）；`grep -c "path: '/api/"` = 24 与逐路由 `grep` 实测；`hub api calls get task-18f3b056…` 正文为空
+
+### 2026-09-16 22:04:38 · 派发 · dev（pr-005 第三轮）
+
+- 阶段：阶段 5（PR 实现）· 同一 PR 的第三轮（段 A 剩余）
+- 任务：补齐段 A 剩余（5 条路由 + T4 行为），**逐条路由提交**，补证据
+- PR：prs/pr-005-web-session-and-call-surface.md；worktree 分支 feat/0029-pr-005-web-session-and-call-surface
+- 通道：hub `api calls create`（background），agent=dev → 节点 `pb-dev`
+
+### 2026-09-16 22:05:09 · 调度决策 · PR 失败判定
+
+- 决策内容：pr-005 第三轮首派 `task-21f1c06c` **派发即失败**（`error=context_crashed`、`duration_ms=0`；双通道均无执行痕迹）⇒ 判**实例启动竞态**（DC-21 同型，记为 **DC-26**，第 2 次复现）；处置 = **立即重派**同一 brief（`task-5ed9219b`，随后进入 `working` ✓）
+- 触发依据：`hub api calls get task-21f1c06c…` 终态信封（`error=context_crashed` / `子进程已退出` / `duration_ms=0`）；重派后 `api calls list` 显示 `working`
+
+### 2026-09-16 22:30:09 · 调度决策 · 阶段推进核查
+
+- 决策内容：**执行通道变更（用户裁决，demand D-19）**——因 hub 30 分钟轮次上限（已致 5 例空耗/零交付）且 hub **无取消面**（实测），自即日起**阶段 5 余下实现与阶段 6 验证改用本地 subagent 直接执行**（仍注入角色定义、仍守验收标准与证据格式、仍逐段提交）；hub 派发记录仅保留已完成部分。为执行"先取消在途调用"，对 `pb-dev` daemon 发 `SIGTERM`（终止前已备份未提交 diff 与文件快照；终止后 `node --check` 通过、2197 行完整、工作区干净——该轮**终止前已自行提交 7 个增量提交** ✓）
+- 触发依据：用户 2026-09-16 原话"因为有 30 分钟上限问题，先取消 hub 调用，直接本地 subagents 实现功能吧"；`hub api --help` 无 cancel/kill/stop；`api calls list` 该调用终态 `failed/context_crashed/duration_ms=1485231`；登记 **DC-27 / DC-28**，`demand.md` 增 **D-19**
+
+### 2026-09-16 22:33:45 · 调度决策 · 阶段推进核查
+
+- 决策内容：对本地 subagent `Pr005Finisher` 上报的**上游条款张力**作出裁定（**采纳其实施方案**）：F05 验收 1~4（`/api/agents` 快照须含 `busy`/`current_call_id`/`queued`/`since`）与 `architecture.md` §4 A-04（"`router.task_list` 仅在新面订有 `agent_state` 时拉取"）之冲突，按"**快照请求面每次自拉 + 后台 tick 仅在存在 `agent_state` 订阅者时运行**"实施；要求实施方在 PR 证据段用命令+原样输出体现两条判据，并在回报中单列该口径。登记 **DC-29**
+- 触发依据：`Pr005Finisher` 的 IRC 上报（2026-09-16 22:4x）；`prd/F05` 验收 1~4 与 `architecture.md` §4 A-04 的原文；主 agent 判断依据 = 产品契约优先于代价控制措辞，且两目标可同时满足
+
+### 2026-09-16 22:36:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：裁定 `pr-005` 的第二处上游张力（**采纳方案 A**）：F10 晚订阅补发帧 `data` = **当刻终态信封逐字**（不含 `chat_id`）⇒ 满足 F10 验收 3 / T8 判据 4 的"与 `calls get` 逐字相同（`diff` 为空）"；**弃用方案 B**（在信封前拼 `chat_id` 且恒为 null）——任务记录无 `chat_id` 字段（`registry.createTask` 无该字段、chat 归属仅在 web 侧登记且终态已删）⇒ 该字段恒 null、破坏"逐字相同"、且把"未知"误示为"无归属"。要求实施方在证据段写明被弃方案与理由、并证明 diff 为空
+- 触发依据：`Pr005Finisher` 的 IRC 上报（第二处 AC 冲突）；`prd/F10` 验收 3 与 T8 判据 4；`oamp/src/registry.js` 的 `createTask` 字段面实测；登记 **DC-30**（DC-29 同型第二例）
+
+### 2026-09-16 22:47:17 · 调度决策 · 阶段推进核查
+
+- 决策内容：处置 subagent 上报的**越界杀进程事故**——① 核实：主集群 `pb-dev` 心跳冻结在 22:45:49、进程已不存在，而 `api agents` 因**租约未过期**仍报 `online`（**该现象本身即 F16 的一手证据**：`online` 不可信）；② **恢复**：`hub op:start` 启动 `node oamp/bin/oamp.js agent start pb-dev --role dev --tools on --permission allow`（`detached: true`、`ready` 匹配 `REGISTERED`），pid 91573，验证心跳推进 14:46:57→14:47:07、新 session `d44ed825`、状态 `online` ✓；③ 采纳实施方的自定改进（`ps -o pid,command` 逐条核验 PID）并追加规则：**F16 的 `kill -9` 只许针对其自身隔离集群，杀前须核验完整命令行与 socket/端口**；④ 登记 **DC-31**（规则 F 类违反 + F16 现象证据）
+- 触发依据：`Pr005Finisher` 的 IRC 边界事故上报；`hub api agents` 两次心跳采样（14:45:49 冻结 → 恢复后 14:46:57/14:47:07 推进）；`pgrep -fl "agent start pb-dev"` 实测为空（恢复前）
+
+### 2026-09-16 23:28:48 · 收到报告 · verifier（pr-005，本地 subagent Pr005Verifier）
+
+- 结论：**PASS**（fail 条目 0）；报告 `clarifications/verify-20260916-230308-pr-005-web-session-and-call-surface.md`（**680 行**，按简报置顶原文呈现搭置记录全文）；偏差 12 条
+- 1. **标准 1（验收标准逐条）：pass 70 / fail 0 / partial 0** —— 独立自建隔离集群（短路径 socket 18B、`/tmp/pr005v`）逐条实跑；含 **UDS 计数代理**验证 A-04/DC-29 形态（无订阅者空闲 9s `task_list` **0 增长**；1 次快照 +1；`kinds=agent_state` 10s +6；订阅断开后 +0）；**补做了 dev 未做的位置纪律反证**（把 `calls/wait` 移位到 `:call_id` 之后 ⇒ `404 call 不存在: wait`，正向 200）✓
+- 2. 标准 2（改动面封闭性）：**pass**
+- 3. 标准 3（证据可复核性）：**partial** —— 5 类可定位缺陷（均为**证据文本**问题，产品面不受影响）：① §1 路由行号是陈旧值（记录 563/596/705/876/1428/1549/1637/1694/1724；现测 **688/721/747/1051/1613/1647/1737/1776**），且其中 `1724: path: '/api/calls/:call_id',` 不可能由所印替换式产出 ② §6 `grep -n 'pickup\.add'` 记录了两行（该命令只会打印命中行）③ §5 含 4 行 `{agent-pid}`/`{my-agent-pid}` 占位符 ④ §11 依赖 `$RT/probe.sh` 与 base/cur-endpoints.txt，文件不在产出物内 ⑤ §2 控制字符例照抄得不同文案（应改 `-d '{"principal_id":"bad\u0007id"}'` 字面量即逐字复现）
+- 4. 标准 4（既有面零影响 G01）：**pass**
+
+### 2026-09-16 23:28:48 · 调度决策 · 阶段推进核查
+
+- 决策内容：pr-005 验收 **PASS**（产品面 70/70 全过）⇒ **合并前的最后一道**是修掉标准 3 的 5 处证据文本瑕疵（保持"证据可复核"这一硬标准不被稀释）；派**同一 dev subagent** 做**纯文本修缮**（不动任何产品代码），完成后**由主 agent 机械复验**这 5 项（因其为纯文本修复、产品面零变化，**不重跑整轮独立验收**——该范围限制在此明示并留痕），随后合并 pr-005 并解锁 pr-006
+- 触发依据：`verify-20260916-230308-pr-005-…md` 的逐项判定与 5 条 partial 明细；`git -C <pr-005 worktree> log` 当前 HEAD；标准 1/2/4 全 pass
+
+### 2026-09-16 23:31:07 · 调度决策 · 槛位释放
+
+- 决策内容：pr-005 **PASS ⇒ 合并进迭代分支**（merge commit **`b090369`**；`4 files changed, 2579 insertions(+), 22 deletions(-)`；迭代分支 `oamp/src/web.js` 路由数 **21 → 29** ✓）；合并前收录验收报告（`1b2bfa9`）；清理 worktree 与分支（清理时发现一份未跟踪草稿 `oamp/src/web-baseline-pr005.js`，经 `cmp` 确认等于基线 `51eb893:oamp/src/web.js` 后删除 ✓；**无未提交产品改动** ✓）⇒ 槛位释放累计 **6**、累计进度 **6/8**
+- **解锁扫描**：`pr-006`（依赖 pr-005）**已解锁** ⇒ 立即派其"planner+dev 合一"本地 subagent；`pr-007`（依赖 pr-001/pr-005 + 调度附加约束须待 pr-006 合并）仍锁定
+- 触发依据：`clarifications/verify-20260916-230308-pr-005-…md` 结论 PASS（fail 0）+ 主 agent 对 5 项证据文本修缮的机械复验通过；`git -C <迭代工作区> log` 显示 `b090369`；`grep -c "path: '/api/"` = 29
+### 2026-09-16 23:31:07 · 派发 · planner+dev 合一（pr-006，本地 subagent）
+
+- 阶段：阶段 5（PR 实现）· **本地 subagent 直接执行**（依 `demand.md` D-19：不再走 hub 派发）
+- 任务：先产出该 PR 的内部任务列表（planner 职责），再完成实现与验收证据（dev 职责）
+- PR：prs/pr-006-protocol-docs-and-index.md；worktree 分支 feat/0029-pr-006-protocol-docs-and-index（base = 迭代分支 `b090369`）
+- 通道：本地 `task` subagent（角色定义全文注入）
+
+### 2026-09-16 23:32:38 · 调度决策 · 阶段推进核查
+
+- 决策内容：处置 `Pr005Finisher` 主动上报的**证据口径不实**问题——其 §11 比对脚本的 `awk` 过滤式（`$2 ~ /^agents/ || $2 == "calls"`）因 `$2` 只取首 token，**误剔全部 `### calls …` 块** ⇒ 记录"15 个请求块含全部 400/404" **不属实**；收紧后重跑得 **23 块逐字相同（`diff_exit=0`，`docs: base=21 cur=29`）**。**主 agent 在合并态直接更正**（`ff09d7a`，4 增 4 删：两处 `awk` + §11 口径与更正说明 + §12 引用），登记 **DC-37**；子 agent 主动上报且未越界 ✓
+- 触发依据：`Pr005Finisher` 的 IRC 上报（含收紧后重跑的原始输出）；`git -C <迭代工作区> diff --stat`（仅 1 文件 4 增 4 删）；`grep "15 个请求块"` 复核（更正后仅存于说明文字中）
+
+### 2026-09-16 23:50:59 · 收到报告 · planner+dev（pr-006，本地 subagent Pr006Builder）
+
+- 结论：完成。10 条 AC **全 pass**；7 个提交；改动 4 文件（`oamp/API.md` +312/-1、`oamp/llms.txt` +9/-1、PR 文件 +558/-1、tasks 文件）；工作区干净
+- 1. 任务列表：12 任务（T0~T11），10 条 AC 全挂钩、无孤儿；依赖图 16 边无环；4 条 model_inferred
+- 2. AC：AC1 §3 计数 21→29 且与运行侧 `GET /api/docs` **双向 1:1**；AC2 8 小节五项语义齐备；AC3 锚点**可解析 8/8**（并暴露 1 处**既有**错配，未修已登记）；AC4 新增「§2.4 等待语义」四条；AC5 既有 21 行/小节逐字不变（删除行 = 1）；AC6 `llms.txt` 生成器重生成且自报一致；AC7 快照与 HTTP 产物 **sha256 同源**；AC8 `hub doctor` 三段 **66 项全 pass**；AC9 三个既有文件零改动；AC10 条文与行为一致（超时后该 id 状态与等待前 diff 逐字相同、随后自然 completed）
+- 3. **自查复跑**：对证据段 23 个命令块机械复跑，并自查修掉自己 4 处证据缺陷
+- 4. 裁决：**MI-P1 小节号撞车** ⇒ 主 agent 裁定**接受现状 + 记偏差（DC-38）**（锚点可解析且唯一、doctor 全 pass、文档↔运行 1:1 ⇒ 功能契约成立；仅编号风格不合惯例；修它需动已合并已验证的 pr-005 代码与证据 ⇒ 交下一迭代）
+- 5. 越界：无实质违规（未调 `hub api calls create`；socket 落 `.cache/o29p6/` 属 DC-36 例外且已清理；一次自伤事故仅影响其自身隔离集群并已修复复核；未触碰清单 `git diff` 为空）
