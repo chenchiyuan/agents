@@ -70,6 +70,35 @@
 - **持久化 = 内存**（与 Router 任务表同寿命），**协议显式写明"重启即丢"**（用户裁决 D2）。
 - 兼容：不传 `requester` ⇒ 行为与今天逐字一致。
 
+### P-C′ · 断线续传契约（**"链接断开能续上"** 的正式回答）
+
+**现状（已核实）**：**不能续，且三处原因独立**——
+1. SSE 帧**无 `id:` 游标**（`src/transport.js:88` 帧格式仅 `event:`/`data:`；`retry: 1000` 只指示"重连"，不携带进度）⇒ 标准 `Last-Event-ID` 无值可带。
+2. 服务端**无回放源**：`publishTo` 无订阅者即丢、**不缓存不排队不补发**（`src/transport.js:84-90`）⇒ 断开窗口内事件永久消失。
+3. 客户端**明确不做**自动重连 / 断点续订（`sdk/http.js:176` 的 N9/G02 设计取舍）；且下游数据源（Router 任务表）在内存，进程重启即丢。
+
+**设计立场**：
+> **能续的不是 socket，而是"我还没取走的东西"。**
+> socket 断了就是断了；可以续上的是**投递给身份、带单调游标的投递记录**。因此续传的载体是**收件箱（P-C）**，而不是连接本身。
+
+**契约（四条）**：
+1. **游标**：每次投递带**每 principal 单调递增的 `cursor`**，并沿用既有 `message_id` 幂等去重（协议 §4.4）。收件箱即"按 principal 的**有界可回放日志**"。
+2. **续传 = 一次拉取**：`GET /api/inbox?principal=X&since=<cursor>` 返回断线期间全部未取件；`ack` 推进游标。**与传输无关**——SSE 断、UDS 断、客户端进程重启都不影响，因为状态在 hub 侧的身份收件箱里，不在连接里。
+3. **SSE 侧补 `id:`**（推荐）：每帧写 `id: <cursor>`，服务端接受标准 `Last-Event-ID` 或查询参数 `?since=`；**流的角色 = 实时尾巴，收件箱 = 按游标补拉**，同一份数据两用。**服务端仍需回放源**——即 P-C 的日志，不另造缓冲。
+4. **`epoch` 与失效语义（必须有）**：hub 每次"存储代次"生成一个 `epoch`（进程启动即一代）。客户端持 `{epoch, cursor}`；重连时 `epoch` 不匹配 ⇒ 服务端返回 **`409 STALE_EPOCH` + 新 epoch**，**不得假装续上**。客户端据此走 **"快照重同步"**：`GET /api/agents` + `GET /api/calls` 各拉一次重建本地视图，再用新游标继续订阅。
+   - 这条是**刻意反"静默失真"**的：宁可让调用方知道"你漏了一段，请重同步"，也不给一个看起来连续、实际有洞的流（本轮 G-14/G-20 的教训即此类）。
+
+**保留窗口（写进条文）**：内存实现下**双限**（条数上限 + 时间上限，默认值待定）；超窗即丢，客户端须快照重同步。⇒ 与 D2（内存实现、写明重启即丢）一致。
+
+**反向平面同样适用**：agent↔Router 侧已有 `OAMP_RECONNECT` 自动重连与 `agent.replaced`（latest-wins），但**重连后同样需要"按游标补拉"**，不得让 agent 侧自行猜测补齐——复用同一套 cursor/epoch 语义。
+
+**验收判据**：
+- 客户端订阅中断 N 秒后重连（携带 `{epoch, cursor}`）⇒ **断线期间的 `call_result`/`notice` 一条不漏**（条数一致、顺序一致、`message_id` 去重后无重复）。
+- hub 重启后重连 ⇒ 明确收到 `STALE_EPOCH`，且按契约完成快照重同步（客户端本地视图与新快照一致）。
+- 断开窗口超出保留窗 ⇒ 明确收到"超出保留窗"信号（而非静默空洞）。
+
+---
+
 ### P-D · 等待语义统一 + 终态关流（把"等"做对）
 
 - **终态关流**：唯一终态发布点（`publishCallResult`）之后对 `call:<callId>` 调 `closeKey`（**复用既有原语**，即那根全仓 0 调用点的线）；**晚订阅补发**：`handleCallStream` 先 `task_get`，已终态则补发一帧后关流。**不动** `chat-calls:<chatId>`（控制台长订阅）。
@@ -122,7 +151,7 @@
 |---|---|---|
 | 1 | P-A 身份服务 + 调用面 `--as` | `POST/GET /api/principals` |
 | 2 | P-B 事件订阅 + agent 投影扩展 | `GET /api/events`（principal 版）+ Router `events.subscribe` |
-| 3 | P-C 收件箱 + `requester` 投递 | `GET /api/inbox`、`POST /api/inbox/ack` |
+| 3 | P-C 收件箱 + `requester` 投递 + **P-C′ 游标/epoch 续传** | `GET /api/inbox`、`POST /api/inbox/ack`（`epoch`+`since`+`ack`） |
 | 4 | P-D 终态关流 + 晚订阅补发 + `calls wait` | `GET /api/calls/wait`（+ `closeKey` 补线） |
 | 5 | P-E 取消 + 队列可见 + 自派发告警 | `POST /api/calls/<id>/cancel`、`agents` 字段 |
 | 6 | P-F `last_event_at` | `GET /api/calls` 字段 |
@@ -138,3 +167,4 @@
 3. `stream call` 终态退出、晚订阅不再静默 ⇒ **G-14 消失**。
 4. 派发到执行者自身实例会**当场告警** ⇒ **G-19 消失**；调用可被**取消**。
 5. `calls` 行带 `last_event_at` ⇒ **G-20 消失**。
+6. **断线可续**：客户端携 `{epoch, cursor}` 重连 ⇒ 断线期间的投递一条不漏；跨 hub 重启则以 `STALE_EPOCH` 明确告知并走快照重同步（**不静默失真**）。
