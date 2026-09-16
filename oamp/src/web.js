@@ -2140,7 +2140,9 @@ export default async function startWeb(restArgs) {
       return;
     }
     if (task === null) return;
-    transport.publishCall(callId, { type: CALL_EVENTS.result, data: { chat_id: task.chat_id ?? null, ...envelope } });
+    const cancelledEvent = { type: CALL_EVENTS.result, data: { chat_id: task.chat_id ?? null, ...envelope } };
+    transport.publishCall(callId, cancelledEvent);
+    transport.publishFiltered(cancelledEvent); // 新面同帧转发（与终态发布点同一帧形态）
     transport.closeCallSubscriptions(callId);
     releaseWaiters(callId, envelope);
   };
@@ -2167,7 +2169,9 @@ export default async function startWeb(restArgs) {
           acked: false,
         });
       }
-      transport.publishCall(call.callId, { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } });
+      const resultEvent = { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } };
+      transport.publishCall(call.callId, resultEvent);
+      transport.publishFiltered(resultEvent); // ★ 0029 pr-005（契约 4 第 6 名）：新面同帧转发（追加在既有发布之后）
       transport.closeCallSubscriptions(call.callId);
     }
     if (call.resolve !== null) call.resolve(envelope);
@@ -2282,7 +2286,10 @@ export default async function startWeb(restArgs) {
           multiple: body.multiple === true,
           created_at: Number.isFinite(body.created_at) ? body.created_at : Date.now(),
         };
-        if (inbox.add(entry)) transport.publishGlobal({ type: 'confirmation', data: entry });
+        if (inbox.add(entry)) {
+          transport.publishGlobal({ type: 'confirmation', data: entry });
+          transport.publishFiltered({ type: 'confirmation', data: entry }); // ★ 0029 pr-005（契约 4 第 7 名）：新面同帧转发
+        }
         return;
       }
       // ★ 0021 pr-003（architecture §5.3 信封 3）：失效路径（agent 侧轮次已死 / 上下文已淘汰）——只移出在途表，
@@ -2313,12 +2320,16 @@ export default async function startWeb(restArgs) {
         const call = entry.call;
         if (!call.working && body.state === 'working') {
           call.working = true;
-          transport.publishCall(call.callId, { type: CALL_EVENTS.state, data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, state: 'working' } });
+          const workingEvent = { type: CALL_EVENTS.state, data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, state: 'working' } };
+          transport.publishCall(call.callId, workingEvent);
+          transport.publishFiltered(workingEvent); // ★ 0029 pr-005（契约 4 第 5 名）：新面同帧转发
         }
-        transport.publishCall(call.callId, {
+        const updateEvent = {
           type: CALL_EVENTS.update,
           data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, kind: body.kind, text: body.text, line: body.line },
-        });
+        };
+        transport.publishCall(call.callId, updateEvent);
+        transport.publishFiltered(updateEvent); // ★ 0029 pr-005（契约 4 第 4 名）：新面同帧转发
       }
       return;
     }
