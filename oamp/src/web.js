@@ -1458,6 +1458,92 @@ export function createApiRoutes({
       },
     },
     {
+      method: 'GET',
+      path: '/api/calls/wait',
+      summary: '等待一组调用达到终态',
+      params: [
+        { name: 'ids', in: 'query', type: 'string', required: true, desc: '逗号分隔调用 id；至少一个' },
+        { name: 'timeout_ms', in: 'query', type: 'number', required: false, desc: '正整数超时；省略表示不设上限' },
+      ],
+      response: '对象 { timed_out, timeout_ms, results, unresolved }',
+      errors: ['INVALID_PARAM'],
+      kind: 'json',
+      docLink: 'API.md#318-get-apicallswait',
+      handler: async ({ res, query: qs }) => {
+        const ids = [...new Set(parseCsv(qs.get('ids')))];
+        if (ids.length === 0) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要 ids（至少一个调用 id）');
+          return;
+        }
+        const timeoutRaw = qs.get('timeout_ms');
+        let timeoutMs;
+        if (timeoutRaw !== null && (timeoutRaw === '' || !/^\d+$/.test(timeoutRaw) || Number(timeoutRaw) <= 0)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'timeout_ms 需为正整数');
+          return;
+        }
+        if (timeoutRaw !== null) timeoutMs = Number(timeoutRaw);
+        const results = [];
+        const unresolved = [];
+        const pending = [];
+        for (const callId of ids) {
+          const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+          const task = r && r.task ? r.task : null;
+          if (!task) {
+            unresolved.push({ call_id: callId, state: null });
+            continue;
+          }
+          const state = callState(task, callSchemas.get(callId) ?? null);
+          if (state === 'completed' || state === 'failed') {
+            results.push(composeCallEnvelope(task, callSchemas.get(callId) ?? null));
+            continue;
+          }
+          pending.push({ callId, state: task.state });
+        }
+        const waiting = pending.map(({ callId, state }) => new Promise((resolve) => {
+          let set = waiters.get(callId);
+          if (!set) {
+            set = new Set();
+            waiters.set(callId, set);
+          }
+          const waiter = (envelope) => resolve({ callId, state, envelope });
+          set.add(waiter);
+        }));
+        let timedOut = false;
+        let settled = waiting;
+        if (timeoutMs !== undefined) {
+          const timeout = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
+          const winner = await Promise.race([Promise.all(waiting), timeout]);
+          if (winner === null) {
+            timedOut = true;
+            settled = [];
+          } else {
+            settled = winner;
+          }
+        } else {
+          settled = await Promise.all(waiting);
+        }
+        for (const item of settled) {
+          if (item.envelope) results.push(item.envelope);
+          else unresolved.push({ call_id: item.callId, state: item.state });
+        }
+        if (timedOut) {
+          for (const { callId } of pending) {
+            const set = waiters.get(callId);
+            if (!set) continue;
+            for (const waiter of set) {
+              // Only this request's waiter is removed by retaining the closure marker below.
+              if (waiter.callId === callId) set.delete(waiter);
+            }
+            if (set.size === 0) waiters.delete(callId);
+            const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+            const task = r && r.task ? r.task : null;
+            unresolved.push({ call_id: callId, state: task ? callState(task, callSchemas.get(callId) ?? null) : null });
+          }
+        }
+        sendJson(res, 200, { timed_out: timedOut, timeout_ms: timeoutMs ?? null, results, unresolved });
+      },
+    },
+    {
       method: 'POST',
       path: '/api/pickup/:call_id/ack',
       summary: '确认取件终态调用（幂等）',
