@@ -383,9 +383,11 @@ curl -s $B/api/calls | jq -c '.calls[0]'
 在跑 / 队列深度（把 agent `SIGSTOP` 冻结在"刚发过心跳"的窗口内，使其"受理但不消费"）：
 
 ```bash
-kill -STOP \{agent-pid\}; for i in 1 2 3; do curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"task\":\"qpeak-$i\",\"mode\":\"background\"}" | jq -r '.calls[0].state'; done
+AGENT_PID=$(pgrep -f "oamp/bin/oamp.js agent start pb-dev" | head -1)   # 杀之前必须核验：完整命令行属于本工作区隔离集群
+ps -o pid,ppid,command -p "$AGENT_PID"
+kill -STOP "$AGENT_PID"; for i in 1 2 3; do curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"task\":\"qpeak-$i\",\"mode\":\"background\"}" | jq -r '.calls[0].state'; done
 curl -s "$B/api/agents" | jq -c '.agents[] | select(.instance_id=="pb-dev")'
-kill -CONT \{agent-pid\}; sleep 4; curl -s "$B/api/agents" | jq -c '.agents[] | select(.instance_id=="pb-dev")'
+kill -CONT "$AGENT_PID"; sleep 4; curl -s "$B/api/agents" | jq -c '.agents[] | select(.instance_id=="pb-dev")'
 ```
 
 ```
@@ -401,9 +403,10 @@ submitted
 三态可区分（F16 验收 1/6，kill -9 只针对本工作区隔离集群的 agent；杀前核验 PID 完整命令行与父进程）：
 
 ```bash
-ps -o pid,ppid,command -p \{my-agent-pid\}
+AGENT_PID=$(pgrep -f "oamp/bin/oamp.js agent start pb-dev" | head -1)
+ps -o pid,ppid,command -p "$AGENT_PID"
 curl -s $B/api/agents | jq -c '.agents[] | select(.instance_id=="pb-dev")'
-kill -9 \{my-agent-pid\}; sleep 2
+kill -9 "$AGENT_PID"; sleep 2
 curl -s $B/api/agents | jq -c '.agents[] | select(.instance_id=="pb-dev")'
 curl -s $B/api/health | jq -c '.agents, .callable'
 sleep 21; curl -s $B/api/agents | jq -c '.agents[] | select(.instance_id=="pb-dev")'
