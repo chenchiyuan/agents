@@ -1523,9 +1523,11 @@ export function createApiRoutes({
           return;
         }
         const state = callState(task, callSchemas.get(callId) ?? null);
-        if (state === 'completed' || state === 'failed') {
-          const envelope = composeCallEnvelope(task, callSchemas.get(callId) ?? null);
-          res.write(`event: ${CALL_EVENTS.result}\ndata: ${JSON.stringify({ chat_id: task.chat_id ?? null, ...envelope })}\n\n`);
+        // ★ 0029 pr-005（F10 / A-08）：已终态 ⇒ 补发**一帧当刻终态信封**（与 `calls get` 同形同取值）随即关流。
+        // 不变量（每订阅至多一帧终态帧、至多关闭一次）：订阅登记后若终态帧已由实时路径送达并被同一发布点关闭，
+        // 本连接已结束 ⇒ 跳过补发（`res.writableEnded` 由 `closeKey` 的 `res.end()` 置位），不产生第二帧/第二次关闭。
+        if ((state === 'completed' || state === 'failed') && !res.writableEnded && !res.destroyed) {
+          res.write(`event: ${CALL_EVENTS.result}\ndata: ${JSON.stringify(composeCallEnvelope(task, callSchemas.get(callId) ?? null))}\n\n`);
           transport.closeCallSubscriptions(callId);
         }
         return;
