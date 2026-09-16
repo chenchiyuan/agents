@@ -1412,6 +1412,40 @@ export function createApiRoutes({
       },
     },
     {
+      method: 'GET',
+      path: '/api/pickup',
+      summary: '查询身份未取件的终态调用',
+      params: [
+        { name: 'principal', in: 'query', type: 'string', required: true, desc: '取件身份 principal_id' },
+        { name: 'epoch', in: 'query', type: 'string', required: false, desc: '会话代次；过期返回 409 STALE_EPOCH' },
+      ],
+      response: '对象 { pickup: [{ call_id, requester, agent, chat_id, terminal_at, acked, envelope }] }',
+      errors: ['INVALID_PARAM', 'STALE_EPOCH'],
+      kind: 'json',
+      docLink: 'API.md#312-get-apipickup',
+      handler: async ({ res, query: qs }) => {
+        const principalId = qs.get('principal');
+        if (!validPrincipalId(principalId)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要合法 principal');
+          return;
+        }
+        const stale = await checkEpoch(qs.get('epoch'));
+        if (stale !== null) {
+          sendError(res, 409, ERR_CODE.STALE_EPOCH, stale);
+          return;
+        }
+        const principal = principals.get(principalId);
+        if (principal) principals.touch(principalId);
+        const result = [];
+        for (const entry of pickup.listByRequester(principalId)) {
+          const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: entry.call_id });
+          const task = r && r.task ? r.task : null;
+          result.push({ ...entry, envelope: task ? composeCallEnvelope(task, callSchemas.get(entry.call_id) ?? null) : null });
+        }
+        sendJson(res, 200, { pickup: result });
+      },
+    },
+    {
       // ★ 0018（architecture §2.1 行 19，**全表末位**）：按调用 id 取终态 / 进行中状态（必须排在全部 :call_id/… 形态之后）。
       method: 'GET',
       path: '/api/calls/:call_id',
