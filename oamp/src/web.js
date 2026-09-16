@@ -698,6 +698,56 @@ export function createApiRoutes({
       },
     },
     {
+      // ★ 0029 pr-005（F15 / architecture §4 A-12 / §5.1）：恢复判据三问 —— 一次调用回答「router 起了吗 /
+      //   web 服务可用吗 / 有实例可调用吗」+ `callable` 结论 + `epoch`。**唯一允许 Router 不可达仍 200 的面**
+      //   （它的职责就是回答 router 起没起）；其余新面在需要 Router 时沿用既有 502 UPSTREAM_UNAVAILABLE。
+      method: 'GET',
+      path: '/api/health',
+      summary: '恢复判据（router / web / agents 三问 + callable + epoch）',
+      params: [],
+      response: '对象 { router: { ok, detail, generation }, web: { ok, detail }, agents: { online, reconnecting, offline, total }, callable, epoch }',
+      errors: [],
+      kind: 'json',
+      docLink: 'API.md#3111-get-apihealth',
+      handler: async ({ res }) => {
+        // ① router：成功 ⇒ ok + generation；失败 ⇒ ok:false + **含 socket 路径**的原始原因（响应仍 200）。
+        let nodes = [];
+        let generation = null;
+        let routerOk = true;
+        let routerDetail = 'ok';
+        try {
+          const status = await queryOnce(config.socketPath, 'router.status', {});
+          nodes = status.nodes || [];
+          generation = status.generation === undefined || status.generation === null ? null : String(status.generation);
+        } catch (err) {
+          routerOk = false;
+          routerDetail = `${err && err.message ? err.message : err}（socket: ${config.socketPath}）`;
+        }
+        // ② web：能返回响应 ⇒ 已在监听；再一次**只读**轻查询证明持久层可读（判据零副作用：不写任何状态）。
+        let webOk = true;
+        let webDetail = '监听中；持久层可读';
+        try {
+          db.listChats({ limit: 1 });
+        } catch (err) {
+          webOk = false;
+          webDetail = `持久层不可读: ${err && err.message ? err.message : err}`;
+        }
+        // ③ agents：同一次节点集合派生三态（**分别可读**，不是合成数）；名册提示项计入"重连中"（MI-P3）。
+        const rows = [...nodes, ...rosterHintRows(nodes, Date.now())];
+        const online = rows.filter((n) => n.state === 'online' && n.connected === true).length;
+        const reconnecting = rows.filter((n) => n.state === 'online' && n.connected !== true).length;
+        const offline = rows.filter((n) => n.state !== 'online').length;
+        sendJson(res, 200, {
+          router: { ok: routerOk, detail: routerDetail, generation },
+          web: { ok: webOk, detail: webDetail },
+          agents: { online, reconnecting, offline, total: online + reconnecting + offline },
+          callable: routerOk && webOk && online >= 1, // 三问都过 + 至少一个在线实例
+          epoch: await getEpoch(), // Router 观测失败 ⇒ 沿用最后一次已知值（A-07）
+        });
+        return;
+      },
+    },
+    {
       method: 'GET',
       path: '/api/chats',
       summary: '对话列表（搜索 / 过滤 / 分页；默认排除已归档）',
@@ -1971,14 +2021,16 @@ export default async function startWeb(restArgs) {
       // 运行态提示是 best-effort，不影响 API。
     }
   };
-  const getAgentProjection = async (nodes) => {
-    writeRoster(nodes);
+  /** 名册提示行（L1-01）：启动时读到的实例在 `heartbeatTimeoutMs` 内仍未重新注册 ⇒ 以 `state:'online' + connected:false`
+   *  （= 重连中）呈现，**四字段一律清空**（提示只带实例 id ⇒ 不残留重启前的在跑投影）；超期即从视图移除
+   *  （不是 offline 墓碑 —— 墓碑仍只由既有租约判定产生）。**纯函数**（不写盘）⇒ `/api/health` 的判据复用同一口径
+   *  而不产生任何副作用。 */
+  const rosterHintRows = (nodes, nowMs) => {
     const present = new Set((nodes || []).map((node) => node?.instance_id));
-    const now = Date.now();
-    const reconnecting = [];
+    const rows = [];
     for (const [instanceId, writtenAt] of rosterHints) {
-      if (!present.has(instanceId) && now - writtenAt <= config.heartbeatTimeoutMs) {
-        reconnecting.push({
+      if (!present.has(instanceId) && nowMs - writtenAt <= config.heartbeatTimeoutMs) {
+        rows.push({
           instance_id: instanceId,
           session_id: null,
           state: 'online',
@@ -1987,7 +2039,11 @@ export default async function startWeb(restArgs) {
         });
       }
     }
-    return [...(nodes || []), ...reconnecting];
+    return rows;
+  };
+  const getAgentProjection = async (nodes) => {
+    writeRoster(nodes);
+    return [...(nodes || []), ...rosterHintRows(nodes, Date.now())];
   };
 
 
