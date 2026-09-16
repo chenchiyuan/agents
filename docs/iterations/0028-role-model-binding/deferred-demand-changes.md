@@ -140,9 +140,27 @@
 - **证据**：判据 = `prd/F11` 验收 2 ③（"终态信封不可得，或 `call_id` 查不回"即等价性缺口）。命令与原始输出：`node oamp/bin/hub.js api calls get task-8e84f95f-b783-4477-8054-abf0b36f31ec` ⇒ `{"code":"NOT_FOUND","error":"call 不存在: task-8e84f95f-b783-4477-8054-abf0b36f31ec","exit_code":1,"http_status":404}`；`node oamp/bin/hub.js api calls get task-92f31d55-3789-4184-a850-a43df30e54be` ⇒ `{"call_id":"task-92f31d55-3789-4184-a850-a43df30e54be","agent":"dev","state":"working","duration_ms":null,"model":null,"truncated":true,"text":null,"structured_output":null,"error":null,"exit_code":null}`；`status.md` §派发台账 21:09 行（`❌失败(超时·现场保留)`、`error: timeout`、1802661ms）与 `status.md:8`（"集群已重建，调用面清空、对话记录留存"）、`status.md:120`（2026-09-16 08:47 恢复记录）。
 - **复核（本 PR 执行时点，回读面一致性）**：同一 `call_id`（`task-92f31d55-3789-4184-a850-a43df30e54be`）在批量探针命令（7 条顺序执行）中返回 `{"code":"NOT_FOUND","error":"call 不存在: …","http_status":404}`，紧随其后的**单独**探针返回 `{"state":"working",…}` ⇒ 回读面对同一在途调用存在不一致（本 PR 只登记现象、不追因；两条命令与原始输出见本 PR 文件「验收证据」块 ⑤）。
 - **影响**：① 的机制面已由 G-9 记录，本条记其等价性缺口判定与 `call_id` 落点；② 的终态到达后由主 agent 回填台账并按 D-16 聚合到本条；③ 说明阶段 2~4 的历史调用在集群重建后不可回读 ⇒ "`call_id` 可核对"的可达形态限定为"条目文本载明 `call_id` + `status.md` 台账留痕"，`prd/F11` 验收 1 ① 的"`hub api calls get <call_id>` 可读"对历史调用不成立；下迭代候选：为调用面定义历史保留期或导出机制（记，不在本次迭代修）。
+### G-18 · `cluster up` 的幂等护栏按**前缀**匹配 session ⇒ 同前缀 session 存在时**误判"已在运行"并静默跳过启动**（exit 0）
+
+- **现象**：`cluster down --config <主工作区>/cluster.json` 成功收口（输出 `已收口（session=oamp-cluster，12 窗口）`、`exit=0`）后立即 `cluster up --config <主工作区>/cluster.json --wait 120000`，输出 `集群已在运行（session=oamp-cluster，12 窗口）` 且 **exit=0**，但主集群**实际未启动**（`tmux ls` 中无 `oamp-cluster`、7788 无监听）。根因：`oamp/src/cluster.js:132-134` 的 `hasSession(bin, session)` = `tmux has-session -t <session>`，而 tmux 对 `-t` 目标**按前缀匹配** ⇒ 目标 `oamp-cluster` 命中了同前缀的第二集群 session `oamp-cluster-0028`。实测判据：`tmux has-session -t 'oamp-cluster'` ⇒ **exit 0**（误命中）；`tmux has-session -t '=oamp-cluster'` ⇒ **exit 1**（精确匹配，反映真实状态）。
+- **差异**：本地 subagent 不存在"运行实体的标识按前缀解析"这一层；本迭代**首次同时存在两个同前缀 session**，才把该缺陷暴露出来——即 **F04 的产物（第二集群）恰好挡住了 F08 的动作（主集群重启）**，两个 PR 的产物在收口时点发生了非预期耦合。
+- **证据**：down 输出原文（`已收口（session=oamp-cluster，12 窗口）`、exit 0、`DOWN_START 10:45:18` → `DOWN_END 10:45:19`）；首次 up 输出 `集群已在运行（session=oamp-cluster，12 窗口）`（`UP_START 10:45:22`）；上述两条 `tmux has-session` 的 exit code；`oamp/src/cluster.js:132-134`、`:475`（`down` = `tmux kill-session`）。
+- **影响**：① **本迭代的绕开（运行时、可逆、零文件改动、未停第二集群）**——`tmux rename-session -t oamp-cluster-0028 oamp-w0028` ⇒ `cluster up` 成功（`UP_START 10:45:51` → `UP_END 10:45:52`，10 实例全 online）⇒ `tmux rename-session -t oamp-w0028 oamp-cluster-0028` 复原（`tmux ls` 两 session 并存已恢复）。② **下迭代候选**：`hasSession` / `listWindowNames` / `listWindowRows` 等所有 tmux 目标应统一改用**精确匹配**语法（`=<session>`），或在启动前做 session 名唯一性校验。③ **对 operator 的影响面（值得单独记）**：`up` 的"已在运行"是**假阳性且返回 0**，会把"重启"静默降级为"没重启"——在本迭代 F08 的场景里，若不复核 `lsof`/`tmux ls`，就会得出"已重启但模型未生效"的**错误结论**。
+
+### G-19 · 把调用派给**执行者自己的实例**会与外层轮次互锁（单 daemon 一次一轮）⇒ 双方都等对方，直到外层 30 分钟上限才解开
+
+- **现象**：pr-010 的执行角色是 `dev`（实例 `pb-dev`），其取证动作要把两条探针实报打给 `pb-dev` 与 `pb-verifier`。实测：`pb-dev.log` 里**同一实例挂着两条未结束的轮次**——`02:46:14.447Z TASK_STARTED task-2b66d138`（外层＝pr-010 的执行调用）与 `02:47:55.213Z TASK_STARTED task-ccf0b236`（内层＝它自己发出的 `--agent dev` 实报），此后 20 分钟**两条都没有 `TASK_FINISHED`**；`ps` 显示该实例只有一个 daemon（`bun omp --mode rpc --no-session --model openai/gpt-5.6-luna`，PID 29568，已跑 22 分钟）。外层在等内层的终态、内层要跑又占用同一个单会话 daemon ⇒ **自排队死锁**，只能等外层 30 分钟节点上限（G-9）把外层切断才解除。
+- **差异**：本地 subagent 的"派发"总是新建独立进程/上下文，不存在"把任务派回自己"这一层；hub 侧 `--agent <role>` 解析到**实例**，若该实例正是执行者自身，就构成 re-entrant 等待。
+- **证据**：`grep -v HEARTBEAT .runtime/cluster/pb-dev.log | grep -E "TASK_|MSG_|CONTEXT_"` 输出（两条 `TASK_STARTED`、零 `TASK_FINISHED`）；`ps -o pid,ppid,etime,command -p 29568`（唯一 daemon）；`web.log` 的 `对账转入低频续查 task=<外层 call_id>（6 次未终态，转 30s/次）`；**决定性对照**——同一条 dev 发出的 `--agent verifier` 实报 **4.8 秒即返回**（`OK`、实报 `powerby/grok-4.6`），因为它落在**另一个实例**上；`hub api --help` 确认**无** `calls cancel/abort` 入口（无法主动解除）。
+- **影响**：① **执行方式规范（本迭代生效）**——取证类/自证类任务**不得把探针打给执行者自己的实例**；执行角色必须与目标实例**不同**（例如以 `planner` 等其它角色执刀），或由主 agent 代取。② **下迭代候选**：为 `calls create` 增加"派发到自身实例"的前置拒绝或显式告警；为 hub 增加 `calls cancel`（当前一旦互锁只能等 30 分钟上限，期间该实例**完全不可用**）。③ 本轮实际后果：pr-010 的执行调用被上限切断、其证据小节未落盘，需换角色重做（见 history）。
+
 ---
 
 ## 澄清期登记的冲突
+
+
+
+
 
 ### C-1 · 默认模型 id 与 provider 清单不同名
 
