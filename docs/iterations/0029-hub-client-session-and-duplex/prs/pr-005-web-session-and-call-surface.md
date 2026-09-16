@@ -476,13 +476,13 @@ curl -s "$B/api/pickup?principal=p1&epoch=x"; echo
 
 ```bash
 grep -c 'pickup\.add' oamp/src/web.js
-grep -n 'pickup\.add' oamp/src/web.js
+grep -n -B1 'pickup\.add' oamp/src/web.js
 ```
 
 ```
 1
-2173:      if (call.requester !== null) {
-2174:        pickup.add({
+2223-      if (call.requester !== null) {
+2224:        pickup.add({
 ```
 
 （唯一 `pickup.add` 在 `publishCallResult` 内 ⇒ 投递路径与对账路径共用同一写点。）
