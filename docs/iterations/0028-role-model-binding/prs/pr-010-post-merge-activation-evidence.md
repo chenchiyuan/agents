@@ -16,12 +16,12 @@
 
 ## 验收标准
 
-- [ ] **合并存在（F08 验收 1）**：main 历史含该迭代的 merge 提交，message 形如 `merge: iteration 0028-role-model-binding {一句话目标} into main`；合并后 `docs/iterations/0028-role-model-binding/**`（含 `demand.md` / `prd.md` / `prd/*.md` / `architecture.md` / `clarifications/*.md` / `history.md` / `status.md` / `deferred-demand-changes.md` / `prs/*.md`）可在 main 上读到
-- [ ] **重启已发生（F08 验收 2）**：主工作区集群已重启——`node <主工作区>/oamp/bin/hub.js cli cluster down --config <主工作区>/cluster.json` 后 `… cli cluster up --config <主工作区>/cluster.json`；重启命令与重启时间留痕；重启后 `hub api agents`（缺省 `7788`）列出 10 个 `pb-<role>` 实例全部在线（排除固有节点 `web`）
-- [ ] **加载的是合并后的配置（F08 验收 3）**：重启动作发生在合并提交**之后**，且不存在"文件已合、集群仍跑旧配置"的状态（判据 = 时序 + 验收 4 的实报值）
-- [ ] **两条实报（F08 验收 4）**：主集群内 `pb-dev` 与 `pb-verifier` 各存在一条调用，其终态实报 `model` 分别解析到 gpt 后端与 grok 后端（判据口径同 F05 验收 4 / MI-3：不要求与绑定值逐字相等，实报字符串原文照录保留）
-- [ ] **证据可核对（F08 验收 5）**：重启记录 + 两条 `call_id` + 各自终态字段（`state` / `model` / `error` / `exit_code`）写入本 PR「验收证据」小节，并以合并提交**之后**的一次 `chore(0028): 收口登记` 提交落盘（该提交同时承载工作流对 `status.md` 的收口登记回写）
-- [ ] 本 PR 不重复证明绑定字段取值正确（F03 / F05 / F06 承担）；不对 `pb-dev` / `pb-verifier` 之外的角色补取证；不要求第二集群在收口后 `down` 或清理（F08 边界）
+- [x] **合并存在（F08 验收 1）**：main 历史含该迭代的 merge 提交，message 形如 `merge: iteration 0028-role-model-binding {一句话目标} into main`；合并后 `docs/iterations/0028-role-model-binding/**`（含 `demand.md` / `prd.md` / `prd/*.md` / `architecture.md` / `clarifications/*.md` / `history.md` / `status.md` / `deferred-demand-changes.md` / `prs/*.md`）可在 main 上读到
+- [x] **重启已发生（F08 验收 2）**：主工作区集群已重启——`node <主工作区>/oamp/bin/hub.js cli cluster down --config <主工作区>/cluster.json` 后 `… cli cluster up --config <主工作区>/cluster.json`；重启命令与重启时间留痕；重启后 `hub api agents`（缺省 `7788`）列出 10 个 `pb-<role>` 实例全部在线（排除固有节点 `web`）
+- [x] **加载的是合并后的配置（F08 验收 3）**：重启动作发生在合并提交**之后**，且不存在"文件已合、集群仍跑旧配置"的状态（判据 = 时序 + 验收 4 的实报值）
+- [x] **两条实报（F08 验收 4）**：主集群内 `pb-dev` 与 `pb-verifier` 各存在一条调用，其终态实报 `model` 分别解析到 gpt 后端与 grok 后端（判据口径同 F05 验收 4 / MI-3：不要求与绑定值逐字相等，实报字符串原文照录保留）
+- [x] **证据可核对（F08 验收 5）**：重启记录 + 两条 `call_id` + 各自终态字段（`state` / `model` / `error` / `exit_code`）写入本 PR「验收证据」小节，并以合并提交**之后**的一次 `chore(0028): 收口登记` 提交落盘（该提交同时承载工作流对 `status.md` 的收口登记回写）
+- [x] 本 PR 不重复证明绑定字段取值正确（F03 / F05 / F06 承担）；不对 `pb-dev` / `pb-verifier` 之外的角色补取证；不要求第二集群在收口后 `down` 或清理（F08 边界）
 
 ## 参考资料
 
@@ -95,18 +95,74 @@ docs/iterations/0028-role-model-binding/prs/pr-009-existing-surface-freeze.md
 docs/iterations/0028-role-model-binding/status.md
 ```
 
-当前 main 上已有 37 个 tracked 路径：顶层产物 5 个、`prd/` 14 个（索引外 13 张功能卡）、`clarifications/` 4 个、`prs/pr-001` 至 `pr-009` 9 个；`pr-010` 由本次收口登记提交落盘。
+当前 main 上已有 **33** 个 tracked 路径（含本 PR 文件）：顶层 6 个（`demand.md` / `prd.md` / `architecture.md` / `deferred-demand-changes.md` / `history.md` / `status.md`）、`prd/` 13 张功能卡、`clarifications/` 4 个、`prs/` 10 个（`pr-001`~`pr-010`）。计数命令与原始输出：
+
+```text
+$ git -C /Users/chenchiyuan/projects/agents ls-tree -r --name-only HEAD -- docs/iterations/0028-role-model-binding | wc -l
+33
+```
+
 
 ### ② R1：主 agent 在集群外执行的重启记录
 
-以下记录由主 agent 在集群外执行并逐字交付；本 PR 未执行 `cluster down` 或 `cluster up`。
+以下记录由主 agent 在集群外执行（执行角色自身运行于被重启的集群内，自行 `down` 会自杀）；本 PR 未执行 `cluster down` 或 `cluster up`。下列命令**逐条可复制执行**，输出为原样（时间行由命令行包装器 `echo "... $(date ...)"` 打印）。
 
-1. `DOWN_START 2026-09-16T10:45:18` → `node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js cli cluster down --config /Users/chenchiyuan/projects/agents/cluster.json` → 输出 `已收口（session=oamp-cluster，12 窗口）`、`exit=0` → `DOWN_END 10:45:19`
-2. `UP_START 10:45:22` 的首次 up 输出 `集群已在运行（session=oamp-cluster，12 窗口）`，为假阳性：`tmux has-session -t oamp-cluster` 按前缀命中 `oamp-cluster-0028`；精确目标 `=oamp-cluster` 当时 exit 1，证明主集群已 down；该缺陷登记为 G-18。
-3. 绕开动作：`tmux rename-session -t oamp-cluster-0028 oamp-w0028`。该动作仅运行时、可逆、零文件改动，且未停止第二集群。
-4. `UP_START 2026-09-16T10:45:51` → `node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js cli cluster up --config /Users/chenchiyuan/projects/agents/cluster.json --wait 120000` → 输出 `集群已启动（session=oamp-cluster，12 窗口）` 与 10 个 `pb-*` 全部 `online` 的表 → `UP_END 10:45:52`
-5. 恢复动作：`tmux rename-session -t oamp-w0028 oamp-cluster-0028`；两个 session 并存。
+```text
+$ echo "DOWN_START $(date '+%Y-%m-%dT%H:%M:%S')"; node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js cli cluster down --config /Users/chenchiyuan/projects/agents/cluster.json; echo "exit=$?"; echo "DOWN_END $(date '+%H:%M:%S')"
+DOWN_START 2026-09-16T10:45:18
+已收口（session=oamp-cluster，12 窗口）
+exit=0
+DOWN_END 10:45:19
+```
 
+首次 up（`UP_START 10:45:22`）被幂等护栏误挡——`oamp/src/cluster.js:132-134` 的 `hasSession` 用 `tmux has-session -t <session>`，tmux 对目标**按前缀匹配**，`oamp-cluster` 命中了同前缀的第二集群 `oamp-cluster-0028`（该缺陷登记为 G-18）：
+
+```text
+$ node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js cli cluster up --config /Users/chenchiyuan/projects/agents/cluster.json --wait 120000
+集群已在运行（session=oamp-cluster，12 窗口）
+tmux attach -t oamp-cluster
+如需重建请先 oamp cluster down
+
+$ tmux has-session -t 'oamp-cluster'; echo "exit=$?"
+exit=0
+
+$ tmux has-session -t '=oamp-cluster'; echo "exit=$?"
+can't find session: oamp-cluster
+exit=1
+```
+
+绕开（运行时、可逆、零文件改动、未停第二集群）：
+
+```text
+$ tmux rename-session -t oamp-cluster-0028 oamp-w0028; tmux ls
+oamp-w0028: 12 windows (created Wed Sep 16 09:53:43 2026)
+```
+
+```text
+$ echo "UP_START $(date '+%Y-%m-%dT%H:%M:%S')"; node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js cli cluster up --config /Users/chenchiyuan/projects/agents/cluster.json --wait 120000; echo "UP_END $(date '+%H:%M:%S')"
+UP_START 2026-09-16T10:45:51
+集群已启动（session=oamp-cluster，12 窗口）
+tmux attach -t oamp-cluster
+日志目录: /Users/chenchiyuan/projects/agents/oamp/.runtime/cluster
+instance_id           session_id                            state   last_heartbeat
+pb-architect          68ab74a9-4b02-49a9-943c-6da2e6564cb8  online  2026-09-16T02:45:51.785Z
+pb-demand             2c8a8eb0-b92a-472b-b105-641f287988b8  online  2026-09-16T02:45:51.810Z
+pb-dev                ff8dce06-9bbd-4db1-baf6-1785eaa967a9  online  2026-09-16T02:45:51.836Z
+pb-planner            dc2905d9-335e-4a0b-b28c-bf6f5428cb32  online  2026-09-16T02:45:51.862Z
+pb-pr-planner         b22c3f2c-0d47-4a0f-89a0-890a6c3232aa  online  2026-09-16T02:45:51.889Z
+pb-prd                a7fb0052-8a38-4985-9d64-96163c1088de  online  2026-09-16T02:45:51.915Z
+pb-progress-observer  33a62d69-7725-4348-a940-5b6fecfb5cea  online  2026-09-16T02:45:51.941Z
+pb-retrospective      b08badd4-4564-4e44-a9fc-06aacbfcee0a  online  2026-09-16T02:45:51.967Z
+pb-verifier           4ede5d3d-bfe2-4311-b337-6263a335cd6e  online  2026-09-16T02:45:51.994Z
+pb-workflow-pb        e893e80e-b825-4383-be76-24e579e0c5b1  online  2026-09-16T02:45:52.004Z
+UP_END 10:45:52
+```
+
+恢复（两 session 并存）：
+
+```text
+$ tmux rename-session -t oamp-w0028 oamp-cluster-0028
+```
 ```text
 $ tmux ls
 oamp-cluster: 12 windows (created Wed Sep 16 10:45:51 2026)
@@ -177,7 +233,20 @@ MI-3 判定：`verifier` 实报解析到 `powerby/` 的 grok 后端，`dev` 实�
 
 ### ⑤ 失败轮与 G-19 转记、时序及逐条验收判定
 
-上一轮执行调用 `task-2b66d138-cea9-46d3-a043-b49fa38017f5` 由 `dev` 实例执行本 PR；它把两条实报打给 `pb-dev`（自身实例）与 `pb-verifier`。内层 `--agent dev` 调用 `task-ccf0b236-a01d-4c2f-8ea5-9339f9b12a6d` 与外层轮次在同一实例的单 daemon 上互锁，24 分钟不结束，外层 `error=context_crashed`、`duration_ms=1441508`，内层 `duration_ms=1340742`、同为 `context_crashed`。该自排队死锁已登记为 G-19；主 agent 以 `kill -TERM <pid>` 终止该实例 daemon、保留父 supervisor，两个调用转为 `failed/context_crashed`。同轮内层 `--agent verifier` 调用 `task-a331fc39-810f-4a70-8d25-08659d11cf7d` 在另一实例上 4.8 秒成功，`OK`、实报 `powerby/grok-4.6`，作为 G-19 对照证据。上述失败轮不得替代本节两条成功实报。
+上一轮执行调用 `task-2b66d138-cea9-46d3-a043-b49fa38017f5` 由 `dev` 实例执行本 PR；它把两条实报打给 `pb-dev`（自身实例）与 `pb-verifier`。内层 `--agent dev` 调用 `task-ccf0b236-a01d-4c2f-8ea5-9339f9b12a6d` 与外层轮次在同一实例的单 daemon 上互锁，24 分钟不结束，外层 `error=context_crashed`、`duration_ms=1441508`，内层 `duration_ms=1340742`、同为 `context_crashed`。该自排队死锁已登记为 G-19；主 agent 以 `kill -TERM <pid>` 终止该实例 daemon、保留父 supervisor，两个调用转为 `failed/context_crashed`。同轮内层 `--agent verifier` 调用 `task-a331fc39-810f-4a70-8d25-08659d11cf7d` 在另一实例上 4.8 秒成功，`OK`、实报 `powerby/grok-4.6`，作为 G-19 对照证据。上述失败轮不得替代本节两条成功实报。三条信封的原文（`calls get` 原样输出）：
+
+```text
+$ node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js api calls get task-2b66d138-cea9-46d3-a043-b49fa38017f5
+{"call_id":"task-2b66d138-cea9-46d3-a043-b49fa38017f5","agent":"dev","state":"failed","duration_ms":1441508,"model":null,"truncated":true,"text":"子进程退出 code=143 signal=","structured_output":null,"error":"context_crashed","exit_code":null}
+
+$ node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js api calls get task-ccf0b236-a01d-4c2f-8ea5-9339f9b12a6d
+{"call_id":"task-ccf0b236-a01d-4c2f-8ea5-9339f9b12a6d","agent":"dev","state":"failed","duration_ms":1340742,"model":null,"truncated":false,"text":"上下文实例已不可用，排队轮次未执行","structured_output":null,"error":"context_crashed","exit_code":null}
+
+$ node /Users/chenchiyuan/projects/agents/oamp/bin/hub.js api calls get task-a331fc39-810f-4a70-8d25-08659d11cf7d
+{"call_id":"task-a331fc39-810f-4a70-8d25-08659d11cf7d","agent":"verifier","state":"completed","duration_ms":4801,"model":"powerby/grok-4.6","truncated":false,"text":"OK","structured_output":null,"error":null,"exit_code":0}
+```
+
+内层信封的 `text` = `上下文实例已不可用，排队轮次未执行` ⇒ **排队轮次从未执行**，这是 G-19 自排队死锁的机制级证据；外层 `text` = `子进程退出 code=143 signal=`（143 = 128+15 = SIGTERM，即主 agent 的 `kill -TERM`）。第三条为对照组（落在另一实例）。
 
 时序判定：merge 提交时间为 `2026-09-16 10:42:01 +0800`；R1 down 完成于 `10:45:19`、最终 up 完成于 `10:45:52`；`verifier` 实报 `started_at=1789528236416`（`2026-09-16T11:10:36+0800`）并于 `1789528248772` 结束，`dev` 实报 `started_at=1789528253003`（`2026-09-16T11:10:53+0800`）并于 `1789528257838` 结束。严格顺序为 merge < 重启 < verifier 实报 < dev 实报。重启后的新 session（10:45:51）与新 7788 PID（29203）证明进程换代；`oamp/src/cluster.js:200-201` 的角色级 `model` → `--model` 规则与两条无 `--model` 的后重启实报共同证明不存在“文件已合、集群仍跑旧配置”。
 
