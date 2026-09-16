@@ -601,7 +601,7 @@ function compileRouteMatcher(pathPattern) {
 export function createApiRoutes({
   db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
   getEpoch = async () => 'unknown', checkEpoch = async () => null, getAgentProjection = async (nodes) => nodes,
-  onFilteredSubscription = () => {}, agentStateSubscribers = new Set(), waiters = new Map(),
+  onFilteredSubscription = () => {}, agentStateSubscribers = new Set(), waiters = new Map(), settleCancelledCall = () => {},
 }) {
   const routes = [
     {
@@ -1586,48 +1586,91 @@ export function createApiRoutes({
           }
           pending.push({ callId, state: task.state });
         }
+        const outcome = new Map(); // callId → 终态信封（本请求等待到的结果；超时路径据此区分"已得结论"与"仍未终态"）
+        const registered = []; // 本请求登记的句柄（[callId, waiter]）——超时只摘自己登记的，不误删他人句柄
         const waiting = pending.map(({ callId, state }) => new Promise((resolve) => {
           let set = waiters.get(callId);
           if (!set) {
             set = new Set();
             waiters.set(callId, set);
           }
-          const waiter = (envelope) => resolve({ callId, state, envelope });
+          const waiter = (envelope) => {
+            outcome.set(callId, envelope);
+            resolve({ callId, state });
+          };
           set.add(waiter);
+          registered.push([callId, waiter]);
         }));
         let timedOut = false;
-        let settled = waiting;
         if (timeoutMs !== undefined) {
           const timeout = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
-          const winner = await Promise.race([Promise.all(waiting), timeout]);
-          if (winner === null) {
-            timedOut = true;
-            settled = [];
-          } else {
-            settled = winner;
+          timedOut = (await Promise.race([Promise.all(waiting), timeout])) === null;
+          if (timedOut) {
+            // 超时：撤下本请求登记的句柄（不误删其他等待者），随后按"当刻状态"回报——超时不产生结论、不改调用状态。
+            for (const [callId, waiter] of registered) {
+              const set = waiters.get(callId);
+              if (!set) continue;
+              set.delete(waiter);
+              if (set.size === 0) waiters.delete(callId);
+            }
           }
         } else {
-          settled = await Promise.all(waiting);
+          await Promise.all(waiting);
         }
-        for (const item of settled) {
-          if (item.envelope) results.push(item.envelope);
-          else unresolved.push({ call_id: item.callId, state: item.state });
-        }
-        if (timedOut) {
-          for (const { callId } of pending) {
-            const set = waiters.get(callId);
-            if (!set) continue;
-            for (const waiter of set) {
-              // Only this request's waiter is removed by retaining the closure marker below.
-              if (waiter.callId === callId) set.delete(waiter);
-            }
-            if (set.size === 0) waiters.delete(callId);
-            const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
-            const task = r && r.task ? r.task : null;
-            unresolved.push({ call_id: callId, state: task ? callState(task, callSchemas.get(callId) ?? null) : null });
+        for (const { callId } of pending) {
+          const envelope = outcome.get(callId);
+          if (envelope !== undefined) {
+            results.push(envelope);
+            continue;
           }
+          const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+          const task = r && r.task ? r.task : null;
+          unresolved.push({ call_id: callId, state: task ? callState(task, callSchemas.get(callId) ?? null) : null });
         }
         sendJson(res, 200, { timed_out: timedOut, timeout_ms: timeoutMs ?? null, results, unresolved });
+      },
+    },
+    {
+      // ★ 0029 pr-005（F13 / architecture §4 A-10）：取消 —— 终态真源仍是 Router 任务表（web 侧不覆盖状态）：
+      //   成功 ⇒ Router 以既有唯一终态写点置 `failed` + `result.error='cancelled'`，web 再经**既有唯一终态发布点**
+      //   收口（发布 call_result + 关流 + 解等待句柄）+ 落**恰一条** `out` + 推 `chat_state`（对话不停在 working）。
+      //   重复取消 / 对已终态调用取消 ⇒ 200 `cancelled:false` + 原 `state`/`error` 原样（不改已定终态）。
+      method: 'POST',
+      path: '/api/calls/:call_id/cancel',
+      summary: '取消调用（幂等；已终态调用不改状态）',
+      params: [{ name: 'call_id', in: 'path', type: 'string', required: true, desc: '目标调用 id（= task_id）；不存在 → 404 NOT_FOUND' }],
+      response: '对象 { call_id, cancelled, state, error }（本次生效 ⇒ cancelled:true / state:"failed" / error:"cancelled"；已终态 ⇒ cancelled:false + 原 state/error）',
+      errors: ['NOT_FOUND'],
+      kind: 'json',
+      docLink: 'API.md#3110-post-apicallscall_idcancel',
+      handler: async ({ res, params }) => {
+        const callId = params.call_id;
+        let task = null;
+        try {
+          const r = await queryOnce(config.socketPath, 'router.task_cancel', { task_id: callId });
+          task = r && r.task ? r.task : null;
+        } catch (err) {
+          // 机器码在 JSON-RPC `data.code`（不是 HTTP 码）：按 dataCode 分支，其余错误照旧抛给分发层转 502。
+          if (err && err.dataCode === 'TASK_NOT_FOUND') {
+            sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
+            return;
+          }
+          if (err && err.dataCode === 'TASK_ALREADY_FINAL') {
+            const cur = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+            const existing = cur && cur.task ? cur.task : null;
+            if (!existing) {
+              sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
+              return;
+            }
+            const envelope = composeCallEnvelope(existing, callSchemas.get(callId) ?? null);
+            sendJson(res, 200, { call_id: callId, cancelled: false, state: envelope.state, error: envelope.error });
+            return;
+          }
+          throw err;
+        }
+        const envelope = task === null ? null : composeCallEnvelope(task, callSchemas.get(callId) ?? null);
+        settleCancelledCall(callId, task, envelope); // 终态收口（out + chat_state + 发布 + 关流 + 解等待句柄）
+        sendJson(res, 200, { call_id: callId, cancelled: true, state: envelope.state, error: envelope.error });
       },
     },
     {
@@ -2009,6 +2052,36 @@ export default async function startWeb(restArgs) {
     transport.publishGlobal({ type: 'chat_state', data: { chat_id: chatId, state } });
   };
 
+  /** 等待句柄释放（A-09 / L2-09）：**唯一释放点 = 终态发布点** —— 句柄只在此被解，不在别处；本进程无登记的 id
+   *  由既有对账兜底（`scheduleReconcile` / `reconcileTask`）复查覆盖 ⇒ 等待的退出判据恒为"终态"。 */
+  const releaseWaiters = (callId, envelope) => {
+    const set = waiters.get(callId);
+    if (!set) return;
+    waiters.delete(callId);
+    for (const resolve of set) resolve(envelope);
+  };
+
+  /** 取消收口（F13 / A-10）：终态真源仍是 Router 任务表 —— 本进程有登记的调用 ⇒ 落**恰一条** out
+   *  （`error='cancelled'`，与既有"派发失败"分支同款）+ 推 `chat_state`（对话不停在 `working`）+ 经唯一终态
+   *  发布点收口（发布 → 关流 → 解等待句柄），并即刻撤下登记（迟到的 `task.update` / `task.result` 在状态面被忽略）；
+   *  本进程无登记（另一进程派发 / web 重启后）⇒ 无 out 可落（对话归属不在本进程），仍按同一终态语义收口本进程的
+   *  订阅与等待句柄；内容一律取自任务表，不伪造、不做 web 侧状态覆盖。 */
+  const settleCancelledCall = (callId, task, envelope) => {
+    const entry = tasks.get(callId);
+    if (entry && !entry.landed) {
+      entry.landed = true;
+      clearTimeout(entry.timer);
+      tasks.delete(callId);
+      finishTask(entry, { state: 'failed', error: 'cancelled' });
+      publishCallResult(task, entry); // 同一 tick 内收口（与投递路径共用同一发布点，不出现第二个终态源）
+      return;
+    }
+    if (task === null) return;
+    transport.publishCall(callId, { type: CALL_EVENTS.result, data: { chat_id: task.chat_id ?? null, ...envelope } });
+    transport.closeCallSubscriptions(callId);
+    releaseWaiters(callId, envelope);
+  };
+
   /** 调用面终态单一发布点（★ 0018，architecture §4.3）：投递路径与对账路径**共用**——① 解阻塞（释放等待句柄，
    *  阻塞中的 POST /api/calls 写 200 终态信封）② 按 call:<callId> 与 chat-calls:<chatId> 两键发布 call_result。
    *  `call.published` 幂等：对账分支另有一次调用（已自带条目），不重复发布、不重复解阻塞。
@@ -2035,11 +2108,7 @@ export default async function startWeb(restArgs) {
       transport.closeCallSubscriptions(call.callId);
     }
     if (call.resolve !== null) call.resolve(envelope);
-    const waitersForCall = waiters.get(call.callId);
-    if (waitersForCall) {
-      waiters.delete(call.callId);
-      for (const resolve of waitersForCall) resolve(envelope);
-    }
+    releaseWaiters(call.callId, envelope);
   };
 
   /** 终态落盘：恰一条 out 记录 + `message`(out) + `chat_state`（状态取库值，closed 哨兵不被迟到结果覆盖）。 */
@@ -2252,7 +2321,7 @@ export default async function startWeb(restArgs) {
   // 「纯构造」调用方）⇒ 必须在接线处显式传入，否则 epoch 恒为占位值、代次校验失效、名册提示不进视图。
   const routes = createApiRoutes({
     db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
-    waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription,
+    waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription, settleCancelledCall,
   });
 
   const server = http.createServer(async (req, res) => {
