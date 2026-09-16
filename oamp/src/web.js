@@ -1373,12 +1373,24 @@ export function createApiRoutes({
       docLink: 'API.md#317-get-apicallscall_idstream',
       handler: async ({ req, res, params }) => {
         const callId = params.call_id;
-        const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
-        if (!r || !r.task) {
+        const initial = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+        if (!initial || !initial.task) {
           sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
           return;
         }
         transport.handleCallStream(req, res, { callId });
+        const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+        const task = r && r.task ? r.task : null;
+        if (!task) {
+          transport.closeCallSubscriptions(callId);
+          return;
+        }
+        const state = callState(task, callSchemas.get(callId) ?? null);
+        if (state === 'completed' || state === 'failed') {
+          const envelope = composeCallEnvelope(task, callSchemas.get(callId) ?? null);
+          res.write(`event: ${CALL_EVENTS.result}\ndata: ${JSON.stringify({ chat_id: task.chat_id ?? null, ...envelope })}\n\n`);
+          transport.closeCallSubscriptions(callId);
+        }
         return;
       },
     },
