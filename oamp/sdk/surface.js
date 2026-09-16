@@ -1,9 +1,9 @@
 // sdk/surface.js — 三层入口表的单点定义（F01~F04 / F14；architecture §2.1 SUR、§4.1 N-3、§5.1 全表、§5.2）
 // 一张表两用（§5.2 规则 1）：CLI 面按 `cmd` 查表分派、库面按同一份 `ENTRIES` 装配命名空间 ⇒
 //   "某条命令的行为"只写一处，不存在"改一处另一处没变"。
-// 名面逐字锁定（A14）：40 条 `cmd` = `oamp/skill/hub.md` 的三层清单（层 A 21 / 层 B 8 / 层 C 11），
+// 名面逐字锁定（A14）：49 条 `cmd` = `oamp/skill/hub.md` 的三层清单（层 A 29 / 层 B 9 / 层 C 11），
 //   改名 / 增删立即撞已合并的 `oamp/skill/hub.md` 的三层清单（该清单是本合约的机械锁）。
-// 分层与 doctor（P-4）：`doctor` 是第四顶层入口，不属于三层封装，不在 `ENTRIES` 的 40 条内
+// 分层与 doctor（P-4）：`doctor` 是第四顶层入口，不属于三层封装，不在 `ENTRIES` 的 49 条内
 //   （doctor 命名空间由 sdk/index.js 组合，本模块不装配）。
 // 每条 = { id, layer, cmd, args, flags, kind, method, path, acceptsAs, run }：
 //   · `id` = `<layer>.<cmd.join(' ')>`（唯一，用于 doctor / 用例点名）；`layer` 是分层唯一依据（F14）；
@@ -36,9 +36,9 @@ const DEFAULT_PORT = 7788; // Web 默认端口的唯一落点（§5.2 / API.md �
 /** 层前缀（顺序即 §5.1 表序；F14 验收 1/2 的分层判定面）。 */
 export const LAYERS = ['api', 'uds', 'cli'];
 
-// ────────────────────────────── 层 A：21 条（`hub api …` ↔ `API.md` §3 的 21 行）──────────────────────────────
-// 规则（§5.1）：路径参数 → 位置参数；query / body 字段 → `--<字段名>`；订阅 4 条 `kind: 'stream'`；
-//   17 条 `kind: 'result'`。必填性 = 入口表声明（§5.1 规则 4 的本地校验面，判据见 T1 验收 6）。
+// ────────────────────────────── 层 A：29 条（`hub api …` ↔ `API.md` §3 的 29 行）──────────────────────────────
+// 规则（§5.1）：路径参数 → 位置参数；query / body 字段 → `--<字段名>`；订阅 5 条 `kind: 'stream'`；
+//   24 条 `kind: 'result'`。必填性 = 入口表声明（§5.1 规则 4 的本地校验面，判据见 T1 验收 6）。
 
 /** 选项名 → 线上字段名（§5.1 规则 3 的机械逆变换：flag 名由字段名 `_` → `-` 得到，此处还原）。 */
 function fieldOf(flagName) {
@@ -82,7 +82,10 @@ function runApi(ctx, spec, params) {
     port: ctx.port,
     method: spec.method,
     path: target,
-    query: spec.method === 'GET' && Object.keys(query).length > 0 ? query : null,
+    // 0029（pr-007，主 agent 裁决：采纳"去掉 GET 限定"）→ query 仅在**构造出字段**时发出，方法不限：
+    //   登记里 `in: 'query'` 的字段不分动词（`POST /api/pickup/:call_id/ack` 的 principal / epoch 即此形态）。
+    //   对既有 40 条**严格等价**：非 GET 条目里没有任何一条的登记含 query 字段 ⇒ 它们的 query 恒为空 ⇒ 仍为 null。
+    query: Object.keys(query).length > 0 ? query : null,
     body: spec.method === 'GET' || Object.keys(body).length === 0 ? null : body, // 无字段 ⇒ 无请求体（API.md §3.4/§3.5/§3.6）
     waitMs,
     // 可阻塞形态（`--mode block`）的响应头上限由 `--wait` 上限支配（§5.4：可阻塞条目恒有上限、非可阻塞
@@ -94,7 +97,7 @@ function runApi(ctx, spec, params) {
   return spec.kind === 'stream' ? stream(requestSpec) : request(requestSpec);
 }
 
-/** 层 A 条目构造（`run` 由同一工厂产出 ⇒ 21 条的行为只写一处）。 */
+/** 层 A 条目构造（`run` 由同一工厂产出 ⇒ 29 条的行为只写一处）。 */
 function apiEntry(spec) {
   return {
     id: `api.${spec.cmd.join(' ')}`,
@@ -218,9 +221,67 @@ const API_ENTRIES = [
     args: [arg('confirmation_id')],
     flags: [str('option-id'), arr('option-ids'), str('text')], // option_ids 是数组字段（逗号分隔）
   }),
+  // ── 0029（pr-007；architecture §3.10 入口表追加链 / §4 A-14「既有 SDK / CLI 面同步暴露」/ §7 L2-12）──
+  // 层 A 追加 8 条（21 → 29；`API.md` §3 行序 22~29 = 本段顺序）：`method` / `path` 逐条 = pr-005 在
+  //   `createApiRoutes` 登记的新路由；`args` / `flags` / `kind` 逐条由该路由的登记元数据机械推导
+  //   （路径参数 → 位置参数；query / body 字段 → `--<字段名>`，字段名 `_` → `-`；`kind:'sse'` → `stream`）。
+  // 既有 21 条的 `id` / `cmd` / `args` / `flags` / `kind` / `method` / `path` 逐字不变（只追加，不改名不改序）。
+  apiEntry({
+    cmd: ['subscribe'],
+    method: 'GET',
+    path: '/api/subscribe',
+    args: [],
+    flags: [str('principal', true), str('epoch'), str('kinds'), str('agents')],
+    kind: 'stream',
+  }),
+  apiEntry({
+    cmd: ['pickup', 'list'],
+    method: 'GET',
+    path: '/api/pickup',
+    args: [],
+    flags: [str('principal', true), str('epoch')],
+  }),
+  apiEntry({
+    cmd: ['pickup', 'ack'],
+    method: 'POST',
+    path: '/api/pickup/:call_id/ack',
+    // 该路由的两个字段都在 **query**（登记 `in: 'query'`）——非 GET 的 `flags` 只能进 body（`runApi` 的通道规则），
+    //   故按既有先例（`api stream chat <chat_id>`：query 字段走位置参数 → `runApi` 落 `query`）声明为位置参数。
+    args: [arg('call_id'), arg('principal'), str('epoch')],
+    flags: [],
+  }),
+  apiEntry({
+    cmd: ['calls', 'wait'],
+    method: 'GET',
+    path: '/api/calls/wait',
+    args: [],
+    flags: [str('ids', true), int('timeout-ms')], // `timeout_ms`（number）→ `--timeout-ms`
+  }),
+  apiEntry({
+    cmd: ['calls', 'cancel'],
+    method: 'POST',
+    path: '/api/calls/:call_id/cancel',
+    args: [arg('call_id')],
+    flags: [],
+  }),
+  apiEntry({ cmd: ['health'], method: 'GET', path: '/api/health', args: [], flags: [] }),
+  apiEntry({
+    cmd: ['principals', 'create'],
+    method: 'POST',
+    path: '/api/principals',
+    args: [],
+    flags: [str('principal-id', true), str('kind'), str('instance-id')],
+  }),
+  apiEntry({
+    cmd: ['principals', 'get'],
+    method: 'GET',
+    path: '/api/principals/:principal_id',
+    args: [arg('principal_id')],
+    flags: [],
+  }),
 ];
 
-// ────────────────────────────── 层 B：8 条（`hub uds …` ↔ Router 的 8 个方法）──────────────────────────────
+// ────────────────────────────── 层 B：9 条（`hub uds …` ↔ Router 的 9 个方法）──────────────────────────────
 // 每条绑定一个 Router 方法；`--params` 是唯一入参通道（对象原样进入方法参数）；返回值 = JSON-RPC result 原对象。
 // 身份括号（L2-10 / §0.4 契约 7）：`--as` 只被 4 条身份相关方法接受（heartbeat / deregister / send / ack），
 //   序列 = connect → register → 单次方法 → best-effort deregister → close；无 `--as` 时**不做身份合成**
@@ -236,6 +297,9 @@ const UDS_CALLS = {
   'router.status': (session) => session.status(),
   'router.task_get': (session, params) => session.taskGet(params.task_id),
   'router.task_list': (session, params) => session.taskList(params),
+  // 0029（pr-007；§5.3「层 B 清单 8 → 9 的连带同步」）：pr-001 追加的 Router 方法（与既有 `router.task_get`
+  //   同体例 —— 1:1 包一个 uds.js 会话方法，`--params` 的 `task_id` 原样进方法参数）。
+  'router.task_cancel': (session, params) => session.taskCancel(params.task_id),
 };
 
 /** ctx 感知的会话建立（库面 `uds.connect` 与本模块的入口 `run` 共用一处，无第二处默认路径解析）。 */
@@ -292,6 +356,8 @@ const UDS_ENTRIES = [
   udsEntry({ method: 'router.status', acceptsAs: false }), // 任意连接可用
   udsEntry({ method: 'router.task_get', acceptsAs: false }),
   udsEntry({ method: 'router.task_list', acceptsAs: false }),
+  // 0029（pr-007）：与既有 `router.*` 三条同列（`acceptsAs: false` —— 任意连接可用，无身份合成）
+  udsEntry({ method: 'router.task_cancel', acceptsAs: false }),
 ];
 
 // ────────────────────────────── 层 C：11 条（`hub cli …` ↔ 既有 CLI 的 11 个叶子命令）──────────────────────────────
@@ -357,7 +423,7 @@ const CLI_ENTRIES = CLI_LEAF_COMMANDS.map((cmd) => ({
   run: runOampCli,
 }));
 
-/** 三层入口表（恰 40 条；顺序 = 层 A 的 `API.md` §3 行序 ‖ 层 B 表序 ‖ 层 C 表序）。 */
+/** 三层入口表（恰 49 条；顺序 = 层 A 的 `API.md` §3 行序 ‖ 层 B 表序 ‖ 层 C 表序）。 */
 export const ENTRIES = [...API_ENTRIES, ...UDS_ENTRIES, ...CLI_ENTRIES];
 
 // ────────────────────────────── 装配：createSurface ──────────────────────────────
