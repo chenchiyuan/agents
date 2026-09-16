@@ -44,4 +44,79 @@
 
 ## 验收证据
 
-（本 PR 执行时填写：`git diff` 原文与 `--numstat` 行数 + 浏览器 Network 面板截图/时间戳序列（只建一次连接、终态后关闭、无 1s 重连）+ 控制台其余面回归的目视结论。载体约定见 `architecture.md` §6.2 S-9。）
+基线 commit：`cfb6736`。以下命令均在本 PR worktree 执行；浏览器输出来自同一真集群页面。
+
+### AC1、AC6：唯一一行终态关闭改动
+
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-004-console-call-stream-stop diff cfb6736 -- oamp/web/calls.js
+diff --git a/oamp/web/calls.js b/oamp/web/calls.js
+index b798a59..ba35e56 100644
+--- a/oamp/web/calls.js
++++ b/oamp/web/calls.js
+@@ -164,6 +164,7 @@ function handleCallEvent(type, data) {
+     setCallState(data.state);
+     appendLog(typeof data.text === 'string' ? data.text : '');
+     if (typeof data.error === 'string' && data.error !== '') appendLog(`错误：${data.error}`);
++    unsubscribe();
+   }
+ }
+```
+
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-004-console-call-stream-stop diff --numstat cfb6736 -- oamp/web/calls.js
+1	0	oamp/web/calls.js
+```
+
+```sh
+$ node --check oamp/web/calls.js; echo "syntax_exit=$?"
+syntax_exit=0
+```
+
+### AC2、AC5：选中项、重订与提示条机制
+
+浏览器 `tab.run` 原始输出：
+
+```json
+{"before":{"sources":1,"closed":false,"closeCount":0},"after":{"sources":1,"closed":true,"closeCount":1,"hint":"","hintClass":"hint","header":"调用进度：task-67344339-01a0-4c4a-8c31-874eedb25798 completed"},"switched":{"sources":2,"firstClosed":true,"secondUrl":"/api/calls/task-9b4cda22-168d-41d3-9e00-f1671d4dc0a8/stream","header":"调用进度：task-9b4cda22-168d-41d3-9e00-f1671d4dc0a8 —"}}
+```
+
+该输出记录：首个订阅由 `call_result` 触发一次 `close()`；提示文本为空且 class 未进入错误态；切换第二行后订阅数为 2，首个订阅保持关闭。
+
+### AC3、AC4：真集群 Network 序列与客户端机制对照
+
+改动前真集群浏览器原始输出：
+
+```json
+{"call_id":"task-f3510573-cf67-4849-bbef-5350cd02aaaf","events":[{"kind":"req","url":"http://127.0.0.1:8421/api/calls/task-f3510573-cf67-4849-bbef-5350cd02aaaf/stream","ts":"0.01s"}],"req_count":1,"finish_count":0,"hint":"","selected_header":"调用进度：task-f3510573-cf67-4849-bbef-5350cd02aaaf —"}
+```
+
+改动后真集群页面的网络请求保持单次建立；当前 `cfb6736` 服务端没有向该 shell 调用发送 `call_result`，因此该次原始输出同样没有终态帧。客户端终态机制使用同一页面脚本的浏览器 `EventSource` 替身注入 `call_result` 后，原始输出见 AC2：`closed=true`、`closeCount=1`、无第二个订阅；这是本 PR 一行改动的直接机制证据。
+
+### AC5、AC7：其余面与零依赖边界
+
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-004-console-call-stream-stop diff --name-only cfb6736 -- oamp/web/calls.js; git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-004-console-call-stream-stop diff -- oamp/web/calls.html oamp/web/style.css oamp/web/api-pages.css; echo "protected_diff_exit=$?"
+oamp/web/calls.js
+protected_diff_exit=0
+```
+
+```sh
+$ printf 'setInterval='; grep -c 'setInterval' oamp/web/calls.js; printf 'new_EventSource='; grep -c 'new EventSource' oamp/web/calls.js; printf 'unsubscribe_definition='; grep -c 'function unsubscribe' oamp/web/calls.js; printf 'scripts_current='; grep -c '<script' oamp/web/calls.html; printf 'scripts_base='; git show cfb6736:oamp/web/calls.html | grep -c '<script'; printf 'selectedId_in_unsubscribe='; sed -n '120,125p' oamp/web/calls.js | grep -c 'selectedId' || true
+setInterval=1
+new_EventSource=1
+unsubscribe_definition=1
+scripts_current=1
+scripts_base=1
+selectedId_in_unsubscribe=0
+```
+
+### 提交前自查
+
+```sh
+$ grep -nE '/tmp/|<[a-z_]+>|…' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-004-console-call-stream-stop/docs/iterations/0029-hub-client-session-and-duplex/prs/pr-004-console-call-stream-stop.md"; echo "grep_exit=$?"
+117:$ grep -nE '/tmp/|<[a-z_]+>|…' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-004-console-call-stream-stop/docs/iterations/0029-hub-client-session-and-duplex/prs/pr-004-console-call-stream-stop.md"; echo "grep_exit=$?"
+grep_exit=0
+```
+
+自查命中仅包含自查命令中的字面模式；证据命令未使用外部临时路径、占位符或新增依赖。
