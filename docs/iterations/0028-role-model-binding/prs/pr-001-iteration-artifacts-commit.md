@@ -56,21 +56,40 @@
 命令：
 
 ```sh
-diff <(cd <迭代工作区>/docs/iterations/0028-role-model-binding && shasum -a 256 demand.md prd.md prd/*.md architecture.md clarifications/round-*.md history.md status.md prs/pr-001-iteration-artifacts-commit.md | sed 's#^[0-9a-f]*  ##') <(cd <本 worktree>/docs/iterations/0028-role-model-binding && shasum -a 256 demand.md prd.md prd/*.md architecture.md clarifications/round-*.md history.md status.md prs/pr-001-iteration-artifacts-commit.md | sed 's#^[0-9a-f]*  ##') && echo 'hash-match=23/23'
+cd <迭代工作区>/docs/iterations/0028-role-model-binding && shasum -a 256 demand.md prd.md prd/F*.md architecture.md clarifications/round-*.md > /tmp/ingest-src.sha256
+cd <本 worktree>/docs/iterations/0028-role-model-binding && shasum -a 256 demand.md prd.md prd/F*.md architecture.md clarifications/round-*.md > /tmp/ingest-dst.sha256
+diff /tmp/ingest-src.sha256 /tmp/ingest-dst.sha256; echo "files=$(wc -l < /tmp/ingest-src.sha256 | tr -d ' ') diff-lines=$(diff /tmp/ingest-src.sha256 /tmp/ingest-dst.sha256 | wc -l | tr -d ' ')"
 ```
 
 输出：
 
 ```text
-hash-match=23/23
+files=20 diff-lines=0
 ```
 
 命令：
 
 ```sh
-git diff --cached --name-only | sort
-git diff --cached --name-only | wc -l
-git diff --cached --numstat | awk '{s+=$2} END{print s+0}'
+cd <本 worktree>
+git show 0e314a3:docs/iterations/0028-role-model-binding/history.md | shasum -a 256 | cut -d' ' -f1 > /tmp/rolling-c1.sha256
+git show 0e314a3:docs/iterations/0028-role-model-binding/status.md | shasum -a 256 | cut -d' ' -f1 >> /tmp/rolling-c1.sha256
+shasum -a 256 docs/iterations/0028-role-model-binding/history.md docs/iterations/0028-role-model-binding/status.md | cut -d' ' -f1 > /tmp/rolling-disk.sha256
+diff /tmp/rolling-c1.sha256 /tmp/rolling-disk.sha256; echo "rolling-files=$(wc -l < /tmp/rolling-c1.sha256 | tr -d ' ') diff-lines=$(diff /tmp/rolling-c1.sha256 /tmp/rolling-disk.sha256 | wc -l | tr -d ' ')"
+```
+
+输出：
+
+```text
+rolling-files=2 diff-lines=0
+```
+
+命令：
+
+```sh
+# C1（0e314a3）落定后，暂存面判据以本 diff 面复现（parent 162682d → 0e314a3）
+git diff --name-only 162682d 0e314a3 | sort
+git diff --name-only 162682d 0e314a3 | wc -l | tr -d ' '
+git diff --numstat 162682d 0e314a3 | awk '{s+=$2} END{print s+0}'
 ```
 
 输出：
@@ -83,6 +102,7 @@ docs/iterations/0028-role-model-binding/clarifications/round-3-probe-and-equival
 docs/iterations/0028-role-model-binding/clarifications/round-4-final-boundaries.md
 docs/iterations/0028-role-model-binding/demand.md
 docs/iterations/0028-role-model-binding/history.md
+docs/iterations/0028-role-model-binding/prd.md
 docs/iterations/0028-role-model-binding/prd/F01-one-shot-backend-receipts.md
 docs/iterations/0028-role-model-binding/prd/F02-resident-backend-probes.md
 docs/iterations/0028-role-model-binding/prd/F03-role-model-binding.md
@@ -96,21 +116,30 @@ docs/iterations/0028-role-model-binding/prd/F10-single-chat-attribution.md
 docs/iterations/0028-role-model-binding/prd/F11-dispatch-equivalence-criteria.md
 docs/iterations/0028-role-model-binding/prd/F12-execution-gap-record.md
 docs/iterations/0028-role-model-binding/prd/F13-existing-surface-unchanged.md
-docs/iterations/0028-role-model-binding/prd.md
 docs/iterations/0028-role-model-binding/prs/pr-001-iteration-artifacts-commit.md
 docs/iterations/0028-role-model-binding/status.md
 23
 0
 ```
 
-排除路径检索输出为空；复制源工作区状态条数为 `34`，未回写源工作区。
+命令：
+
+```sh
+git -C <迭代工作区> status --porcelain docs/iterations/0028-role-model-binding | grep -v '^??' | wc -l | tr -d ' '
+```
+
+输出：
+
+```text
+0
+```
 
 #### T2：C1 入库提交
 
 命令：
 
 ```sh
-git show --stat --oneline 0e314a3
+git show --stat=200 --oneline 0e314a3
 git show --numstat 0e314a3 | awk '{s+=$2} END{print s+0}'
 git show 0e314a3:docs/iterations/0028-role-model-binding/prs/pr-001-iteration-artifacts-commit.md | shasum -a 256
 ```
@@ -119,16 +148,59 @@ git show 0e314a3:docs/iterations/0028-role-model-binding/prs/pr-001-iteration-ar
 
 ```text
 0e314a3 docs(0028/pr-001): 迭代产物入库
-23 files changed, 1583 insertions(+)
+ docs/iterations/0028-role-model-binding/architecture.md                                      | 328 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ docs/iterations/0028-role-model-binding/clarifications/round-1-kickoff.md                    |  39 ++++++++++++
+ docs/iterations/0028-role-model-binding/clarifications/round-2-verification-and-execution.md |  28 +++++++++
+ docs/iterations/0028-role-model-binding/clarifications/round-3-probe-and-equivalence.md      |  24 ++++++++
+ docs/iterations/0028-role-model-binding/clarifications/round-4-final-boundaries.md           |  28 +++++++++
+ docs/iterations/0028-role-model-binding/demand.md                                            | 127 ++++++++++++++++++++++++++++++++++++++
+ docs/iterations/0028-role-model-binding/history.md                                           | 204 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ docs/iterations/0028-role-model-binding/prd.md                                               | 212 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ docs/iterations/0028-role-model-binding/prd/F01-one-shot-backend-receipts.md                 |  37 ++++++++++++
+ docs/iterations/0028-role-model-binding/prd/F02-resident-backend-probes.md                   |  39 ++++++++++++
+ docs/iterations/0028-role-model-binding/prd/F03-role-model-binding.md                        |  33 ++++++++++
+ docs/iterations/0028-role-model-binding/prd/F04-second-cluster-full-roster.md                |  40 ++++++++++++
+ docs/iterations/0028-role-model-binding/prd/F05-dev-binding-evidence.md                      |  32 ++++++++++
+ docs/iterations/0028-role-model-binding/prd/F06-verifier-binding-evidence.md                 |  34 +++++++++++
+ docs/iterations/0028-role-model-binding/prd/F07-unbound-control-evidence.md                  |  32 ++++++++++
+ docs/iterations/0028-role-model-binding/prd/F08-post-merge-activation-evidence.md            |  38 ++++++++++++
+ docs/iterations/0028-role-model-binding/prd/F09-dispatch-channel-and-source-of-truth.md      |  31 ++++++++++
+ docs/iterations/0028-role-model-binding/prd/F10-single-chat-attribution.md                   |  32 ++++++++++
+ docs/iterations/0028-role-model-binding/prd/F11-dispatch-equivalence-criteria.md             |  32 ++++++++++
+ docs/iterations/0028-role-model-binding/prd/F12-execution-gap-record.md                      |  33 ++++++++++
+ docs/iterations/0028-role-model-binding/prd/F13-existing-surface-unchanged.md                |  30 +++++++++
+ docs/iterations/0028-role-model-binding/prs/pr-001-iteration-artifacts-commit.md             |  50 +++++++++++++++
+ docs/iterations/0028-role-model-binding/status.md                                            | 100 ++++++++++++++++++++++++++++++
+ 23 files changed, 1583 insertions(+)
 0
 fe3a12477a08bd70fd681e32feb1a70d5b50fadca7dd3093c02b9f3e6917177a  -
 ```
 
-`git show --name-only 0e314a3` 的排除路径检索输出为空。
+命令：
+
+```sh
+git show --name-only --format= 0e314a3 | grep -E 'cluster\.json|^oamp/|^roles/|deferred-demand-changes|clarifications/verify-|prs/pr-00[2-9]|prs/pr-010' | wc -l | tr -d ' '
+```
+
+输出：
+
+```text
+0
+```
 
 #### T3：C2 证据追加前的两段提交清单
 
-C1 短哈希：`0e314a3`
+命令：
+
+```sh
+git rev-parse --short 0e314a3
+```
+
+输出：
+
+```text
+0e314a3
+```
 
 命令：
 
@@ -160,7 +232,6 @@ docs/iterations/0028-role-model-binding/prd/F10-single-chat-attribution.md
 docs/iterations/0028-role-model-binding/prd/F11-dispatch-equivalence-criteria.md
 docs/iterations/0028-role-model-binding/prd/F12-execution-gap-record.md
 docs/iterations/0028-role-model-binding/prd/F13-existing-surface-unchanged.md
-docs/iterations/0028-role-model-binding/prd.md
 docs/iterations/0028-role-model-binding/prs/pr-001-iteration-artifacts-commit.md
 docs/iterations/0028-role-model-binding/status.md
 ```
@@ -181,6 +252,7 @@ docs/iterations/0028-role-model-binding/clarifications/round-3-probe-and-equival
 docs/iterations/0028-role-model-binding/clarifications/round-4-final-boundaries.md
 docs/iterations/0028-role-model-binding/demand.md
 docs/iterations/0028-role-model-binding/history.md
+docs/iterations/0028-role-model-binding/prd.md
 docs/iterations/0028-role-model-binding/prd/F01-one-shot-backend-receipts.md
 docs/iterations/0028-role-model-binding/prd/F02-resident-backend-probes.md
 docs/iterations/0028-role-model-binding/prd/F03-role-model-binding.md
@@ -194,19 +266,36 @@ docs/iterations/0028-role-model-binding/prd/F10-single-chat-attribution.md
 docs/iterations/0028-role-model-binding/prd/F11-dispatch-equivalence-criteria.md
 docs/iterations/0028-role-model-binding/prd/F12-execution-gap-record.md
 docs/iterations/0028-role-model-binding/prd/F13-existing-surface-unchanged.md
-docs/iterations/0028-role-model-binding/prd.md
 docs/iterations/0028-role-model-binding/prs/pr-001-iteration-artifacts-commit.md
 docs/iterations/0028-role-model-binding/status.md
 ```
 
-两段清单各 `23` 行且集合一致。
+命令：
+
+```sh
+diff <(git ls-files docs/iterations/0028-role-model-binding | sort) <(git show --name-only --format= 0e314a3 | sort); echo "first=$(git ls-files docs/iterations/0028-role-model-binding | wc -l | tr -d ' ') second=$(git show --name-only --format= 0e314a3 | wc -l | tr -d ' ') diff-lines=$(diff <(git ls-files docs/iterations/0028-role-model-binding | sort) <(git show --name-only --format= 0e314a3 | sort) | wc -l | tr -d ' ')"
+```
+
+输出：
+
+```text
+first=23 second=23 diff-lines=0
+```
 
 #### T4：收口核验
 
-`git ls-files docs/iterations/0028-role-model-binding | wc -l` 输出 `23`；`git status --porcelain docs/iterations/0028-role-model-binding` 输出仅：
+命令：
+
+```sh
+git ls-files docs/iterations/0028-role-model-binding | wc -l | tr -d ' '
+git status --porcelain docs/iterations/0028-role-model-binding
+```
+
+输出：
 
 ```text
+23
 ?? docs/iterations/0028-role-model-binding/prs/pr-001-iteration-artifacts-commit-tasks.md
 ```
 
-本 PR 无测试套件；验收依据为上述 git 面与逐字哈希比对。
+说明（非证据）：本 PR 无测试套件可跑，验收判据为上述 git 面与逐字 sha256 比对；`history.md` / `status.md` 是滚动文件（任务图 §0.5 A6），其源副本在本 PR 执行后仍继续更新，故这 2 份的源侧比对以入库提交 `0e314a3` 的内容为基准（两文件在 C2 中未被改动）。
