@@ -646,11 +646,59 @@ pickup:SAME
 
 同一 socket / 同一 db / 同一端口上**顺序**跑同一只读探针（27 条请求：既有面的典型入参 + 全部 4xx/404/400 错误路径），逐字比对：
 
+**可重建附件**：探针脚本正文如下（本轮实跑的就是这一份；重建命令 = 把下面的代码块存为 `probe.sh` 后 `sh probe.sh <基址> <项目id> <输出文件>`，已在入库前跑过 `sh -n probe.sh` 语法自检）：
+
+```sh
+#!/bin/sh
+# 既有面回归探针（只读；同入参跑两遍 ⇒ 逐字比对）。
+# 用法：sh probe.sh 基址 项目id 输出文件
+B="$1"; PRJ="$2"; OUT="$3"
+H='content-type: application/json'
+: > "$OUT"
+# 参数：标签 方法 路径 可选请求体（-o /dev/stdout 让响应体与状态码一并落盘）
+req() {
+  printf '### %s\n' "$1" >> "$OUT"
+  if [ -n "$4" ]; then
+    curl -s --max-time 2 -o /dev/stdout -w '\n[http %{http_code}]\n' -X "$2" "$B$3" -H "$H" -d "$4" >> "$OUT"
+  else
+    curl -s --max-time 2 -o /dev/stdout -w '\n[http %{http_code}]\n' -X "$2" "$B$3" >> "$OUT"
+  fi
+}
+req 'agents' GET /api/agents
+req 'agents?state=online' GET '/api/agents?state=online'
+req 'agents?state=bogus' GET '/api/agents?state=bogus'
+req 'chats no project' GET /api/chats
+req 'chats by project' GET "/api/chats?project_id=$PRJ"
+req 'chats limit=0' GET "/api/chats?project_id=$PRJ&limit=0"
+req 'chats unknown' GET /api/chats/nope
+req 'chats unknown close' POST /api/chats/nope/close
+req 'chats unknown rename' POST /api/chats/nope/rename '{"title":"x"}'
+req 'chats unknown activate' POST /api/chats/nope/activate
+req 'calls roster' GET /api/calls
+req 'calls unknown' GET /api/calls/nope
+req 'calls unknown transcript' GET /api/calls/nope/transcript
+req 'calls unknown stream' GET /api/calls/nope/stream
+req 'calls bad mode' POST /api/calls '{"chat_id":"nope","agent":"dev","task":"t","mode":"nowhere"}'
+req 'calls bad schema' POST /api/calls '{"chat_id":"nope","agent":"dev","task":"t","output_schema":{"$ref":"#"}}'
+req 'calls empty tasks' POST /api/calls '{"chat_id":"nope","agent":"dev","tasks":[]}'
+req 'calls bad role' POST /api/calls '{"chat_id":"nope","agent":"nosuchrole","task":"t"}'
+req 'calls task+tasks' POST /api/calls '{"chat_id":"nope","agent":"dev","task":"t","tasks":[{"task":"a"}]}'
+req 'messages empty text' POST /api/messages '{"agent_id":"pb-dev","text":""}'
+req 'confirmations' GET /api/confirmations
+req 'confirmations bad decision' POST /api/confirmations/nope/decision '{}'
+req 'projects' GET /api/projects
+req 'stream no chat' GET /api/stream
+req 'events' GET /api/events
+req 'not found path' GET /api/nope
+req 'wrong method' DELETE /api/agents
+```
+
+
 ```bash
 sh "$RT/probe.sh" "$B" "$PRJ" "$RT/base-endpoints.txt"   # 基线 web.js（51eb893 副本）
 sh "$RT/probe.sh" "$B" "$PRJ" "$RT/cur-endpoints.txt"    # 当前 web.js
-awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip {print}' base-endpoints.txt > base-rest.txt
-awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip {print}' cur-endpoints.txt > cur-rest.txt
+awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip' base-endpoints.txt > base-rest.txt
+awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip' cur-endpoints.txt > cur-rest.txt
 diff base-rest.txt cur-rest.txt && echo "IDENTICAL / 0 differences"
 ```
 
