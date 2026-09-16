@@ -1446,6 +1446,35 @@ export function createApiRoutes({
       },
     },
     {
+      method: 'POST',
+      path: '/api/pickup/:call_id/ack',
+      summary: '确认取件终态调用（幂等）',
+      params: [
+        { name: 'call_id', in: 'path', type: 'string', required: true, desc: '目标调用 id' },
+        { name: 'principal', in: 'query', type: 'string', required: true, desc: '确认身份 principal_id' },
+        { name: 'epoch', in: 'query', type: 'string', required: false, desc: '会话代次；过期返回 409 STALE_EPOCH' },
+      ],
+      response: '对象 { call_id, acked: true }',
+      errors: ['INVALID_PARAM', 'STALE_EPOCH'],
+      kind: 'json',
+      docLink: 'API.md#313-post-apipickupcall_idack',
+      handler: async ({ res, params, query: qs }) => {
+        const principalId = qs.get('principal');
+        if (!validPrincipalId(principalId)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要合法 principal');
+          return;
+        }
+        const stale = await checkEpoch(qs.get('epoch'));
+        if (stale !== null) {
+          sendError(res, 409, ERR_CODE.STALE_EPOCH, stale);
+          return;
+        }
+        if (principals.get(principalId)) principals.touch(principalId);
+        pickup.ack(params.call_id);
+        sendJson(res, 200, { call_id: params.call_id, acked: true });
+      },
+    },
+    {
       // ★ 0018（architecture §2.1 行 19，**全表末位**）：按调用 id 取终态 / 进行中状态（必须排在全部 :call_id/… 形态之后）。
       method: 'GET',
       path: '/api/calls/:call_id',
