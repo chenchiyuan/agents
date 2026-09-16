@@ -82,7 +82,10 @@ function runApi(ctx, spec, params) {
     port: ctx.port,
     method: spec.method,
     path: target,
-    query: spec.method === 'GET' && Object.keys(query).length > 0 ? query : null,
+    // 0029（pr-007，主 agent 裁决：采纳"去掉 GET 限定"）→ query 仅在**构造出字段**时发出，方法不限：
+    //   登记里 `in: 'query'` 的字段不分动词（`POST /api/pickup/:call_id/ack` 的 principal / epoch 即此形态）。
+    //   对既有 40 条**严格等价**：非 GET 条目里没有任何一条的登记含 query 字段 ⇒ 它们的 query 恒为空 ⇒ 仍为 null。
+    query: Object.keys(query).length > 0 ? query : null,
     body: spec.method === 'GET' || Object.keys(body).length === 0 ? null : body, // 无字段 ⇒ 无请求体（API.md §3.4/§3.5/§3.6）
     waitMs,
     // 可阻塞形态（`--mode block`）的响应头上限由 `--wait` 上限支配（§5.4：可阻塞条目恒有上限、非可阻塞
@@ -242,8 +245,10 @@ const API_ENTRIES = [
     cmd: ['pickup', 'ack'],
     method: 'POST',
     path: '/api/pickup/:call_id/ack',
-    args: [arg('call_id')],
-    flags: [str('principal', true), str('epoch')],
+    // 该路由的两个字段都在 **query**（登记 `in: 'query'`）——非 GET 的 `flags` 只能进 body（`runApi` 的通道规则），
+    //   故按既有先例（`api stream chat <chat_id>`：query 字段走位置参数 → `runApi` 落 `query`）声明为位置参数。
+    args: [arg('call_id'), arg('principal'), str('epoch')],
+    flags: [],
   }),
   apiEntry({
     cmd: ['calls', 'wait'],
