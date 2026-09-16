@@ -154,9 +154,18 @@
 - **证据**：`grep -v HEARTBEAT .runtime/cluster/pb-dev.log | grep -E "TASK_|MSG_|CONTEXT_"` 输出（两条 `TASK_STARTED`、零 `TASK_FINISHED`）；`ps -o pid,ppid,etime,command -p 29568`（唯一 daemon）；`web.log` 的 `对账转入低频续查 task=<外层 call_id>（6 次未终态，转 30s/次）`；**决定性对照**——同一条 dev 发出的 `--agent verifier` 实报 **4.8 秒即返回**（`OK`、实报 `powerby/grok-4.6`），因为它落在**另一个实例**上；`hub api --help` 确认**无** `calls cancel/abort` 入口（无法主动解除）。
 - **影响**：① **执行方式规范（本迭代生效）**——取证类/自证类任务**不得把探针打给执行者自己的实例**；执行角色必须与目标实例**不同**（例如以 `planner` 等其它角色执刀），或由主 agent 代取。② **下迭代候选**：为 `calls create` 增加"派发到自身实例"的前置拒绝或显式告警；为 hub 增加 `calls cancel`（当前一旦互锁只能等 30 分钟上限，期间该实例**完全不可用**）。③ 本轮实际后果：pr-010 的执行调用被上限切断、其证据小节未落盘，需换角色重做（见 history）。
 
+### G-20 · 主 agent 的等待监控只覆盖「终态」不覆盖「卡死」⇒ 死锁只能靠 30 分钟上限或人工介入暴露
+
+- **现象**：G-14 的纠正措施（有界 watchdog：轮询 `api calls list`，"未终态调用数 = 0"才退出）只对**会到达终态**的调用有效。pr-010 的执行轮陷入 G-19 自排队死锁后，外层与内层两条调用**持续 `working` 24 分钟**，watchdog 全程静默——它等的是"终态"，而卡死恰恰**不产生终态**。该死锁是因**用户主动点名要求核实**才被诊断出来，不是被监控发现的。
+- **差异**：本地 subagent 的等待由宿主承担，**卡死会被宿主以超时/心跳异常的形式暴露**；hub 侧主 agent 只拿到"能查询的状态"，没有"心跳停顿/进度停滞"这一维，于是"没进展"与"在正常长跑"在观测面上**无法区分**（本次 pr-007 dev 的 35 分钟超时、pr-010 的 24 分钟死锁都属于这一族）。
+- **证据**：`bg_*` watchdog 作业在死锁期间持续 Running 且无输出；同一时段 `pb-dev.log` 的 `TASK_STARTED`（两条）与零 `TASK_FINISHED`（判据命令见 G-19 证据行）；`hub api --help` 无 `calls cancel/abort`（既看不出也解不开）。
+- **影响**：① **执行方式规范（本迭代生效）**——等待监控必须补一层**停滞判定**：除"终态到达"外，另查"**该实例的日志是否仍在推进**"（如 `pb-<role>.log` 末条 `TASK_*` 事件的时间戳）与"**实例是否存活**"（`tmux list-windows` 的 `pane_dead`、daemon pid），任一项停滞超过阈值即上报，不等终态。② **下迭代候选**：把该停滞判定做进 hub 侧（`api calls list` 增列 `last_event_at` / `idle_ms`），或提供 `calls cancel`（G-19 ②）——当前一旦卡死，唯一手段是**外部杀进程**（本轮即 `kill -TERM <daemon pid>`），且需要 operator 先怀疑它。
+
 ---
 
 ## 澄清期登记的冲突
+
+
 
 
 
