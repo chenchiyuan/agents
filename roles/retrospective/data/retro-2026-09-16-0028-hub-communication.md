@@ -43,10 +43,14 @@
 - 结果的去处是**调用登记 + chat 消息**，不是"回给请求者"：
   - `oamp/src/web.js:1129-1145`（`GET /api/calls` roster）：`const rows = (r.tasks || []).filter((t) => t.from === SENDER_ID)` ——**范围收口 `from==='web'`**；代码注释（`:1138`）明写"CLI（`from='main'`）派发的任务无 chat 归属，**不进调用面**"。
   - `oamp/src/web.js:45`：`const SENDER_ID = 'web'; // web 服务作为常驻发送方身份（R2：客户端节点）` —— **只有 web 是"常驻发送方"**；主 agent 不是。
-- 唯一"拿到终态"的正规路径是**把 link 挂住**：
-  - `oamp/sdk/surface.js:88-94`：`mode: 'block'` 才延长响应头预算，上限 = `waitMs ?? 1800000 + margin`（30 分钟）⇒ **`--mode block` 是同步阻塞，不是回调**。
+- 结果的去向（侦察核实，`oamp/src/router.js` + `oamp/src/web.js`）：
+  - Router 以**投递连接的 `ident.instance_id`** 记 `task.from`；`POST /api/calls` 是经 **web 的常驻连接**投递的 ⇒ 调用面调用的 `from` **恒为 `'web'`**（`oamp/src/web.js:45` 的 `SENDER_ID` 即该连接的注册身份；`oamp/src/web.js:1138` 注释里"CLI（`from='main'`）"指的是**层 C / 其它连接**路径，不是 `api calls create` —— 我最初据此误以为自己的调用"不进调用面"，实测纠正：**我的调用确实在 roster 里**）。
+  - agent 发 `task.result` 后，Router **尽力 deliver 回 `'web'`**；web 侧（`finishTask` + `handleDeliver`）落库、发 `message` / `chat_state` 帧、经 `publishCallResult` 发 `call_result` 帧，并**释放 block 等待句柄**。
+- ⇒ 结论不变、且更精确：**结果只回到"那个常驻身份（web）"与"当时的活连接"**。主 agent 既不是 web、也不持有活连接 ⇒ **结构上收不到任何推送**（侦察原文："CLI 进程从不注册为 Router 实例，因此结构上收不到任何推送，只能轮询"）。
+- 唯一"拿到终态"的正规路径是把 link 挂住：
+  - `oamp/sdk/surface.js:88-94`：`mode: 'block'` 才延长响应头预算，上限 = `waitMs ?? 1800000 + margin`（30 分钟）⇒ **`--mode block` 是同步阻塞，不是回调**（其"等待句柄"就挂在 web 进程里）。
   - 本轮**两条 F08 实报就是靠 `--mode block` 拿到信封的**（`task-67cb177b…` / `task-84c498ea…` 均带 `--mode block` 并同步返回）⇒ 能力存在，但**只对"短调用"可用**：工作流的派发动辄数分钟到 30 分钟（G-9 上限），阻塞式等待在主 agent 的回合里不可用。
-- ⇒ **结果面是"拉"或"挂住"，不存在"送到请求者手上"**。这就是用户说的"联系会断"。
+  - 另有一条**层 A 之外**的现成原语（见 §4.0）。
 
 ### 3.3 `stream call` 死等 = 已有推送面**缺一个关闭动作**（G-14 的代码级根因）
 
@@ -74,9 +78,34 @@
 - `api calls list` 给的是**状态快照**（`state` / `started_at` / `ended_at` / `model`），**没有 `last_event_at` / `idle_ms`**；`agent` 的日志在磁盘上但 hub 不投影。
 - ⇒ "正常长跑（35 分钟被上限切断）"与"卡死（24 分钟不动）"在观测面上**不可区分**，二者都以"还在 working"呈现。watchdog 只能等"终态"，而卡死恰恰不产生终态。
 
+### 3.6 两组只读侦察的交叉印证（独立复核，非同一来源）
+
+两次独立侦察（`ResultDelivery` / `CliWaitMechanics`）分别从"投递链"与"CLI 等待机制"两侧调研，结论一致，并补强三条：
+
+1. **`transport.close()` 全仓 0 个调用点** —— 服务端**从设计上就不会在调用终态关流**（不是漏写一行 break）：`close`/`closeKey` 只有客户端断开与进程退出两条触发路径。
+2. **控制台通知结构上排除调用面**：`oamp/web/notify.js` 的 `EVENT_TYPES` 仅 3 类，且注释明写"调用面事件**结构上不可能**产生通知" ⇒ 连"控制台会替我看到结果"这条旁路也不存在。
+3. **`oamp task send --as main` 是第二条死路**：该命令 `register` → 发送 → **finally 立即注销** ⇒ 即使显式声明了 `main` 身份，结果回推时该身份已离线（Router 降级为 `recorded`）。
+4. 投递链**无分支遗漏**（侦察原文）：`HTTP /api/calls → web（无调用方身份）→ Router（from='web'）→ agent（origin='web'）→ task.result 回 to='web' → web 落库/发帧/解 block 句柄`。**"回推到 HTTP 调用发起方"的节点在这条链路中不存在**。
+
 ---
 
-## 四、修复建议（按性价比排序；前两条是"消除 watchdog 存在理由"的关键）
+## 四、修复建议（按性价比排序）
+
+### 4.0 **先纠正我自己**：优雅的解早就存在 —— `hub cli task watch <call_id>`（本节的最高优先级）
+
+- 事实：`oamp/src/task.js:7-8` 定义了 `oamp task watch <task_id> [--interval <ms>]` ——"**轮询到终态并增量打印明细**"（默认 500ms），`README.md:58` 有文档，且它**无需注册身份**（同 `router.status` 语义）。
+- **实测（本复盘现场验证，2026-09-16）**：对一个已终态的调用（`task-84c498ea…`）执行 `hub cli task watch <call_id>`：
+  ```text
+  $ node oamp/bin/hub.js cli task watch task-84c498ea-6dfa-43b5-924d-5561dbe794c3
+    [03:10:53.004] ▶ undefined
+    [03:10:57.805] {"state":"working","kind":"chunk","text":"OK"}
+  任务终态: completed
+  结果: exit_code=0 duration_ms=4834
+  exit=0                    # 0.16s 内退出
+  ```
+  ⇒ **调用面与任务面共用同一张 Router 任务表（`call_id` = `task_id`），所以 `task watch` 直接适用于调用**。
+- ⇒ **结论：watchdog 连"临时方案"都不必存在**——我自建的那套（轮询 `calls list` + 停滞判定）是**对现成原语的重复实现**。这条与 **G-4**（"已实现的等待能力被重新包了一层"）是**同一类错误的第二次发生**：*在造轮子之前，没有穷尽传输层已有的原语清单*（`hub api --help` 只列层 A，层 C 的命令不在其中，我据此误判"没有等待入口"）。
+- 附带小瑕（可记）：`task watch` 对不存在的 task 打印 `task not found` 但**退出码仍为 0** ⇒ 作为编排判据时会把"不存在"误当成功。
 
 ### 4.1 外科级（几行代码，立刻可选）
 
@@ -130,6 +159,14 @@ Observation：本轮在"结果不送达"的残缺通讯面上仍能跑完 10 个
 **候选 C（代理指标）**：{当"任务是否在推进"无法直接观测时，自建的监控必须同时检查**代理指标**（该实例日志的推进、进程存活），只等终态的监控在卡死场景下**等于没有监控**}。
 三问：①✓ ②✓（任何"长任务 + 无心跳"的观测）③✓
 Observation：我 v2 watchdog 的**误报**（把 8 个空闲实例判成停滞）与 v1 的**盲区**（卡死看不见）是同一枚硬币的两面：**判据的适用范围写错，监控就从"没用"变成"误导"**。
+
+**候选 D（先穷尽既有原语）**：{在自建任何"等待 / 轮询 / 重试"基础设施之前，必须先穷尽**传输层已有的原语清单**（含非主入口的命令层，如 CLI 的层 C）；仓库自认"某能力不存在"的判断，必须落到"列出候选命令与文档位置后仍不存在"，不能以主入口的 `--help` 未列出为据}。
+三问：①三个月后成立？✓（"主入口 help 不完整 ⇒ 误判能力缺失"是长期风险）②换场景适用？✓（任何 SDK/CLI 的能力发现）③一句话可执行？✓
+Observation：本轮**同一类错误出现两次**——G-4（用户当场指出"已实现的等待能力被重新包了一层"）与我这次自建 watchdog（未发现 `oamp task watch` 存在）。第二次发生时，代价是**一整个后台作业基础设施 + 一个误报版本（v2）+ 一个盲区（G-20）**。故本条不只是"好习惯"，而是**已被两次真实代价验证**的硬约束。
+
+**候选 E（能力缺口要先看协议自认）**：{判断"某通讯能力缺失"时，先查协议文档的自认清单（如 `docs/multi-omp-agent-protocol.md` 的 §6 未决项）；协议自己写下的 TODO（本例："持久化发送端身份机制"）应当被视为**已知缺口**并优先补齐，而不是每次由执行者在现场重新发现}。
+三问：①✓ ②✓ ③✓
+Observation：`multi-omp-agent-protocol.md:237` 早已写明该缺口；本迭代重复付了代价才发现同一件事。
 
 ---
 
