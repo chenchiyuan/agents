@@ -52,7 +52,7 @@
 
 ```sh
 $ node --input-type=module <<'NODE'
-const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
 const x = t.createSseTransport({ heartbeatMs: 1000000 });
 console.log(JSON.stringify({ keys: Object.keys(x).sort(), kind: x.kind, module_exports: Object.keys(t).sort() }));
 NODE
@@ -61,11 +61,11 @@ NODE
 
 实际对象键为既有 11 键加 3 个追加键；模块级仍仅导出 `createSseTransport`，原验收条文中的“既有 13 个键”及 `closeKey` 列举与基线实际不一致。
 
-### AC2：closeCallSubscriptions 只关闭 call:<id>
+### AC2：closeCallSubscriptions 只关闭 call:9
 
 ```sh
 $ node --input-type=module <<'NODE'
-const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
 const mk = () => { const r = { chunks: [], ended: false, writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); }, end() { this.ended = true; this.emit('close'); } }; return r; };
 const events = (r) => r.chunks.filter((x) => x.startsWith('event:')).map((x) => x.split('\n')[0].slice(7));
 const x = t.createSseTransport({ heartbeatMs: 1000000 }); const call = mk(), chat = mk(), cc = mk();
@@ -76,13 +76,13 @@ NODE
 {"ended":{"call":true,"chat":false,"chatCalls":false},"events":{"call":[],"chat":["chat_state"],"chatCalls":["call_state"]}}
 ```
 
-`call:<id>` 被结束，`chat:<id>` 与 `chat-calls:<id>` 仍可接收后续事件。
+`call:9` 被结束，`chat:10` 与 `chat-calls:10` 仍可接收后续事件。
 
 ### AC3：断开清理与心跳自停
 
 ```sh
 $ node --input-type=module <<'NODE'
-const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
 const mk = () => { const r = { chunks: [], writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); } }; return r; };
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const x = t.createSseTransport({ heartbeatMs: 40 }); const a = mk(), b = mk();
@@ -100,7 +100,7 @@ NODE
 
 ```sh
 $ node --input-type=module <<'NODE'
-const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
 const r = { chunks: [], writeHead() {}, write(x) { this.chunks.push(x); }, on() {} };
 const x = t.createSseTransport({ heartbeatMs: 1000000 });
 x.handleSubscribe({}, r, { predicate: (e) => e.type === 'agent_online' && e.data.agent === 'dev' });
@@ -116,7 +116,7 @@ NODE
 
 ```sh
 $ node --input-type=module <<'NODE'
-const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
 const x = t.createSseTransport({ heartbeatMs: 1000000 }); x.publishFiltered({ type: 'agent_online', data: { agent: 'dev' } });
 const r = { chunks: [], writeHead() {}, write(v) { this.chunks.push(v); }, on() {} }; x.handleSubscribe({}, r, {});
 console.log(JSON.stringify({ chunks: r.chunks, no_event: r.chunks.every((v) => !v.startsWith('event:')) }));
@@ -130,7 +130,7 @@ NODE
 
 ```sh
 $ node --input-type=module <<'NODE'
-const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
 const mk = () => { const r = { chunks: [], ended: false, writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); }, end() { this.ended = true; this.emit('close'); } }; return r; };
 const events = (r) => r.chunks.filter((x) => x.startsWith('event:')).map((x) => x.split('\n')[0].slice(7));
 const x = t.createSseTransport({ heartbeatMs: 1000000 }); const global = mk(), filtered = mk();
@@ -147,7 +147,7 @@ NODE
 
 ```sh
 $ node --input-type=module <<'NODE'
-const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
 const r = { chunks: [], writeHead(status, headers) { this.status = status; this.headers = headers; }, write(v) { this.chunks.push(v); }, on() {} };
 t.createSseTransport({ heartbeatMs: 1000000 }).handleSubscribe({}, r, {});
 console.log(JSON.stringify({ status: r.status, headers: r.headers, chunks: r.chunks }));
@@ -160,12 +160,15 @@ NODE
 ### AC8：四键空间逐条投递与关闭回归
 
 ```sh
-$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions; git -C "$ROOT" show 72b659f:oamp/src/transport.js > /tmp/pr003-base-transport.mjs; node --input-type=module <<'NODE'
-const load = async (path) => (await import(`file://${path}`)).createSseTransport({ heartbeatMs: 1000000 });
+$ node --input-type=module <<'NODE'
+import { execFileSync } from 'node:child_process';
+const root = '/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions';
+const baseSource = execFileSync('git', ['-C', root, 'show', '72b659f:oamp/src/transport.js'], { encoding: 'utf8' });
+const load = async (url) => (await import(url)).createSseTransport({ heartbeatMs: 1000000 });
 const mk = () => { const r = { chunks: [], ended: false, writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); }, end() { this.ended = true; this.emit('close'); } }; return r; };
 const events = (r) => r.chunks.filter((x) => x.startsWith('event:')).map((x) => x.split('\n')[0].slice(7));
-const probe = async (path) => { const x = await load(path); const global = mk(), chat = mk(), call = mk(), chatCalls = mk(); x.handle({}, global, { chatId: null }); x.handle({}, chat, { chatId: '10' }); x.handleCallStream({}, call, { callId: '9' }); x.handleChatCallStream({}, chatCalls, { chatId: '10' }); x.publishGlobal({ type: 'global', data: {} }); x.publish('10', { type: 'chat', data: {} }); x.publishCall('9', { type: 'call', data: { chat_id: '10' } }); x.publishChatCall('10', { type: 'chat_call', data: {} }); const before = { global: events(global), chat: events(chat), call: events(call), chatCalls: events(chatCalls) }; x.close('10'); x.publishGlobal({ type: 'global2', data: {} }); x.publishCall('9', { type: 'call2', data: { chat_id: '10' } }); return { before, ended: { global: global.ended, chat: chat.ended, call: call.ended, chatCalls: chatCalls.ended }, after: { global: events(global), chat: events(chat), call: events(call), chatCalls: events(chatCalls) } }; };
-const now = await probe('/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js'); const base = await probe('/tmp/pr003-base-transport.mjs'); console.log(JSON.stringify({ equal: JSON.stringify(now) === JSON.stringify(base), now, base }));
+const probe = async (url) => { const x = await load(url); const global = mk(), chat = mk(), call = mk(), chatCalls = mk(); x.handle({}, global, { chatId: null }); x.handle({}, chat, { chatId: '10' }); x.handleCallStream({}, call, { callId: '9' }); x.handleChatCallStream({}, chatCalls, { chatId: '10' }); x.publishGlobal({ type: 'global', data: {} }); x.publish('10', { type: 'chat', data: {} }); x.publishCall('9', { type: 'call', data: { chat_id: '10' } }); x.publishChatCall('10', { type: 'chat_call', data: {} }); const before = { global: events(global), chat: events(chat), call: events(call), chatCalls: events(chatCalls) }; x.close('10'); x.publishGlobal({ type: 'global2', data: {} }); x.publishCall('9', { type: 'call2', data: { chat_id: '10' } }); return { before, ended: { global: global.ended, chat: chat.ended, call: call.ended, chatCalls: chatCalls.ended }, after: { global: events(global), chat: events(chat), call: events(call), chatCalls: events(chatCalls) } }; };
+const now = await probe(`file://${root}/oamp/src/transport.js`); const base = await probe(`data:text/javascript;base64,${Buffer.from(baseSource).toString('base64')}`); console.log(JSON.stringify({ equal: JSON.stringify(now) === JSON.stringify(base), now, base }));
 NODE
 {"equal":true,"now":{"before":{"global":["global"],"chat":["chat"],"call":["call"],"chatCalls":["call","chat_call"]},"ended":{"global":false,"chat":true,"call":false,"chatCalls":false},"after":{"global":["global","global2"],"chat":["chat"],"call":["call","call2"],"chatCalls":["call","chat_call","call2"]}},"base":{"before":{"global":["global"],"chat":["chat"],"call":["call"],"chatCalls":["call","chat_call"]},"ended":{"global":false,"chat":true,"call":false,"chatCalls":false},"after":{"global":["global","global2"],"chat":["chat"],"call":["call","call2"],"chatCalls":["call","chat_call","call2"]}}}
 ```
@@ -175,9 +178,26 @@ NODE
 ### AC9：零依赖且不 import web.js
 
 ```sh
-$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions; grep -cE '^(import|export).*web\.js' "$ROOT/oamp/src/transport.js"; grep -cE '^(import|export)' "$ROOT/oamp/src/transport.js"; git -C "$ROOT" diff --name-only 72b659f..HEAD -- oamp/package.json oamp/src/web.js oamp/src/surface.js oamp/web/calls.js
+$ grep -cE '^(import|export).*web\.js' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js"
 0
+```
+
+```sh
+$ grep -cE '^(import|export)' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js"
 1
 ```
 
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions diff --name-only 72b659f..HEAD -- oamp/package.json oamp/src/web.js oamp/src/surface.js oamp/web/calls.js
+```
+
 transport.js 没有 web.js 导入，且保护路径 diff 为空；唯一模块级 export 是既有 `createSseTransport`。
+
+### 提交前自查
+
+```sh
+$ grep -nE '/tmp/|<[a-z_]+>|…' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/docs/iterations/0029-hub-client-session-and-duplex/prs/pr-003-sse-transport-additions.md"
+24:- [ ] `closeCallSubscriptions(callId)` 存在且**只关 `call:<callId>`**：mock res 断言 —— `call:<id>` 的订阅者被 `res.end()`；`chat-calls:<id>` 与 `chat:<id>` 的订阅者**仍在**且后续事件照常到达（F09 验收 3）——`oamp/src/transport.js:120-126`（`closeKey`）为唯一关闭实现，不新增第二套关闭路径
+199:$ grep -nE '/tmp/|<[a-z_]+>|…' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/docs/iterations/0029-hub-client-session-and-duplex/prs/pr-003-sse-transport-additions.md"
+200:222:$ grep -nE '/tmp/|<[a-z_]+>|…' "/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/docs/iterations/0029-hub-client-session-and-duplex/prs/pr-003-sse-transport-additions.md"
+```
