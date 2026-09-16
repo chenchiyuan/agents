@@ -419,29 +419,74 @@ rm oamp/sdk/.surface-base.tmp.mjs
 【当前 49 条（含新增 9 条）】非 GET 层 A 条目 11 条 ｜ 其中登记含 in:'query' 字段的 = 1 条 [{"id":"api.pickup ack","method":"POST","path":"/api/pickup/:call_id/ack","queryFields":["principal","epoch"]}]
 ```
 
-再用**真集群前后实跑**同一组既有条目命令，逐条比对：改动前基线在修复前（`3ed309b`）捕获、改动后在同一隔离集群上重跑（同一 socket / 端口 / DB）。复现方式：`git checkout 3ed309b -- oamp/sdk/surface.js` 跑一遍落在 `$B`，再 `git checkout HEAD -- oamp/sdk/surface.js` 跑一遍落在 `$A`（两组命令逐字相同）。
+再用**真集群前后实跑**同一组既有条目命令，逐条比对。**基线 sha = `3ed309b`**（修复前的提交；`git log --oneline -1 3ed309b` ⇒ `docs(0029-pr-007-hub-entries-and-skill-lists): 自检段改为计数口径（读数不动点）`）。**基线一遍的命令与原样输出**（同一隔离集群、同一 socket / 端口 / DB）：
 
 ```bash
 cd $WS && export OAMP_SOCKET=.pb-agents/pr007/router.sock OAMP_DB=.pb-agents/pr007/sql.db OAMP_WEB_PORT=8437
-B=.pb-agents/pr007/before A=.pb-agents/pr007/after2
+B=.pb-agents/pr007/before && mkdir -p $B
+git checkout 3ed309b -- oamp/sdk/surface.js && grep -n "query: spec.method === 'GET'" oamp/sdk/surface.js
+run() { n="$1"; shift; node oamp/bin/hub.js "$@" > $B/$n.txt 2>&1; echo "exit=$?" >> $B/$n.txt; }
+run docs api docs; run callslist api calls list; run status uds router.status; run clistatus cli status; run doctor doctor
+for f in callslist status clistatus; do echo "--- \$B/$f.txt"; cat $B/$f.txt; done
+for f in docs doctor; do printf '%s: %s bytes ｜ %s ｜ sha256=%s\n' "$f" "$(wc -c < $B/$f.txt | tr -d ' ')" "$(tail -1 $B/$f.txt)" "$(shasum -a 256 $B/$f.txt | cut -d' ' -f1)"; done
+```
+
+```
+85:    query: spec.method === 'GET' && Object.keys(query).length > 0 ? query : null,
+--- $B/callslist.txt
+{"calls":[{"call_id":"task-759fbc41-d4d1-4037-ac9b-10d799339085","agent":null,"state":"failed","started_at":1789576099482,"ended_at":1789576099608,"model":null,"last_event_at":1789576099608},{"call_id":"task-7bd8b679-c682-4fb1-ad5e-6a712a39ddc1","agent":null,"state":"completed","started_at":1789576099452,"ended_at":1789576099459,"model":null,"last_event_at":1789576099459}]}
+exit=0
+--- $B/status.txt
+{"nodes":[{"instance_id":"dev-1","session_id":"afe1a3c5-4054-4255-a82f-04914601f531","state":"online","last_heartbeat":1789576100675,"connected":true},{"instance_id":"web","session_id":"dc44ef00-222e-4f6b-8e7c-2367dfea8a53","state":"online","last_heartbeat":1789576099451,"connected":true}],"generation":"78cff214-5c2d-4eda-aca9-5ec898c1d01a"}
+exit=0
+--- $B/clistatus.txt
+instance_id  session_id                            state   last_heartbeat
+dev-1        afe1a3c5-4054-4255-a82f-04914601f531  online  2026-09-16T16:28:20.675Z
+web          dc44ef00-222e-4f6b-8e7c-2367dfea8a53  online  2026-09-16T16:28:19.451Z
+exit=0
+docs: 18819 bytes ｜ exit=0 ｜ sha256=a86072d3c1e5cf0b72e987a16c7720207c32be13ce69aee2473191d6c33fd071
+doctor: 8005 bytes ｜ exit=0 ｜ sha256=4c8d5b25fe3bc6bc20b007e2ccc09a073c7dc2f4956b91d14330dfdea75c46d0
+```
+
+（`api docs` 与 `doctor` 两份大产物以"字节数 + 退出码 + sha256"给出原样读数，不再整段贴入：前者内容已在 §2 / §4 以 routes 计数与字段面呈现，后者的逐条投影已在 §6 全文呈现；两侧摘要逐一相同即等价。）
+
+**改动后一遍**（同一组命令、同一落点规则，基线侧文件保留 ⇒ 两侧可比）：
+
+```bash
+cd $WS && export OAMP_SOCKET=.pb-agents/pr007/router.sock OAMP_DB=.pb-agents/pr007/sql.db OAMP_WEB_PORT=8437
+A=.pb-agents/pr007/after && mkdir -p $A
+git checkout HEAD -- oamp/sdk/surface.js && grep -n "query: Object.keys(query)" oamp/sdk/surface.js
 run() { n="$1"; shift; node oamp/bin/hub.js "$@" > $A/$n.txt 2>&1; echo "exit=$?" >> $A/$n.txt; }
 run docs api docs; run callslist api calls list; run status uds router.status; run clistatus cli status; run doctor doctor
-for f in docs callslist status clistatus doctor; do printf '%s: ' "$f"; diff -q $B/$f.txt $A/$f.txt > /dev/null && echo "逐字节相同" || echo "仅时变字段（last_heartbeat）差异"; done
-diff <(head -1 $B/status.txt | jq -c '[.nodes[]|{instance_id,session_id,state,connected}]') <(head -1 $A/status.txt | jq -c '[.nodes[]|{instance_id,session_id,state,connected}]') && echo "router.status 归一化后 = 逐字节相同"
-diff <(sed -n '2p' $B/clistatus.txt | awk '{print $1,$2,$3}') <(sed -n '2p' $A/clistatus.txt | awk '{print $1,$2,$3}') && echo "cli status 归一化后 = 逐字节相同"
+for f in callslist status clistatus; do echo "--- \$A/$f.txt"; cat $A/$f.txt; done
+for f in docs doctor; do printf '%s: %s bytes ｜ %s ｜ sha256=%s\n' "$f" "$(wc -c < $A/$f.txt | tr -d ' ')" "$(tail -1 $A/$f.txt)" "$(shasum -a 256 $A/$f.txt | cut -d' ' -f1)"; done
+echo "--- 逐条 diff（原始输出）"; for f in docs callslist status clistatus doctor; do printf '%s: ' "$f"; diff -q .pb-agents/pr007/before/$f.txt $A/$f.txt > /dev/null && echo "逐字节相同" || echo "有差异"; done
 ```
 
 ```
+88:    query: Object.keys(query).length > 0 ? query : null,
+--- $A/callslist.txt
+{"calls":[{"call_id":"task-759fbc41-d4d1-4037-ac9b-10d799339085","agent":null,"state":"failed","started_at":1789576099482,"ended_at":1789576099608,"model":null,"last_event_at":1789576099608},{"call_id":"task-7bd8b679-c682-4fb1-ad5e-6a712a39ddc1","agent":null,"state":"completed","started_at":1789576099452,"ended_at":1789576099459,"model":null,"last_event_at":1789576099459}]}
+exit=0
+--- $A/status.txt
+{"nodes":[{"instance_id":"dev-1","session_id":"afe1a3c5-4054-4255-a82f-04914601f531","state":"online","last_heartbeat":1789576100675,"connected":true},{"instance_id":"web","session_id":"dc44ef00-222e-4f6b-8e7c-2367dfea8a53","state":"online","last_heartbeat":1789576099451,"connected":true}],"generation":"78cff214-5c2d-4eda-aca9-5ec898c1d01a"}
+exit=0
+--- $A/clistatus.txt
+instance_id  session_id                            state   last_heartbeat
+dev-1        afe1a3c5-4054-4255-a82f-04914601f531  online  2026-09-16T16:28:20.675Z
+web          dc44ef00-222e-4f6b-8e7c-2367dfea8a53  online  2026-09-16T16:28:19.451Z
+exit=0
+docs: 18819 bytes ｜ exit=0 ｜ sha256=a86072d3c1e5cf0b72e987a16c7720207c32be13ce69aee2473191d6c33fd071
+doctor: 8005 bytes ｜ exit=0 ｜ sha256=4c8d5b25fe3bc6bc20b007e2ccc09a073c7dc2f4956b91d14330dfdea75c46d0
+--- 逐条 diff（原始输出）
 docs: 逐字节相同
 callslist: 逐字节相同
-status: 仅时变字段（last_heartbeat）差异
-clistatus: 仅时变字段（last_heartbeat）差异
+status: 逐字节相同
+clistatus: 逐字节相同
 doctor: 逐字节相同
-router.status 归一化后 = 逐字节相同
-cli status 归一化后 = 逐字节相同
 ```
 
-读数：`api docs`（29 条路由元数据全文）、`api calls list`、`hub doctor` 三段报告**逐字节相同**；`uds router.status` 与 `cli status` 只差 `last_heartbeat`（心跳时刻，两次运行相隔 30s），去掉该时变字段后**逐字节相同**；四条的**退出码**均不变（`exit=0`）。⇒ 该 1 行修改对既有条目等价。
+读数：**五条的原始输出两侧逐字节相同**（`diff` 全部无输出；`api docs` 与 `doctor` 的 sha256 两侧逐一相同，字节数亦相同），退出码均为 `exit=0` ⇒ 该 1 行修改对既有条目**等价**（本轮两次运行落在同一心跳窗口内，故连 `last_heartbeat` 也一致；此前的独立一轮曾出现"仅 `last_heartbeat` 差异、归一化后相同"，两者不矛盾）。
 
 **④ 本次登记的两处偏差**（均不改 PR 文件的验收标准文字）：AC1 括注的"只含新增行 + 注释计数行"→ 多 1 处修改行（§1.1）；AC2 括注的"query 字段走标志"→ 仅 `api pickup ack` 一条按其两个 query 字段声明为位置参数（§2，附既有先例 `api stream chat`）。两处的共同判据都是"该端点的业务成功路径必须真通"（改动前 400 / 改动后 200，见 ①②）。
 
