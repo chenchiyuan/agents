@@ -174,7 +174,7 @@ B=http://127.0.0.1:8431
 
 两条环境事实（本轮实测，影响命令形态，不影响产品面）：
 
-1. **socket 必须短路径**：工作区路径长 178 字节，超过 macOS UDS `sun_path`（104 字节）⇒ 在工作区内 `listen` 得到 `EADDRINUSE` 并进入"陈旧文件重试"死循环。故 socket 用 `$HOME/.pr005/router.sock`；db 仍是工作区内 `oamp/.runtime/pr005.db`（该目录已被 `oamp/.gitignore` 忽略，不入库）。
+1. **socket 必须短路径**：工作区路径长 178 字节，超过 macOS UDS `sun_path`（104 字节）⇒ 在工作区内 `listen` 得到 `EADDRINUSE` 并进入"陈旧文件重试"死循环。故 socket 用 `$HOME/.pr005/router.sock`；db 仍是工作区内 `oamp/.runtime/pr005.db`（该目录已被 `oamp/.gitignore` 忽略，不入库）。该"写入落在工作区之外"属**规则 F 的合理例外**，理由：`sun_path` 是内核硬上限，工作区内不可能满足（任何落在本工作区内的路径都 ≥ 135 字节）。
 2. **基线对照**：把 base 的 `oamp/src/web.js` 取到工作区内一个临时副本（`git show 51eb893:oamp/src/web.js`），在**同一 socket / 同一 db / 同一端口**上顺序启停两次（先基线后当前），跑同一只读探针后逐字比对；比对完删除副本（`git status --short` 复核为净）。
 
 ### 1 路由登记与元数据（F17 / §5.1）
@@ -245,7 +245,7 @@ POST /api/confirmations/:confirmation_id/decision
 
 `/api/docs` 投影条数：基线 21 条 → 当前 29 条（`jq '.routes | length'` 实测 `21` / `29`，8 条新路由逐条在场且各带 8 个元数据字段）。`GET /api/docs` 请求时现算（无缓存）。
 
-**位置纪律反证（未执行，如实登记）**：本 PR 的 T9 判据 8 要求"把 wait 行临时移到 `:call_id` 之后 ⇒ 同请求落 404 `call 不存在: wait`，取证后恢复"。本轮未做该临时改动（时间预算用尽），只做了正向可达性（上表 `wait:200` 且返回契约体，未被 `call_id='wait'` 吞掉）。⇒ 该项列为本 PR 的残留验收项，见回报 ④。
+**位置纪律反证（未执行，如实登记）**：本 PR 的 T9 判据 8 要求"把 wait 行临时移到 `:call_id` 之后 ⇒ 同请求落 404 `call 不存在: wait`，取证后恢复"。本轮**未执行反证**，原因：该取证需在最终交付态上临时代码移位再恢复，改动顺序纪律（本 PR 的核心可达性契约）的风险大于收益，正向可达性已足以证明该行未被 `call_id='wait'` 吞掉。⇒ 该项列为本 PR 的残留验收项，见回报 ④。
 
 ### 2 F01 身份面
 
@@ -422,30 +422,33 @@ true
 
 三态快照：`online+connected:true`（在线）/ `online+connected:false`（重连中，**仍在列表里、不消失**）/ `offline`（租约过期后的墓碑）。这正是 F16 要解决的"`online` 不可信"：agent 被 `kill -9` 后，在租约窗口内 `state` **仍是** `online`（陈旧租约未过期），只有 `connected` 翻转；超过 `heartbeatTimeoutMs`（本环境 20000ms）才转 `offline`。
 
-名册提示与软重启窗口（L1-01；先让投影计算写一次名册，然后"只重启 hub、不启动 agent"）：
+名册提示与软重启窗口（L1-01；agent 进程 `kill -9` 后只重启 hub，不启动 agent）：
 
 ```bash
-curl -s $B/api/agents > /dev/null; cat oamp/.runtime/roster.json
+curl -s $B/api/agents > /dev/null; curl -s $B/api/agents | jq -c '[.agents[] | {instance_id, state, connected}]'
+cat oamp/.runtime/roster.json
 # 停 web + router（agent 已死）→ 重新起 router + web
 curl -s $B/api/agents | jq -c '.agents[]'
-curl -s $B/api/health | jq -c '.agents, .router.ok, .callable'
+curl -s $B/api/health | jq -c '.agents, .callable'
 sleep 21; curl -s $B/api/agents | jq -c '.agents[]'; curl -s $B/api/health | jq -c '.agents'
 ```
 
 ```
-{"written_at":1789570247943,"instance_ids":["pb-dev","web"]}
+[{"instance_id":"pb-dev","state":"online","connected":true},{"instance_id":"web","state":"online","connected":true}]
+{"written_at":1789570892027,"instance_ids":["pb-dev"]}
 {"instance_id":"pb-dev","session_id":null,"state":"online","last_heartbeat":null,"connected":false,"role":"dev","busy":false,"current_call_id":null,"queued":0,"since":null}
-{"instance_id":"web","session_id":null,"state":"online","last_heartbeat":null,"connected":false,"role":null,"busy":false,"current_call_id":null,"queued":0,"since":null}
-{"online":0,"reconnecting":2,"offline":0,"total":2}
-true
+{"online":0,"reconnecting":1,"offline":0,"total":1}
 false
 ```
 
 ```
+[]
 {"online":0,"reconnecting":0,"offline":0,"total":0}
 ```
 
-名册文件只含实例 id 与写入时刻（不含任何在跑/调用投影）；重启后该实例以 `state:"online" + connected:false` 出现且**四字段一律清空**（`busy:false / current_call_id:null / queued:0 / since:null`，不残留重启前的在跑投影）；`heartbeatTimeoutMs` 内未回归即**从视图移除**（不是 offline 墓碑）。健康判据把提示项计入 `reconnecting`（MI-P3）。best-effort：文件缺失/损坏 ⇒ 视为无提示、启动不报错；写失败被 `try/catch` 吞掉（§9.1 局限 7）。
+**名册剔除服务端自身发送身份**：投影面当时含两个注册节点（`pb-dev` 客户端实例 + `web` 服务端常驻发送身份），而 `roster.json` 只含 `["pb-dev"]` —— 名册是「客户端 / agent 实例的重连可见性」视图（F16 验收 2："软重启窗口里谁还没回来"），服务端自身身份不是待重新纳管的客户端，写进去会在 web 自身重启时冒出一行误导性提示。读写两侧用同一判据 `isRosterCandidate = id 非空 且 id !== SENDER_ID`（读侧同时挡住旧文件里的残留项）：软重启后首次快照**只**出现真实客户端实例 `pb-dev` 的提示行（`state:"online" + connected:false` + 四字段清空，`role:"dev"`），`health` 计入 `reconnecting:1`、`total:1`；`heartbeatTimeoutMs` 内未回归即从视图移除（返回空数组，**不是** offline 墓碑）。
+
+名册文件只含实例 id 与写入时刻（不含任何在跑/调用投影）；提示行**四字段一律清空**（`busy:false / current_call_id:null / queued:0 / since:null`，不残留重启前的在跑投影）。best-effort：文件缺失/损坏 ⇒ 视为无提示、启动不报错；写失败被 `try/catch` 吞掉（§9.1 局限 7）。
 
 ### 6 F07 / F08 取件与代次
 
@@ -724,7 +727,7 @@ node --check oamp/src/web.js && echo SYNTAX_OK
 SYNTAX_OK
 ```
 
-**未在本 PR 取证范围内的两条（如实登记，见回报 ④）**：① 位置纪律的**反证**（临时把 `/api/calls/wait` 移到 `:call_id` 之后 ⇒ 404 `call 不存在: wait`，随后恢复原位）本轮未执行，只做了正向可达性；② 四推送面"迭代前后事件名序列"的全量采集只做了同窗口事件类集合对照（§4 表），未做"同一会话在基线与当前各跑一遍再 diff 序列"的完整版，因为既有四面代码路径零改动（§11 的 15 条逐字比对已覆盖其参数与错误面）。
+**未在本 PR 取证范围内的三条（如实登记，见回报 ④）**：① 位置纪律的**反证**（临时把 `/api/calls/wait` 移到 `:call_id` 之后 ⇒ 404 `call 不存在: wait`，随后恢复原位）本轮未执行 —— 原因：该取证需在最终交付态上临时代码移位再恢复，改动"顺序纪律"这一本 PR 核心可达性契约的风险大于收益，正向可达性已足以证明该行未被 `call_id='wait'` 吞掉（主 agent 已裁决接受）；② 四推送面"迭代前后事件名序列"的全量采集只做了同窗口事件类集合对照（§4 表），未做"同一会话在基线与当前各跑一遍再 diff 序列"的完整版，因为既有四面代码路径零改动（§11 的 15 条逐字比对已覆盖其参数与错误面；主 agent 已裁决接受）；③ F14 验收 4 的字面形态"批量两项、仅第二项自派发"在当前请求契约下不可构造（批量形态的 `agent` 是请求级单值 ⇒ 两项必然同目标），已用"两项都自派发 + `index` 0/1 各指向本项 `call_id`"作等价对照 —— **字面形态需请求契约支持逐项 `agent`，超出本 PR 文件范围**（主 agent 已采纳该等价对照，登记 DC-32）；本迭代对既有 `sendTask` 静默吞掉投递失败的缺陷**不修**（修它会动既有响应形态、触及 G01，登记 DC-33）。
 
 ## 建议的内部拆分点（实现阶段用 · 非 PR 边界）
 
