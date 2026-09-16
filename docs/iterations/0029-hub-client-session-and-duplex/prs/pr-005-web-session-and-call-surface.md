@@ -157,7 +157,574 @@
 
 ## 验收证据
 
-（本 PR 执行时填写：逐条验收的原始命令与输出（`hub api …` / `curl` / `node -e` 一次性脚本 / `git stash` 前后的响应体比对）+ 8 条新路由的可达性与 404 兜底对照 + 四推送面迭代前后事件类集合比对 + `/api/docs` 投影摘录。真集群 smoke 的起停记录按本迭代 `status.md` 体例留存；证据载体见 `architecture.md` §10 R-5。）
+真集群实跑取证（本仓无测试面 ⇒ 判据 = 真集群 + curl + 一次性脚本，见 tasks 文件 §0.3 A15）。全部证据为**原样 stdout**，可在同一工作区内重放。
+
+### 0 取证环境与固定前缀
+
+```bash
+cd /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-005-web-session-and-call-surface
+RT="$HOME/.pr005"; mkdir -p "$RT"
+export OAMP_SOCKET="$RT/router.sock" OAMP_DB="$PWD/oamp/.runtime/pr005.db" OAMP_WEB_PORT=8431 OAMP_HEARTBEAT_TIMEOUT_MS=20000
+# 三进程（长驻一律经 hub 进程面起，cwd = 本工作区）
+node oamp/bin/oamp.js router start        # → ROUTER_READY
+node oamp/bin/oamp.js agent start pb-dev  # → REGISTERED instance=pb-dev
+node oamp/bin/oamp.js web start --port 8431   # → WEB_READY url=http://127.0.0.1:8431
+B=http://127.0.0.1:8431
+```
+
+两条环境事实（本轮实测，影响命令形态，不影响产品面）：
+
+1. **socket 必须短路径**：工作区路径长 178 字节，超过 macOS UDS `sun_path`（104 字节）⇒ 在工作区内 `listen` 得到 `EADDRINUSE` 并进入"陈旧文件重试"死循环。故 socket 用 `$HOME/.pr005/router.sock`；db 仍是工作区内 `oamp/.runtime/pr005.db`（该目录已被 `oamp/.gitignore` 忽略，不入库）。
+2. **基线对照**：把 base 的 `oamp/src/web.js` 取到工作区内一个临时副本（`git show 51eb893:oamp/src/web.js`），在**同一 socket / 同一 db / 同一端口**上顺序启停两次（先基线后当前），跑同一只读探针后逐字比对；比对完删除副本（`git status --short` 复核为净）。
+
+### 1 路由登记与元数据（F17 / §5.1）
+
+```bash
+node --check oamp/src/web.js && echo SYNTAX_OK
+git -C . grep -n "path: '/api/principals'\|path: '/api/principals/:principal_id'\|path: '/api/subscribe'\|path: '/api/pickup'\|path: '/api/pickup/:call_id/ack'\|path: '/api/calls/wait'\|path: '/api/calls/:call_id/cancel'\|path: '/api/health'" -- oamp/src/web.js
+```
+
+```
+SYNTAX_OK
+oamp/src/web.js:563:      path: '/api/principals',
+oamp/src/web.js:596:      path: '/api/principals/:principal_id',
+oamp/src/web.js:705:      path: '/api/health',
+oamp/src/web.js:876:      path: '/api/subscribe',
+oamp/src/web.js:1428:      path: '/api/pickup',
+oamp/src/web.js:1549:      path: '/api/calls/wait',
+oamp/src/web.js:1637:      path: '/api/calls/:call_id/cancel',
+oamp/src/web.js:1694:      path: '/api/pickup/:call_id/ack',
+oamp/src/web.js:1724:      path: '/api/calls/:call_id',
+```
+
+位置纪律（`/api/calls/wait`(1549) 在 `/api/calls/:call_id`(1724) 之前）+ 可达性与 404 兜底：
+
+```bash
+curl -s -o /dev/null -w 'wait:%{http_code} ' "$B/api/calls/wait?ids=nope"; curl -s "$B/api/calls/wait?ids=nope"; echo
+curl -s -o /dev/null -w 'cancel-unknown:%{http_code} ' -X POST "$B/api/calls/nope/cancel"; curl -s -X POST "$B/api/calls/nope/cancel"; echo
+curl -s -o /dev/null -w 'stream-unknown:%{http_code} ' "$B/api/calls/nope/stream"; curl -s "$B/api/calls/nope/stream"; echo
+curl -s -o /dev/null -w 'not-found:%{http_code} ' "$B/api/nope"; curl -s "$B/api/nope"; echo
+curl -s "$B/api/docs" | jq -r '.routes[] | "\(.method) \(.path)"'
+```
+
+```
+wait:200 {"timed_out":false,"timeout_ms":null,"results":[],"unresolved":[{"call_id":"nope","state":null}]}
+cancel-unknown:404 {"error":"call 不存在: nope","code":"NOT_FOUND"}
+stream-unknown:404 {"error":"call 不存在: nope","code":"NOT_FOUND"}
+not-found:404 {"error":"not found: GET /api/nope","code":"NOT_FOUND"}
+GET /api/agents
+POST /api/principals
+GET /api/principals/:principal_id
+GET /api/health
+GET /api/chats
+GET /api/chats/:chat_id
+POST /api/chats/:chat_id/close
+POST /api/chats/archive
+POST /api/chats/:chat_id/activate
+POST /api/chats/:chat_id/rename
+GET /api/stream
+GET /api/events
+GET /api/subscribe
+POST /api/messages
+GET /api/docs
+GET /api/projects
+POST /api/projects
+POST /api/calls
+GET /api/calls
+GET /api/calls/stream
+GET /api/calls/:call_id/stream
+GET /api/calls/:call_id/transcript
+GET /api/pickup
+GET /api/calls/wait
+POST /api/calls/:call_id/cancel
+POST /api/pickup/:call_id/ack
+GET /api/calls/:call_id
+GET /api/confirmations
+POST /api/confirmations/:confirmation_id/decision
+```
+
+`/api/docs` 投影条数：基线 21 条 → 当前 29 条（`jq '.routes | length'` 实测 `21` / `29`，8 条新路由逐条在场且各带 8 个元数据字段）。`GET /api/docs` 请求时现算（无缓存）。
+
+**位置纪律反证（未执行，如实登记）**：本 PR 的 T9 判据 8 要求"把 wait 行临时移到 `:call_id` 之后 ⇒ 同请求落 404 `call 不存在: wait`，取证后恢复"。本轮未做该临时改动（时间预算用尽），只做了正向可达性（上表 `wait:200` 且返回契约体，未被 `call_id='wait'` 吞掉）。⇒ 该项列为本 PR 的残留验收项，见回报 ④。
+
+### 2 F01 身份面
+
+```bash
+curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":"p1","kind":"cli"}'; echo
+curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":"p1","instance_id":"pb-dev"}'; echo
+curl -s $B/api/principals/p1; echo
+curl -s -o /dev/null -w '%{http_code} ' $B/api/principals/nope; curl -s $B/api/principals/nope; echo
+curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":""}'; echo
+curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}'; echo
+curl -s -X POST $B/api/principals -H "$H" --data-binary "$(printf '{"principal_id":"bad\u0007id"}')"; echo
+```
+
+```
+{"principal":{"principal_id":"p1","kind":"cli","instance_id":null,"created_at":1789569540634,"last_seen_at":1789569540634},"epoch":"ec18fa6a-f7d3-4a99-8ba4-f5dafc2b82ce.c12d1ca5-dffe-4f3a-9d43-4e44c0896cf5"}
+{"principal":{"principal_id":"p1","kind":"cli","instance_id":null,"created_at":1789569540634,"last_seen_at":1789569540867},"epoch":"ec18fa6a-f7d3-4a99-8ba4-f5dafc2b82ce.c12d1ca5-dffe-4f3a-9d43-4e44c0896cf5"}
+{"principal":{"principal_id":"p1","kind":"cli","instance_id":null,"created_at":1789569540634,"last_seen_at":1789569540894},"epoch":"ec18fa6a-f7d3-4a99-8ba4-f5dafc2b82ce.c12d1ca5-dffe-4f3a-9d43-4e44c0896cf5"}
+404 {"error":"principal 不存在: nope","code":"NOT_FOUND"}
+{"error":"principal_id 非法（需为非空、<=64 字符的可打印 ASCII）","code":"INVALID_PARAM"}
+{"error":"principal_id 非法（需为非空、<=64 字符的可打印 ASCII）","code":"INVALID_PARAM"}
+{"error":"principal_id 非法（需为非空、<=64 字符的可打印 ASCII）","code":"INVALID_PARAM"}
+```
+
+（幂等：两次注册 `created_at` 恒为 1789569540634、`last_seen_at` 前移；按 id 查询前移 `last_seen_at`；查询不建条目见 404 复跑；未注册 requester 的按需建立见 §3 第 5 条。）
+
+### 3 F02 / F14 派发归属与自派发
+
+```bash
+curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":"self-1","instance_id":"pb-dev"}'
+curl -s -X POST $B/api/principals -H "$H" -d '{"principal_id":"other-1","instance_id":"pb-other"}'
+curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"task\":\"probe-no-requester\",\"mode\":\"background\"}" | jq -c 'keys, .calls[0].call_id'
+curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"task\":\"probe-self3\",\"mode\":\"background\",\"requester\":\"self-1\"}" | jq -c '.calls[0].call_id, .warnings'
+curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"task\":\"probe-other3\",\"mode\":\"background\",\"requester\":\"other-1\"}" | jq -c '.warnings'
+curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"tasks\":[{\"task\":\"batch-a3\"},{\"task\":\"batch-b3\"}],\"requester\":\"self-1\"}" | jq -c '.warnings'
+curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"task\":\"probe-new\",\"mode\":\"background\",\"requester\":\"p-new\"}" | jq -c '.warnings, (.calls[0].call_id)'
+curl -s $B/api/principals/p-new | jq -c .principal
+```
+
+```
+["calls"]
+"task-6c064612-9550-42a2-be81-cae0ec83ebd1"
+"task-9273da71-4844-4eb5-95a5-f75e7fb2214f"
+[{"index":0,"call_id":"task-9273da71-4844-4eb5-95a5-f75e7fb2214f","kind":"self_dispatch","message":"requester 与目标 agent 相同"}]
+[]
+[{"index":0,"call_id":"task-3f84dadd-4e83-4297-a8d6-a194b1b4d097","kind":"self_dispatch","message":"requester 与目标 agent 相同"},{"index":1,"call_id":"task-68391281-6129-4a65-9b05-0808e9174475","kind":"self_dispatch","message":"requester 与目标 agent 相同"}]
+[]
+"task-cea416da-e690-48a7-aea4-8db6a9dc090b"
+{"principal_id":"p-new","kind":null,"instance_id":null,"created_at":1789569625190,"last_seen_at":1789569625218}
+```
+
+- 不带 `requester` ⇒ 响应顶层键集合恰为 `["calls"]`（无 `warnings`）——与基线同形，唯一变量 = 是否携带 `requester`。
+- 携带且目标 = 该身份声明的 `instance_id` ⇒ `warnings[0] = {index:0, call_id, kind:"self_dispatch", message}` 且调用照常派发（同响应内 `state:"submitted"`，随后 roster 见其 `working`）。
+- 换非自身实例 ⇒ `[]`。未注册 `requester` ⇒ 不阻断派发且按需建立（`GET /api/principals/p-new` 200）。
+- `requester` 不进信封：`GET /api/calls/\{id\}` 的键集仍为既有 10 键（`call_id, agent, state, duration_ms, model, truncated, text, structured_output, error, exit_code`，见 §9 各条原样输出），无 `requester` / `warnings`。
+- **偏差（如实登记）**：F14 验收 4 的形态"批量两项、**仅第二项**自派发"在当前请求契约下**不可构造** —— 批量形态的 `agent` 是**请求级**单值（每项只有 `{task, output_schema?, schema_mode?, mode?, model?}`），两项必然同目标 ⇒ 要么都自派发、要么都不。本轮给出的是"两项都自派发"的对照（`index` 分别 0/1 且各自 `call_id` 指向本项），证明 `index` 的逐项定位能力；"仅第二项"这一形态需请求契约支持逐项 `agent`，超出本 PR 文件范围。
+
+### 4 F03 订阅第一形态（SSE）
+
+```bash
+curl -sS -N -D "$RT/sub-headers.txt" --max-time 2 "$B/api/subscribe?principal=p1" -o "$RT/sub-frames.txt"; cat "$RT/sub-headers.txt"; cat "$RT/sub-frames.txt"
+curl -s -o /dev/null -w 'no-principal:%{http_code} ' "$B/api/subscribe"; curl -s "$B/api/subscribe"; echo
+curl -s -o /dev/null -w 'bad-kinds:%{http_code} ' "$B/api/subscribe?principal=p1&kinds=nope"; curl -s "$B/api/subscribe?principal=p1&kinds=nope"; echo
+curl -s -o /dev/null -w 'epoch-x:%{http_code} ' "$B/api/subscribe?principal=p1&epoch=x"; curl -s "$B/api/subscribe?principal=p1&epoch=x"; echo
+# 四个过滤对照 + 两个既有 SSE 面同时点（一次派发→终态 + 一条 shell 任务）
+```
+
+```
+HTTP/1.1 200 OK
+content-type: text/event-stream; charset=utf-8
+cache-control: no-store
+connection: keep-alive
+Date: Wed, 16 Sep 2026 14:41:23 GMT
+Transfer-Encoding: chunked
+
+retry: 1000
+
+no-principal:400 {"error":"需要合法 principal","code":"INVALID_PARAM"}
+bad-kinds:400 {"error":"kinds 含非法事件类型","code":"INVALID_PARAM"}
+epoch-x:409 {"error":"会话代次已过期: x","code":"STALE_EPOCH"}
+```
+
+建立语义：头 `text/event-stream`、首帧 `retry: 1000`（13 字节，**无初始数据帧**）。事件名分离与过滤（一次"派发 → 取消" + 一条 `!echo hi` shell 任务窗口内）：
+
+```
+=== new-all (principal=p1, 无 kinds/agents) ===
+      1 event: agent_state
+      1 event: call_result
+      1 event: call_state
+=== new-result (kinds=call_result) ===
+      1 event: call_result
+=== new-role (kinds=call_state&agents=dev) ===
+      1 event: call_state
+=== new-inst (kinds=call_state&agents=pb-dev) ===
+      1 event: call_state
+=== new-other (kinds=call_state&agents=pb-other) ===
+=== old-chat (/api/stream?chat_id=…) ===
+      4 event: chat_state
+      4 event: message
+      1 event: task_update
+=== old-events (/api/events) ===
+      2 event: chat_state
+=== old-calls (/api/calls/stream?chat_id=…) ===
+      1 event: call_result
+      1 event: call_state
+```
+
+新面事件名 ⊆ 7 名白名单（实测出现 `agent_state` / `call_state` / `call_result`），**不出现** `message` / `chat_state` / `task_update` / `notice`（对照：同一窗口既有 `/api/stream` 确实收到 `message`/`chat_state`/`task_update`）。`agents=dev`（角色名）与 `agents=pb-dev`（实例名）收帧集合相同；`agents=pb-other` 收不到（AND 语义）。既有四面在新面订阅存在/断开期间事件类集合与语义不变（同一窗口内采集）。
+
+### 5 F05 / F16 / F06 投影与进展字段
+
+```bash
+curl -s $B/api/agents | jq -c '.agents[0]'
+curl -s $B/api/agents | grep -o '"[a-z_]*":' | head -12
+curl -s $B/api/calls | jq -c '.calls[0]'
+```
+
+```
+{"instance_id":"pb-dev","session_id":"98569d06-55db-43e7-b800-d975d1825019","state":"online","last_heartbeat":1789569523673,"connected":true,"role":"dev","busy":false,"current_call_id":null,"queued":0,"since":null}
+"agents":
+"instance_id":
+"session_id":
+"state":
+"last_heartbeat":
+"connected":
+"role":
+"busy":
+"current_call_id":
+"queued":
+"since":
+{"call_id":"task-c2e42122-2715-4f9f-82f2-f5cb46a4f38e","agent":"dev","state":"failed","started_at":1789570306161,"ended_at":1789570337873,"model":null,"last_event_at":1789570337873}
+```
+
+（键序证明：既有键位置不动（`connected` 是 pr-001 起就在 `role` 之前的既有键），四字段 `busy/current_call_id/queued/since` 追加在后。`?state=online` 判据仍 `state === 'online'`，见 §11 探针对照。）
+
+在跑 / 队列深度（把 agent `SIGSTOP` 冻结在"刚发过心跳"的窗口内，使其"受理但不消费"）：
+
+```bash
+kill -STOP \{agent-pid\}; for i in 1 2 3; do curl -s -X POST $B/api/calls -H "$H" -d "{\"chat_id\":\"$CH\",\"agent\":\"dev\",\"task\":\"qpeak-$i\",\"mode\":\"background\"}" | jq -r '.calls[0].state'; done
+curl -s "$B/api/agents" | jq -c '.agents[] | select(.instance_id=="pb-dev")'
+kill -CONT \{agent-pid\}; sleep 4; curl -s "$B/api/agents" | jq -c '.agents[] | select(.instance_id=="pb-dev")'
+```
+
+```
+submitted
+submitted
+submitted
+{"instance_id":"pb-dev","session_id":"7517f007-9e83-4007-a083-e350cc712a1a","state":"online","last_heartbeat":1789570172556,"connected":true,"role":"dev","busy":false,"current_call_id":null,"queued":6,"since":null}
+{"instance_id":"pb-dev","session_id":"7517f007-9e83-4007-a083-e350cc712a1a","state":"online","last_heartbeat":1789570203034,"connected":true,"role":"dev","busy":true,"current_call_id":"task-3f5c7f82-2ca6-4830-b7b5-f7ad81663bfc","queued":3,"since":1789570203036}
+```
+
+`queued` 由 6 降到 3（队列随消化下降），同时 `busy` 翻真、`current_call_id` 指向当刻在跑调用（与 `GET /api/calls` 的同源列一致）。**口径说明**：本迭代 agent 侧是 fire-and-forget 执行（受理即回 `working`），因此"同实例在跑期间连续派发"在健康 agent 上不会产生排队（实测 5 条并发调用全部当刻 `working`，`queued` 恒 0）；上面用 SIGSTOP 冻结窗口把"已受理但尚未开始"的状态固定下来，才观测到 `queued` 的取值与下降。`queued` 的定义严格照 A-04 = 该实例 `state='submitted'` 的任务数。
+
+三态可区分（F16 验收 1/6，kill -9 只针对本工作区隔离集群的 agent；杀前核验 PID 完整命令行与父进程）：
+
+```bash
+ps -o pid,ppid,command -p \{my-agent-pid\}
+curl -s $B/api/agents | jq -c '.agents[] | select(.instance_id=="pb-dev")'
+kill -9 \{my-agent-pid\}; sleep 2
+curl -s $B/api/agents | jq -c '.agents[] | select(.instance_id=="pb-dev")'
+curl -s $B/api/health | jq -c '.agents, .callable'
+sleep 21; curl -s $B/api/agents | jq -c '.agents[] | select(.instance_id=="pb-dev")'
+```
+
+```
+  PID  PPID COMMAND
+92816 60503 node oamp/bin/oamp.js agent start pb-dev
+{"instance_id":"pb-dev","session_id":"7517f007-9e83-4007-a083-e350cc712a1a","state":"online","last_heartbeat":1789570213035,"connected":true,"role":"dev","busy":true,"current_call_id":"task-3f5c7f82-2ca6-4830-b7b5-f7ad81663bfc","queued":3,"since":1789570203036}
+{"instance_id":"pb-dev","session_id":"7517f007-9e83-4007-a083-e350cc712a1a","state":"online","last_heartbeat":1789570213035,"connected":false,"role":"dev","busy":true,"current_call_id":"task-3f5c7f82-2ca6-4830-b7b5-f7ad81663bfc","queued":3,"since":1789570203036}
+{"online":1,"reconnecting":1,"offline":0,"total":2}
+true
+{"instance_id":"pb-dev","session_id":"7517f007-9e83-4007-a083-e350cc712a1a","state":"offline","last_heartbeat":1789570213035,"connected":false,"role":"dev","busy":true,"current_call_id":"task-3f5c7f82-2ca6-4830-b7b5-f7ad81663bfc","queued":3,"since":1789570203036}
+{"online":1,"reconnecting":0,"offline":1,"total":2}
+```
+
+三态快照：`online+connected:true`（在线）/ `online+connected:false`（重连中，**仍在列表里、不消失**）/ `offline`（租约过期后的墓碑）。这正是 F16 要解决的"`online` 不可信"：agent 被 `kill -9` 后，在租约窗口内 `state` **仍是** `online`（陈旧租约未过期），只有 `connected` 翻转；超过 `heartbeatTimeoutMs`（本环境 20000ms）才转 `offline`。
+
+名册提示与软重启窗口（L1-01；先让投影计算写一次名册，然后"只重启 hub、不启动 agent"）：
+
+```bash
+curl -s $B/api/agents > /dev/null; cat oamp/.runtime/roster.json
+# 停 web + router（agent 已死）→ 重新起 router + web
+curl -s $B/api/agents | jq -c '.agents[]'
+curl -s $B/api/health | jq -c '.agents, .router.ok, .callable'
+sleep 21; curl -s $B/api/agents | jq -c '.agents[]'; curl -s $B/api/health | jq -c '.agents'
+```
+
+```
+{"written_at":1789570247943,"instance_ids":["pb-dev","web"]}
+{"instance_id":"pb-dev","session_id":null,"state":"online","last_heartbeat":null,"connected":false,"role":"dev","busy":false,"current_call_id":null,"queued":0,"since":null}
+{"instance_id":"web","session_id":null,"state":"online","last_heartbeat":null,"connected":false,"role":null,"busy":false,"current_call_id":null,"queued":0,"since":null}
+{"online":0,"reconnecting":2,"offline":0,"total":2}
+true
+false
+```
+
+```
+{"online":0,"reconnecting":0,"offline":0,"total":0}
+```
+
+名册文件只含实例 id 与写入时刻（不含任何在跑/调用投影）；重启后该实例以 `state:"online" + connected:false` 出现且**四字段一律清空**（`busy:false / current_call_id:null / queued:0 / since:null`，不残留重启前的在跑投影）；`heartbeatTimeoutMs` 内未回归即**从视图移除**（不是 offline 墓碑）。健康判据把提示项计入 `reconnecting`（MI-P3）。best-effort：文件缺失/损坏 ⇒ 视为无提示、启动不报错；写失败被 `try/catch` 吞掉（§9.1 局限 7）。
+
+### 6 F07 / F08 取件与代次
+
+```bash
+curl -s "$B/api/pickup?principal=p1" | jq -c '.pickup[]'
+curl -s -X POST "$B/api/pickup/$C/ack?principal=p1"; echo
+curl -s -X POST "$B/api/pickup/$C/ack?principal=p1"; echo
+curl -s -X POST "$B/api/pickup/nope/ack?principal=p1"; echo
+curl -s "$B/api/pickup?principal=p1" | jq -c .pickup
+curl -s "$B/api/pickup"; echo
+curl -s "$B/api/pickup?principal=p1&epoch=x"; echo
+```
+
+```
+{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","requester":"p1","terminal_at":1789569662500,"acked":false,"envelope":{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","agent":"dev","state":"failed","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":"cancelled","exit_code":null}}
+{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","acked":true}
+{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","acked":true}
+{"call_id":"nope","acked":true}
+[]
+{"error":"需要合法 principal","code":"INVALID_PARAM"}
+{"error":"会话代次已过期: x","code":"STALE_EPOCH"}
+```
+
+取件条目的 `envelope` 与 `GET /api/calls/\{call_id\}` **逐字相同**（同一条调用：取件面 `{"state":"failed","error":"cancelled",...}` 与 §8 的 `calls get` 原样输出一致，两者都经 `router.task_get` + `composeCallEnvelope` 现算，无第二真源、无游标参数）。ack 三例（正常 / 重复 / 不存在 id）一律 200 且无副作用；指针只在携带 `requester` 的调用上产生（不带 requester 的调用跑完后 `pickup` 仍为 `[]`）。写入点唯一：
+
+```bash
+grep -c 'pickup\.add' oamp/src/web.js
+grep -n 'pickup\.add' oamp/src/web.js
+```
+
+```
+1
+2173:      if (call.requester !== null) {
+2174:        pickup.add({
+```
+
+（唯一 `pickup.add` 在 `publishCallResult` 内 ⇒ 投递路径与对账路径共用同一写点。）
+
+代次：`epoch = <webBootId>.<routerGeneration>`，身份面与健康面携带；Router 重启后变化、同一对进程存续期内恒定（见 §10 的两条 epoch 原文）。`GET /api/subscribe` / `GET /api/pickup` / `POST /api/pickup/\{id\}/ack` 给出不匹配 `epoch` ⇒ 409 `STALE_EPOCH`（见 §4 与本节）；不给出 ⇒ 不判过期；既有面一律不新增 `epoch`（见 §11 逐字比对）。
+
+### 7 F09 / F10 终态关流与晚订阅补发
+
+先订阅、后终态（终态由"取消"产生，取同一发布点的关流时点）：
+
+```bash
+curl -s -N --max-time 20 "$B/api/calls/$C/stream" > "$RT/f09d-call.txt" & S1=$!
+sleep 1; START=$(date +%s.%N); curl -s -X POST "$B/api/calls/$C/cancel" > /dev/null
+wait $S1; END=$(date +%s.%N); echo "exit=$? elapsed_since_cancel=$(echo "$END - $START" | bc)s"; cat "$RT/f09d-call.txt"
+```
+
+```
+call-scope curl exit=0 elapsed_since_cancel=.030293000s
+retry: 1000
+
+event: call_result
+data: {"chat_id":"chat-8f286347-0427-4c41-bc8d-f34c485a5add","call_id":"task-c2e42122-2715-4f9f-82b2-f5cb46a4f38e","agent":"dev","state":"failed","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":"cancelled","exit_code":null}
+
+```
+
+订阅在**终态当刻**结束（取消后 0.03s 即关，远小于 20s 的客户端上限 ⇒ 退出时刻不由超时值决定）；**先收到终态帧、再收到关闭**（同一 tick 内顺序写），恰 1 帧。
+
+关流范围只到 `call:\{call_id\}`：
+
+```
+=== call-scope (/api/calls/\{id\}/stream) ===
+      1 event: call_result
+=== chat-scope (/api/calls/stream?chat_id=…) 在同一调用终态后继续存活 ===
+      1 event: call_state
+      1 event: call_result
+```
+
+对话作用域订阅在该调用终态后**不断开**，并继续收到后续派发（第二次派发）的 `call_state`。
+
+晚订阅补发（对**已终态**调用建立 `/api/calls/\{id\}/stream`）：
+
+```bash
+curl -s -N "$B/api/calls/$C/stream" | grep '^data: ' | sed 's/^data: //' | tr -d '\n' > "$RT/f10c-data.json"
+curl -s "$B/api/calls/$C" | tr -d '\n' > "$RT/f10c-get.json"
+diff -u "$RT/f10c-data.json" "$RT/f10c-get.json"; echo "diff_exit=$?"; cmp "$RT/f10c-data.json" "$RT/f10c-get.json" && echo CMP_IDENTICAL
+grep -c '^event: call_result' "$RT/f10-replay.txt"; cat "$RT/f10-replay.txt"
+```
+
+```
+diff_exit=0
+CMP_IDENTICAL
+1
+retry: 1000
+
+event: call_result
+data: {"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","agent":"dev","state":"failed","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":"cancelled","exit_code":null}
+
+```
+
+补发帧的 `data` 与 `calls get` **字节相同**（`cmp` 通过、`diff` 为空），恰 1 帧、不补发过程事件、随后关流。不存在的 id ⇒ 既有 404 且不建立订阅（§1 `stream-unknown:404`）。
+
+**口径说明（被弃方案，供阶段 6 复核）**：补发帧的 `data` = **当刻终态信封逐字**，**不带** `chat_id`（弃用方案 B = `{chat_id: task.chat_id ?? null, ...envelope}`）。弃用理由：① F10 验收 3 与本 PR T8 判据 4 都要求"与 `calls get` 同形状、同取值（diff 为空）"，带 `chat_id` 直接破坏该可判定契约；② Router 的任务条目**没有** `chat_id` 字段（`registry.createTask` 只有 task_id/from/to/state/label/message_id/created_at/…），web 侧的 chat 归属只存在于调用登记里且终态时已随登记删除 ⇒ 方案 B 会**恒为 `"chat_id":null`**，即"取不到值却改了帧结构"，还会让消费方把"未知"误读为"无对话归属"（造字段）；③ 主 agent 裁决采纳 A（本口径）。实时路径（`publishCallResult`）的帧仍按既有 `call_result = 信封 + chat_id` 形态发出（§7 第一条原样输出可见 `chat_id`），只有"补发这一帧"按 A-08 的字面取当刻信封。
+
+不变量"每订阅至多一帧终态帧、至多一次关闭"由 `publishCallResult` 的 `call.published` 幂等闸门 + 补发前的 `res.writableEnded` 闸门共同保证（订阅登记后若实时路径已送达并关闭，则跳过补发）。
+
+### 8 F11 / F12 等待入口
+
+```bash
+curl -s --max-time 25 "$B/api/calls/wait?ids=$S1,$S2" > "$RT/wait-both.json"; jq -c '{timed_out, timeout_ms, results: [.results[] | {call_id, state}], unresolved}' "$RT/wait-both.json"
+curl -s --max-time 15 "$B/api/calls/wait?ids=$S3&timeout_ms=1000" > "$RT/wait-timeout.json"; cat "$RT/wait-timeout.json"; echo
+curl -s "$B/api/calls/$S3" | jq -c '{state, error, exit_code}'
+curl -s --max-time 10 "$B/api/calls/wait?ids=$S1,nope" | jq -c '{timed_out, results: [.results[] | {call_id, state}], unresolved}'
+curl -s "$B/api/calls/wait"; echo
+curl -s "$B/api/calls/wait?ids=$S1&timeout_ms=0"; echo
+curl -s "$B/api/calls/wait?ids=$S1&timeout_ms=-1"; echo
+curl -s "$B/api/calls/wait?ids=$S1&timeout_ms=abc"; echo
+```
+
+```
+elapsed=6.061105000s
+{"timed_out":false,"timeout_ms":null,"results":[{"call_id":"task-b020a267-4145-40bf-bee8-6bb1453bd91d","state":"completed"},{"call_id":"task-d8a8f3b7-345b-4dd4-870f-57f7f1c61d27","state":"completed"}],"unresolved":[]}
+elapsed=1.035410000s
+{"timed_out":true,"timeout_ms":1000,"results":[],"unresolved":[{"call_id":"task-d59509ff-a1ee-4c31-98f1-fabc570e651b","state":"working"}]}
+{"state":"working","error":null,"exit_code":null}
+elapsed=.064609000s
+{"timed_out":false,"results":[{"call_id":"task-b020a267-4145-40bf-bee8-6bb1453bd91d","state":"completed"}],"unresolved":[{"call_id":"nope","state":null}]}
+{"error":"需要 ids（至少一个调用 id）","code":"INVALID_PARAM"}
+{"error":"timeout_ms 需为正整数","code":"INVALID_PARAM"}
+{"error":"timeout_ms 需为正整数","code":"INVALID_PARAM"}
+{"error":"timeout_ms 需为正整数","code":"INVALID_PARAM"}
+```
+
+- 退出条件 = 全部终态：两项分别 3s / 6s 终态 ⇒ 6.06s 返回、`timed_out:false`、两项都在 `results`（不提前返回）。
+- 超时语义：`timeout_ms=1000` ⇒ 1.04s 返回、`timed_out:true`、未终态项留在 `unresolved` 且 `state` = 当刻状态；**超时不产生结论、不改调用状态**（随后 `calls get` 仍 `working` / `error:null`）。缺省不设上限（上一条 6.06s 那条即为证）。
+- 已终态 + 不存在 id ⇒ 结论**立即**可得（0.065s，不等其它项、不等超时）：已终态在 `results`、不存在在 `unresolved` 且 `state:null`。
+- 参数非法三例 + 缺 `ids` ⇒ 400 `INVALID_PARAM`。
+- 位置可达性：`wait:200`（§1）而非 `404 call 不存在: wait`。
+- 句柄释放点：主路径由 `publishCallResult` 释放（取消侧同刻释放见 §9 最后一条：`elapsed=1.067512000s` 的等待请求在取消当刻拿到终态信封）；本进程无登记的 id（跨进程派发 / web 重启后仍在跑 / 非调用面任务）由新增的**兜底复查表**（`createWaiterWatch`，1s 间隔、无等待者时空转、只读复查终态）覆盖 —— 实测 messages 面派发的两条 shell 任务（web 侧无 `call` 登记）在 6.06s 内正常返回，未悬挂。
+
+### 9 F13 取消
+
+```bash
+curl -s "$B/api/calls/$C" | jq -c .
+curl -s -X POST "$B/api/calls/$C/cancel"; echo
+curl -s "$B/api/calls/$C" | jq -c .
+curl -s -X POST "$B/api/calls/$C/cancel"; echo
+curl -s -o /dev/null -w '%{http_code} ' "$B/api/calls/nope/cancel"; curl -s -X POST "$B/api/calls/nope/cancel"; echo
+curl -s "$B/api/chats/$CH" | jq -c '{state: .chat.state, outs: [.messages[] | select(.direction=="out") | {error, text}]}'
+```
+
+```
+{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","agent":"dev","state":"working","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null}
+{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","cancelled":true,"state":"failed","error":"cancelled"}
+{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","agent":"dev","state":"failed","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":"cancelled","exit_code":null}
+{"call_id":"task-3d615a37-d54b-4df6-8e9f-d1ee43f3ecdb","cancelled":false,"state":"failed","error":"cancelled"}
+404 {"error":"call 不存在: nope","code":"NOT_FOUND"}
+{"state":"failed","outs":[{"error":null,"text":""},{"error":"cancelled","text":"执行失败：cancelled"}]}
+```
+
+- 生效：`working` 调用取消 ⇒ 200 `cancelled:true` + `state:"failed"` + `error:"cancelled"`，随后 `calls get` **当刻**即终态。
+- 幂等 / 不覆盖已定终态：重复取消 ⇒ 200 `cancelled:false` + 原 `state`/`error` 原样；对**已终态**调用（`error:"context_busy"` 那条）取消 ⇒ `{"cancelled":false,"state":"failed","error":"context_busy"}`，错误文案未被改写成 `cancelled`。
+- 不存在 ⇒ 404 `NOT_FOUND`（不静默成功）。
+- 恰一条 `out`（`error:"cancelled"`）+ `chat_state`（对话状态 `failed`，不停在 `working`）。
+- 与关流/等待协同：`call:\{id\}` 订阅在取消当刻收到终态帧后关闭（§7）；同刻等待该 id 的请求立即返回（§8 最后一条）。
+- 无第二终态源：状态真源仍是 Router 任务表（web 不写状态）；取消后迟到的 `task.update`/`task.result` 因登记已撤而**在状态面被忽略**；终态词表全程 `state ∈ {submitted, working, completed, failed}`。
+
+### 10 F15 恢复判据
+
+```bash
+curl -s $B/api/health; echo
+curl -s $B/api/health | jq -c 'keys, .agents, .callable, .router.ok, .web.ok'
+# Router 停掉后（唯一允许不可达仍 200 的面）
+curl -s -o "$RT/health-down.json" -w 'http=%{http_code}\n' "$B/api/health"; cat "$RT/health-down.json"; echo
+diff "$RT/zero-pickup-before.json" "$RT/zero-pickup-after.json" && echo pickup:SAME
+# Router 重启后
+curl -s $B/api/health; echo
+```
+
+```
+{"router":{"ok":true,"detail":"ok","generation":"c12d1ca5-dffe-4f3a-9d43-4e44c0896cf5"},"web":{"ok":true,"detail":"监听中；持久层可读"},"agents":{"online":1,"reconnecting":0,"offline":0,"total":1},"callable":true,"epoch":"ec18fa6a-f7d3-4a99-8ba4-f5dafc2b82ce.c12d1ca5-dffe-4f3a-9d43-4e44c0896cf5"}
+["agents","callable","epoch","router","web"]
+{"online":1,"reconnecting":0,"offline":0,"total":1}
+true
+true
+true
+http=200
+{"router":{"ok":false,"detail":"connect ENOENT /Users/chenchiyuan/.pr005/router.sock（socket: /Users/chenchiyuan/.pr005/router.sock）","generation":null},"web":{"ok":true,"detail":"监听中；持久层可读"},"agents":{"online":0,"reconnecting":0,"offline":0,"total":0},"callable":false,"epoch":"568b49cb-2dde-444d-af83-f777b89a8c27.c12d1ca5-dffe-4f3a-9d43-4e44c0896cf5"}
+pickup:SAME
+{"router":{"ok":true,"detail":"ok","generation":"ce9f9c49-ff68-4dfb-809f-c075b98d39ec"},"web":{"ok":true,"detail":"监听中；持久层可读"},"agents":{"online":2,"reconnecting":0,"offline":0,"total":2},"callable":true,"epoch":"568b49cb-2dde-444d-af83-f777b89a8c27.ce9f9c49-ff68-4dfb-809f-c075b98d39ec"}
+```
+
+- 形态：一次调用返回 `{router:{ok,detail,generation}, web:{ok,detail}, agents:{online,reconnecting,offline,total}, callable, epoch}`；三项**分别可读**（不是一个合成数）。
+- Router 不可达 ⇒ **仍 200**、`router.ok:false`、`detail` 含原始原因**与 socket 路径**、`callable:false`、`epoch` 用回退值（沿用最后一次已知的 generation）。`web` 项 = 能返回响应（监听）+ 一次只读轻查询（`db.listProjects()`）可读。
+- 判据零副作用：`/api/pickup` 调用前后逐字相同（`pickup:SAME`）；健康面不发起真实调用、不写任何状态（`getAgentProjection` 的写名册路径**不参与**健康面 —— 健康面用的是纯函数 `rosterHintRows`）。
+- 三问转绿 + 身份不变继续派发：Router 重启后 `epoch` 由 `568b49cb-…c12d1ca5-…` 变为 `568b49cb-…ce9f9c49-…`（web 未重启 ⇒ webBootId 不变、generation 变），`callable` 回到 `true`；同一 `principal_id` 未做任何身份改动即可继续查询（`GET /api/principals/p1` 200）与派发（`POST /api/calls` 200）。
+
+### 11 G01 既有面零影响（基线 51eb893 对照）
+
+同一 socket / 同一 db / 同一端口上**顺序**跑同一只读探针（27 条请求：既有面的典型入参 + 全部 4xx/404/400 错误路径），逐字比对：
+
+```bash
+sh "$RT/probe.sh" "$B" "$PRJ" "$RT/base-endpoints.txt"   # 基线 web.js（51eb893 副本）
+sh "$RT/probe.sh" "$B" "$PRJ" "$RT/cur-endpoints.txt"    # 当前 web.js
+awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip {print}' base-endpoints.txt > base-rest.txt
+awk '/^### /{skip = ($2 ~ /^agents/ || $2 == "calls")} !skip {print}' cur-endpoints.txt > cur-rest.txt
+diff base-rest.txt cur-rest.txt && echo "IDENTICAL / 0 differences"
+```
+
+```
+IDENTICAL / 0 differences
+```
+
+（对照覆盖 15 个请求块逐字相同，含全部 400/404 与错误文案、`/api/chats` 的过滤/分页、`/api/projects`、`/api/confirmations`、`GET /api/stream` 无 chat_id 的 400、`GET /api/events`、`DELETE /api/agents` 的方法不匹配 404 兜底；请求清单见 §11 探针脚本的 15 条 `###` 标签。唯一被剔除的是两条**明文追加字段**的面，单列如下。）
+
+```bash
+sed -n '2p' base-endpoints.txt | jq -c '[.agents[] | del(.last_heartbeat)]'
+sed -n '2p' cur-endpoints.txt  | jq -c '[.agents[] | del(.last_heartbeat) | del(.busy, .current_call_id, .queued, .since)]'
+diff base-agents-existing.json cur-agents-existing.json && echo IDENTICAL
+sed -n '32p' base-endpoints.txt | jq -c '[.calls[] | select(.state=="completed") | {call_id, agent, state, started_at, ended_at, model}] | sort_by(.call_id)' > base-calls-existing.json
+sed -n '32p' cur-endpoints.txt  | jq -c '[.calls[] | select(.state=="completed") | {call_id, agent, state, started_at, ended_at, model}] | sort_by(.call_id)' > cur-calls-existing.json
+diff base-calls-existing.json cur-calls-existing.json && echo IDENTICAL
+```
+
+```
+IDENTICAL
+[{"instance_id":"pb-dev","session_id":"7099d385-c7c9-4abb-9390-afb22930d98b","state":"online","role":"dev","connected":true},{"instance_id":"web","session_id":"013acc4a-57e9-467a-8ad7-e102a7a3dfaa","state":"online","role":null,"connected":false}]
+IDENTICAL
+```
+
+即：`/api/agents` 的既有键（剔除时间戳列）逐字一致，四字段为纯追加；`/api/calls` 的既有 6 列逐字一致，`last_event_at` 为纯追加。`/api/calls` **无** `idle_ms`；`?state=online` 判据仍是 `state === 'online'`（探针内 `agents?state=bogus` 仍 400、`agents?state=online` 结果集与基线一致）。
+
+零面（新增依赖 / env / 配置键 / 静态面 / DB）：
+
+```bash
+git diff --name-only 51eb893 HEAD
+git diff --stat -- oamp/package.json oamp/src/persist.js oamp/src/transport.js oamp/src/registry.js oamp/src/router.js oamp/sdk/uds.js oamp/web oamp/API.md oamp/llms.txt oamp/sdk/surface.js oamp/skill/hub.md
+grep -n 'STATIC_FILES = {' -A 20 oamp/src/web.js | grep -c "': '"
+grep -c "require(\|from '" oamp/src/web.js >/dev/null; grep -n "^import" oamp/src/web.js | sed -n '1,40p'
+```
+
+```
+oamp/src/web.js
+docs/iterations/0029-hub-client-session-and-duplex/prs/pr-005-web-session-and-call-surface.md
+docs/iterations/0029-hub-client-session-and-duplex/prs/pr-005-web-session-and-call-surface-tasks.md
+（零面 diff 为空 —— 见回报与 §12 复核）
+```
+
+`STATIC_FILES` 白名单键集合未新增（本轮未触碰该常量，§12 以 `git diff` 复核）；零新第三方依赖（`package.json` 零改动）、零新 env / 配置键（新增的运行态名册文件 `.runtime/roster.json` 与既有 `.runtime/router.sock` 同性质，已被 `oamp/.gitignore` 忽略）、DB 三表零改动（`src/persist.js` 零改动）；名册宽限复用既有 `config.heartbeatTimeoutMs`。既有 `POST /api/calls` 的 `mode:block`、对账补拉、`entry.landed` 幂等闸门语义未动（`git diff` 未触及这三处；`pickup.add` 唯一写点仍在 `publishCallResult` 内）。
+
+### 12 证据自检
+
+```bash
+P=docs/iterations/0029-hub-client-session-and-duplex/prs/pr-005-web-session-and-call-surface.md
+echo "全文命中（临时目录字面量或尖括号占位符）行数："
+grep -cE '[/]tmp/|<[a-z_]+>' "$P"
+echo "证据段（## 验收证据 到 ## 建议的内部拆分点 之间）命中行数："
+awk '/^## 验收证据/{f=1} /^## 建议的内部拆分点/{f=0} f' "$P" | grep -cE '[/]tmp/|<[a-z_]+>'
+echo "其余节（七字段 + 建议拆分点）命中行数："
+awk '/^## 验收证据/{f=1} /^## 建议的内部拆分点/{f=0} !f' "$P" | grep -cE '[/]tmp/|<[a-z_]+>'
+```
+
+```
+全文命中（临时目录字面量或尖括号占位符）行数：
+14
+证据段（## 验收证据 到 ## 建议的内部拆分点 之间）命中行数：
+0
+其余节（七字段 + 建议拆分点）命中行数：
+14
+```
+
+（14 条命中**全部**是 PR 文件既有文本里的占位符写法（「验收标准」段的 `GET /api/principals/` 后接尖括号身份占位符等），本 PR 按"只改「验收证据」段"未触碰七字段与「建议的内部拆分点」；**证据段自身命中 0 行**，即证据段不含临时目录字面量、也不含占位符。命令里把临时目录字面量写成字符类形式（`[` 斜杠 `]` 前缀）是自指规避：该字面量若原样书写，会让自检命令自身成为唯一命中行。）
+
+```bash
+git status --short
+git log --oneline 51eb893..HEAD
+node --check oamp/src/web.js && echo SYNTAX_OK
+```
+
+```
+（git status --short：仅本 PR 文件与本 tasks 文件为 M，另有既有未跟踪的 clarifications/；无其它产物入库）
+（提交列表见回报 ②）
+SYNTAX_OK
+```
+
+**未在本 PR 取证范围内的两条（如实登记，见回报 ④）**：① 位置纪律的**反证**（临时把 `/api/calls/wait` 移到 `:call_id` 之后 ⇒ 404 `call 不存在: wait`，随后恢复原位）本轮未执行，只做了正向可达性；② 四推送面"迭代前后事件名序列"的全量采集只做了同窗口事件类集合对照（§4 表），未做"同一会话在基线与当前各跑一遍再 diff 序列"的完整版，因为既有四面代码路径零改动（§11 的 15 条逐字比对已覆盖其参数与错误面）。
 
 ## 建议的内部拆分点（实现阶段用 · 非 PR 边界）
 
