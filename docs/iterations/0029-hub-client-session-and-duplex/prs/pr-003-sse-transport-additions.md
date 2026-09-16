@@ -46,9 +46,138 @@
 
 ## 验收证据
 
-- 功能脚本：`node /tmp/pr003-verify.mjs` 输出 `RESULT: PASS`。原始关键输出：`PASS AC1 module export surface`、`PASS AC1 object export surface`、`PASS AC2 closeCallSubscriptions closes only call key`、`PASS AC2 remaining keys receive events`、`PASS AC4 online predicate`、`PASS AC4 call predicate`、`PASS AC4 AND predicate`、`PASS AC4 frame shape`、`PASS AC5 no history or cache`、`PASS AC5 disconnect removes filtered subscriber`、`PASS AC6 filtered disconnect preserves existing global count`、`PASS AC6 filtered subscriber survives existing close`、`PASS AC5 repeated rounds leave no residual subscribers`。
-- 心搏脚本：`node /tmp/pr003-heartbeat.mjs` 输出 `RESULT: PASS`；原始输出含 `existing keepalives: 3 | timers: {"started":1,"cleared":0}`、`filtered keepalives: 3 | timers: {"started":1,"cleared":0}`、`after both abort: {"started":1,"cleared":1}`、`restart: {"started":2,"cleared":2} | keepalives restarted: 3`。
-- 基线对照：`/tmp/pr003-probe.mjs` 分别运行 `/tmp/transport-base.mjs` 与当前 `oamp/src/transport.js`，两行 JSON 完全一致：`{"countSnapshots":[2,2,0],"before":{"global":["event: global\\ndata: {\\"n\\":1}\\n\\n"],"chat":["event: chat\\ndata: {\\"n\\":2}\\n\\n"],"call":["event: call\\ndata: {\\"chat_id\\":\\"ch1\\",\\"n\\":3}\\n\\n"],"chatCalls":["event: call\\ndata: {\\"chat_id\\":\\"ch1\\",\\"n\\":3}\\n\\n","event: chat_call\\ndata: {\\"n\\":4}\\n\\n"]},"afterClose":{"chatClosed":true,"callClosed":false,"chatCallsClosed":false,"globalClosed":false,"chatTypes":["chat"],"callTypes":["call"],"chatCallsTypes":["call","chat_call"],"globalTypes":["global"]},"afterAll":{"globalClosed":true,"chatCallsClosed":true}}`；`diff -u /tmp/pr003-base-probe.out /tmp/pr003-current-probe.out` 无输出且退出码 0。
-- 静态输出：`/tmp/pr003-static-counts.out` 为 `res.end(): 1`、`imports: 0`、`web imports: 0`、`timers: 1`、`clear timer: 1`、`heartbeat constant: 1`、`retry constant: 1`；`^import` / `web.js` 扫描无匹配。
-- 文件闭包输出：`git diff --name-status 72b659f -- oamp/` 仅为 `M	oamp/src/transport.js`；`git diff -- oamp/package.json` 无输出；最终仅修改本 PR 文件的证据段与 `oamp/src/transport.js`。
-- 既有发布隔离脚本：`node /tmp/pr003-existing-isolation.mjs` 输出 `PASS AC6 existing publish APIs do not reach filtered registry` 与 `RESULT: PASS`，证明四个既有投递 API 不会隐式投喂新注册表。
+以下每条 AC 均给出可直接复制执行的命令和该命令的原始 stdout；命令均直接 import 本 PR worktree 中的 `oamp/src/transport.js`，不依赖仓库外取证脚本。
+
+### AC1：导出面只追加
+
+```sh
+$ node --input-type=module <<'NODE'
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const x = t.createSseTransport({ heartbeatMs: 1000000 });
+console.log(JSON.stringify({ keys: Object.keys(x).sort(), kind: x.kind, module_exports: Object.keys(t).sort() }));
+NODE
+{"keys":["close","closeAll","closeCallSubscriptions","globalCount","handle","handleCallStream","handleChatCallStream","handleSubscribe","kind","publish","publishCall","publishChatCall","publishFiltered","publishGlobal"],"kind":"sse","module_exports":["createSseTransport"]}
+```
+
+实际对象键为既有 11 键加 3 个追加键；模块级仍仅导出 `createSseTransport`，原验收条文中的“既有 13 个键”及 `closeKey` 列举与基线实际不一致。
+
+### AC2：closeCallSubscriptions 只关闭 call:<id>
+
+```sh
+$ node --input-type=module <<'NODE'
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const mk = () => { const r = { chunks: [], ended: false, writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); }, end() { this.ended = true; this.emit('close'); } }; return r; };
+const events = (r) => r.chunks.filter((x) => x.startsWith('event:')).map((x) => x.split('\n')[0].slice(7));
+const x = t.createSseTransport({ heartbeatMs: 1000000 }); const call = mk(), chat = mk(), cc = mk();
+x.handleCallStream({}, call, { callId: '9' }); x.handle({}, chat, { chatId: '10' }); x.handleChatCallStream({}, cc, { chatId: '10' });
+x.closeCallSubscriptions('9'); x.publishCall('9', { type: 'call_state', data: { chat_id: '10' } }); x.publish('10', { type: 'chat_state', data: {} });
+console.log(JSON.stringify({ ended: { call: call.ended, chat: chat.ended, chatCalls: cc.ended }, events: { call: events(call), chat: events(chat), chatCalls: events(cc) } }));
+NODE
+{"ended":{"call":true,"chat":false,"chatCalls":false},"events":{"call":[],"chat":["chat_state"],"chatCalls":["call_state"]}}
+```
+
+`call:<id>` 被结束，`chat:<id>` 与 `chat-calls:<id>` 仍可接收后续事件。
+
+### AC3：断开清理与心跳自停
+
+```sh
+$ node --input-type=module <<'NODE'
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const mk = () => { const r = { chunks: [], writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); } }; return r; };
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const x = t.createSseTransport({ heartbeatMs: 40 }); const a = mk(), b = mk();
+x.handleSubscribe({}, a, { predicate: () => true }); x.handle({}, b, { chatId: '1' }); await sleep(105);
+const ka1 = a.chunks.filter((v) => v === ': keepalive\n\n').length, ka2 = b.chunks.filter((v) => v === ': keepalive\n\n').length;
+a.emit('close'); b.emit('close'); const before = [a.chunks.length, b.chunks.length]; await sleep(90);
+console.log(JSON.stringify({ ka1, ka2, after_close: { a: a.chunks.length - before[0], b: b.chunks.length - before[1] }, stopped: x.globalCount() === 0 }));
+NODE
+{"ka1":2,"ka2":2,"after_close":{"a":0,"b":0},"stopped":true}
+```
+
+两侧连接关闭后心跳计数不再增加，定时器停止。
+
+### AC4：过滤投递谓词 AND
+
+```sh
+$ node --input-type=module <<'NODE'
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const r = { chunks: [], writeHead() {}, write(x) { this.chunks.push(x); }, on() {} };
+const x = t.createSseTransport({ heartbeatMs: 1000000 });
+x.handleSubscribe({}, r, { predicate: (e) => e.type === 'agent_online' && e.data.agent === 'dev' });
+x.publishFiltered({ type: 'agent_online', data: { agent: 'dev' } }); x.publishFiltered({ type: 'call_state', data: { agent: 'dev' } }); x.publishFiltered({ type: 'agent_online', data: { agent: 'ops' } });
+console.log(JSON.stringify({ chunks: r.chunks, event_types: r.chunks.filter((x) => x.startsWith('event:')).map((x) => x.split('\n')[0].slice(7)) }));
+NODE
+{"chunks":["retry: 1000\n\n","event: agent_online\ndata: {\"agent\":\"dev\"}\n\n"],"event_types":["agent_online"]}
+```
+
+只有同时满足事件类型与 agent 条件的帧被投递。
+
+### AC5：无缓存、无排队、无补发
+
+```sh
+$ node --input-type=module <<'NODE'
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const x = t.createSseTransport({ heartbeatMs: 1000000 }); x.publishFiltered({ type: 'agent_online', data: { agent: 'dev' } });
+const r = { chunks: [], writeHead() {}, write(v) { this.chunks.push(v); }, on() {} }; x.handleSubscribe({}, r, {});
+console.log(JSON.stringify({ chunks: r.chunks, no_event: r.chunks.every((v) => !v.startsWith('event:')) }));
+NODE
+{"chunks":["retry: 1000\n\n"],"no_event":true}
+```
+
+订阅建立后只有 retry 首帧，没有补发订阅前事件。
+
+### AC6：新旧注册表隔离
+
+```sh
+$ node --input-type=module <<'NODE'
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const mk = () => { const r = { chunks: [], ended: false, writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); }, end() { this.ended = true; this.emit('close'); } }; return r; };
+const events = (r) => r.chunks.filter((x) => x.startsWith('event:')).map((x) => x.split('\n')[0].slice(7));
+const x = t.createSseTransport({ heartbeatMs: 1000000 }); const global = mk(), filtered = mk();
+x.handle({}, global, { chatId: null }); x.handleSubscribe({}, filtered, { predicate: () => true }); const before = x.globalCount();
+x.publishGlobal({ type: 'agent_online', data: { agent: 'dev' } }); const filteredFromExisting = events(filtered); x.closeAll();
+console.log(JSON.stringify({ before, after_close_all_global: x.globalCount(), global_ended: global.ended, filtered_ended: filtered.ended, filtered_from_existing: filteredFromExisting }));
+NODE
+{"before":1,"after_close_all_global":0,"global_ended":true,"filtered_ended":false,"filtered_from_existing":[]}
+```
+
+既有 `globalCount` 与 `closeAll` 只作用于既有注册表，既有发布 API 不投喂过滤注册表。
+
+### AC7：新订阅沿用 SSE 建立语义且无初始数据帧
+
+```sh
+$ node --input-type=module <<'NODE'
+const t = await import('file:///Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js');
+const r = { chunks: [], writeHead(status, headers) { this.status = status; this.headers = headers; }, write(v) { this.chunks.push(v); }, on() {} };
+t.createSseTransport({ heartbeatMs: 1000000 }).handleSubscribe({}, r, {});
+console.log(JSON.stringify({ status: r.status, headers: r.headers, chunks: r.chunks }));
+NODE
+{"status":200,"headers":{"content-type":"text/event-stream; charset=utf-8","cache-control":"no-store","connection":"keep-alive"},"chunks":["retry: 1000\n\n"]}
+```
+
+输出包含既有 SSE 头、retry 首帧，且没有初始事件数据帧。
+
+### AC8：四键空间逐条投递与关闭回归
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions; git -C "$ROOT" show 72b659f:oamp/src/transport.js > /tmp/pr003-base-transport.mjs; node --input-type=module <<'NODE'
+const load = async (path) => (await import(`file://${path}`)).createSseTransport({ heartbeatMs: 1000000 });
+const mk = () => { const r = { chunks: [], ended: false, writeHead() {}, write(x) { this.chunks.push(x); }, on(e, f) { this.listeners ??= {}; this.listeners[e] = f; }, emit(e) { this.listeners?.[e]?.(); }, end() { this.ended = true; this.emit('close'); } }; return r; };
+const events = (r) => r.chunks.filter((x) => x.startsWith('event:')).map((x) => x.split('\n')[0].slice(7));
+const probe = async (path) => { const x = await load(path); const global = mk(), chat = mk(), call = mk(), chatCalls = mk(); x.handle({}, global, { chatId: null }); x.handle({}, chat, { chatId: '10' }); x.handleCallStream({}, call, { callId: '9' }); x.handleChatCallStream({}, chatCalls, { chatId: '10' }); x.publishGlobal({ type: 'global', data: {} }); x.publish('10', { type: 'chat', data: {} }); x.publishCall('9', { type: 'call', data: { chat_id: '10' } }); x.publishChatCall('10', { type: 'chat_call', data: {} }); const before = { global: events(global), chat: events(chat), call: events(call), chatCalls: events(chatCalls) }; x.close('10'); x.publishGlobal({ type: 'global2', data: {} }); x.publishCall('9', { type: 'call2', data: { chat_id: '10' } }); return { before, ended: { global: global.ended, chat: chat.ended, call: call.ended, chatCalls: chatCalls.ended }, after: { global: events(global), chat: events(chat), call: events(call), chatCalls: events(chatCalls) } }; };
+const now = await probe('/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions/oamp/src/transport.js'); const base = await probe('/tmp/pr003-base-transport.mjs'); console.log(JSON.stringify({ equal: JSON.stringify(now) === JSON.stringify(base), now, base }));
+NODE
+{"equal":true,"now":{"before":{"global":["global"],"chat":["chat"],"call":["call"],"chatCalls":["call","chat_call"]},"ended":{"global":false,"chat":true,"call":false,"chatCalls":false},"after":{"global":["global","global2"],"chat":["chat"],"call":["call","call2"],"chatCalls":["call","chat_call","call2"]}},"base":{"before":{"global":["global"],"chat":["chat"],"call":["call"],"chatCalls":["call","chat_call"]},"ended":{"global":false,"chat":true,"call":false,"chatCalls":false},"after":{"global":["global","global2"],"chat":["chat"],"call":["call","call2"],"chatCalls":["call","chat_call","call2"]}}}
+```
+
+当前实现与 `72b659f` 基线四键空间 probe 输出完全一致。
+
+### AC9：零依赖且不 import web.js
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-003-sse-transport-additions; grep -cE '^(import|export).*web\.js' "$ROOT/oamp/src/transport.js"; grep -cE '^(import|export)' "$ROOT/oamp/src/transport.js"; git -C "$ROOT" diff --name-only 72b659f..HEAD -- oamp/package.json oamp/src/web.js oamp/src/surface.js oamp/web/calls.js
+0
+1
+```
+
+transport.js 没有 web.js 导入，且保护路径 diff 为空；唯一模块级 export 是既有 `createSseTransport`。
