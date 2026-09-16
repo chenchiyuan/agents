@@ -363,13 +363,16 @@ T1..T5 ──> T10 ────────┴─> T11
 
 ---
 
-## 5. 待主 agent 裁决的发现（planner 上报，**不在本任务图里绕开**）
+## 5. 跨 PR 契约发现与裁决结果（planner 上报 → 主 agent 裁决 → 已落地）
 
-**F-1（跨 PR 契约缺陷，非本 PR 可独立修复）**：`POST /api/pickup/<call_id>/ack` 的两个字段 `principal` / `epoch` 在登记里都是 `in: 'query'`，而既有 `runApi`（`surface.js:78-88`）**只在 `spec.method === 'GET'` 时把 query 随请求发出**（非 GET 的 `flags` 一律进 `body`）。⇒ 按 AC2 的机械规则（query 字段 → `--<字段名>` 标志）落地的 `api pickup ack` 条目，其请求会落在"无 query"的形态上，被服务端以 `400 INVALID_PARAM / 需要合法 principal` 拒绝（实测：query 形态 `200`、body 形态 `400`）。
+**F-1（已裁决并落地，2026-09-17）**：`POST /api/pickup/:call_id/ack` 的两个字段 `principal` / `epoch` 在登记里都是 `in: 'query'`，而既有 `runApi` 只在 `spec.method === 'GET'` 时把 query 随请求发出（非 GET 的 `flags` 一律进 `body`）⇒ 按 AC2 的机械规则落地的条目落在"无 query"形态上，被服务端以 `400 INVALID_PARAM` 拒绝（实测：query 形态 `200`、body 形态 `400`）。
 
-- **本 PR 的处置**：按 AC1 / AC2 的字面契约落地（追加式 diff、query 字段走标志），并在证据段**透明记录**该读数的来源；**不擅自改** `runApi`（那是超出「只追加」文件面描述的改动，属架构决策）。
-- **最小修复选项（供主 agent 选择）**：① `runApi` 的 `query:` 条件去掉 `spec.method === 'GET'`（1 行；对既有 40 条等价 —— 既有 POST 条目均无 query 字段）；② 或在条目表引入"字段通道"声明（改动面更大，与本 PR 的追加式文件面冲突，不建议）。
-- **影响面**：只影响 `api pickup ack` 一条入口的业务成功路径；不影响 `ENTRIES` 条数、分层计数、清单互锁、`doctor` 三段与其余 8 条新入口。
+- **主 agent 裁决（采纳方案①）**：把该修复作为本 PR 范围内的**必要修复**——不修则"新交付的能力在 hub 面注册了但恒 400"，比不登记更糟（等于广告一条坏路径，且逼接入方裸写 HTTP，触碰 `hub.md` 红线 1）。
+- **落地（两处，均在 `oamp/sdk/surface.js`）**：
+  1. `runApi` 的 `query:` 条件去掉 `spec.method === 'GET'`（1 行；**对既有条目严格等价**——既有 40 条中"非 GET 且登记含 `in:'query'` 字段"的条目数 = **0**，实测见证据 §4.1）；
+  2. `api pickup ack` 条目的两个 query 字段改按**既有先例**（`api stream chat` 的 `chat_id`：query 字段走位置参数 ⇒ `runApi` 落 `query`）声明为位置参数（`args: [call_id, principal, epoch]`，`flags: []`）——仅改这一条新条目，其余 7 条仍逐字遵守 AC2 括注的 flags 推导规则。
+- **登记的两处偏差**（不改 PR 文件的验收标准文字）：AC1 括注的"只含新增行 + 注释计数行"→ 多 1 处修改行；AC2 括注的"query 字段走 `--` + 字段名标志"→ 仅 `api pickup ack` 一条走位置参数。两处的判据都是"该端点的业务成功路径必须真通"（改动前 400 / 改动后 200）。
+- **判据位置**：`prs/pr-007-hub-entries-and-skill-lists.md` 证据 §1.1（偏差登记）/ §2（条目推导偏差说明）/ §4.1（缺陷 → 修复 → 等价证明 → 成功路径实测）。
 
 ---
 
