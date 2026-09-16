@@ -213,15 +213,43 @@ node <WS>/oamp/bin/hub.js api calls create --chat-id chat-0028-second-cluster --
 node <WS>/oamp/bin/hub.js api calls create --chat-id chat-0028-second-cluster --agent prd --task "只回复一行：SECOND-CLUSTER-PROBE；不要读写任何文件" --mode block --port 7789
 ```
 
-形态自证（机械判据 = 把 `--agent <值>` 归一为 `--agent <A> ` 后三行逐字比较）：
+形态自证（机械判据 = 把 `--agent <值>` 归一为 `--agent <A> ` 后三行逐字比较）。下列命令**自足可执行**：输入 = 上一块三条命令原文**逐字**写入的三个临时文件（绝对路径、无占位符、不从 stdin 读），输出 = 命令原样。
 
 ```
-$ sed -E 's/--agent (dev|verifier|prd) /--agent <A> /' <三条命令> | diff 逐对比较
-1v2 差异 = 0（exit 0）；1v3 差异 = 0（exit 0）
-$ grep -c -- '--mode block'  → 3
-$ grep -c -- '--port 7789'   → 3
-$ grep -c -- '--model'       → 0
+$ mkdir -p /tmp/0028-pr-006-cmp
+$ cat > /tmp/0028-pr-006-cmp/cmd1.txt <<'EOF'
+node /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/oamp/bin/hub.js api calls create --chat-id chat-0028-second-cluster --agent dev --task "只回复一行：SECOND-CLUSTER-PROBE；不要读写任何文件" --mode block --port 7789
+EOF
+$ cat > /tmp/0028-pr-006-cmp/cmd2.txt <<'EOF'
+node /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/oamp/bin/hub.js api calls create --chat-id chat-0028-second-cluster --agent verifier --task "只回复一行：SECOND-CLUSTER-PROBE；不要读写任何文件" --mode block --port 7789
+EOF
+$ cat > /tmp/0028-pr-006-cmp/cmd3.txt <<'EOF'
+node /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/oamp/bin/hub.js api calls create --chat-id chat-0028-second-cluster --agent prd --task "只回复一行：SECOND-CLUSTER-PROBE；不要读写任何文件" --mode block --port 7789
+EOF
+$ sed -E 's/--agent [a-z-]+ /--agent <A> /' /tmp/0028-pr-006-cmp/cmd1.txt > /tmp/0028-pr-006-cmp/norm1.txt
+$ sed -E 's/--agent [a-z-]+ /--agent <A> /' /tmp/0028-pr-006-cmp/cmd2.txt > /tmp/0028-pr-006-cmp/norm2.txt
+$ sed -E 's/--agent [a-z-]+ /--agent <A> /' /tmp/0028-pr-006-cmp/cmd3.txt > /tmp/0028-pr-006-cmp/norm3.txt
+$ diff /tmp/0028-pr-006-cmp/norm1.txt /tmp/0028-pr-006-cmp/norm2.txt; echo "exit=$?"
+exit=0
+$ diff /tmp/0028-pr-006-cmp/norm1.txt /tmp/0028-pr-006-cmp/norm3.txt; echo "exit=$?"
+exit=0
+$ cat /tmp/0028-pr-006-cmp/norm1.txt
+node /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0028-role-model-binding/oamp/bin/hub.js api calls create --chat-id chat-0028-second-cluster --agent <A> --task "只回复一行：SECOND-CLUSTER-PROBE；不要读写任何文件" --mode block --port 7789
+$ grep -c -- '--mode block' /tmp/0028-pr-006-cmp/cmd1.txt /tmp/0028-pr-006-cmp/cmd2.txt /tmp/0028-pr-006-cmp/cmd3.txt
+/tmp/0028-pr-006-cmp/cmd1.txt:1
+/tmp/0028-pr-006-cmp/cmd2.txt:1
+/tmp/0028-pr-006-cmp/cmd3.txt:1
+$ grep -c -- '--port 7789' /tmp/0028-pr-006-cmp/cmd1.txt /tmp/0028-pr-006-cmp/cmd2.txt /tmp/0028-pr-006-cmp/cmd3.txt
+/tmp/0028-pr-006-cmp/cmd1.txt:1
+/tmp/0028-pr-006-cmp/cmd2.txt:1
+/tmp/0028-pr-006-cmp/cmd3.txt:1
+$ grep -c -- '--model' /tmp/0028-pr-006-cmp/cmd1.txt /tmp/0028-pr-006-cmp/cmd2.txt /tmp/0028-pr-006-cmp/cmd3.txt
+/tmp/0028-pr-006-cmp/cmd1.txt:0
+/tmp/0028-pr-006-cmp/cmd2.txt:0
+/tmp/0028-pr-006-cmp/cmd3.txt:0
 ```
+
+（两次 `diff` 均无输出 ⇒ 三条归一后逐字相同；`norm1.txt` 的 `cat` 即归一后全文。）
 
 ⇒ 除 `--agent` 外**逐字一致**、三条**均带** `--mode block` 与 `--port 7789`、三条**均不带** `--model`；模型取值只能来自第二集群的角色级绑定（F05/F06 验收 3、F13 验收 2）。
 
