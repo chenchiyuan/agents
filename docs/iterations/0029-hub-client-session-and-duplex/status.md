@@ -26,22 +26,22 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **累计槛位释放次数**：0
-- **当前有效上限**：3
-- **已派发总数**：0
+- **累计槛位释放次数**：1（pr-002 合并）
+- **当前有效上限**：5（`min(3 + 1×3, 5)`，已达硬上限）
+- **已派发总数**：5（+ pr-004 / pr-008 的 planner）
 
 ## PR 实现子状态（阶段 5 展开）
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-router-status-primitives.md | （无） | ⬜ | feat/0029-pr-001-router-status-primitives | ⬜ | 排队(等待槛位) |
-| pr-002-session-registries.md | （无） | ⬜ | feat/0029-pr-002-session-registries | ⬜ | 排队(等待槛位) |
-| pr-003-sse-transport-additions.md | （无） | ⬜ | feat/0029-pr-003-sse-transport-additions | ⬜ | 排队(等待槛位) |
-| pr-004-console-call-stream-stop.md | （无） | ⬜ | feat/0029-pr-004-console-call-stream-stop | ⬜ | 排队(等待槛位) |
-| pr-005-web-session-and-call-surface.md | pr-001-router-status-primitives.md、pr-002-session-registries.md、pr-003-sse-transport-additions.md | ⬜ | feat/0029-pr-005-web-session-and-call-surface | ⬜ | 排队(依赖未满足) |
-| pr-006-protocol-docs-and-index.md | pr-005-web-session-and-call-surface.md | ⬜ | feat/0029-pr-006-protocol-docs-and-index | ⬜ | 排队(依赖未满足) |
-| pr-007-hub-entries-and-skill-lists.md | pr-001-router-status-primitives.md、pr-005-web-session-and-call-surface.md | ⬜ | feat/0029-pr-007-hub-entries-and-skill-lists | ⬜ | 排队(依赖未满足) |
-| pr-008-friction-log-completion.md | （无） | ⬜ | feat/0029-pr-008-friction-log-completion | ⬜ | 排队(等待槛位) |
+| pr-001-router-status-primitives.md | （无） | ❌失败(现场保留)→**返工中** | feat/0029-pr-001-router-status-primitives(保留) | ⬜ | 占用 |
+| pr-002-session-registries.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
+| pr-003-sse-transport-additions.md | （无） | ⏸（dev 在途） | feat/0029-pr-003-sse-transport-additions | ⬜ | 占用 |
+| pr-004-console-call-stream-stop.md | （无） | ⏸ | （派发时创建） | ⬜ | 占用 |
+| pr-005-web-session-and-call-surface.md | pr-001、pr-002、pr-003 | ⬜ | （待派发时创建） | ⬜ | 排队(依赖未满足) |
+| pr-006-protocol-docs-and-index.md | pr-005 | ⬜ | （待派发时创建） | ⬜ | 排队(依赖未满足) |
+| pr-007-hub-entries-and-skill-lists.md | pr-001-router-status-primitives.md、pr-005-web-session-and-call-surface.md〔**调度附加约束**：还须待 pr-006 合并——见 verify-20260916-153039 缺边〕 | ⬜ | feat/0029-pr-007-hub-entries-and-skill-lists | ⬜ | 排队(依赖未满足) |
+| pr-008-friction-log-completion.md | （无） | ⏸ | （派发时创建） | ⬜ | 占用 |
 
 ## 派发台账
 
@@ -54,7 +54,7 @@
 |---|---|---|---|---|---|---|
 | 14:17 | prd（`pb-prd`） | **阶段 2 · 功能规格**（demand.md → prd.md + prd/*.md） | `task-3d15749f-6a37-49d7-a1b0-870ce78f5e26` | **failed**（`error=timeout`，30.0 分钟命中节点上限；**产物已完整**，报告未回） | `deepseek/deepseek-v4-flash` | **我自建 `cli task watch` 拉起等待**＝摩擦①（+ 报告未回⇒只能靠**产物**判定成败＝摩擦③） |
 | 14:47 | architect（`pb-architect`） | **阶段 3 · 技术架构**（prd.md + prd/*.md → architecture.md） | `task-8a80a749-6edf-447a-a862-74ba85fefbf3` | **failed**（`error=timeout`，30.0 分钟上限；产物 14:57 已完整，报告未回） | — | 我自建 `cli task watch`（**首次误用 `nohup &` 无自动送达**，见 DC-08a） |
-| 15:14 | pr-planner（`pb-pr-planner`） | **阶段 4 · PR 规划**（architecture.md + prd/*.md → prs/pr-NNN.md） | `task-63f31c78-993d-4303-8089-113122ee0271` | 在途 | — | （观测中） |
+| 15:14 | pr-planner（`pb-pr-planner`） | **阶段 4 · PR 规划**（architecture.md + prd/*.md → prs/pr-NNN.md） | `task-63f31c78-993d-4303-8089-113122ee0271` | **failed**（`error=timeout`，30.0 分钟上限；产物 15:18 已完整） | — | **产物稳定器提前 ~21 分钟推进**（上限 15:44，实际 15:23:41 判定）✓ |
 
 **体感基线（派发时记录，用于 D-13 对比）**：派发即时返回 `call_id`（0.08s）；但**要拿到结果必须由我自己拉起一个等待进程**（本次用 hub 自带的 `cli task watch`，而非自建 watchdog）。理想形态是"结果自动到手、无需拉起等待"——这正是本迭代要实现的能力，因此本次记录为 **`需人工/编排层拉起等待` = 摩擦点 ①**。
 
@@ -90,3 +90,7 @@
 - 2026-09-16: `status.md` 对齐 `data/formats.md` §状态追踪协议（补 `**history**` 字段、PR 实现子状态表、更新日志）
 - 2026-09-16: 阶段 4 派发 `pr-planner`（严格按 §brief 构建 的字段格式；纠正 DC-07）
 - 2026-09-16: 阶段 4 完成（8 PR，闸门七项机械核查全通过）；初始化阶段 5 并发配置（起始 3 / 硬上限 5）；**方案确认门待用户确认**
+- 2026-09-16: 方案确认门通过（用户确认按起始并发 3 进入阶段 5）；阶段 4→5 入口按 §验证触发时机先派 `verifier` 验 `prs/`；产物入库提交 `72b659f`；建 `pr-001/002/003` 三个 PR worktree
+- 2026-09-16: 阶段 4 验证 verdict PASS（2 partial：缺边 pr-007→pr-006 转调度约束；pr-005 可审查性/独立性登记为结构性张力）；阶段 5 首批派发 pr-001/002/003 planner
+- 2026-09-16: pr-001 首轮独立验收 **FAIL**（标准3 证据为散文 / 标准1 partial 缺基线对照；标准2 的「tasks 文件不在文件范围」已由主 agent 改判为计划陈述缺口 DC-18）⇒ 派 dev **返工**（同 worktree/分支，**现场保留**）
+- 2026-09-16: **pr-002 独立验收 PASS ⇒ 合并进迭代分支 `cfb6736`**（首个合并）；槛位释放 1、有效上限升至 5；补位派发 pr-004/pr-008 的 planner
