@@ -997,6 +997,298 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 
 ---
 
+### 3.11 `GET /api/subscribe`
+
+**0029 新增的服务化实时面**：接入方**一次连接**就拿到「纳管实例的状态变化」与「自己那些调用的进展和结论」——不必再自己写轮询脚本，也不必把多条既有流拼起来。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `principal` | string | **是** | — | 订阅方身份（`principal_id`）；缺失 / 非法 → 400。本接口按需**幂等建立**该身份（等价于 §3.22 的最小声明） |
+| `kinds` | string | 否 | 无（= 7 类全收） | 逗号分隔的事件类型白名单，**合法取值只有 7 个**：`agent_online` / `agent_offline` / `agent_state` / `call_state` / `call_update` / `call_result` / `confirmation`；出现表外取值 → 400 |
+| `agents` | string | 否 | 无（= 全部） | 逗号分隔的**角色名或 `instance_id`**；多项之间是 **OR**，与 `kinds` 之间是 **AND**；匹配字段 = 事件 `data` 里的 `agent` / `agent_id` / `instance_id` / `to`（实例名与角色名两种写法都参与匹配） |
+| `epoch` | string | 否 | 无（= 不判过期） | 会话代次（口径见 §3.22）；与当刻不符 → 409 |
+
+**成功响应** `200`（SSE 流，`text/event-stream`）
+
+```
+retry: 1000
+
+event: agent_state
+data: {"instance_id":"dev-1","connected":false,"busy":false,"current_call_id":null,"queued":0,"since":null}
+
+event: call_state
+data: {"chat_id":"chat-…","call_id":"task-…","agent":"dev","state":"working"}
+```
+
+- **不发送初始快照**：只推送订阅**建立之后**发生的匹配事件（当刻状态走 `GET /api/agents` / `GET /api/calls`）。
+- **best-effort（明文）**：无订阅者时发生的事件不缓存、不补发；重连窗口内丢帧是既有契约。「结论不丢」由取件面（§3.12）承担，「等到底」由等待入口（§3.18）承担——两者都不依赖订阅是否连续。
+- 本接口与既有的 §3.9 / §3.10 两个推送面**并存且互不影响**；7 类事件的 `data` 形态与既有推送面同源（同一发布点派生）。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | `principal` 缺失 / 非法；`kinds` 含 7 类之外的取值 | `需要合法 principal` / `kinds 含非法事件类型` |
+| `STALE_EPOCH` | 409 | 给出 `epoch` 且与当刻不符 | `会话代次已过期: <给出的值>` |
+
+> **文档链接**：`API.md#311-get-apisubscribe`
+
+---
+
+### 3.12 `GET /api/pickup`
+
+**0029 新增的取件面**：结论不因「请求方当时不在线」而消失——按身份取回**自己尚未取件**的终态调用（含完整信封），断线再拉起后一轮查询即补齐。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `principal` | string | **是** | — | 取件身份（= 派发时声明的 `requester`）；缺失 / 非法 → 400 |
+| `epoch` | string | 否 | 无（= 不判过期） | 会话代次（口径见 §3.22）；不符 → 409 |
+
+**成功响应** `200`
+
+```json
+{
+  "pickup": [
+    {
+      "call_id": "task-9f1c…",
+      "requester": "main",
+      "agent": "dev",
+      "chat_id": "chat-…",
+      "terminal_at": 1789184738463,
+      "acked": false,
+      "envelope": { "call_id": "task-9f1c…", "agent": "dev", "state": "completed" }
+    }
+  ]
+}
+```
+
+- `agent` 是**角色名**；`envelope` 的键集与取值范围见 §3.19（两个面读同一个记录，形状与取值一致）。
+- `envelope` **正文现算**：每次请求按当刻 Router 任务表重算；登记已不在（进程重启过）⇒ `envelope` 为 `null`，条目本身不因此消失。
+- 只列 `acked === false` 的条目；**无游标、无分页** —— 一轮查询即当刻全集。
+- 保留期 = 调用登记的寿命（进程内、**重启即丢**）；重启后以产物与 DB 为准（hub 的登记是易失的实时视图，不是权威台账）。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | `principal` 缺失 / 非法 | `需要合法 principal` |
+| `STALE_EPOCH` | 409 | 给出 `epoch` 且与当刻不符 | `会话代次已过期: <给出的值>` |
+
+> **文档链接**：`API.md#312-get-apipickup`
+
+---
+
+### 3.13 `POST /api/pickup/<call_id>/ack`
+
+**0029 新增**：取件确认——把已取走的结论从待取清单里划掉；重复确认不报错（调用方可以放心重试）。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `call_id` | string（路径） | **是** | — | 目标调用 id |
+| `principal` | string（查询） | **是** | — | 确认身份；缺失 / 非法 → 400 |
+| `epoch` | string（查询） | 否 | 无（= 不判过期） | 会话代次（口径见 §3.22）；不符 → 409 |
+
+无请求体。
+
+**成功响应** `200`
+
+```json
+{ "call_id": "task-9f1c…", "acked": true }
+```
+
+- **幂等且不报错**：对不存在 / 已确认 / 不属于该身份的 `call_id` 一律 `200`（按身份划账、无副作用）——「重复确认」不被表达成错误。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | `principal` 缺失 / 非法 | `需要合法 principal` |
+| `STALE_EPOCH` | 409 | 给出 `epoch` 且与当刻不符 | `会话代次已过期: <给出的值>` |
+
+> **文档链接**：`API.md#313-post-apipickupcall_idack`
+
+---
+
+### 3.18 `GET /api/calls/wait`
+
+**0029 新增的等待入口**：一次调用就等到底——不必自己拼订阅、拼轮询、拼超时；请求返回时要么带着**结论**，要么明确告诉你「还没结论」。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `ids` | string | **是** | — | 逗号分隔的调用 id（去重后至少一个）；缺失 / 为空 → 400 |
+| `timeout_ms` | number | 否 | 无（= **不设上限**） | 正整数毫秒；缺省 = 一直等到全部终态（与 §3.14 的 `mode:block` 同口径）；`0` / 负数 / 非数字 / 空串 → 400 |
+
+**成功响应** `200`
+
+```json
+{
+  "timed_out": false,
+  "timeout_ms": null,
+  "results": [ { "call_id": "task-9f1c…", "agent": "dev", "state": "completed" } ],
+  "unresolved": [ { "call_id": "task-nope", "state": null } ]
+}
+```
+
+- **退出条件恒为「全部终态」**（条文见 §2.4）：已终态的 id **立即**得信封（不因其它 id 仍在跑而推迟）；不存在的 id **立即**给出确定结论（`unresolved` 里 `state: null`），不进入等待。
+- `results` 每条含 `call_id`，可按 id 对应回请求；其键集与取值范围见 §3.19（与该调用的 `calls get` 同形同值）。
+- `timeout_ms` 回显当刻生效值，**缺省时为 `null`**。
+- **`timed_out`（布尔）是唯一退出原因字段**：`false` = 每个 id 都拿到了终态信封或「不存在」的确定结论；`true` = 到达上限而返回（未终态的留在 `unresolved`，`state` 为当刻状态）。⇒ 「全部终态返回」与「超时放弃返回」**可判定地区分**，不靠「没拿到结果」反推。
+- **超时只表示放弃等待**：不改变任何调用的状态、不产生失败结论（条文与反向验证见 §2.4）。等待的释放点是终态事件本身，不是超时值。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | `ids` 缺失 / 为空；`timeout_ms` 非正整数 | `需要 ids（至少一个调用 id）` / `timeout_ms 需为正整数` |
+
+> **文档链接**：`API.md#318-get-apicallswait`
+
+---
+
+### 3.110 `POST /api/calls/<call_id>/cancel`
+
+**0029 新增的控制面**：把一次在跑的调用**收口成结论**——不必等它自己结束；且**不会改写**已经定下的终态。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `call_id` | string（路径） | **是** | — | 目标调用 id（= `task_id`）；不在 Router 任务表 → 404（不静默成功） |
+
+无请求体。
+
+**成功响应** `200`
+
+```json
+{ "call_id": "task-9f1c…", "cancelled": true, "state": "failed", "error": "cancelled" }
+```
+
+- **本次生效** ⇒ `cancelled: true` + `state: "failed"` + `error: "cancelled"`。**不新增终态**：取消复用既有的 `failed`，`state` 取值集合仍是 §3.19 的四值（`submitted` / `working` / `completed` / `failed`）。
+- **已终态 / 重复取消** ⇒ `cancelled: false` + 该调用**当刻**的 `state` 与 `error` 原样：对已 `completed` 的调用取消，它仍是 `completed`（幂等、不覆盖已定结论）。
+- 生效当刻的连带语义（与既有终态收口同一时点）：该调用的订阅流收到终态帧后关闭（§3.17）；正在等待它的 §3.18 请求**当刻**拿到该终态；其所属对话落**恰一条** `out`（`error: "cancelled"`）并推送 `chat_state`（对话不会停在 `working`）。
+- 终态真源仍是 Router 任务表（服务端不做状态覆盖）：被取消调用后续到达的进展帧被忽略，状态不会被「改回去」。
+- **明文局限**：不向 agent 发送「停止」控制——取消表达的是「这次调用不再产生结论」，不是「执行进程已被杀死」。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `NOT_FOUND` | 404 | `call_id` 不在 Router 任务表 | `call 不存在: task-…` |
+
+> 其余故障沿用全局兜底（`502 UPSTREAM_UNAVAILABLE`，见 §2.2）。
+
+> **文档链接**：`API.md#3110-post-apicallscall_idcancel`
+
+---
+
+### 3.111 `GET /api/health`
+
+**0029 新增的恢复判据**：一条请求回答「现在能不能用」——router 起没起、web 可用吗、有几个实例可派发（含正在重连的）。判据本身**只读、零副作用**（不发起真实调用、不写任何状态）。
+
+**参数**：无。
+
+**成功响应** `200`
+
+```json
+{
+  "router": { "ok": true, "detail": "ok", "generation": "7" },
+  "web": { "ok": true, "detail": "监听中；持久层可读" },
+  "agents": { "online": 1, "reconnecting": 0, "offline": 0, "total": 1 },
+  "callable": true,
+  "epoch": "8f3c1a72-0b4d-4e21-9a7c-58d0e6b13f94.7"
+}
+```
+
+- **三态分别可读**（不是合成数）：`online`（`state === 'online'` 且有活动连接）、`reconnecting`（租约未过期但连接已断——正在自动重连的窗口，也计入软重启后尚未回归的名册提示项）、`offline`（既有判活超时的墓碑）；`total = online + reconnecting + offline`。
+- **`callable` = 派发通路可用且有可寻址实例**：`router.ok && web.ok && agents.online >= 1`。
+- **失败不静默**：任一项 `ok: false` 时 `detail` 给**原始原因**（`router` 项含 socket 路径）；`router.generation` 在 Router 不可达时为 `null`。
+- **唯一允许 Router 不可达仍 `200` 的面**（它的职责就是回答「router 起没起」）：此时 `callable: false`，`epoch` 取回退值（口径见 §3.22）。其余接口在需要 Router 时沿用 §2.2 的 `502`。
+- 与 `hub doctor` **并存、不互相替代**：本接口回答「状态如何」（可判失败、带原因），`hub doctor` 回答「契约是否自洽」（文档 ↔ 登记双向比对 + 只读可达性探测）。
+
+**错误**：无（本接口不显式产生任何错误码）。
+
+> **文档链接**：`API.md#3111-get-apihealth`
+
+---
+
+### 3.22 `POST /api/principals`
+
+**0029 新增的身份面**：把调用方登记成**可寻址的一层**——注册一次，之后的派发归属（`requester`）、实时订阅（§3.11）与取件（§3.12 / §3.13）都能归到这个名下，不必每次派发重复自述。
+
+**请求体**
+
+| 字段 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `principal_id` | string | **是** | — | 身份 id：非空、长度 ≤ 64、**每个字符都是可打印 ASCII**；非法 → 400 |
+| `kind` | string | 否 | `null` | 调用方自述类别（服务端不解释、不校验取值） |
+| `instance_id` | string | 否 | `null` | 调用方自述实例 id（自派发告警的判据来源之一） |
+
+未声明的字段**忽略**。
+
+**成功响应** `200`
+
+```json
+{
+  "principal": { "principal_id": "main", "kind": "agent", "instance_id": "main-1", "created_at": 1789184738463, "last_seen_at": 1789184738463 },
+  "epoch": "8f3c1a72-0b4d-4e21-9a7c-58d0e6b13f94.7"
+}
+```
+
+- **幂等 upsert**：命中已有身份只前移 `last_seen_at`；`created_at` 与创建时的 `kind` / `instance_id` **逐字不变**（重复声明不覆盖首次自述）。
+- 身份表是**进程内**的：不落库、无 TTL、无心跳租约，**重启即丢**——重启后按同一 `principal_id` 重新声明即可续接。
+- **`epoch`（会话代次）**：形态 = `<web 启动标识>.<router 代次>`，同一对进程存续期内恒定、**任一侧重启即变**。§3.11 / §3.12 / §3.13 接受可选的 `epoch` 参数：给出且与当刻不符 ⇒ `409 STALE_EPOCH`（客户端据此判定「手上的视图已过期」，重走一轮快照即可）；**不给 ⇒ 不判过期**。`epoch` **不进入**任何既有接口。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | 请求体非合法 JSON；`principal_id` 缺失 / 空 / 超 64 字符 / 含不可打印字符 | `请求体非法 JSON: …` / `principal_id 非法（需为非空、<=64 字符的可打印 ASCII）` |
+| `PAYLOAD_TOO_LARGE` | 413 | 请求体 > 64 KiB（响应带 `connection: close`） | `请求体过大（上限 65536 字节）` |
+
+> **文档链接**：`API.md#322-post-apiprincipals`
+
+---
+
+### 3.23 `GET /api/principals/<principal_id>`
+
+**0029 新增**：确认一个身份是否还在、以及它自述的实例——续接时先看名字有没有被重启清掉，再决定是否重新声明。
+
+**参数**
+
+| 参数 | 类型 | 必填 | 默认 | 说明 |
+|---|---|---|---|---|
+| `principal_id` | string（路径） | **是** | — | 身份 id；形态非法 → 400（与 §3.22 同一形态规则） |
+
+**成功响应** `200`
+
+```json
+{
+  "principal": { "principal_id": "main", "kind": "agent", "instance_id": "main-1", "created_at": 1789184738463, "last_seen_at": 1789184761395 },
+  "epoch": "8f3c1a72-0b4d-4e21-9a7c-58d0e6b13f94.7"
+}
+```
+
+- 查询即前移 `last_seen_at`（「最近声明时间」随读刷新）；其余字段逐字不变。
+
+**错误**
+
+| `code` | HTTP | 触发条件 | `error` 形态 |
+|---|---|---|---|
+| `INVALID_PARAM` | 400 | `principal_id` 形态非法 | `principal_id 非法（需为非空、<=64 字符的可打印 ASCII）` |
+| `NOT_FOUND` | 404 | 该身份未登记（含重启后） | `principal 不存在: <principal_id>` |
+
+> **文档链接**：`API.md#323-get-apiprincipalsprincipal_id`
+
+---
+
 ## 4. 事件流
 
 ### 4.1 按对话订阅：`GET /api/stream?chat_id=<id>`（4 类事件）
