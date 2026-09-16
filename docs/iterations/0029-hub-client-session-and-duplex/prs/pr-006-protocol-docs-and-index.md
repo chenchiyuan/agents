@@ -505,63 +505,27 @@ status 空 = 无未提交改动（既有未跟踪 clarifications/ 亦无）
 
 ### AC10 条文与行为一致（反向验证：等待到超时后仍非终态、`error` 空、`exit_code` 未变）
 
-**造一个在跑的调用**（`POST /api/messages` 的 `!sleep 6` 分支 = shell 执行器，零模型调用），再对它做一次 `timeout_ms=2000` 的等待：
+**自足复现块**：造一个在跑的调用（`POST /api/messages` 的 `!sleep 6` 分支 = shell 执行器、**零模型调用**）→ 记等待前的三键 → 带 `timeout_ms=2000` 等待 → 记等待返回后当刻的三键并与等待前逐字比对 → 等 `!sleep` 走完记自然终态。整块可直接复制执行（调用 id 是每次运行的易失值，故本块用变量承接；下面粘贴的是本机实跑的原样输出）。
 
 ```bash
-cd $WS && B=http://127.0.0.1:8436 && PRJ=$(curl -s -X POST $B/api/projects -H 'content-type: application/json' -d "{\"repo_url\":\"https://example.invalid/pr006-wait-$(date +%s)\"}" | jq -r .project.project_id) && curl -s -X POST $B/api/messages -H 'content-type: application/json' -d "{\"project_id\":\"$PRJ\",\"agent_id\":\"dev-1\",\"text\":\"@dev-1 !sleep 6\"}"
+cd $WS && B=http://127.0.0.1:8436 && PRJ=$(curl -s -X POST $B/api/projects -H 'content-type: application/json' -d "{\"repo_url\":\"https://example.invalid/pr006-wait-$(date +%s)\"}" | jq -r .project.project_id) && TASK=$(curl -s -X POST $B/api/messages -H 'content-type: application/json' -d "{\"project_id\":\"$PRJ\",\"agent_id\":\"dev-1\",\"text\":\"@dev-1 !sleep 6\"}" | jq -r .task_id) && echo "task=$TASK" && echo '--- ① 等待前 ---' && curl -s $B/api/calls/$TASK && echo && echo '--- ② 带超时等待（timeout_ms=2000） ---' && curl -s "$B/api/calls/wait?ids=$TASK&timeout_ms=2000" && echo && echo '--- ③ 等待返回后当刻 ---' && curl -s $B/api/calls/$TASK && echo && echo '--- ③ 与等待前三键比对 ---' && curl -s $B/api/calls/$TASK | jq -c '{state,error,exit_code}' | diff - <(echo '{"state":"working","error":null,"exit_code":null}') && echo 'diff 逐字相同（退出码 0）' && echo '--- ④ 自然终态（!sleep 6 走完） ---' && sleep 7 && curl -s $B/api/calls/$TASK
 ```
 
 ```
-{"chat_id":"chat-985db23a-eee0-40d8-a24d-82fa4b8626f7","task_id":"task-9ad648f1-864d-49cb-9f6e-956bbb93d954","message_id":"msg-fd667be6-c324-47a3-ae95-b5d3f15d2be9","warning":null}
+task=task-49dc8332-d446-4179-8393-a41e24cd4d8e
+--- ① 等待前 ---
+{"call_id":"task-49dc8332-d446-4179-8393-a41e24cd4d8e","agent":null,"state":"working","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null}
+--- ② 带超时等待（timeout_ms=2000） ---
+{"timed_out":true,"timeout_ms":2000,"results":[],"unresolved":[{"call_id":"task-49dc8332-d446-4179-8393-a41e24cd4d8e","state":"working"}]}
+--- ③ 等待返回后当刻 ---
+{"call_id":"task-49dc8332-d446-4179-8393-a41e24cd4d8e","agent":null,"state":"working","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null}
+--- ③ 与等待前三键比对 ---
+diff 逐字相同（退出码 0）
+--- ④ 自然终态（!sleep 6 走完） ---
+{"call_id":"task-49dc8332-d446-4179-8393-a41e24cd4d8e","agent":null,"state":"completed","duration_ms":6010,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":0}
 ```
 
-**① 等待前**
-
-```bash
-cd $WS && curl -s http://127.0.0.1:8436/api/calls/task-9ad648f1-864d-49cb-9f6e-956bbb93d954
-```
-
-```
-{"call_id":"task-9ad648f1-864d-49cb-9f6e-956bbb93d954","agent":null,"state":"working","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null}
-```
-
-**② 带超时等待（原样响应：`timed_out:true` + 该 id 留在 `unresolved`）**
-
-```bash
-cd $WS && curl -s "http://127.0.0.1:8436/api/calls/wait?ids=task-9ad648f1-864d-49cb-9f6e-956bbb93d954&timeout_ms=2000"
-```
-
-```
-{"timed_out":true,"timeout_ms":2000,"results":[],"unresolved":[{"call_id":"task-9ad648f1-864d-49cb-9f6e-956bbb93d954","state":"working"}]}
-```
-
-**③ 等待返回后当刻（与 ① 逐字相同：`state` 非终态、`error` 空、`exit_code` 未变）**
-
-```bash
-cd $WS && curl -s http://127.0.0.1:8436/api/calls/task-9ad648f1-864d-49cb-9f6e-956bbb93d954
-```
-
-```
-{"call_id":"task-9ad648f1-864d-49cb-9f6e-956bbb93d954","agent":null,"state":"working","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":null}
-```
-
-```bash
-cd $WS && curl -s http://127.0.0.1:8436/api/calls/task-9ad648f1-864d-49cb-9f6e-956bbb93d954 | jq -c '{state,error,exit_code}' | diff - <(echo '{"state":"working","error":null,"exit_code":null}'); echo "diff 退出码 $?（0 = 与等待前三键逐字相同）"
-```
-
-```
-diff 退出码 0（0 = 与等待前三键逐字相同）
-```
-
-**④ 该调用随后自然终态（证明超时既未冻结、也未改写任何状态）**
-
-```bash
-cd $WS && curl -s http://127.0.0.1:8436/api/calls/task-9ad648f1-864d-49cb-9f6e-956bbb93d954
-```
-
-```
-{"call_id":"task-9ad648f1-864d-49cb-9f6e-956bbb93d954","agent":null,"state":"completed","duration_ms":6017,"model":null,"truncated":false,"text":null,"structured_output":null,"error":null,"exit_code":0}
-```
+**读数**：② 的 `timed_out:true` + 该 id 留在 `unresolved`（`state:"working"`）= **超时放弃返回**；③ 的三键与 ① 逐字相同（`state` 非终态、`error` 为 `null`、`exit_code` 为 `null`）= **超时未改变任务状态、未产生失败结论**；④ 该调用随后自然 `completed`（`duration_ms` 覆盖整个 `!sleep` 时长）= **超时既未冻结、也未改写任何状态**。与 §2.4 第 2 条条文（`timed_out` 为唯一退出原因字段、超时只表示放弃等待）逐条对应。
 
 ### §11 证据段自检（无临时目录依赖、无自造占位符）
 
