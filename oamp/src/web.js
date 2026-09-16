@@ -2049,18 +2049,22 @@ export default async function startWeb(restArgs) {
 
   let rosterHints = new Map();
   let lastRosterNodes = [];
+  // 名册 = 「**客户端 / agent 实例**的重连可见性」视图（L1-01 / F16 验收 2：软重启窗口里"谁还没回来"）。
+  // 服务端自身的常驻发送身份（SENDER_ID='web'）不是待重新纳管的客户端——把它写进名册会在 web 自身重启时
+  // 冒出一行误导性的"重连中"提示 ⇒ 读写两侧都按同一判据剔除（读侧剔除同时挡住旧文件里的残留项）。
+  const isRosterCandidate = (id) => typeof id === 'string' && id !== '' && id !== SENDER_ID;
   try {
     const saved = JSON.parse(fs.readFileSync(ROSTER_FILE, 'utf8'));
     const writtenAt = Number(saved?.written_at);
     const ids = Array.isArray(saved?.instance_ids) ? saved.instance_ids : [];
     if (Number.isFinite(writtenAt)) {
-      rosterHints = new Map(ids.filter((id) => typeof id === 'string' && id !== '').map((id) => [id, writtenAt]));
+      rosterHints = new Map(ids.filter(isRosterCandidate).map((id) => [id, writtenAt]));
     }
   } catch {
     rosterHints = new Map();
   }
   const writeRoster = (nodes) => {
-    const instanceIds = [...new Set((nodes || []).map((node) => node?.instance_id).filter((id) => typeof id === 'string' && id !== ''))];
+    const instanceIds = [...new Set((nodes || []).map((node) => node?.instance_id).filter(isRosterCandidate))];
     lastRosterNodes = nodes || [];
     try {
       fs.mkdirSync(path.dirname(ROSTER_FILE), { recursive: true });
