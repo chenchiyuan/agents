@@ -50,9 +50,104 @@
 
 ## 验收证据
 
-- 实跑脚本：`node /tmp/pr002-verify.mjs`，输出 `RESULT: PASS`；AC3–AC10 的 `upsert` 幂等、时间字段、实例形态拒绝、`touch`、`requesterOf` 纯读、`pickup.add` 去重、按 requester 列表、`ack` 幂等均通过。
-- 边界脚本：缺省 pickup 字段均为 `null`；`ack` 后条目仍保留且重复 `add` 返回 `false`。
-- 导出面：`principals: get,requesterOf,touch,upsert`；`pickup: ack,add,listByRequester`。`^import` 扫描无匹配；两模块均无 import，符合零 import 约束。
-- 形态等价脚本：对 15 个边界输入与 `registry.js:isValidInstanceId` 逐项比较，输出 `equivalence 15/15`。
-- 静态计数（`/tmp/pr002-grep-counts.out`）：两文件寿命短语各 1；`setTimeout|setInterval`、文件写入 API、`process.*`、`EventEmitter|emit(`、`principals.js` 的 `.delete(` 均为 0。
-- 开工基线实际为 `3f3fd729372623112b2b4f8e24e7d8c5f021fb44`，开工时工作区干净；本 PR 的 `oamp/` 改动仅新增 `oamp/src/principals.js` 与 `oamp/src/pickup.js`，`oamp/package.json` 无改动。
+以下各节均采用“可复制命令 + 该命令 stdout 原样输出”。动态命令使用本次取证脚本 `/tmp/pr002-evidence.mjs`；`ROOT` 是本 worktree 绝对路径：
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" exports
+{"principals":["get","requesterOf","touch","upsert"],"pickup":["ack","add","listByRequester"]}
+```
+
+### AC1–AC2：导出面与零 import
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; grep -cE '^import' "$ROOT/oamp/src/principals.js" "$ROOT/oamp/src/pickup.js"
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/principals.js:0
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/pickup.js:0
+```
+
+### AC3：upsert 幂等、时间字段与 get 形状
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" upsert
+{"first":{"principal":{"principal_id":"p1","kind":"cli","instance_id":"i1","created_at":1789547394841,"last_seen_at":1789547394841}},"second":{"principal":{"principal_id":"p1","kind":"cli","instance_id":"i1","created_at":1789547394841,"last_seen_at":1789547394845}},"created_same":true,"last_seen_not_back":true,"get":{"principal_id":"p1","kind":"cli","instance_id":"i1","created_at":1789547394841,"last_seen_at":1789547394845}}
+```
+
+### AC4：principal_id 形态校验
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" shape
+{"accepted":[64,5],"rejected":[{"inputType":"string","length":0,"result":"INVALID_PRINCIPAL_ID"},{"inputType":"string","length":65,"result":"INVALID_PRINCIPAL_ID"},{"inputType":"string","length":1,"result":"INVALID_PRINCIPAL_ID"},{"inputType":"string","length":3,"result":"INVALID_PRINCIPAL_ID"},{"inputType":"string","length":2,"result":"INVALID_PRINCIPAL_ID"},{"inputType":"string","length":1,"result":"INVALID_PRINCIPAL_ID"},{"inputType":"number","length":null,"result":"INVALID_PRINCIPAL_ID"},{"inputType":"object","length":null,"result":"INVALID_PRINCIPAL_ID"}]}
+```
+
+### AC5：与 registry.isValidInstanceId 等价
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" equivalence
+{"matches":15,"total":15,"allMatch":true}
+```
+
+### AC6：touch 时间边界、无 lease/expiry/clear
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" touch
+{"before":{"principal_id":"p1","kind":"cli","instance_id":null,"created_at":1789547394917,"last_seen_at":1789547394917},"after":{"principal_id":"p1","kind":"cli","instance_id":null,"created_at":1789547394917,"last_seen_at":1789547394921},"advanced":true,"created_same":true,"same_millisecond":{"before":1789547394921,"after":1789547394921,"advanced":false}}
+```
+
+输出同时证明：跨过毫秒边界时 `last_seen_at` 前移；同一毫秒内再次 `touch` 不虚构前移。
+
+### AC7：requesterOf 只读取显式 principal_id
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" requester
+{"null":null,"empty":null,"empty_id":null,"explicit":{"principal_id":"p9","kind":"cli","instance_id":null},"missing_instance":{"principal_id":"p10","kind":"cli","instance_id":null},"p9_registered":false}
+```
+
+### AC8：pickup.add 按 call_id 去重且不覆盖
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" add
+{"first":true,"duplicate":false,"list_p1":[{"call_id":"c1","requester":"p1","agent":"a1","chat_id":"h1","terminal_at":1,"acked":false}],"list_p2":[]}
+```
+
+### AC9：listByRequester 隔离且仅返回 acked=false
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" list
+{"p1":[{"call_id":"c1","requester":"p1","agent":"a1","chat_id":"h1","terminal_at":1,"acked":false}],"p2":[{"call_id":"c2","requester":"p2","agent":"a2","chat_id":"h2","terminal_at":2,"acked":false}],"p3":[]}
+```
+
+### AC10：ack 软删除、重复/缺失无副作用且仍占 Map
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" ack
+{"before":[{"call_id":"c1","requester":"p1","agent":"a1","chat_id":"h1","terminal_at":1,"acked":false}],"first_ack":null,"after":[],"repeat_ack":null,"missing_ack":null,"add_after_ack":false}
+```
+
+`after:[]` 证明列表过滤已 ack 条目；`repeat_ack:null`、`missing_ack:null` 证明重复/缺失调用无可见副作用；`add_after_ack:false` 证明 ack 只改标记、不从 Map 删除。
+
+### AC11：pickup 指针严格六字段
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; node /tmp/pr002-evidence.mjs "$ROOT" fields
+{"keys":["acked","agent","call_id","chat_id","requester","terminal_at"],"entry":{"call_id":"c1","requester":"p1","agent":"a1","chat_id":"h1","terminal_at":1,"acked":false},"has_text":false,"has_envelope":false}
+```
+
+### AC12：进程内生命周期、无持久化/事件副作用、基线边界
+
+```sh
+$ ROOT=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries; grep -cE 'setTimeout|setInterval' "$ROOT/oamp/src/principals.js" "$ROOT/oamp/src/pickup.js"; grep -cE 'writeFile|appendFile|createWriteStream|process\.|EventEmitter|emit\(' "$ROOT/oamp/src/principals.js" "$ROOT/oamp/src/pickup.js"; grep -c '进程内、不持久、重启即丢' "$ROOT/oamp/src/principals.js" "$ROOT/oamp/src/pickup.js"
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/principals.js:0
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/pickup.js:0
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/principals.js:0
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/pickup.js:0
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/principals.js:1
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries/oamp/src/pickup.js:1
+```
+
+```sh
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries diff --name-only 72b659f..HEAD -- oamp/src/web.js oamp/src/inbox.js oamp/src/persist.js oamp/package.json
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-002-session-registries diff --stat 72b659f..HEAD -- oamp/src/principals.js oamp/src/pickup.js
+ oamp/src/pickup.js     | 37 +++++++++++++++++++++++++++
+ oamp/src/principals.js | 68 ++++++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 105 insertions(+)
+```
