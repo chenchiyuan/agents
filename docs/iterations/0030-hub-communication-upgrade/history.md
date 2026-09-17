@@ -530,3 +530,23 @@
 - 通道：本地 subagent，`agent=verifier`（预期 grok）
 - 产出物：PR worktree 提交 `ba31e6a` 的 diff（`web.js` M + `pickup.js` D）；判据 = **修订后** PR 文件 **11 条验收标准**（AC8 已拆两条）+ 架构 §3.1~§3.4/§4 A-01/A-02/A-03/A-06/A-07 + 跨界契约记录
 - 独立取证要求：不得采信执行方证据；**自建隔离环境**（`/tmp/verify-p005/` 副本 + 真 Router + 真 web + 自建假节点），自跑必达三态/只写终态/`reason` 末位与三面同源/取件形状与 ack 幂等/**跨重启**/池化分流与粘性/**空池 200 逐字 vs 角色不可解析 404 逐字**/**形状指纹逐行列出差异并判定是否仅限预期两处**/TTL 压缩动态/路由条数 29；每结论标注取证层次；**不得占用默认端口/socket**
+
+### 2026-09-17 18:55:00 · 收到报告 · verifier（pr-005 验收，本迭代最关键一次）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-171058-pr-005.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 3）；verifier 自建隔离环境独立复现全部条目（未采信执行方 `/tmp/0030-pr-005/*`），每结论标注取证层次
+- 偏差 3 条（**全部为文档滞后类型、零功能缺陷**）：① `architecture.md` §3.1 的 `insertInbox` 示例写 snake_case，而实测接线按冻结契约走 camelCase + 预先序列化（`web.js:2246-2253`）⇒ 派 `architect` 对齐；② `web.js:1386` 的 400 文案仍列旧参数集（无 `new_session?`）而运行时已接受——**本迭代不修**（`web.js` 已随 pr-005 合并、不在任何未合并 PR 文件范围内，"所有代码变更必须经 PR" 是硬约束，为一处提示文案重开规划不划算）⇒ 记入下一迭代候选；③ 架构文"11 键"残留（已于 18:15 那批更正）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（verifier 派发第 8 例）
+
+### 2026-09-17 18:57:00 · 调度决策 · pr-005 合并 + 第六次槛位释放 + 末两个 PR 同时解锁
+
+- pr-005 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-005-web-inbox-and-pool-wiring` ⇒ **`9a4f424`**；`web.js` +61/−76、`pickup.js` 删除）；现场清理（`worktree remove` + `branch -d`）
+- **解锁扫描：pr-006 与 pr-008 同时解锁**（二者仅依赖 pr-004/pr-005，均已合并）⇒ 从合并后 tip `9a4f424` 各自拉出 worktree；复核实现面相对 `main` 共 11 个路径（10 个改动 + `pickup.js` 删除）
+- 派发 `PlanP006`（文档面同步）与 `PlanP008`（G01 证据）两条 planner 并发；共享背景里给出**本迭代已登记的 5 条预期差异清单**（role 列取值域 / 取件 502→200 / `/api/docs` desc 行 / 失败侧 10→11 键 / `pickup.js` 退役），并要求"除这些之外任何差异都当作回归"
+- 触发依据：`clarifications/verify-20260917-171058-pr-005.md` 结论 PASS；`git merge` 输出；依赖图重扫（pr-006 ← pr-004/pr-005；pr-008 ← pr-005，均已合并）
+
+### 2026-09-17 19:05:00 · 收到报告 · architect（insertInbox 契约对齐）
+
+- 收口内容（`architecture.md` 3 节 3 行 + 1 条记录）：§3.1 步骤 2 示例改 camelCase 六字段并注明**冻结契约 + 序列化义务**；步骤 3 注明 `listInbox(principal)` 按 `terminal_at` 升序、行字段为 DB 列名、`envelope` 为已序列化 JSON（读侧 `JSON.parse`）；步骤 4 `deleteInbox(callId)` 用 camelCase + 幂等语义注；§5 的 `persist.js` 变更行同步；§10 新增第 13 条记录来源
+- 复核：`grep -n "insertInbox"` 余 4 处**均为 camelCase 形态**；`insertInbox({call_id` / `deleteInbox(call_id)` **零命中**（无 snake_case 示例残留）；§4 A-01 原文即 `ORDER BY terminal_at ASC`、语义一致故未动
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`

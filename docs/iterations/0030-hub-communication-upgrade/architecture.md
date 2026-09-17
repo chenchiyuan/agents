@@ -150,13 +150,13 @@ flowchart TB
    `principal = (显式 requester 非空) ? requester : 'chat:' + chatId`（既有的空串归 `null` 行为原样保留 ⇒ MI-3 天然成立），写进 `call.principal`（**替代** `call.requester` 一字段；`warnings` 的出现条件仍只看出否显式给出）。
 2. 终态 ⇒ `publishCallResult`（唯一发布点）：
    - 组信封（失败侧含 `reason`，A-03）→ 写 `call.terminal`（既有）→ **无条件**写收件箱：
-     `db.insertInbox({call_id, principal, agent: role, chat_id, terminal_at: now, envelope})`（`INSERT OR IGNORE`：重复发布/对账重入幂等，且**不覆盖首条**——与既有 `pickup.add` 的幂等口径逐字一致）；
+     `db.insertInbox({callId, principal, agent: role, chatId, terminalAt: now, envelope: JSON.stringify(envelope)})`（**冻结契约**：camelCase 六字段；**`envelope` 由调用方预序列化为 JSON 字符串**——`persist.js` 的三个方法把入参**原样**写入 TEXT 列、模块内不做 `JSON.stringify`；`INSERT OR IGNORE`：重复发布/对账重入幂等，且**不覆盖首条**——与既有 `pickup.add` 的幂等口径逐字一致）；
    - 再发 SSE（`call:<id>` + 过滤面）→ 关流 → 解等待句柄（既有顺序不变）。
 3. 取件（**不再是第二真源**，且**不依赖 Router 任务表**）：
-   `GET /api/pickup?principal=` ⇒ `db.listInbox(principal)` ⇒ 逐条
+   `GET /api/pickup?principal=` ⇒ `db.listInbox(principal)`（**冻结契约**：按 `terminal_at` **升序**返回行，行字段为 DB 列名 = `call_id / principal / agent / chat_id / terminal_at / envelope`，其中 `envelope` 为**已序列化的 JSON 字符串** ⇒ 读侧 `JSON.parse`）⇒ 逐条
    `{call_id, requester: row.principal, agent, chat_id, terminal_at, acked: false, envelope: JSON.parse(row.envelope)}`。
    信封即步骤 2 写入的那一份 ⇒ **重启前后逐字节一致**（F03 验收 1/5），且与 `GET /api/calls/<id>` 现算的信封同源同值（同一函数、同一输入，终态后不可变 ⇒ F01 验收 5）。
-4. 确认：`POST /api/pickup/:call_id/ack` ⇒ `db.deleteInbox(call_id)`（幂等删；返回 `{call_id, acked:true}` 不变）。
+4. 确认：`POST /api/pickup/:call_id/ack` ⇒ `db.deleteInbox(callId)`（**冻结契约**：按 call_id 幂等删除、条目不存在时 `changes = 0` 且**不抛错**；返回 `{call_id, acked:true}` 不变）。
 
 ### 3.2 缺省身份（F02）
 
@@ -401,7 +401,7 @@ flowchart TB
 
 | 文件 | 改动 | 对应 |
 |---|---|---|
-| `oamp/src/persist.js` | `SCHEMA` 增 `inbox` 表 + 索引；新增 `insertInbox` / `listInbox` / `deleteInbox` 并导出 | A-01 / A-09 |
+| `oamp/src/persist.js` | `SCHEMA` 增 `inbox` 表 + 索引；新增 `insertInbox` / `listInbox` / `deleteInbox` 并导出（**冻结契约**：camelCase 入参，`envelope` 由调用方预序列化、模块内原样写入 TEXT 列） | A-01 / A-09 |
 | `oamp/src/web.js` | ① `/api/calls`：目标由池内选择（`pickInstance`）决定 + 项级 `new_session` + `call.principal` 派生；② `composeCallEnvelope`：失败侧追加 `reason`；③ `publishCallResult`：无条件写 `inbox`（`call.principal`）；④ `GET /api/pickup`：改读 `db.listInbox`（不再逐条 `task_get`）；⑤ `POST /api/pickup/:call_id/ack`：改 `db.deleteInbox`；⑥ `RECONCILE_TTL_DEFAULT_MS` 默认值与 `taskNetMs` 联动；⑦ deps 注入 `pickInstance` | A-01~A-09 |
 | `oamp/src/agent.js` | LLM 两路（`runDaemonTask` / `runOmpTask`）改传 `{idleMs, netMs}`；移除 `DEFAULT_OMP_TIMEOUT_MS` 默认档；`MAX_TIMEOUT_MS` 保留 | A-05 |
 | `oamp/src/acp-client.js` · `rpc-client.js` · `oneshot-client.js` | turn timer 改 `idle` + `net` 双计时（门挂起冻结保留） | A-05 |
@@ -531,6 +531,7 @@ flowchart TB
 10. **A-06 池成员判据的补定（同角色多实例识别约定，2026-09-17）**：来源 = **阶段 5 planner 发现 + 主 agent 代码复核**（`agent.js:841` 的 `client.register(instanceId)` 不带 role；`registry.js:156-169` 的 `snapshot()` 无 role 字段；`role-binding.js` 的 `roleFromInstanceId` 只认 `^pb-(.+)$` + 角色文件存在性 ⇒ `pb-dev-2` 解析为角色 `dev-2` → `null`）⇒ 本文件初稿的 `roleFromInstanceId(...) === role` 判据使**同角色在线池上限恒为 1**，F06 验收 1 与效果#5 在端到端面不可构造。已补定为"`pb-<role>` 或 `pb-<role>-<n>` 计入该 role 的池；解析先精确公式、未命中再剥后缀复用同一公式；用户侧以 `agent start pb-<role>-<n> --role <role>` 启动；resolver 由新增模块 `pool-routing.js` 导出、`role-binding.js` 既有公式零改动；池成员判定与 `GET /api/agents` 的 role 列同源"，全文见 §4 A-06 补定。**与 §1.3 既有面硬约束、§6 零影响声明无冲突**（不新增协议字段、不改既有可观测面的字段集与语义、不改 `cluster.json`/`roles/**`）；未采纳的显式备选与两处相邻不一致（订阅面归一、`/api/messages` 不经池化）已登记于 §9-10 ~ §9-12。
 11. **A-05 阈值透传通道的补定（`context-pool.js` 纳入改动面，2026-09-17）**：来源 = **阶段 5 planner 实测复现 + 主 agent 裁决（候选 A：把该文件纳入 pr-004 文件范围做两键透传）**。实测依据：默认执行器（daemon）路径的选项通道是 `ContextSession.prompt` 的**显式键集**（形参 `:137` / 队列项 `:144` / `client.prompt` 实参 `:170-174`）⇒ 未列入的键被静默丢弃；不改该文件时 daemon 路径阈值变 `null`，任务 ≈2.5s 判死（报文 `轮次安全网超时（累计 nullms）`），或客户端补 null 防御后退化为"该路径无计时器" ⇒ F05 验收 2/3/6 在默认执行器路径不成立。已补定：`context-pool.js` **仅两键透传**（`idleMs` / `netMs`），其键语义 / 同键 FIFO 串行 / LRU 与释放路径**零改动**；§1.3 硬约束与 §6 声明不受影响（本节 §6 已补"唯一例外"注），全文见 §4 A-05 与 §5 变更面表。
 12. **三处实跑事实更正 + 两处补记（2026-09-17）**：来源 = **pr-005 planner 在 /tmp 搭"真 Router + 真 web + 假节点"基线塔实跑**（非推断）。① §4 A-06 空池行为原写"回落 ⇒ 404 `agent 不可用`"⇒ 更正为"与基线逐字一致（HTTP 200 + 受理态 `submitted`；投递失败在 `sendTask` 内被吞），404 仅限**角色不可解析**"，MI-9 意图不变；② 终态信封计数 **11 键 → 10 键**（§1.1 与 §4 A-03；`web.js:539` 的模块注释写"11 键"为既有注释滞后，**未改代码**）；③ §4 A-05 第 6 条与 §7 L2-05 的对账 TTL 由"≈4h30m"改为**算式 + 不变式**（`缺省 TTL ≥ config.taskNetMs`；算式 = `taskNetMs + RECONCILE_SLOW_DEFAULT_MS` = 4h + 30s），去掉歧义近似值。另补记：④ `pickup.js` 退役判据 = **实现面零命中**（`docs/**`、`roles/**` 的历史文字提及不算失败项），见 §5 退役行；⑤ `new_session` **无 CLI flag**（`oamp/sdk/surface.js` 的 `calls create` flag 白名单硬编码、`sdk/**` 本迭代零改动）⇒ 其调用方途径 = **裸 HTTP 项级字段**（与既有 `requester` 同情形），见 §4 A-07。
+13. **收件箱方法契约的文档对齐（2026-09-17）**：来源 = **pr-005 独立验收偏差记录第 1 条**（`clarifications/verify-20260917-171058-pr-005.md`）—— 实现按**冻结契约**走 camelCase 六字段（`insertInbox({callId, principal, agent, chatId, terminalAt, envelope})`，`web.js:2246-2253`）且 `envelope` 已预序列化，而本文件 §3.1 的数据流示例原写 snake_case ⇒ 已对齐：§3.1 步骤 2 改为 camelCase 六字段并注明**序列化义务**（`persist.js` 把入参原样写入 TEXT 列、模块内不做 `JSON.stringify`），步骤 3 注明 `listInbox(principal)` 按 `terminal_at` 升序返回行、行字段为 DB 列名、读侧 `JSON.parse`，步骤 4 注明 `deleteInbox(callId)` 幂等且条目不存在时不抛错；§5 的 `persist.js` 行同步该契约要点。
 
 ---
 
