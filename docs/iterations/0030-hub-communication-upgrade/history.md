@@ -616,3 +616,17 @@
   - **缺口 B：`pr-001` 的 tasks 文件无「执行证据（dev 回填）」段**。成因明确：证据落点规则在 `14:44:40` 才由调度决策确立（回应 pr-003 planner 疑问），而 pr-001 的 dev 已于 `14:41:30` 派出 ⇒ **规则晚于派发**，非执行方漏做。处置 = 保留原状（该 PR 已合并、其证据面由 verifier 报告承担），**不做追溯回填**。
 - 关联核验：`pr-008` PR 文件更正（`PrPlanFix`）实测 `roles/*/data/**` 新增 **10** 个（architect 1 + prd 1 + verifier 8）——与 §5 分层口径一致；`:(glob)roles/*/*.md` 定义面 diff = **0 行**（裸 pathspec 会得 10 行 = 假失败）
 - 触发依据：台账与 history 的条目数对比（`grep -c "agent=dev"` = 8 / `agent=verifier` = 10；history 报告条目 dev 5 / verifier 9）；`prs/pr-001-reason-mapping-module-tasks.md` 无 `执行证据` 命中
+
+### 2026-09-17 20:25:00 · 收到报告 · dev（pr-006）
+
+- 1. 改了什么文件：**仅** PR worktree 的 `oamp/API.md` + `oamp/README.md` + `oamp/skill/hub.md`（`git diff --name-status 9a4f424 HEAD` = 三行 M），提交 **`5277713`**，PR worktree clean；`oamp/llms.txt` **未改**（由副本生成器核对**零 diff** ⇒ 正是 F-4 登记的预期）；迭代工作区唯一写入 = tasks 文件 §7 回填段
+- 2. 自证结果：自建 `doccheck`（29 条断言）**29 PASS / 0 FAIL**；隔离塔起真 Router + 真 web 跑 **真机械锁** `hub doctor` ⇒ JSON `pass=true`、`R1=29` / `r1Ok=29` / `allOk=true` / `nonOk=[]`；**反例门**：插假行 ⇒ `pass=false` 且唯一 `nonOk` = `R1 GET /api/nope`（并注明**退出码仍 0**，故按 JSON 判定）；三处条数一致
+- 主 agent 现场复核：PR worktree 提交与改动面逐条对上（三份文档 M、无 `oamp/src/**` 改动）；迭代工作区 `git status` 仅该 tasks 文件
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 8 例取证）
+
+### 2026-09-17 20:27:00 · 派发 · verifier（pr-006 验收）
+
+- 阶段：阶段 5 · pr-006 独立验收（文档面同步）
+- 产出物：PR worktree 提交 `5277713`（相对 `9a4f424`：`M oamp/API.md` / `M oamp/README.md` / `M oamp/skill/hub.md`）；判据 = 该 PR 文件 **5 条验收标准逐字** + `architecture.md` §5「文档面同步」与「文档面机械锁提示」+ §4 A-05 + §9-6/§9-8 + 四张功能卡相关验收项
+- 独立取证要求：不得采信执行方证据（**不读**其 `/tmp/0030-pr-006/`、**不读** tasks 文件 §7 回填段作为证据）；自建隔离环境（`/tmp/verify-p006/` 副本 + 真 Router + 真 web + 自建假节点，非默认端口，**不得占用默认 7788 / 主集群 socket**）；五项必须独立复现——① 字段/参数与实现一致（`reason` 五值/末位/仅失败侧；`new_session` 项级可选布尔与重绑语义；超时缺省空闲 10min + 安全网 4h 且显式 `timeout_ms` 仍为绝对上限；取件写入时机/跨重启/`acked` 恒 false）② `llms.txt` 逐字节（并判定"未改"是预期而非遗漏）③ 三/五处计数全为 29（**锚点纪律**：`API.md` 有 4 组重复章节号，须用「编号 + `METHOD /path`」联合定位）④ 真机械锁读 **JSON**（不看退出码）+ **反例门** ⑤ README 三个 env 默认值可在 `config.js`/`web.js` 找到对应；另核 `skill/hub.md` 字面"不冲突"是否成立 + 红线违规检查（执行方是否动了 `oamp/src/**`/`sdk/**`/`scripts/**`）
+- 触发依据：`DevP006` 完成回报 + 主 agent 现场复核（提交 `5277713` / 迭代工作区仅 tasks 回填）

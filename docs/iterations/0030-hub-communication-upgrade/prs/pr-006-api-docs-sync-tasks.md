@@ -588,4 +588,132 @@ diff "$PRWT/oamp/llms.txt" "$BASE/gen/oamp/llms.txt" > "$BASE/logs/llms.diff"; e
 > 证据落盘约定：`/tmp/0030-pr-006/`（脚本、out 文件、doctor JSON、日志）；**不新建仓库内证据文档**、不写入 `status.md` / `history.md` / `deferred-demand-changes.md` / `architecture.md` / PR 文件；**不执行 git 写操作**。
 > verifier 的独立报告落 `clarifications/verify-<ts>-pr-006.md` + `roles/verifier/data/`，**不回填**本段。
 
-（待 dev 回填）
+### 执行环境
+
+- 运行模型标识：`openai/gpt-5.6-luna`
+- PRWT：`/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-006-api-docs-sync`
+- 证据根：`/tmp/0030-pr-006/`
+- 说明：所有运行时取证均在 `/tmp/0030-pr-006/run` 或 `/tmp/0030-pr-006/gen` 副本完成；未占用默认端口，Router/web 使用端口 `17931` 与 `/tmp/0030-pr-006/run/router.sock`。
+
+### T1 / T2 / T3 / T4 / T5 / T8：文档改动与判据
+
+命令原文：
+
+```bash
+node /tmp/0030-pr-006/doccheck.mjs "$PRWT/oamp"
+```
+
+`/tmp/0030-pr-006/logs/doccheck-after.out` 原始输出关键片段：
+
+```text
+PASS C1b ... doc rows = call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code,reason
+PASS C1c ... call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code,reason
+PASS C1d ...
+PASS C1e ...
+PASS C2 ... doc=agent_error,cancelled_by_client,infra_error,timeout,rejected impl=agent_error,cancelled_by_client,infra_error,timeout,rejected
+PASS C3a ...
+PASS C3b ...
+PASS C3c ...
+PASS C3d ...
+PASS C4a ... doc=call_id,requester,agent,chat_id,terminal_at,acked,envelope impl=call_id,requester,agent,chat_id,terminal_at,acked,envelope
+PASS C4b ...
+PASS C4c ...
+PASS C4d ...
+PASS C4e ...
+PASS C4f ...
+PASS C4g ...
+PASS C5a ...
+PASS C5b ...
+PASS C5c ...
+PASS C5d ...
+PASS C5e ...
+PASS C6a ...
+PASS C6b ...
+PASS C6c ...
+
+29 PASS / 0 FAIL
+```
+
+判定：T1 的 C1a~C1e/C2/C9、T2 的 C3a~C3d、T3 的 C4a~C4g、T4/T5 的 C5a~C5e、T8 的 C6a~C6c 全部 PASS。改造前同一判据器输出 `/tmp/0030-pr-006/logs/doccheck-before.out` 的 `11 PASS / 18 FAIL`，FAIL 恰为待改判据集合。
+
+T8 三条判定表（先审后改）：
+
+| 判定项 | 现状文字 | API.md 真源位置 | 结论 |
+|---|---|---|---|
+| 等待语义指向唯一真源 | `hub.md` 明确写等待语义以 `oamp/API.md`「等待语义」为唯一真源，且不复述 | `### 3.18 \`GET /api/calls/wait\``（等待语义段） | 兼容，保留不动 |
+| 取件叙述与新表述 | 原文说明离线期间结论不会丢；改后 API 明确终态写入持久层、跨重启可查、ack 就地删除 | `### 3.12 \`GET /api/pickup\`` / `### 3.13 \`POST /api/pickup/<call_id>/ack\`` | 兼容；按 MI-P6-3 最小补充“hub 重启也不算丢” |
+| 是否复述字段 / 取值域 / 参数表 | 全文不含 `reason` / `structured_output` / `exit_code` | `### 3.19 \`GET /api/calls/<call_id>\``、`### 3.12 \`GET /api/pickup\`` | 兼容；未搬运 schema |
+
+### T6：llms.txt 生成物
+
+命令原文：
+
+```bash
+(cd /tmp/0030-pr-006/gen && node oamp/scripts/gen-llms-txt.mjs) | tee /tmp/0030-pr-006/logs/gen.out
+diff "$PRWT/oamp/llms.txt" /tmp/0030-pr-006/gen/oamp/llms.txt > /tmp/0030-pr-006/logs/llms.diff
+```
+
+原始输出关键片段：`llms.txt 已生成：...（接口 29 条，3493 字节）`；`llms.diff` 为空（`diff-lines=0`）。C8 PASS；`llms.txt` 未手改且最终与生成器逐字节一致。
+
+### T7：路由三处同值、离线 R1 与真 doctor
+
+`doccheck-after.out` 原始片段：
+
+```text
+PASS C7a ... routes=29 api=29 llmsHead=29 llmsLines=29
+PASS C7b ... 缺失=[] 未覆盖=[]
+PASS C8 ... gen=3493B file=3493B
+```
+
+真 doctor 命令（隔离副本、非默认端口/socket）：
+
+```bash
+OAMP_SOCKET="$BASE/run/router.sock" OAMP_WEB_PORT=17931 OAMP_DB="$BASE/run/hub.db" \
+  node "$BASE/run/oamp/bin/hub.js" doctor > "$BASE/logs/doctor-post.json" 2>/dev/null
+```
+
+`/tmp/0030-pr-006/logs/doctor-post.json` 的 JSON 字段判定原文（读取 `pass` 与 `items[].ok`，不以退出码判定）：
+
+```json
+{"pass":true,"r1":29,"r1Ok":29,"allOk":true,"nonOk":[]}
+```
+
+反例门：隔离副本追加 `| 30 | \`GET /api/nope\` | 反例门（假行） |` 后，doctor JSON 字段判定为：
+
+```json
+{"pass":false,"nonOk":[{"id":"R1 GET /api/nope"}]}
+```
+
+反例 doctor 进程退出码为 `0`，故判据使用 JSON `pass`/`items[].ok`；随后副本已复原。
+
+### T9：集成、AC5 对照与改动面
+
+四项实现对照（文档改后 ↔ 实现真源）：
+
+| 项 | 文档位置 | 实现锚点 |
+|---|---|---|
+| `reason` | `API.md` `### 3.19 \`GET /api/calls/<call_id>\`` 字段表、键集合句；`### 4.4` `call_result` | `oamp/src/web.js:559`；`oamp/src/reason.js:7-16`、`:18-22`、`:44` |
+| `new_session` | `API.md` `### 3.14 \`POST /api/calls\`` 参数表与 `tasks` 项形状 | `oamp/src/web.js:1394`（仅 `=== true`）；`:1441`（`noReuse`）；`:1387`（单任务也是项）；无 400 分支 |
+| 超时 | `README.md:224`（超时句）及 env 表 `OAMP_TASK_IDLE_MS` / `OAMP_TASK_NET_MS` / 对账 TTL | `oamp/src/config.js:29-30/155-156`；`oamp/src/web.js:76/2188`；`rpc-client.js:292`、`acp-client.js:442`、`oneshot-client.js:144`；`agent.js:234` |
+| 取件 | `API.md` `### 3.12` / `### 3.13` | `oamp/src/web.js:1356`、`:1654`、`:1821`、`:2246`；`oamp/src/persist.js:291-297` |
+
+改动面命令原文：
+
+```bash
+git -C "$PRWT" diff --name-status 9a4f424 -- oamp/
+git -C "$PRWT" status --short
+git -C "$PRWT" diff --name-only 9a4f424 -- oamp/src oamp/sdk oamp/scripts oamp/web oamp/bin
+```
+
+原始输出：
+
+```text
+M	oamp/API.md
+M	oamp/README.md
+M	oamp/skill/hub.md
+ M oamp/API.md
+ M oamp/README.md
+ M oamp/skill/hub.md
+```
+
+禁止路径命令无输出。三处条数取证：`API rows=29`、`## 接口（29 条）`、`llms API lines=29`、`web route registrations=29`。实现交叉锚点原始输出含 `new_session` 命中 `web.js:1309/1394`、取件 `listInbox:1654` / `deleteInbox:1821` / `insertInbox:2246`、双超时文本 `rpc-client.js:292`。T9 全量 doccheck 为 `29 PASS / 0 FAIL`；无代码、依赖、路由改动，无取证残留写入 PR worktree。
