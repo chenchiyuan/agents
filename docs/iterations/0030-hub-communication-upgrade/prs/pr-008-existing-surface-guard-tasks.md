@@ -62,23 +62,23 @@
 | **F1** | PR worktree 存在且干净：分支 `feat/0030-pr-008-existing-surface-guard`，HEAD = `9a4f424`（= 迭代分支 tip），`git status --porcelain` 为空 | `git -C <PR worktree> log --oneline -1` / `status --porcelain` |
 | **F2** | **基线口径唯一**：`git rev-parse main` = `706e3d004029396b0ab24f95c3951b9fe7226214` = `git merge-base main HEAD` ⇒ `git diff main HEAD` = **完整迭代改动面**（不是"上一个 PR 之后"） | 实测 |
 | **F3** | 8 个 PR 中 **6 个已合并**；`pr-006`（docs 面同步）与 `pr-008`（本 PR）**未合并** ⇒ 当前 `git diff --name-status main HEAD` 中 **不含** `oamp/API.md` / `oamp/README.md` / `oamp/llms.txt` / `oamp/skill/hub.md`（这 4 个文件的差异待 pr-006 落地）。**本 PR 的零改动清单不含这 4 个文件**（§5 把文档面列为"同步"，非零改动面） | `git diff --stat main HEAD -- oamp/`（11 个 `oamp/src/**` 文件，无 `*.md`） |
-| **F4** | **零改动面实测为空**：`git diff --name-only main HEAD -- <K3 各组路径>` 输出 **空**（含组 A 7 文件 / 组 B 3 目录 / 组 C 根 `cluster.json` / 组 D 定义面 / 组 E）；**正对照** `git diff --name-only main HEAD -- oamp/src/web.js` 输出 **非空**（= 1 行）⇒ 命令面有效、非空洞 | 实测（§4.9 R2） |
+| **F4** | **零改动面实测为空**：`git diff --name-only main HEAD -- <K3 各组路径>` 输出 **空**（含组 A 7 文件 / 组 B 3 目录 / 组 C 根 `cluster.json` / 组 D 定义面 / 组 E）；**正对照** `git diff --name-only main HEAD -- oamp/src/web.js` 输出 **非空**（= 1 行）⇒ 命令面有效、非空洞 | 实测（§4 R2） |
 | **F5** | **路径更正（事实更正 ①）**：`oamp/cluster.json` **不存在**；`cluster.json` 在**仓库根**（489 B）。PR 文件 AC3 与 `architecture.md` §5 的字面写法混了前缀（§5 的 `cluster.json` 无 `oamp/` 前缀，与根路径一致）⇒ 判据必须写作"根 `cluster.json` 的 diff 为空"，**且**补一条"`oamp/cluster.json` 不存在"的存在性断言（否则该行判据永远"通过"而无意义） | `test -e oamp/cluster.json` → 否；`ls -la cluster.json` → 489 B；`git ls-tree -r --name-only main -- cluster.json` → 命中根路径 |
-| **F6** | **`roles/**` 递归面变了（事实更正 ②）+ pathspec 陷阱（事实更正 ⑤）**：`git diff --name-status main HEAD -- roles` = **9 个 `A`**，全部位于 `roles/{architect,prd,verifier}/data/*.md`（决策记录与验收报告 = **过程产物**）；**角色定义面**（22 个 tracked 文件：`roles/<role>/<role>.md` / `memory.md` / `SKILL.md` / `_template/role-structure-reference.md`）**零改动**。**陷阱**：git pathspec **默认 `*` 跨 `/`** ⇒ `git diff -- 'roles/*/*.md'` 会命中 `roles/*/data/*.md`（实测 **9 行**，与递归面同值，极易被误读为"定义面也变了"）；必须用 **glob magic** `':(glob)roles/*/*.md'`（实测 **0 行**）；且 `git ls-tree` **不支持 `:(glob)`**（报 `pathspec magic not supported`）⇒ 存在性断言改用 `git ls-tree -r --name-only main -- roles \| grep -cE '^roles/[^/]+/[^/]+$'` = **22**。⇒ G01 验收 11 的"模型值不进 `roles/*/*.md`"与 §5 的"`roles/**` 零改动"**必须分层写且用 glob magic**：定义面零改动（可断言），`roles/*/data/**` 是本迭代过程产物面（登记说明，不属"既有产品面回归"） | 实测（§4.9 R2、§4.9 P2） |
-| **F7** | **`context-pool.js` 例外实测形态**：`git diff --stat` = `1 file changed, 4 insertions(+), 2 deletions(-)`；`-U0` 行集 = **恰好 6 行 / 3 处**白名单（`prompt` 形参表加 `idleMs, netMs`；`this.queue.push({…})` 加两键；`client.prompt` 实参加 `idleMs: turn.idleMs,` / `netMs: turn.netMs,`）；**归一化等价判据实测通过**：把这三处白名单行从 HEAD 版剔除后与 main 版**逐字相同**（`NORMALIZED-IDENTICAL`）⇒ "除两键透传外逐字零改动"是可证的，不靠人眼 | 实测（§4.9 R3） |
-| **F8** | **事件面零改动实测**：① `grep -oE "type: '[a-zA-Z_]+'" oamp/src/web.js \| sort -u` 与 main 版 **diff 为空**；② `CALL_EVENTS = …`（`web.js:68`）与 `FILTERED_EVENT_KINDS = …`（`web.js:50`）两常量行 diff 为空；③ `git diff main HEAD -- oamp/src/web.js \| grep -E "^[+-].*transport\."` **输出为空**（**发布调用点行零差异**——比"事件名集合"更强）；④ `transport.js` 零改动（F4）⇒ 4 个键空间（`chat:` / 全局 `null` / `chat-calls:` / `call:`）与 `publish/publishGlobal/publishCall` 语义逐字未动 | 实测（§4.9 R4） |
-| **F9** | **信封实测**：main 与 HEAD 的 `composeCallEnvelope` **均返回 10 键、键序逐字相同**（`call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code`）；HEAD 追加的**唯一**一行是 `if (state === 'failed') envelope.reason = reasonOf(state, envelope.error);` ⇒ **失败侧 11 键（末位 `reason`）、成功/受理侧 10 键**。`web.js:539` 的模块注释写"11 键"是**既有注释滞后**（main 的同一注释亦写 11）⇒ 不改注释、不在文档里把它当改动 | 实测（§4.9 R5） |
-| **F10** | **取件端点实测**：`GET /api/pickup` 参数行 = `principal`(query, required) + `epoch`(query, optional)，与 main **逐字相同**；HEAD 响应为**显式 7 键有序映射** `call_id,requester,agent,chat_id,terminal_at,acked,envelope`，与 main 的 `{...entry(6 键), envelope}` 顺序一致；`POST /api/pickup/:call_id/ack` 参数行 = `call_id`(path) + `principal`(query) + `epoch`(query)，响应 `{ call_id, acked: true }`，与 main 相同；确认语义：`db.deleteInbox`（就地删除，幂等）+ `listInbox` 只返未取件 ⇒ "确认后不再出现在未取件集合 / 重复确认无副作用"成立 | 实测（§4.9 R6） |
+| **F6** | **`roles/**` 递归面变了（事实更正 ②）+ pathspec 陷阱（事实更正 ⑤）**：`git diff --name-status main HEAD -- roles` = **9 个 `A`**，全部位于 `roles/{architect,prd,verifier}/data/*.md`（决策记录与验收报告 = **过程产物**）；**角色定义面**（22 个 tracked 文件：`roles/<role>/<role>.md` / `memory.md` / `SKILL.md` / `_template/role-structure-reference.md`）**零改动**。**陷阱**：git pathspec **默认 `*` 跨 `/`** ⇒ `git diff -- 'roles/*/*.md'` 会命中 `roles/*/data/*.md`（实测 **9 行**，与递归面同值，极易被误读为"定义面也变了"）；必须用 **glob magic** `':(glob)roles/*/*.md'`（实测 **0 行**）；且 `git ls-tree` **不支持 `:(glob)`**（报 `pathspec magic not supported`）⇒ 存在性断言改用 `git ls-tree -r --name-only main -- roles \| grep -cE '^roles/[^/]+/[^/]+$'` = **22**。⇒ G01 验收 11 的"模型值不进 `roles/*/*.md`"与 §5 的"`roles/**` 零改动"**必须分层写且用 glob magic**：定义面零改动（可断言），`roles/*/data/**` 是本迭代过程产物面（登记说明，不属"既有产品面回归"） | 实测（§4 R2、§4.13 P2） |
+| **F7** | **`context-pool.js` 例外实测形态**：`git diff --stat` = `1 file changed, 4 insertions(+), 2 deletions(-)`；`-U0` 行集 = **恰好 6 行 / 3 处**白名单（`prompt` 形参表加 `idleMs, netMs`；`this.queue.push({…})` 加两键；`client.prompt` 实参加 `idleMs: turn.idleMs,` / `netMs: turn.netMs,`）；**归一化等价判据实测通过**：把这三处白名单行从 HEAD 版剔除后与 main 版**逐字相同**（`NORMALIZED-IDENTICAL`）⇒ "除两键透传外逐字零改动"是可证的，不靠人眼 | 实测（§4 R3） |
+| **F8** | **事件面零改动实测**：① `grep -oE "type: '[a-zA-Z_]+'" oamp/src/web.js \| sort -u` 与 main 版 **diff 为空**；② `CALL_EVENTS = …`（`web.js:68`）与 `FILTERED_EVENT_KINDS = …`（`web.js:50`）两常量行 diff 为空；③ `git diff main HEAD -- oamp/src/web.js \| grep -E "^[+-].*transport\."` **输出为空**（**发布调用点行零差异**——比"事件名集合"更强）；④ `transport.js` 零改动（F4）⇒ 4 个键空间（`chat:` / 全局 `null` / `chat-calls:` / `call:`）与 `publish/publishGlobal/publishCall` 语义逐字未动 | 实测（§4 R4） |
+| **F9** | **信封实测**：main 与 HEAD 的 `composeCallEnvelope` **均返回 10 键、键序逐字相同**（`call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code`）；HEAD 追加的**唯一**一行是 `if (state === 'failed') envelope.reason = reasonOf(state, envelope.error);` ⇒ **失败侧 11 键（末位 `reason`）、成功/受理侧 10 键**。`web.js:539` 的模块注释写"11 键"是**既有注释滞后**（main 的同一注释亦写 11）⇒ 不改注释、不在文档里把它当改动 | 实测（§4 R5） |
+| **F10** | **取件端点实测**：`GET /api/pickup` 参数行 = `principal`(query, required) + `epoch`(query, optional)，与 main **逐字相同**；HEAD 响应为**显式 7 键有序映射** `call_id,requester,agent,chat_id,terminal_at,acked,envelope`，与 main 的 `{...entry(6 键), envelope}` 顺序一致；`POST /api/pickup/:call_id/ack` 参数行 = `call_id`(path) + `principal`(query) + `epoch`(query)，响应 `{ call_id, acked: true }`，与 main 相同；确认语义：`db.deleteInbox`（就地删除，幂等）+ `listInbox` 只返未取件 ⇒ "确认后不再出现在未取件集合 / 重复确认无副作用"成立 | 实测（§4 R6） |
 | **F11** | **预期差异 ① 的代码位置**：`GET /api/agents` 的行投影由 main 的 `roleFromInstanceId(n.instance_id)`（main `web.js:673`）变为 `roleOfPoolInstance(n.instance_id, roleFromInstanceId)`（HEAD `web.js:677`）⇒ `pb-<role>-<n>` 的 `role` 列由 `null` → 角色名。**字段类型与取值域 `string\|null` 不变** | `git show main:oamp/src/web.js \| grep -n "withRole"`；`grep -n "roleOfPoolInstance" oamp/src/web.js`；登记出处 `architecture.md` §9-10 + §10-10 |
-| **F12** | **路由 29 条实测（四处同值）**：① `awk '/^export function createApiRoutes/,/^export function projectRoutes/' oamp/src/web.js \| grep -cE "^      method: '"` = **29**；② `awk '/function createApiRoutes/,0' oamp/src/web.js \| grep -cE "method: '(GET\|POST\|PUT\|DELETE)'"` = **29**；③ `grep -cE "^- (GET\|POST) /api/" oamp/llms.txt` = **29**（头部第 11 行 `## 接口（29 条）`）；④ `grep -cE "^\|\s*[0-9]+\s*\|\s*\\\`(GET\|POST)\s+/api/" oamp/API.md` = **29**；⑤ **运行时** `GET /api/docs` 的 `routes.length` = **29**（planner 实跑）。PR 文件写"三处"⇒ 实为**四处静态 + 一处运行时**，文档按实测写 | 实测（§4.9 R7） |
-| **F13** | **`hub doctor` 实跑实测（事实更正 ③）**：`hub doctor` **不接受 `--port`**（`{"code":"USAGE","error":"doctor 不接受该参数: --port"}`，exit 2）；端口走 **env `OAMP_WEB_PORT`**（`sdk/surface.js:34/463` 的缺省链 `opts.port ?? OAMP_WEB_PORT ?? 7788`）；且 **Router 必须在线**（Router 缺 → `{"code":"UPSTREAM_UNAVAILABLE"}` exit 3）；Router + web 均在线时 **exit 0、items 66、R1 items 29、R1 失败 0** | 实测（§4.9 R8，`/tmp` 隔离副本 + 端口 17788 + `/tmp` socket） |
+| **F12** | **路由 29 条实测（四处同值）**：① `awk '/^export function createApiRoutes/,/^export function projectRoutes/' oamp/src/web.js \| grep -cE "^      method: '"` = **29**；② `awk '/function createApiRoutes/,0' oamp/src/web.js \| grep -cE "method: '(GET\|POST\|PUT\|DELETE)'"` = **29**；③ `grep -cE "^- (GET\|POST) /api/" oamp/llms.txt` = **29**（头部第 11 行 `## 接口（29 条）`）；④ `grep -cE "^\|\s*[0-9]+\s*\|\s*\\\`(GET\|POST)\s+/api/" oamp/API.md` = **29**；⑤ **运行时** `GET /api/docs` 的 `routes.length` = **29**（planner 实跑）。PR 文件写"三处"⇒ 实为**四处静态 + 一处运行时**，文档按实测写 | 实测（§4 R7） |
+| **F13** | **`hub doctor` 实跑实测（事实更正 ③）**：`hub doctor` **不接受 `--port`**（`{"code":"USAGE","error":"doctor 不接受该参数: --port"}`，exit 2）；端口走 **env `OAMP_WEB_PORT`**（`sdk/surface.js:34/463` 的缺省链 `opts.port ?? OAMP_WEB_PORT ?? 7788`）；且 **Router 必须在线**（Router 缺 → `{"code":"UPSTREAM_UNAVAILABLE"}` exit 3）；Router + web 均在线时 **exit 0、items 66、R1 items 29、R1 失败 0** | 实测（§4 R8，`/tmp` 隔离副本 + 端口 17788 + `/tmp` socket） |
 | **F14** | `oamp/package.json` 的 `dependencies` = `{}`（零第三方依赖）；`bin` = `{oamp, hub}`；无 `devDependencies` | `node -p "JSON.stringify(require('./oamp/package.json').dependencies)"` → `{}` |
-| **F15** | **`pickup.js` 退役实测 + 判据更正（事实更正 ④）**：`oamp/src/pickup.js` **不存在**；**模块引用零命中**（`grep -rnE "from '(\./)?pickup(\.js)?'" oamp/src oamp/sdk oamp/bin oamp/scripts` → rc=1）。**但 `architecture.md` §5 的字面退役判据 `grep -rn pickup oamp/src oamp/sdk oamp/bin oamp/scripts` 会产生命中**（`web.js` 的 `/api/pickup` 路由名 4 处 + `sdk/surface.js` 的 CLI 命令名 `pickup list` / `pickup ack` 4 处）——**因为 G01 验收 4 要求这两个端点保留**，故那条字面命令**不可用作判据**（用了会得出"退役失败"的假结论） | 实测（§4.9 R9） |
+| **F15** | **`pickup.js` 退役实测 + 判据更正（事实更正 ④）**：`oamp/src/pickup.js` **不存在**；**模块引用零命中**（`grep -rnE "from '(\./)?pickup(\.js)?'" oamp/src oamp/sdk oamp/bin oamp/scripts` → rc=1）。**但 `architecture.md` §5 的字面退役判据 `grep -rn pickup oamp/src oamp/sdk oamp/bin oamp/scripts` 会产生命中**（`web.js` 的 `/api/pickup` 路由名 4 处 + `sdk/surface.js` 的 CLI 命令名 `pickup list` / `pickup ack` 4 处）——**因为 G01 验收 4 要求这两个端点保留**，故那条字面命令**不可用作判据**（用了会得出"退役失败"的假结论） | 实测（§4 R9） |
 | **F16** | **预期差异 ③ 实测**：`/api/calls` 的**参数行数 main = HEAD = 9**（逐行 diff 为空），唯一差异是 `tasks` 项的 **desc 文本**由 `{task, output_schema?, schema_mode?, mode?, model?}` 变为追加 `new_session?` ⇒ "无新增必填参数"成立；`new_session` **不出现为顶层 param 行**（故不构成新参数面） | `awk "/path: '\/api\/calls',/,/kind: 'json'/" … \| grep -cE "\{ name: '"`；两侧 desc 行对照 |
-| **F17** | **预期差异 ② 活体取证实测**：`/tmp` 隔离副本起 web（端口 17788、socket 指向不存在的路径、Router 未启动）⇒ `GET /api/pickup?principal=whoami` = **HTTP 200** `{"pickup":[]}`；`POST /api/pickup/call_x/ack?principal=whoami` = **HTTP 200** `{"call_id":"call_x","acked":true}`；**正对照** `GET /api/agents` = **502**（证明 Router 确实不可达，200 不是"服务没起来"的假象） | 实测（§4.9 R10）。main 侧对应实现为 `queryOnce(router.task_get)` 逐条现算（`main web.js:1639` + `main pickup.js` 的 `listByRequester`）⇒ 502 由该查询触发；登记出处 `architecture.md` §6 表第 4 行 + §9 局限 |
-| **F18** | **两处必须分类（不得当回归）的既有改动**：① `RECONCILE_TTL_DEFAULT_MS` 由 `30 * 60 * 1000` 改为 `config.taskNetMs + RECONCILE_SLOW_DEFAULT_MS`（= 4h + 30s）——**§5 明文改动 ⑥ / L2-05 的自主动作**；② `entry.agentId = instanceIdForRole(role)` → `entry.agentId = target`（池内选择结果）——**§5 明文改动 ①（pr-005 池化路由）**。另：`api/calls/:call_id/transcript` handler 的整块源码 main 与 HEAD **逐字相同**（`TRANSCRIPT-IDENTICAL`）⇒ G01 验收 9 的"transcript 截断未修"有直接证据；"惰性启动竞态未修"的判据 = 竞态判定面（`landed` / `attempts` / 迟到结果丢弃）逐字未动，**仅** TTL 默认值算式变化（上述 ①，属明文改动） | 实测（§4.9 R11） |
-| **F19** | **UDS 方法集合 9 个（可实现计数）**：`grep -cE "^      case '" oamp/src/router.js` = **9**，方法名逐条 = `agent.register` / `agent.heartbeat` / `agent.deregister` / `message.send` / `message.ack` / `router.status` / `router.task_get` / `router.task_cancel` / `router.task_list`；`router.js` 零改动（F4）⇒ 集合不变（G01 验收 5 / §1.3-5） | 实测（§4.9 R12） |
-| **F20** | **"只绑 `dev` / `verifier`"的**可判定**判据**：根 `cluster.json` 中**带 `model` 键**的角色集合 main 与 HEAD **同为 `{dev, verifier}`**（`node -p "Object.entries(require('./cluster.json').roles).filter(([,v])=>v&&v.model).map(([k])=>k).join(',')"` → `dev,verifier`）；**注意**：`cluster.json` 的 `roles` **键集**含全部 10 个角色（`architect`/`demand`/`dev`/`planner`/`pr-planner`/`prd`/`progress-observer`/`retrospective`/`verifier`/`workflow-pb`）⇒ **不能**用键集当"绑定范围"判据（会得出错误结论），且该文件零改动是 §5/G01 验收 11 的硬约束 | 实测（§4.9 R12）；`architecture.md` §1.3-6、§5、§6 表第 11 行；D-34 / D-35；F08 验收 6 |
+| **F17** | **预期差异 ② 活体取证实测**：`/tmp` 隔离副本起 web（端口 17788、socket 指向不存在的路径、Router 未启动）⇒ `GET /api/pickup?principal=whoami` = **HTTP 200** `{"pickup":[]}`；`POST /api/pickup/call_x/ack?principal=whoami` = **HTTP 200** `{"call_id":"call_x","acked":true}`；**正对照** `GET /api/agents` = **502**（证明 Router 确实不可达，200 不是"服务没起来"的假象） | 实测（§4 R10）。main 侧对应实现为 `queryOnce(router.task_get)` 逐条现算（`main web.js:1639` + `main pickup.js` 的 `listByRequester`）⇒ 502 由该查询触发；登记出处 `architecture.md` §6 表第 4 行 + §9 局限 |
+| **F18** | **两处必须分类（不得当回归）的既有改动**：① `RECONCILE_TTL_DEFAULT_MS` 由 `30 * 60 * 1000` 改为 `config.taskNetMs + RECONCILE_SLOW_DEFAULT_MS`（= 4h + 30s）——**§5 明文改动 ⑥ / L2-05 的自主动作**；② `entry.agentId = instanceIdForRole(role)` → `entry.agentId = target`（池内选择结果）——**§5 明文改动 ①（pr-005 池化路由）**。另：`api/calls/:call_id/transcript` handler 的整块源码 main 与 HEAD **逐字相同**（`TRANSCRIPT-IDENTICAL`）⇒ G01 验收 9 的"transcript 截断未修"有直接证据；"惰性启动竞态未修"的判据 = 竞态判定面（`landed` / `attempts` / 迟到结果丢弃）逐字未动，**仅** TTL 默认值算式变化（上述 ①，属明文改动） | 实测（§4 R11） |
+| **F19** | **UDS 方法集合 9 个（可实现计数）**：`grep -cE "^      case '" oamp/src/router.js` = **9**，方法名逐条 = `agent.register` / `agent.heartbeat` / `agent.deregister` / `message.send` / `message.ack` / `router.status` / `router.task_get` / `router.task_cancel` / `router.task_list`；`router.js` 零改动（F4）⇒ 集合不变（G01 验收 5 / §1.3-5） | 实测（§4 R12） |
+| **F20** | **"只绑 `dev` / `verifier`"的**可判定**判据**：根 `cluster.json` 中**带 `model` 键**的角色集合 main 与 HEAD **同为 `{dev, verifier}`**（`node -p "Object.entries(require('./cluster.json').roles).filter(([,v])=>v&&v.model).map(([k])=>k).join(',')"` → `dev,verifier`）；**注意**：`cluster.json` 的 `roles` **键集**含全部 10 个角色（`architect`/`demand`/`dev`/`planner`/`pr-planner`/`prd`/`progress-observer`/`retrospective`/`verifier`/`workflow-pb`）⇒ **不能**用键集当"绑定范围"判据（会得出错误结论），且该文件零改动是 §5/G01 验收 11 的硬约束 | 实测（§4 R12）；`architecture.md` §1.3-6、§5、§6 表第 11 行；D-34 / D-35；F08 验收 6 |
 
 > **本 PR 的"回归判定门槛"由 F5/F6/F15 三条更正共同定义**：若照抄 PR 文件/`architecture.md` 的字面路径与字面命令，会分别得到"路径不存在"（无意义通过）、"`roles/**` 变了"（假回归）、"`pickup` 仍有引用"（假回归）。T2/T3 必须用 §0.4 K3/K4 的**更正后形态**。
 
@@ -261,7 +261,7 @@
 - **验收判据（可执行，对应 AC2 编号）**:
   1. **〔AC2 ⑧〕** 文档写明"hub 不启停 / 不伸缩实例、无无状态均衡"，判据 = ① 既有 **UDS 方法集合 = 9 个**（`grep -cE "^      case '" oamp/src/router.js` = 9，9 个方法名逐条列出——F19）+ `router.js` 零改动（引用 T2 组 A）⇒ "不新增第 10 个方法"；② 池内路由的粘性键 `(chat_id, role)` 与其声明（`new_session` 项级可选）在两处代码落点，且**不含任何实例生命周期动作**：附 `grep -rnE "spawn|scale|startAgent|stopAgent|addInstance|removeInstance" oamp/src/web.js oamp/src/pool-routing.js` 的原样输出（期望零命中；有命中则逐条说明为既有面）。
   2. **〔AC2 ⑨〕** ① transcript handler 整块两侧 `diff` **为空**（`TRANSCRIPT-IDENTICAL`），并给出该块的 sed 抽取命令；② 惰性启动竞态面：`landed` / `attempts` / `slow` 字段与迟到结果丢弃分支逐字未动，**唯一**相关改动 = `RECONCILE_TTL_DEFAULT_MS` 默认值算式（原文两行入证），标注为 **K8 的"§5 明文改动"**（§5 表 `web.js` ⑥ / L2-05），**不是**"修了竞态"。文档写一句明文："两处既有缺陷均不在本迭代修"。
-  3. **〔AC2 ⑪〕** ① `cluster.json` diff 为空（引用 T2 组 C）；② `grep -cE '^\s*model:' roles/*/*.md` 逐文件 = 0（原样输出）；③ 模型字面量的**判据层**命中 = 0（`grep -rnE "openai/|powerby/|deepseek/" roles/*/*.md`），并**如实登记**递归层 `roles/*/data/**` 的既有命中（5 处以上，属过程产物/取证报告，不在判据层）；④ 绑定范围：给出"只绑 `dev`/`verifier`"的证据来源（`cluster.json` 内容逐行 + pr-007 载体文档的引用路径，**只读**）。
+  3. **〔AC2 ⑪〕** ① `cluster.json` diff 为空（引用 T2 组 C）；② `grep -cE '^[[:space:]]*model:' roles/*/*.md` 逐文件 = 0（原样输出；**shell glob，不跨 `/`**，与 git pathspec 陷阱无关）；③ 模型字面量的**判据层**命中 = 0（`grep -rnE "openai/|powerby/|deepseek/" roles/*/*.md`），并**如实登记**递归层 `roles/*/data/**` 的既有命中（属过程产物/取证报告，不在判据层）；④ 绑定范围（**F20 的可判定判据**）：`node -p "Object.entries(require('./cluster.json').roles).filter(([,v])=>v&&v.model).map(([k])=>k).join(',')"` → **`dev,verifier`**，且 main 侧同值（`git show main:cluster.json` 同命令）；**必须写明反例陷阱**：`cluster.json` 的 `roles` **键集**含 10 个角色 ⇒ **不得**用键集当绑定范围判据（会得出"绑了 10 个角色"的错误结论）；⑤ 附 pr-007 载体文档（`model-routing-carrier.md`）的引用路径（**只读**）说明绑定面已迁至用户级载体、`cluster.json` 保持零改动。
 - **追溯**: `architecture.md` §1.3-6、§6 表第 8/9/11 行、§9-1/§9-2（缺陷不修）、§9-10（命名约定）；G01 验收 8/9/11；F08 验收 6；D-30~D-35。
 - **前置依赖**: T1
 - **优先级**: P0
@@ -444,11 +444,17 @@ diff <(grep -oE "state: '[a-z]+'" $W/oamp/src/web.js | sort -u) <(grep -oE "stat
 
 ### 4.6 R6 · 取件端点契约（→ T5 判据 1）
 ```bash
-pickupParams() { awk "/path: '$1',/,/kind: 'json'/" "$2" | grep -E "\{ name: '"; }
+# 端点块抽取：用 index() 而非正则（路径含 `/`，awk 的 /regex/ 形态会被斜杠截断——已实测）
+pickupParams() { awk -v p="path: '$1'," 'index($0,p){f=1} f{print} f&&/kind: .json./{exit}' "$2" | grep -E "\{ name: '"; }
+pickupParams '/api/pickup' $W/oamp/src/web.js
 diff <(pickupParams '/api/pickup' $W/oamp/src/web.js) <(pickupParams '/api/pickup' /tmp/0030-pr-008/web.main.js) && echo PICKUP-PARAMS-IDENTICAL
 diff <(pickupParams '/api/pickup/:call_id/ack' $W/oamp/src/web.js) <(pickupParams '/api/pickup/:call_id/ack' /tmp/0030-pr-008/web.main.js) && echo ACK-PARAMS-IDENTICAL
+# 响应键序（HEAD 显式映射）
 sed -n '/const result = rows.map/,/}));/p' $W/oamp/src/web.js | grep -oE "^          [a-z_]+" | tr -d ' ' | paste -sd,
+# main 侧等价形态 = 6 键 entry 白名单 + envelope
 git -C $W show main:oamp/src/pickup.js | grep -A8 "entries.set(callId"
+# 确认语义
+grep -n "db.deleteInbox\|db.listInbox" $W/oamp/src/web.js
 ```
 
 ### 4.7 R7 · 路由计数（→ T8 判据 1~2）
@@ -474,7 +480,17 @@ OAMP_WEB_PORT=17788 OAMP_SOCKET=$T/run/router.sock OAMP_DB=$T/run/sql.db node bi
 node -e "const j=require('$T/doctor.json');const r1=j.items.filter(i=>String(i.id).startsWith('R1'));console.log('items',j.items.length,'R1',r1.length,'R1 fails',r1.filter(i=>!i.ok).length)"
 ```
 
-### 4.9 R10 · 取件面 Router 不在场（活体附证；→ T5 判据 1④）
+### 4.9 R9 · `pickup.js` 退役判据（模块级；→ T2/T5/T7 引用的 F15）
+```bash
+test -e $W/oamp/src/pickup.js && echo "STILL EXISTS ✗" || echo "ABSENT ok"
+grep -rnE "from '(\./)?pickup(\.js)?'|import\('\./pickup" $W/oamp/src $W/oamp/sdk $W/oamp/bin $W/oamp/scripts
+echo "模块引用 rc=$?（1 = 零命中 ✓）"
+# 反证：字面词的命中确实存在（端点名 + CLI 命令名）⇒ architecture §5 的字面判据不可用作退役判据
+grep -rn pickup $W/oamp/src $W/oamp/sdk $W/oamp/bin $W/oamp/scripts | wc -l
+grep -rln pickup $W/oamp/src $W/oamp/sdk   # 期望 web.js（端点名）+ sdk/surface.js（cli pickup list|ack）
+```
+
+### 4.10 R10 · 取件面 Router 不在场（活体附证；→ T5 判据 1④）
 ```bash
 # web 已起、Router 未起（socket 不存在）；正对照：/api/agents 必须 502
 curl -s -o /tmp/0030-pr-008/pickup.out -w "http=%{http_code}\n" "http://127.0.0.1:17788/api/pickup?principal=whoami"; cat /tmp/0030-pr-008/pickup.out
@@ -482,7 +498,29 @@ curl -s -o /tmp/0030-pr-008/ack.out -w "http=%{http_code}\n" -X POST "http://127
 curl -s -o /dev/null -w "control /api/agents http=%{http_code}\n" "http://127.0.0.1:17788/api/agents"
 ```
 
-### 4.10 判据可判定性前置证明（planner 已在 `/tmp` 用隔离副本实跑演练；结论如下）
+### 4.11 R11 · §5 分类面 + `transcript` 未修（→ T6 判据 2、T7 判据 4）
+```bash
+# 本迭代在 reconcile 面上的全部差异（须逐条归入 §5 明文改动）
+# 预期分桶：pickInstance/target/agentId → §5 ①（pr-005 池化路由）；RECONCILE_TTL/RECONCILE_SLOW → §5 ⑥（L2-05 默认值算式）；
+#          landed/attempts/slow → 零改动（仅因 agentId 改名而在 diff 行内出现，字段本身未动）
+git -C $W diff main HEAD -- oamp/src/web.js | grep -nE "^[+-].*(RECONCILE_TTL|RECONCILE_SLOW|agentId|landed|attempts|slow)"
+# transcript handler 块逐字比对（两侧同命令）
+diff <(sed -n '/path: .\/api\/calls\/:call_id\/transcript.,/,/^    },$/p' $W/oamp/src/web.js) \
+     <(sed -n '/path: .\/api\/calls\/:call_id\/transcript.,/,/^    },$/p' /tmp/0030-pr-008/web.main.js) && echo TRANSCRIPT-IDENTICAL
+```
+
+### 4.12 R12 · UDS 方法集合 + 绑定范围（→ T6 判据 1①/3④；F19/F20）
+```bash
+grep -cE "^      case '" $W/oamp/src/router.js                       # 期望 9
+grep -oE "^      case '[a-z._]+'" $W/oamp/src/router.js | paste -sd' ' # 9 个方法名
+# 绑定范围：带 model 键的角色集合（main 与 HEAD 同为 dev,verifier）
+node -p "Object.entries(require('$W/cluster.json').roles).filter(([,v])=>v&&v.model).map(([k])=>k).join(',')"
+git -C $W show main:cluster.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(Object.entries(j.roles).filter(([,v])=>v&&v.model).map(([k])=>k).join(','))})"
+# 反例对照（键集 = 10 个角色 ⇒ 不可用作绑定范围判据）
+node -p "Object.keys(require('$W/cluster.json').roles).length"
+```
+
+### 4.13 判据可判定性前置证明（planner 已在 `/tmp` 用隔离副本实跑演练；结论如下）
 
 | # | 判据族 | 演练结论 |
 |---|---|---|
@@ -497,10 +535,11 @@ curl -s -o /dev/null -w "control /api/agents http=%{http_code}\n" "http://127.0.
 | P9 | R10 取件 200 | Router 不在场：`/api/pickup` = **200** `{"pickup":[]}`；ack = **200** `{"call_id":"call_x","acked":true}`；正对照 `/api/agents` = **502** ⇒ **可判定 ✓ 且非空洞**（F17） |
 | P10 | R9 pickup 退役 | `oamp/src/pickup.js` 不存在；模块引用零命中（rc=1）；但 `grep -rn pickup oamp/src oamp/sdk …` **有命中**（端点名 + CLI 命令名）⇒ **`architecture.md` §5 的字面判据不可用**（F15 更正成立） |
 | P11 | R11 §5 分类 | `RECONCILE_TTL` 两行差异与 `entry.agentId = target` 一行差异均可归入 **§5 明文改动**；transcript handler 块 `TRANSCRIPT-IDENTICAL` ⇒ **可判定 ✓** |
+| P12 | R12 UDS/绑定 | `grep -cE "^      case '"` = **9**（9 个方法名逐条已取）；`cluster.json` 带 `model` 键的角色集合 main 与 HEAD **同为 `dev,verifier`**，而 `roles` 键集 = **10**（反例对照到场）⇒ **可判定 ✓** |
 
 > 演练用的一次性副本与产物全部位于 `/tmp/g01probe-*`（含 `cp -R` 的 `oamp` 副本、隔离 socket `run/router.sock`、库 `run/sql.db`、非默认端口 **17788**）；两个进程已停止。**演练未触碰仓库主工作区与迭代工作区**（除本 tasks 文件）。
 
-### 4.11 禁止项（取证卫生）
+### 4.14 禁止项（取证卫生）
 - **禁止**新增任何文件到 `oamp/**`、`tests/**`、`tools/**`；**禁止**落仓脚本（一次性命令照抄进 tasks 文件 §7 即可）。
 - **禁止**运行格式化 / lint / 项目级测试套件（本 PR 无代码改动，且简报明文）。
 - **禁止**占用默认端口 7788 与默认 socket `.runtime/router.sock`；**禁止**在 `$W/oamp/.runtime` 或 `$W/oamp/data` 留下文件。

@@ -111,7 +111,7 @@
 | 19:47 | **verifier（pr-005 补充）** | 补充验收：Router 不可达时取件面响应 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | ~20m | ✅ PASS（0/0/0） |
 | 19:58 | pr-planner（pr-008 PR 文件） | AC3/AC4 事实更正 | 本地 subagent | `deepseek/deepseek-v4-flash` | 待回报 | 在途 |
 
-**模型归属汇总（F08 验收 1~3 的取证面）**：`dev` 派发（含载体探针 1）**收到报告 5 次、全部自报 `openai/gpt-5.6-luna`**（pr-006 在途未计）；`verifier` 派发（含探针 + Gate 两轮 + 各 PR 验收 + pr-005 补充）**收到报告 8 次、全部自报 `powerby/grok-4.6`**；其余角色（prd / architect / pr-planner / planner）全部自报 `deepseek/deepseek-v4-flash`（= 当刻全局默认）。
+**模型归属汇总（F08 验收 1~3 的取证面）**：`dev` 台账行 **8**（载体探针 1 + pr-001/002/003/004/005/007 各 1 + pr-006 在途）——**已回报的 7 条全部自报 `openai/gpt-5.6-luna`**；`verifier` 台账行 **10**（载体探针 1 + Gate 两轮（`PrsVerifier` + 靶向复验）+ pr-001~pr-005/pr-007 验收 6 + pr-005 补充验收 1）——**已回报的全部自报 `powerby/grok-4.6`**；其余角色（prd / architect / pr-planner / planner）全部自报 `deepseek/deepseek-v4-flash`（= 当刻全局默认）。
 
 ## 待确认项
 

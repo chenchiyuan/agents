@@ -606,3 +606,13 @@
 
 - 派发 `PrPlanFix`：唯一可写文件 = `prs/pr-008-existing-surface-guard.md`（PR 文件是 pr-planner 产出物，按协议只有它能改）；三项更正见上条；不提交（主 agent 统一提交）；顺带核其它 PR 文件是否有同一 `oamp/cluster.json` 错误（只报告不改）
 - 依据：`PlanP008` 的事实更正 ①②⑥ + 本会话对 `scm-protocol.md:157` 与 `roles/_template/role-structure-reference.md` 的权威口径核验
+
+### 2026-09-17 20:10:00 · 调度决策 · 台账补齐 + 两处过程缺口如实登记（不回填杜撰）
+
+- 触发：阶段 6 要拿「派发台账」核**并发调度真实执行证据**与 F08 模型归属，而台账最后一行停在 16:07 ——**17 次派发未入账**
+- 处置：从 history 的权威时点补 17 行（16:36 verifier pr-007 → 19:58 pr-planner pr-008 文件更正），台账行数 29 → **46**；模型归属汇总按**台账实计数**刷新（`dev` 8 行 / `verifier` 10 行；不再用 history 文本计数，因其本身有缺条，见下）
+- **如实登记两处过程缺口（不补写历史、不杜撰内容）**：
+  - **缺口 A：`pr-001` 的 dev 报告条目当时未记入 history**。派发在 `14:41:30`，其后可查的条目直接跳到 `14:53:53` 的 verifier 验收报告。**可复核的客观替代证据**：该 PR worktree 的提交与 `clarifications/verify-20260917-143053-pr-001.md`（PASS，0/0/2 偏差）；**不**据推测补写一份"dev 报告"条目。
+  - **缺口 B：`pr-001` 的 tasks 文件无「执行证据（dev 回填）」段**。成因明确：证据落点规则在 `14:44:40` 才由调度决策确立（回应 pr-003 planner 疑问），而 pr-001 的 dev 已于 `14:41:30` 派出 ⇒ **规则晚于派发**，非执行方漏做。处置 = 保留原状（该 PR 已合并、其证据面由 verifier 报告承担），**不做追溯回填**。
+- 关联核验：`pr-008` PR 文件更正（`PrPlanFix`）实测 `roles/*/data/**` 新增 **10** 个（architect 1 + prd 1 + verifier 8）——与 §5 分层口径一致；`:(glob)roles/*/*.md` 定义面 diff = **0 行**（裸 pathspec 会得 10 行 = 假失败）
+- 触发依据：台账与 history 的条目数对比（`grep -c "agent=dev"` = 8 / `agent=verifier` = 10；history 报告条目 dev 5 / verifier 9）；`prs/pr-001-reason-mapping-module-tasks.md` 无 `执行证据` 命中
