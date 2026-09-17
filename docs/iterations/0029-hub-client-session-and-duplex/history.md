@@ -850,3 +850,8 @@
 - 产出物：`docs/iterations/0029-hub-client-session-and-duplex/`（全量）+ 迭代分支相对 `main` 的全部代码改动
 - 验证标准（4 条）：① 验收面覆盖（抽查 F01~F19+G01，F04 按 D-16 出本迭代）② `architecture.md` §6 零影响声明核对 ③ 产物一致性（D 决策/索引/PR depends_on/status 子状态/history 与合并提交相互一致）④ **并发调度真实执行证据三项**（worktree 时间窗重叠 / 并发配置真实初始化与更新 / 爬升公式重算）
 - 通道：本地 `task` subagent（verifier 角色全文注入；依 D-19 不走 hub）
+
+### 2026-09-17 · 调度决策 · 台账复核补充（DEV-12）
+
+- 决策内容：应阶段 6 终验者的 DEV-12 建议，**显式补记**一次重派的 id 配对，使台账该处从"单源"变为可交叉核对：pr-002 返工#2 首派 `task-efcf2e6b`（19:22 派发，终态 `completed` 但**产物零变化** ⇒ 判记录脱落、未落地）⇒ **重派 `task-c3cdaff6`**（19:33 回报完成，提交 `c9bc05a`；耗时 10.2 min 与 19:22.6 起算吻合）
+- 触发依据：`clarifications/verify-20260917-101326-iteration-final.md` 第三轮复核 ① 的 DEV-12 条目（指出 `grep c3cdaff6 history.md` 无命中、该配对仅台账单源）
