@@ -67,7 +67,12 @@
 | 12:35 | prd（续做） | 索引收口 | 本地 subagent | `deepseek/deepseek-v4-flash` | <1m | ✅ |
 | 13:57 | dev（载体探针） | L1-01 落地实测 | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** ✅ | <1m | ✅ |
 | 13:57 | verifier（载体探针） | L1-01 落地实测 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** ✅ | <1m | ✅ |
-| 14:00 | verifier（PrsVerifier） | 阶段 6 · 验 `prs/`（Gate） | 本地 subagent（agent=verifier） | 待回报 | — | 在途 |
+| 14:00 | verifier（PrsVerifier） | 阶段 6 · 验 `prs/`（Gate 首轮） | 本地 subagent（agent=verifier） | `powerby/grok-4.6` ✅ | 15m54s | ✅ PASS（3 partial） |
+| 14:24 | verifier（PrsVerifier 复验） | Gate 返工后靶向复验 | 本地 subagent（agent=verifier） | `powerby/grok-4.6` ✅ | ~5m | ✅ PASS（0/0/0） |
+| 14:33 | planner ×3（pr-001/002/003） | 阶段 5 · 各 PR 内部任务 | 本地 subagent | `deepseek/deepseek-v4-flash`（pr-001/pr-003 已回报） | 5m16s / 在途 / 9m27s | ⏸ |
+| 14:41 | **dev（pr-001）** | 阶段 5 · pr-001 实现＋自证 | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** ✅ | 3m59s | ✅ 提交 `9cb5042` |
+| 14:44 | **dev（pr-003）** | 阶段 5 · pr-003 实现＋自证 | 本地 subagent（**agent=dev**） | 待回报 | — | 在途 |
+| 14:46 | **verifier（pr-001）** | 阶段 5 · pr-001 独立验收 | 本地 subagent（**agent=verifier**） | 待回报 | — | 在途 |
 
 ## 待确认项
 
