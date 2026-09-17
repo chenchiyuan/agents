@@ -1,0 +1,812 @@
+# history.md — 0030-hub-communication-upgrade
+
+### 2026-09-17 12:10:00 · 调度决策 · 工作流启动
+
+- 决策内容：建立迭代工作区并初始化进度产物，进入阶段 1（需求收敛，主 agent 内联执行）
+- 触发依据：用户指令「阅读 `docs/hub-communication-upgrade-demand-2026-09-17.md`，按此需求开启新迭代；新迭代使用 subagents 方式，dev 用 gpt、verify 用 grok」；迭代 ID `0030-hub-communication-upgrade` 经用户确认；`git -C /Users/chenchiyuan/projects/agents worktree add .pb-agents/worktrees/0030-hub-communication-upgrade -b iteration/0030-hub-communication-upgrade main` 成功（base `706e3d0`）
+
+### 2026-09-17 12:10:00 · 调度决策 · 启动前询问
+
+- 决策内容：方案确认门 = `enabled`（默认值，用户选择）
+- 触发依据：Step 0 启动前询问；用户 2026-09-17 回答「enabled（默认）」
+
+### 2026-09-17 12:11:00 · 调度决策 · 执行方式裁决
+
+- 决策内容：本轮新增四项执行方式决策（D-33 本地 subagent 通道 / D-34 只绑 dev=gpt、verifier=grok / D-35 agent 文件 + `modelRoles` 别名载体 / D-36 依据文档入库），均取用户显式裁决
+- 触发依据：本轮唯一真缺口 = subagent 通道下"角色→模型"如何落地与留证；前置实测 F-10（`task` wire schema 无 per-dispatch model）/ F-11（agent frontmatter `model:` 实测生效，三条探针）/ F-12（V-06：`roles/*/*.md` 不得含 `model:`）；`clarifications/round-1-kickoff.md` §六
+
+### 2026-09-17 12:14:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 1 产物 `demand.md` v1.0.0 两段已写入、自检完成（六维诊断逐条过、D-20~D-36 全部 `user_confirmed`、无遗留 `model_inferred`、无活跃冲突）；按 demand 角色 Deliver 契约**呈交四段摘要等待用户确认**，暂不标记 ✅、不进入阶段 2
+- 触发依据：`demand.md` 第一段（澄清依据）与第二段（需求结论）均非空且内部一致；`clarifications/round-1-kickoff.md` 已记录 Step 0 声明、角色反射、Plan 调研摘要、四段提案与追问反射
+
+### 2026-09-17 12:17:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：用户确认 `demand.md` v1.0.0 定稿并指示"自主推进直到产出完方案之后再通知我"；阶段 1 推进条件全部满足，标记 ✅ 并进入阶段 2（功能规格）
+- 触发依据：两段结构完整、D-20~D-36 全部 `user_confirmed`、无遗留 `model_inferred`、无活跃冲突；用户 2026-09-17 原话「没问题，请自主推进直到产出完方案之后再通知我看整个方案」
+
+### 2026-09-17 12:17:00 · 调度决策 · 执行方式修订登记
+
+- 决策内容：登记 **D-35 载体不可实现**（agent 发现根固定在会话 cwd = 仓库主工作区，触规则 F；eval 桥 per-dispatch `model` 实测被忽略；`task` wire schema 无 model 字段），写入 `deferred-demand-changes.md`；**不回退不暂停**，阶段 2~4 继续（三者均走默认模型、不依赖该载体），修订选项与推荐在阶段 4→5 门与方案一并呈交
+- 触发依据：探针实测三条（`.omp/agents/modelprobe.md` 在仓库根被发现并生效 / eval `agent(...,{model})` 两次指定 gpt、grok 均实报 `deepseek/deepseek-v4-flash` / `omp://tools/task.md` §Inputs 无 model 字段）；`data/scm-protocol.md` §规则 F 的闭集例外不含"在仓库主工作区建 harness 配置"
+
+### 2026-09-17 12:18:00 · 派发 · prd
+
+- 阶段：阶段 2（功能规格）
+- 任务：将需求合同原子化为可独立验证的功能卡，只做产品维度，不做架构决策
+
+### 2026-09-17 12:18:00 · 调度决策 · 用户决策点批量呈现
+
+- 决策内容：按用户 2026-09-17 指令，阶段 2/3 的 `model_inferred` 项与阶段 3 的 L1 决策**不在阶段内单独暂停**，改为在阶段 4→5 门与完整方案（prd + architecture + PR 拆分 + D-35 修订）**批量呈现**；`model_inferred` 标记在产物中**原样保留**，任何转为 `user_confirmed` 的动作只在收到用户真实输入后执行
+- 触发依据：用户 2026-09-17 指令「自主推进直到产出完方案之后再通知我」；`workflow-pb.md` §需要用户决策的情况（阶段 1~3 适用项）与人机交互契约的"不得自问自答"红线——本次为**呈现时点后移**，未改变确认状态
+
+### 2026-09-17 12:22:59 · 收到报告 · prd
+
+- 1. `prd.md` 路径：docs/iterations/0030-hub-communication-upgrade/prd.md（v1.0.0）；功能点总数：10 张卡（F01~F07 产品功能点 + F08 模型归属 + F09 过程契约 + G01 保证项）
+- 2. `prd/` 目录文件列表：F01-inbox-authoritative-delivery / F02-default-principal-fallback / F03-inbox-persistence / F04-terminal-reason-enum / F05-idle-timeout-and-safety-net / F06-role-instance-pooling / F07-pool-routing-stickiness / F08-model-attribution-routing / F09-process-contract-and-friction-log / G01-existing-surface-preserved（10 个）
+- 3. model_inferred 标注列表：MI-1~MI-12（12 项，均未自行确认，待阶段 4→5 门批量交用户）
+- 4. 架构待填列表：A-01~A-09（9 项，交阶段 3）；L1 决策：无
+- 5. 疑问/越界：9 条（`reason` 枚举口径三处差 + MI-5 全仓排查结论 13 种自由串且 `agent_error` 无对应源字符串 / A-09 清理策略归属 / MI-1 优先规则 / HB-01 三备选与 HB-04 可见性未入选 / 模型绑定两处真源 / `reason`·`detail` 文档面可发现性 / 未发现 demand 内部矛盾 / D-35 已由上游搭置不重复搭置 / 未越界声明）
+- 通道实况：本地 subagent 通道（D-33），调用 `completed`（4m45s），子 agent 自报模型 `deepseek/deepseek-v4-flash`（= 全局默认，符合 D-34）
+
+### 2026-09-17 12:23:00 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 2（功能规格）推进条件三项**逐项读文件核查通过**（① 10 张独立卡，每卡含来源/用户价值/验收标准/边界/架构维度/model_inferred 六段，机械核对段落齐备、索引与目录逐项一致；② 索引 §覆盖关系双向表覆盖 做什么 5/5、效果 6/6、不做 9/9、大概怎么做 5 组、D-20~D-36、执行方式约束 6 条，无 demand 外新增功能点；③ A-01~A-09 全标 `[架构待填]`，F09/G01 声明"无待填项"并附理由），标记 ✅ 并进入阶段 3
+- 触发依据：`prd.md` §功能点索引 + §覆盖关系 + §架构待填汇总；`prd/F04-terminal-reason-enum.md`、`prd/F08-model-attribution-routing.md` 逐行抽读；`grep -c "架构待填" prd/*.md` 逐卡计数
+
+### 2026-09-17 12:23:00 · 派发 · architect
+
+- 阶段：阶段 3（技术架构）
+- 任务：在现有架构上演进，补全功能卡的架构维度，产出技术方案
+
+### 2026-09-17 12:32:06 · 收到报告 · architect
+
+- 1. architecture.md 路径：docs/iterations/0030-hub-communication-upgrade/architecture.md（v1.0.0，534 行）；核心组件：既有 web 进程（收件箱唯一写点 `publishCallResult` + inbox 表 + 池内选择 + 粘性表 + `reason` 映射消费 + 对账 TTL 联动）/ 既有 Router 进程（零改动，`router.status` + `router.task_list` 作池成员与负载唯一读数）/ 既有 agent 执行侧（轮次计时由「单绝对上限」改「空闲 10min + 安全网 4h」双计时，3 个协议客户端同构）/ 既有 SQLite 持久层（新增 inbox 表 + 1 索引 + 3 方法）/ 新增 2 个叶子模块（`reason.js`、`pool-routing.js`）
+- 2. L1 决策清单：**L1-01 · 模型路由的落地载体形态（A-08）**——三候选技术评估与推荐（A 项目级最贴 D-35 字面但触规则 F；**B 用户级为推荐**、不触规则 F、harness 原生正例但未实测；C 一次性进程不推荐、与 D-33/F09 验收 1 冲突且破坏 F08 判据），另附第四条观察（扩展包根）；全部标注"待用户裁决"，未选定；其余无 L1（不引入新技术栈、不新增进程/端口/socket 方法，Router/registry/context-pool/transport 零改动）
+- 3. 新引入技术组件：**无新增技术栈**（零第三方依赖、零新进程、零新协议方法）；新实体 7 项（2 叶子模块、inbox 表、2 配置键、`new_session` 字段、失败侧 `reason` 键、退役 `pickup.js`），每项附"不引入它什么无法实现"
+- 4. `[架构待填]` 已填写条目数：**9/9（A-01~A-09 全部填定）**；回填 8 张卡的「架构维度」段，产品维度逐字未动；F09/G01 声明无待填项
+- 5. 疑问/越界：3 类需裁决或知会——① 疑问 A（需裁决，阻塞 F08）：A-08 载体形态（= L1-01）；② 疑问 B（需确认，不阻塞）：`RECONCILE_TTL` 软 TTL 默认值与 `taskNetMs` 联动（L2-05，不联动即破 F01 必达，跨 F01/F03/F05 三卡）；③ 疑问 C（需知会）：`prd.md` 索引状态列未同步 / `acked` 恒 false / MI-5 分类更正（`dispatch_failed` 不进终态信封、`agent_error` 为兜底类）。另登记 4 项已知局限（§9），其中两项已搭置 `deferred-demand-changes.md`。未越界（未触碰 oamp/**、未写实现代码、未做 PR 拆分、未实施 L1、无 git 写操作）
+- 通道实况：本地 subagent 通道（D-33），调用 `completed`（7m58s），子 agent 自报模型 `deepseek/deepseek-v4-flash`（= 全局默认，符合 D-34）
+
+### 2026-09-17 12:32:30 · 调度决策 · 阶段推进核查
+
+- 决策内容：阶段 3（技术架构）**逐项读文件核查**——推进条件 2（所有功能卡有技术路径：A-01~A-09 填定、8 张卡「架构维度」段已回填）✅、条件 3（无架构内部冲突：`architecture.md` §9 末段 7 组交叉一致性检查全过）✅；**条件 1（L1 决策经用户确认）未满足**（L1-01 按用户 2026-09-17 指令后移至阶段 4→5 门）。据此**不标记阶段 3 ✅**（`⏸` + 备注），按用户"继续产出完整方案"的指令进入阶段 4；偏差已写入 status.md 显式登记
+- 触发依据：`architecture.md` §4（A-01~A-09）、§7（L1/L2 分级）、§9（一致性检查）、§11（回填与越界声明）；`grep -n "^## 架构维度" -A3 prd/F0[1-8]*.md` 确认回填到位；用户 2026-09-17 指令「自主推进直到产出完方案之后再通知我」
+
+### 2026-09-17 12:33:00 · 派发 · pr-planner
+
+- 阶段：阶段 4（PR 规划）
+- 任务：反射出可独立合并的提交单元划分及单元间真实依赖，从架构方案 + 代码库现状出发
+
+### 2026-09-17 12:35:30 · 派发 · prd（续做，同一角色的收口动作）
+
+- 阶段：阶段 3 收口（产物一致性）
+- 任务：把 `prd.md` 索引「功能点索引」表的「架构维度」列由 `待填 · A-xx` 改为 `已填定 · A-xx`（8 行），与 architect 已回填的卡内取值一致
+
+### 2026-09-17 12:36:20 · 收到报告 · prd（续做）
+
+- 1. 收口范围：`prd.md` 功能点索引表 F01~F08 八行的「架构维度」列（git diff = 8 增 8 删）
+- 2. 现取值：F01 `已填定 · A-01` / F02 `已填定 · A-02` / F03 `已填定 · A-01 / A-09` / F04 `已填定 · A-03 / A-04` / F05 `已填定 · A-05` / F06 `已填定 · A-06` / F07 `已填定 · A-07` / F08 `已给出技术评估与推荐（载体形态待 L1-01 裁决）· A-08`
+- 3. F09 / G01 仍为 `无待填项`；全文无 `待填 · A-` 残留（`grep -c` = 0，主 agent 复核）
+- 4. 未动卡片与其它文件；未执行 git 写操作
+- 5. 疑问/越界：无
+
+### 2026-09-17 12:36:30 · 收到报告 · pr-planner
+
+- 1. `prs/` 目录路径：docs/iterations/0030-hub-communication-upgrade/prs/
+- 2. 文件列表：pr-001-reason-mapping-module / pr-002-pool-routing-module / pr-003-inbox-table-persistence / pr-004-idle-net-turn-timers / pr-005-web-inbox-and-pool-wiring / pr-006-api-docs-sync / pr-007-model-routing-carrier / pr-008-process-contract-evidence / pr-009-existing-surface-guard（9 个）
+- 3. 各 PR 摘要：见 `prs/*.md` 七字段（涉及功能点 / 文件范围 / depends_on 证据摘要 / batch 逐条写入；主 agent 已逐份抽读核验）
+- 4. 疑问/越界：6 条须知会（web.js 单文件承载六处接线故整文件一个 PR——代码耦合的如实反映 / 约束 4 与 G01 落位建议冲突已按硬约束处理（零改动面只作比对基准不入文件范围）/ **pr-007→pr-008 是产物级依赖**（共享 `dispatch-ledger.md`）请复核 / **pr-005→pr-004 的唯一判据是 RECONCILE_TTL 与 taskNetMs 联动**，若用户否决则该边消失 / L1-01 未决但 pr-007 保持可独立验收、载体落点不写死 / 未越界声明）；未创建 `split-suggestion.md`
+- 5. 关键路径压平结果：最终关键路径 **3**；未发生合并（初始图即为 3）；无 `split-suggestion.md`
+- 通道实况：本地 subagent 通道（D-33），调用 `completed`（3m26s），子 agent 自报模型 `deepseek/deepseek-v4-flash`（= 全局默认，符合 D-34）
+
+### 2026-09-17 12:36:49 · 调度决策 · Gate确认（阶段 4→5 入口）
+
+- 决策内容：阶段 4 推进条件**六项逐项核查通过**（① 七字段 9/9 齐备 ② 覆盖 10/10 卡 ③ 文件范围 21 条两两不重叠 ④ 依赖无环 ⑤ 无悬挂依赖 ⑥ 关键路径 = 3 ≤3）+ `tools/check-pr-gates.py` 七项机械复核 **exit 0**；初始化 `## 并发配置（阶段 5）` 区块（3 / 5 / 3 / 0 / 0）；**呈交方案确认门并暂停等待用户**
+- 触发依据：`tools/check-pr-gates.py docs/iterations/0030-hub-communication-upgrade` 输出「七项全过，满足阶段 4 推进条件」；`prs/*.md` 逐份抽读（pr-004 / pr-005 / pr-007 / pr-009 全文，pr-001/002/003/006 核 文件范围+验收标准+depends_on）；用户 2026-09-17 指令「产出完方案之后再通知我」
+- **Gate 未闭合项（如实登记）**：Gate 的验证内容含「派发阶段 6 独立验证，产物路径 = `prs/`，结论必须为 pass」——该验证须以 `verifier` 角色派发，而 verifier 的模型载体正是 **L1-01 待裁决项**（D-34/F08 验收 2 要求 verifier 跑在 grok 上）⇒ 该验证排在用户裁决 L1-01 之后立即执行，未在本次呈交前完成
+- 呈交内容（四项，逐项对应 `workflow-pb.md` §方案确认门"不能只呈现其中部分"）：产品维度（`prd.md` + `prd/*.md`）/ 架构维度（`architecture.md`）/ PR 拆分摘要（PR 数、依赖图、关键路径；无 `split-suggestion.md`）/ 待裁决项（L1-01、MI-1~MI-12、疑问 B、疑问 C）
+
+### 2026-09-17 13:55:00 · 调度决策 · Gate确认（方案确认门通过 + 用户裁决落定）
+
+- 决策内容：用户确认完整方案并指示"请使用 subagents 推进直到交付"。据此落定四项裁决：① 方案确认门**通过**；② **L1-01 采纳呈交推荐 = 候选 B（用户级载体）**——`~/.omp/agent/agents/{dev,verifier}.md`（frontmatter `model: "@dev"` / `"@verifier"`）+ `~/.omp/agent/config.yml` 的 `modelRoles.dev` / `modelRoles.verifier`（值集中一处）；③ 疑问 B（`RECONCILE_TTL` 与 `taskNetMs` 联动）**照准**，`pr-005 → pr-004` 依赖边保留；④ 疑问 C 四项知会 + MI-1~MI-12 **全部照准/采纳**（无例外提出）；⑤ 执行通道延续 D-33 本地 subagent
+- 触发依据：用户 2026-09-17 原话「没问题，请使用 subagents 推进直到交付」；呈交时已把三候选（A 项目级 / **B 用户级（推荐）** / C 一次性进程）与推荐明示，用户以"没问题"照准
+- 附带动作：阶段 3 因 L1-01 确认而**三条件全满足，补标 ✅**（原 `⏸` 偏差登记闭合）
+
+### 2026-09-17 13:57:00 · 调度决策 · L1-01 载体落地（候选 B）
+
+- 决策内容：落地用户级载体并实测——`omp config set` 不支持自定义 `modelRoles.<role>`（报 `Unknown setting`）⇒ 改为直接编辑 `~/.omp/agent/config.yml` 的 `modelRoles` 段（新增 `dev: openai/gpt-5.6-luna` / `verifier: powerby/grok-4.6`，含注释说明消费者与适用范围）；新建 `~/.omp/agent/agents/dev.md` 与 `~/.omp/agent/agents/verifier.md`（frontmatter `model: "@dev"` / `"@verifier"`，body 为最小载体说明：角色定义由 brief 全文注入）
+- 触发依据：用户对 L1-01 的照准；两条候选载体实测（`omp config set modelRoles.dev …` 失败退出码 1）；零仓库写入（不触 `data/scm-protocol.md` §规则 F）
+
+### 2026-09-17 13:58:00 · 调度决策 · 载体生效实测（F08 判据）
+
+- 决策内容：以 `agent: "dev"` 与 `agent: "verifier"` 各派发一次探针，判据 = 子 agent 自报模型（子 agent 系统提示中的模型名，事实 F-11）；结果：dev → `openai/gpt-5.6-luna`、verifier → `powerby/grok-4.6`，**两者均命中 D-34 绑定清单** ⇒ 载体 B 生效，F08 验收 1/2 的机制面成立
+- 触发依据：两条探针回报（`CarrierProbeDev` / `CarrierProbeVerifier`）；`architecture.md` §4 A-08 候选 B 的技术评估
+
+### 2026-09-17 14:00:00 · 派发 · verifier（PrsVerifier）
+
+- 阶段：阶段 6（独立验证）—— 阶段 4→5 门口触发的定向验证
+- 任务：不接收执行过程上下文，独立评判 `prs/` 目录产物的质量
+- 渠道：本地 subagent，`agent=verifier`（实报模型待回报，预期 `powerby/grok-4.6`）
+
+### 2026-09-17 14:25:51 · 收到报告 · verifier（PrsVerifier）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-140951-stage4-prs.md（+ `roles/verifier/data/verify-20260917-140951-0030-prs.md`）
+- 结论：**PASS**（pass 6 / fail 0 / partial 3 / blocked 0）；偏差记录 4 条；下一迭代候选 5 条
+- 逐项判定：① 七字段 pass ② 功能点覆盖 pass ③ 文件范围无重叠 pass ④ **依赖正确性 partial**（7 条边逐条给出代码级证据、无环无悬挂通过；**不通过侧 = `pr-007 → pr-008` 证据不成立**：两张 PRD 卡未点名 `dispatch-ledger.md`，且 pr-007 的 `evidence/f08-model-attribution.md` 与 pr-008 的 `dispatch-ledger.md` 不是同一文件、无共享符号 ⇒ 判"顺序偏好误标为依赖"）⑤ **验收标准可独立判断 partial**（不通过侧 = pr-007 验收 4 依赖 L1-01 载体落点裁决；且 F08 验收 4 与 F09 验收 2 的"同一张表"被拆到两份文件）⑥ **PR 粒度 partial**（不通过侧 = pr-005 可审查性：`web.js` 单文件承载 F01~F07 七卡接线，审查者需同时装载七张卡心智模型）⑦ 并发可行性 pass ⑧ 关键路径 3 pass ⑨ 委派文件原文摘录置顶 pass（`deferred-demand-changes.md` 三节全文摘录、未转述、未放文末）
+- 偏差记录 4 条：① pr-007→pr-008 边证据与实际不符；② pr-005→pr-001 证据行的"5 个消费点"与源码实际调用点不符（另有 `:1482`/`:1763`/`:1769`/`:2144`）；③ **路由条数口径错**：architecture / pr-006 / pr-009 写"21 条"，实测 `createApiRoutes` 登记 **29 条**；④ F08 验收 4 与 F09 验收 2 的"同一张表"被规划拆成两份文件
+- 通道实况：本地 subagent 通道，调用 `completed`（15m54s），子 agent 自报模型 **`powerby/grok-4.6`**（= D-34 绑定，F08 验收 2 成立）
+
+### 2026-09-17 14:28:00 · 调度决策 · 阶段推进核查（Gate 验证结论处置 + 返工派发）
+
+- 决策内容：Gate 的独立验证结论为 PASS ⇒ **Gate 闭合**（推进条件六项 + 机械七项 + 独立验证 pass 三项齐备）。三条 partial 的不通过侧与 4 条偏差逐条处置：修正 1 依赖边不合规（合并 pr-007/pr-008 或删边并把取证收敛到同一张台账）、修正 2 路由条数 21→29（**主 agent 独立复核确认 verifier 正确**：`awk '/function createApiRoutes/,0' oamp/src/web.js | grep -cE "method: '(GET|POST|PUT|DELETE)'"` = 29）、修正 3 证据行数按实测更新、修正 4 把 L1-01 已决事实回填 pr-007（使验收 4 可独立判）、修正 5 接受 pr-005 可审查性代价并如实记录（同文件不可拆）。返工派发回 `pr-planner`（同一 agent 续做，保留上下文）
+- 触发依据：`clarifications/verify-20260917-140951-stage4-prs.md` 的 §逐项判定 / §偏差记录 / §结论；主 agent 对"21"口径的独立复核（29 条）；`workflow-pb.md` §Gate"未通过：回到阶段 4 修订 PR 文件，不进入阶段 5"（本次为 partial 级修订，结论已 pass，修订后再跑靶向复核）
+
+### 2026-09-17 14:28:00 · 派发 · pr-planner（返工续做）
+
+- 阶段：阶段 4（PR 规划）—— 验证反馈驱动的定向返工
+- 任务：按验证报告修正 5 项（依赖边 / 路由条数 / 证据行数 / L1-01 回填 / pr-005 代价记录）并内部重跑 Verify
+
+### 2026-09-17 14:32:00 · 收到报告 · pr-planner（返工）
+
+- 1. 改动文件：新建 `pr-007-model-routing-and-process-evidence.md`（旧 007+008 合并，修正 1 选方案 (a)）与 `pr-008-existing-surface-guard.md`（原 009 重编号）；改 `pr-005`（证据行数 → 实测 9 个消费点 `:1482/1576/1640/1682/1763/1769/1823/2144/2219` + 可审查性代价句）与 `pr-006`（21 → 实测 29，判据改「与迭代前同值」）；删除三个旧文件名
+- 2. PR 总数：9 → **8**（编号连续）；`dispatch-ledger.md` 仅由 pr-007 单一声明，「同一张表」在单 PR 内闭合
+- 3. 最终关键路径：**3**（`004→005→006`、`001→005→008`）；无环、无合并循环、未转出 `split-suggestion.md`
+- 4. 内部 Verify：`tools/check-pr-gates.py` EXIT=0（七字段 / 覆盖 10-10 / 文件范围 19 条两两不重叠 / 无环 / 无悬挂 / 关键路径 3 / 并发可行）；自查无 stale 文件名引用、无「21」残留
+- 5. 疑问/越界：一条事实提请主 agent 收口——`architecture.md` 的「既有 21 条路由」为过时口径，实测 29（三处同值），其 PR 文件已按 29 写
+- 通道实况：本地 subagent，`deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:33:00 · 调度决策 · 阶段推进核查（返工后复核）
+
+- 决策内容：返工后复核通过——`check-pr-gates.py` **exit 0**（8 PR / 10 卡全覆盖 / 19 条文件范围两两不重叠 / 无环 / 无悬挂 / 关键路径 3 / 并发可行）；残留检查：PR 目录内无「21」、无指向已删除文件名的 stale 引用；**解锁集变化**——`pr-007`（合并后的 F08+F09，无依赖）成为新的已解锁 PR ⇒ 无依赖 PR = {pr-001, pr-002, pr-003, pr-004, pr-007}（5 个），按起始并发数 3 取前 3 个派发，`pr-004` 与 `pr-007` 排 `排队(依赖满足，待槛位)`
+- 触发依据：`tools/check-pr-gates.py` 输出；`grep -rn "21 条|= 21" prs/` 零命中；`grep -rn "pr-009|pr-007-model-routing-carrier|pr-008-process-contract" prs/` 零命中
+- 附带动作：`architecture.md` 的路由条数口径修正派回 `architect`（进入其授权范围内的同一产物）；PR 集合的靶向复验派回 `verifier`（原独立验证者，新时间戳报告，不覆盖旧报告）
+
+### 2026-09-17 14:33:00 · 派发 · planner ×3（阶段 5 首轮并发，PR 独立执行流程）
+
+- 阶段：阶段 5（PR 实现）· 内部第一步（planner 产出该 PR 的 tasks 文件）
+- 对象：`pr-001-reason-mapping-module` / `pr-002-pool-routing-module` / `pr-003-inbox-table-persistence`（三者无依赖，占用起始并发 3 个槛位）
+- PR worktree：`feat/0030-pr-00N-<slug>`（各 PR 独立 worktree，base = 迭代分支 `iteration/0030-hub-communication-upgrade` tip `9f071b8`）
+- 通道：本地 subagent（batch `tasks[]` 三条并发；角色定义全文注入于本批共享 context 块，各条 brief 逐行给出字段与角色名/路径）
+- 排队：`pr-004-idle-net-turn-timers`、`pr-007-model-routing-and-process-evidence`（依赖已满足，等待槛位）
+
+### 2026-09-17 14:33:00 · 派发 · verifier（靶向复验）+ architect（口径修正）
+
+- verifier：对返工后的 PR 集合做**靶向复验**（上一轮 3 个 partial 的不通过侧 + 4 条偏差逐条销项 + 一致性回归 + 原文摘录置顶要求），新时间戳报告不覆盖旧报告
+- architect：修正 `architecture.md` 中过时的路由条数口径（21 → 实测 29，含 §0/§1.1/§5/§6 逐处核对 + 一行更正来源说明）
+
+### 2026-09-17 14:41:16 · 收到报告 · planner（pr-001）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-001-reason-mapping-module-tasks.md（328 行）；任务总数：**3**（T1 模块落点+唯一导出+全函数骨架 / T2 三段式匹配表落地 / T3 自证与零影响核查）
+- 2. 依赖图摘要：链式 `T1 → T2 → T3`，无环；关键路径任务 = T1 → T2 → T3（3 节点）
+- 3. `[model_inferred]` 列表：MI-P1~MI-P4（4 项，均为**收窄/收紧口径**：§4.2 负例边界行由已定规则反面推出；"无 import"收紧为 0 条含 node: 内置；文件头注内容要求；映射表常量为模块级私有）——按 `workflow-pb.md` §需要用户决策的情况（阶段 4/5 的 `model_inferred` **不触发暂停**），由主 agent 作为决策者**采纳本 4 项口径**并写入 dev 简报
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：4 条如实说明（措辞差按 architecture 更严口径统一，生产点全部满足、无行为差；PR worktree 的 `docs/**` 副本滞后于迭代分支 tip，但 `oamp/**` 在两者间**零差异**、代码面基准无歧义；本 PR 不接线故一切验收在函数级完成、已在 tasks 文件写死防越界；未补充任何技术决策、未改上游产物）
+- 通道实况：本地 subagent，调用 `completed`（5m16s），子 agent 自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:41:30 · 派发 · dev（pr-001，**gpt**）
+
+- 阶段：阶段 5 · pr-001 实现与自证
+- 通道：本地 subagent，`agent=dev`（= D-34 绑定 `openai/gpt-5.6-luna`，L1-01 载体 B）
+- worktree：`<迭代工作区>/.pb-agents/worktrees/0030-pr-001-reason-mapping-module`，分支 `feat/0030-pr-001-reason-mapping-module`
+- 输入：该 PR 的 tasks 文件（唯一执行依据）+ PR 文件 + `architecture.md` §4 A-03/A-04 + `role-binding.js` 体例
+- 完成定义：4 条验收标准全过（按 tasks §4.2 全探针表逐行 PASS 取证）+ 无简报外改动（既有 `oamp/src/**` 零 diff）+ 在 worktree 内提交
+
+### 2026-09-17 14:44:47 · 收到报告 · verifier（靶向复验）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-142447-stage4-prs-rework.md（+ `roles/verifier/data/verify-20260917-142447-0030-prs-rework.md`；**未覆盖**上一份报告）
+- 结论：**PASS**（pass 6 / fail 0 / partial 0 / blocked 0）；偏差记录 **0** 条
+- 复验面：上一轮 3 个 partial 的不通过侧逐条销项（依赖边证据 / "同一张表"闭合 / pr-005 可审查性处置）+ 4 条偏差逐条（依赖边 / 证据行数 / 路由条数 21→29 / 同一张表）+ 一致性回归（七字段 / 覆盖 / 无重叠 / 无环 / 无悬挂 / 关键路径 / 并发可行 / stale 引用检查）+ 原文摘录置顶
+- 通道实况：本地 subagent，`agent=verifier`，子 agent 自报模型 **`powerby/grok-4.6`**（F08 验收 2 第 2 例取证）
+
+### 2026-09-17 14:45:00 · 调度决策 · Gate确认（阶段 4→5 入口，完全闭合）
+
+- 决策内容：Gate 的三项验证内容**全部齐备且结论为 pass**——① 阶段 4 推进条件六项逐项核查通过；② `tools/check-pr-gates.py` 七项机械复核 exit 0；③ 阶段 6 对 `prs/` 的独立验证 **PASS（首轮 0 fail/3 partial → 返工 → 复验 0 fail/0 partial/0 偏差）**。据此：阶段 4 的「已验证」列标记 ✅，阶段 5 全速推进（不受再验证阻塞）
+- 触发依据：`clarifications/verify-20260917-142447-stage4-prs-rework.md` §汇总（pass 6/fail 0/partial 0/blocked 0）与 §结论 PASS；`workflow-pb.md` §Gate"验证结论必须为 pass（每项有文件证据）"
+
+### 2026-09-17 14:44:10 · 派发 · dev（pr-003，**gpt**）
+
+- 阶段：阶段 5 · pr-003 实现与自证
+- 通道：本地 subagent，`agent=dev`（D-34 绑定 `openai/gpt-5.6-luna`）
+- worktree：`<迭代工作区>/.pb-agents/worktrees/0030-pr-003-inbox-table-persistence`，分支 `feat/0030-pr-003-inbox-table-persistence`
+- 输入：`pr-003-inbox-table-persistence-tasks.md`（473 行，唯一执行依据）+ PR 文件 + `architecture.md` §4 A-01/A-09 + `persist.js` 既有体例
+- 完成定义：5 条验收标准全过 + 无简报外改动（仅 `oamp/src/persist.js`）+ 在 worktree 内提交
+
+### 2026-09-17 14:44:30 · 收到报告 · planner（pr-003）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-003-inbox-table-persistence-tasks.md（473 行）；任务总数 **5**（T1 SCHEMA 增量 / T2 insertInbox / T3 listInbox / T4 deleteInbox / T5 合同面自证 + 既有面零回归）
+- 2. 依赖图摘要：`T1 → T2 → {T3, T4} → T5`（另 `T1 → T5`），5 条边、无环；最长链 `T1 → T2 → T3/T4 → T5`；关键路径任务 = T1 → T2 → T5
+- 3. `[model_inferred]` 列表：MI-P1~MI-P4（① 三方法入参 camelCase 对象、写口返回 boolean；② 同 `terminal_at` 并列不定义 tie-break；③ ack 删除后同一 `call_id` 可再写入（已由 `web.js:2217` 的一次性守卫证实无写回路径）；④ 判据载体 = 一次性脚本 + grep/diff，不新增测试文件）——按 `workflow-pb.md` 阶段 4/5 规则**不触发暂停**，由主 agent 采纳
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：4 条（证据回填落点自主决定在 tasks 文件末尾段，请复核；基线口径以 PR worktree base `9f071b8` 为准；架构信息无缺口；未越界）。另报告**实跑验证配方后的 4 处事实纠正**：SQLite `TEXT PRIMARY KEY` 不隐含 `NOT NULL`（判据改只断言 `pk=1`）；`sqlite_master` 无 `origin` 列（属 `pragma_index_list`）；新增 sqlite_master 对象实为 3 个（含自动索引）；base 对照需归一化 `prj-<uuid>` 才能逐字节比对
+- 通道实况：本地 subagent，调用 `completed`（9m27s），子 agent 自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:44:40 · 调度决策 · 两项裁决（证据落点 + 跨 PR 契约）
+
+- 决策内容：① **证据落点裁决**（回应 pr-003 planner 的疑问）——dev 的原始输出落**该 PR 的 tasks 文件末尾「执行证据（dev 回填）」段**，verifier 的独立报告落 `clarifications/verify-<ts>-pr-00N.md` + `roles/verifier/data/`；两者都不写回 PR 文件（PR 文件七字段无证据段，且其「文件范围」只列代码路径，写回即越界）。② **跨 PR 契约采纳**（pr-003 MI-P1 是 pr-005 的调用契约）：`persist.js` 三个新方法取**同文件既有体例**——入参 camelCase 对象（`callId`/`principal`/`agent`/`chatId`/`terminalAt`/`envelope`）、`insertInbox`/`deleteInbox` 返回 boolean；该契约写入 pr-005 的 dev 简报（跨 PR 接缝在派发前定死，不留待协商）
+- 触发依据：pr-003 planner 报告第 5 项疑问 1；MI-P1 的判定理由（architecture §3.1 写 snake_case 调用式，而 `persist.js` 既有写口一律 camelCase ⇒ 取同文件体例）；`workflow-pb.md` §阶段 5"决定跨任务契约并在派发前写入简报"
+
+### 2026-09-17 14:53:53 · 收到报告 · verifier（pr-001 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-143053-pr-001.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 2）；verifier 自写探针独立复跑（未采信 dev 的 `/tmp` 证据）
+- 偏差记录 2 条：① architecture §4 A-04 表第 10/11 行的展示形态 `` `spawn_failed: <msg>` `` 易被读成"空格是匹配条件"（说明 2 已写"冒号后任意文本"，属展示微调）；② PR 文件验收标准四条复选框仍为 `- [ ]`
+- 下一迭代候选 3 条：接线尚未发生（消费点在 pr-005，否则 F04 信封面不成立）；精确匹配大小写敏感；`context_crashed`/`dispatch_failed` 是精确键非前缀
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 14:54:30 · 调度决策 · PR 合并 + 槛位释放
+
+- 决策内容：pr-001 **合并进当前迭代的迭代分支**（`git -C <迭代工作区> merge --no-ff feat/0030-pr-001-reason-mapping-module` ⇒ `f81d5c6`，1 file / 42 lines）；合并面预检已做（PR 分支只动 `oamp/src/reason.js`，迭代分支只动 `docs/**`+`roles/verifier/data/**`，零交集、`merge-tree` 无冲突）；合并后**清理现场**（`worktree remove` + `branch -d feat/0030-pr-001-reason-mapping-module`）；欠账登记：两条偏差（A-04 展示微调 → 归 architect；PR 复选框勾选 → 归 pr-planner）**批到阶段 5 收尾统一处理**，不单独开派发
+- **门槛位算法**：pr-001 返回"成功合并" ⇒ `累计槛位释放次数 = 1`，`当前有效上限 = min(3 + 1×3, 5) = 5`（触及硬上限）；在飞 = pr-002、pr-003（2 个）⇒ 可再派 3 个已解锁 PR
+- 触发依据：`workflow-pb.md` §阶段 5"每当一个 PR merge 完成，重新扫描依赖图"与 §并发槛位算法；`clarifications/verify-20260917-143053-pr-001.md` 结论 PASS
+
+### 2026-09-17 14:56:00 · 调度决策 · 架构层补定（A-06 池成员判据缺口）
+
+- 决策内容：`planner`（pr-002）发现的实质问题经主 agent 代码复核**成立**——`client.register(instanceId)` 载荷不带 role（`agent.js:841`）、`registry.snapshot()` 节点无 role 字段（`registry.js:156-169`）、hub 一律用 `roleFromInstanceId` 反推而该公式只认 `pb-<role>`（`role-binding.js`）⇒ 按 A-06 判据**同角色在线池上限恒为 1**，prd F06 验收 1 与效果#5 在端到端面不可构造。用户侧 `agent start pb-dev-2 --role dev` 路径存在（`agent.js:578,677`），缺的只是 hub 侧识别约定
+- 判断与处置：按 `workflow-pb.md` §阶段回退标准，**不改变 demand.md 任何结论**（D-30 已定"池子规模交给使用者"）⇒ 属**架构层判据不完整**，归执行侧在当前阶段解决：派回 `architect` 在 §4 A-06 / §3.4 / §10 补定多实例识别约定（`pb-<role>` 或 `pb-<role>-<n>` 计入该 role 池；由 pr-005 注入的 resolver 实现，`role-binding.js` 保持零改动），文档面由 pr-006 承担
+- 触发依据：`PlanP002` 报告第 5 项疑问 3（附证据链）+ 主 agent 逐条代码复核（`role-binding.js` / `agent.js:578,677,841` / `registry.js:156-169` / `web.js:44,445,673`）
+
+### 2026-09-17 14:58:00 · 收到报告 · planner（pr-002）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-002-pool-routing-module-tasks.md（408 行）；任务总数 **4**（T1 骨架+工厂+池成员判定+空池回落 / T2 次序键+在飞预留 / T3 粘性表 / T4 合同面核查+全量自证复跑+改动面封闭性）
+- 2. 依赖图摘要：`T1→T2→T3→T4`（4 条边），无环、唯一拓扑序；关键路径 = T1→T2→T3→T4
+- 3. `[model_inferred]` 列表：MI-P1~MI-P5（导出形态 `createPoolRouting` + 4 方法 / `snapshot={nodes,work}` 由调用方注入 / 两个只读读数入口 / `chatId` 非法时跳过粘性读写 / `release` 下界保护）——按阶段 4/5 规则**不触发暂停**，主 agent **全部采纳**
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：5 条（含上述**架构缺口升级**、MI 取舍的替代方案、粒度与记录归属、上游信息充分性）；另注：`§4.2` 验收脚本已用 `/tmp` 一次性参照实现演练 ⇒ **31/31 PASS、退出码 0**（判据可判定性前置证明）
+- 通道实况：本地 subagent，调用 `completed`（14m58s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:59:00 · 派发 · dev（pr-002，**gpt**）+ planner ×2（pr-004 / pr-007）
+
+- dev（pr-002）：`agent=dev`（gpt-5.6-luna）；worktree `feat/0030-pr-002-pool-routing-module`；输入 tasks 文件（408 行）+ PR 文件 + §4 A-06/A-07；MI-P1~MI-P5 采纳；跨 PR 契约（导出形态与 `snapshot` 形状）随简报冻结
+- planner ×2：`PlanP004`（pr-004，5 文件计时改造；要求给出**可压缩时间轴**的取证配方——10 分钟真实等待不可行）与 `PlanP007`（pr-007，F08+F09 过程/证据 PR；已把 L1-01 已决事实写入简报，要求台账单一声明、不碰 `oamp/**`）
+- 并发状态：在飞 = pr-002(dev)、pr-003(dev/待回报)、pr-004(planner)、pr-007(planner) = 4 ≤ 当前有效上限 5
+
+### 2026-09-17 15:07:00 · 收到报告 · architect（A-06 补定）
+
+- 收口内容：`architecture.md` **6 处**（§4 A-06 判据改 `roleOfPoolInstance` + 新增「补定：同角色多实例的识别约定」块 / §3.4 池成员 bullet / §5 新增模块职责 / §7 L2-06 / §9 新增 10~12 / §10 新增第 10 条记录来源）
+- 约定要点：实例 id = `pb-<role>` 或 `pb-<role>-<n>`（`n` 正整数）计入该 role 池；**解析顺序** = 先既有精确公式（角色文件存在优先、向后兼容）→ 未命中再剥尾段 `-<n>` 复用**同一**公式（不重建映射）；用户侧启动 = `agent start pb-<role>-<n> --role <role>`（`--role` 必带）；resolver 由 `pool-routing.js` 导出，`role-binding.js` 零改动；**池成员判定与 `GET /api/agents` 的 role 列必须同源**；作用域仅手动启动的实例（`cluster.json` 管理路径恒 `pb-<role>`）；不新增协议字段（备选"register 自报 role"被否决并登记 §9-10）
+- 如实登记的不一致 3 条（§9-10~§9-12）：`/api/agents` 的 role 列对 `pb-<role>-<n>` 由 `null` → 角色名（字段类型与取值域不变）；`/api/subscribe` 角色归一不识别后缀 id；`/api/messages` 不经池化
+- 遗留处置请求：`prd/F06` 第 30 行仍写旧判据（其写入面不在 architect 授权内）
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:08:00 · 调度决策 · 补定收口（授权 + 契约冻结 + 在飞 dev 纠偏）
+
+- 决策内容：① **授权** architect 修正 `prd/F06-role-instance-pooling.md` 的「架构维度」段（第 30 行判据行 + 第 35 行"唯一池成员恒为 `pb-<role>`"措辞），边界 = 只改该段、产品维度五段逐字不动；② **冻结 resolver 签名**（主 agent 定，避免 pr-005 各写一版）：`roleOfPoolInstance(instanceId, baseResolve)`，三段语义（精确优先 → 剥 `-<n>` 正整数后缀复用同一 resolver → null），`baseResolve` 为**参数**（零 import 约束不破）；③ **在飞 dev 纠偏**：pr-002 的 dev 简报原冻结「导出仅 `createPoolRouting`」，与补定后的落点不一致 ⇒ 立即向 `DevP002` 注入追加契约（新增该具名导出 + 工厂内部复用 + 5 条边界断言 + 证据回填），不推倒重来
+- 触发依据：`architect` 收口报告；`architecture.md` §4 A-06 补定块（"`roleOfPoolInstance` 由新增模块 `src/pool-routing.js` 导出"）与 §5 第 397 行；`workflow-pb.md` §阶段 5"同一轮内决定跨任务契约并在派发简报里写死"
+
+### 2026-09-17 15:14:00 · 收到报告 · architect（prd/F06 + 签名对齐）
+
+- 收口内容：`prd/F06-role-instance-pooling.md` **仅「架构维度」段两行**（第 30 行判据改为 `roleOfPoolInstance(instance_id) === role` 并写明冻结签名；第 35 行"唯一池成员恒为 `pb-<role>`"按事实收紧为"池内只有 1 个成员时选择结果恒为该成员…多实例形态不构成既有行为回归"）；产品维度五段（来源/用户价值/验收标准/边界/model_inferred）**逐字未动**。`architecture.md` 两处对齐冻结签名（§4 A-06「落点与同源要求」行 + §5 `pool-routing.js` 职责行）
+- 遗留：`prs/pr-002-pool-routing-module.md:5` 仍写旧判据（`prs/**` 不在 architect 授权面）
+
+### 2026-09-17 15:15:00 · 调度决策 · PR 文件口径对齐（判据来源修正）
+
+- 决策内容：`prs/**` 是 verifier 的判据来源，旧判据留在 PR 文件里会导出**假失败**（verifier 按旧口径判实现"越界导出第二个函数"）⇒ 立即派 `pr-planner` 做文本口径对齐：① `pr-002` 上下文摘要第 5 行判据改 `roleOfPoolInstance` + 点明双导出；② `pr-002` 验收标准第 1 条扩为"工厂 + 具名导出 `roleOfPoolInstance`"并补 5 条边界可独立判据；③ `pr-005` 同步池成员/目标解析口径；④ 顺带勾选已合并 pr-001 的四条验收复选框（先前登记的欠账）；**⑤ 明令不动 `pr-002-*-tasks.md`**——dev 正在其末尾回填执行证据，两边同写会互相覆盖，该文件口径修正排到 dev 回报后单独安排
+- 触发依据：`grep -rn "roleFromInstanceId" prs/` 命中清单（pr-002 第 5/18 行属**判据口径**，其余为既有事实引用）；`architecture.md` §4 A-06 补定；`workflow-pb.md` §阶段 4→5"未通过项回到执行角色补充"
+
+### 2026-09-17 15:26:00 · 收到报告 · planner（pr-007）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-007-model-routing-and-process-evidence-tasks.md（474 行）；任务总数 **6**（T1 事实锚点与派发基线快照 / T2 载体声明 / T3 唯一台账 / T4 F09 过程证据 / T5 摩擦条目追加 / T6 封闭性守卫与证据）
+- 2. 依赖图摘要：9 条边、无环；最长链 4 节点（`T1→T3→T4→T6` 与 `T1→T2→T5→T6`）；关键路径任务 = T1 → T3 → T4 → T6
+- 3. `[model_inferred]` 列表：MI-P1~MI-P5（判据层收窄 / 台账允许"未回报+在途"行 / 台账第六列"时点" / brief 抽检样本加严到 2 条 / 摩擦条目机械触发条件）
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：5 条（**status.md 头部依赖图行仍是阶段 4 返工前的旧图**，与 PR 文件/子状态表/已解锁集三处相斥 / 状态载体时间不一致（12:40 vs 13:57）/ `tools/check-model-dispatch-protocol.sh` 在本迭代布局下必然整体失败（V-01 要求 worktree 名带 `agents-` 前缀、V-04 要求 `agent-routing.yaml`）/ `evidence/` 目录不在 workflow-pb 规范树中（先例在 `clarifications/evidence`）/ 记录归属自检）
+- 判据可判定性前置证明：在 `/tmp/0030-pr-007-plan` 用一次性参照实现演练了台账校验器与锚点校验器（正例 exit 0 / 反例 exit 1），并在演练中**发现并修正两处真实缺陷**（校验器未归一单元格内反引号导致正例判负；`grep -c '^-'` 把 diff 文件头 `--- a/` 计为删除 ⇒ 改用 `grep -cE '^-[^-]'`）
+- 通道实况：本地 subagent，调用 `completed`（6m11s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:27:00 · 调度决策 · pr-007 五项 MI 裁决 + 主 agent 产物修正 + dev 派发
+
+- 决策内容：
+  ① **MI-P1（判据层）裁定**：「模型值不进 `roles/**`」这条约束的**判据层 = `roles/*/*.md`（角色定义文件）**（与 V-06 逐字谓词、architecture §1.3-6、§6 表第 11 行一致），该层实测 0 命中即通过；**递归层 `roles/verifier/data/**` 的既有命中不得改写**——那是 F08 验证自身的取证产物，改写即篡改证据，且 `roles/**` 在 §5「明确不改」清单内。prd 卡的 `roles/**` 措辞与 demand D-35「不做什么#9（不把模型值写进**角色定义**）」之间的层差**登记为偏差、留下一迭代收窄措辞**，本迭代不追改既有产物。
+  ② **MI-P2~MI-P5 全部采纳**（台账允许"自报模型=未回报 + 终态=⏸ 在途"行；台账 6 列含时点；brief 抽检 ≥2 条且必含本 PR dev 自身简报 + 一条交叉样本；摩擦条目触发条件 = `roles/*/*.md` 命中 0 且 `roles/**` 递归命中 > 0）。
+  ③ **修正主 agent 自己的产物**：`status.md` 头部依赖图行原写「`pr-008（无依赖）→ pr-007`」属返工前旧图，与三处相斥 ⇒ 已按 PR 文件 `depends_on` 重写并留更正记录；`tools/check-model-dispatch-protocol.sh` 必然失败一事登记为跨迭代候选（本迭代不改该工具）
+  ④ 派发 `DevP007`（`agent=dev` → gpt），把上述裁决随简报冻结；明确其唯一写入面 = PR 文件声明的四个 docs 路径 + 自己的 tasks 文件证据段
+- 触发依据：`PlanP007` 报告第 3/5 项；主 agent 对 `roles/**` 命中分布的复核（谓词层 0 / 递归层 7 命中 3 文件，全在 `roles/verifier/data/`）；`workflow-pb.md` §阶段 4/5 的 `model_inferred` 不触发暂停规则
+
+### 2026-09-17 15:38:00 · 收到报告 · planner（pr-004）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-004-idle-net-turn-timers-tasks.md（480 行）；任务总数 **6 + 1 前置裁决项**（T1 config 双键与 env / T2 rpc-client 双计时 / T3 acp-client / T4 oneshot-client / T5 agent.js 删默认档+接线 / T6 集成取证；**T0 = 主 agent 裁决项**）
+- 2. 依赖图摘要：`{T0,T1,T2,T3,T4} → T5 → T6`（T1~T4 相互无依赖）；6 条边、无环；最长链 `T1→T5→T6`（3 节点）
+- 3. `[model_inferred]` 列表：MI-P1~MI-P5（触发可区分的最小承载形态 / 三值皆缺不武装计时器 / 报文数字取触发阈值实参 / acp 工具事件是否重置 idle / `err.timeoutMs` 作为内部字段）；**主 agent 全部采纳**，随 dev 简报冻结
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：**T0（阻塞 T5，不阻塞 T1~T4）**——`context-pool.js` 文件范围缺口；另 MI-P1~MI-P5 待确认；out-of-scope 四项逐条确认（web.js 的 TTL 联动归 pr-005 / 文档面归 pr-006 / 客户端 30 分钟预算不改 / shell 与显式 `timeout_ms` 语义保留）
+- **判据可判定性前置证明（本批最强）**：planner 在 `/tmp/pr004-reh`（改后副本 + fake oneshot/rpc/acp 桩）与 `/tmp/pr004-reh2`（**未改 `context-pool.js` 的缺口复现**）实跑，得 8 条实测事实：压缩阈值全链路生效（`OAMP_TASK_IDLE_MS=1500` ⇒ one-shot 判死 1.61s、daemon 3.63s）/ 三客户端在 `timeoutMs:null` 下均 **1~3ms 内即时判死**（`session/prompt 超时（nullms）` 等）/ **阈值被丢弃时 daemon 报文 = `轮次安全网超时（累计 nullms）`**（T0 的硬证据）/ 门挂起冻结可判定（idle=1200、net=3000、挂起 4000ms ⇒ 正常结算 4.00s）/ 两触发报文可区分 / 端到端六场景 + 配置面五组非法值全部抛错
+- 通道实况：本地 subagent，调用 `completed`（11m14s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:40:00 · 调度决策 · T0 裁决（候选 A）+ 三路并发收口
+
+- 决策内容：**T0 = 候选 A**（主 agent 定案）——把 `oamp/src/context-pool.js` **纳入 pr-004 文件范围**，只做 `idleMs` / `netMs` **两键透传**（形参表 `:137` / 队列项 `:144` / `client.prompt` 实参 `:170-174`），受保护语义（键语义 / 同键 FIFO 串行 / LRU / 释放路径）零改动。理由：最小改动、保持 A-05 的**单一接线落点**（`agent.js` 传阈值）；候选 B（三客户端各自读 config）把接线点从一处变四处、与 PR 明文「`agent.js` 改传」不符、且引入配置读取漂移面；候选 C（resident spec 构造期注入）改动面无额外收益
+- 三路并发收口：① `pr-planner` 改 `pr-004` 文件范围+验收标准、`pr-008` 的零改动面列举（`context-pool.js` 移出、加"唯一例外 = 两键透传"）、复核两两不重叠；② `architect` 同步 `architecture.md` §4 A-05 / §5（从「明确不改」移出）/ §6（G01 例外注）/ §1.3 / §10；③ `DevP004`（gpt）开工，T0=A 与 MI-P1~MI-P5 随简报冻结（T1~T4 与 T0 无关，可先做，不必等文本落地）
+- 触发依据：`PlanP004` 的 T0 升级（附 `/tmp/pr004-reh2` 复现证据与三条候选）；`workflow-pb.md` §阶段回退"文件范围/接线落点属技术方案问题 ⇒ 执行侧在当前阶段解决，不搭置、不改需求结论"
+
+### 2026-09-17 15:46:00 · 收到报告 · pr-planner（T0 落地）
+
+- 收口内容：`prs/pr-004-idle-net-turn-timers.md` 三处——L18「文件范围」新增 `oamp/src/context-pool.js（仅两键透传…）`；L23「验收标准」新增一条可独立判定（显式键集丢弃未列选项 ⇒ 透传后以 `OAMP_TASK_IDLE_MS=1500` 派发 daemon 任务并停止产出，判死时刻跟随配置阈值、报文阈值数字非 `null`；否证面 = 去掉两键即复现 `轮次安全网超时（累计 nullms）`）；L5 摘要补入 daemon 路径选项通道事实（**此处的摘要一致性修正未在主 agent 指令中，属 planner 主动补全，正确、保留**）。`prs/pr-008-existing-surface-guard.md` 两处——零改动面列举移出 `context-pool.js` 并改为"唯一例外 = 两键透传"（L5 + L19 验收第 3 条）
+- 复核：`oamp/src/context-pool.js` 现**只由 pr-004 声明**（逐文件 awk 扫描「文件范围」段）；其余 6 个 PR 文件对新口径零冲突（`pr-005` 及 pr-003/006/007 对 `ContextPool`/`context-pool` 零命中；`pr-002:29`、`pr-001:5` 属既有事实引用，无需改）
+- 机械复核：`tools/check-pr-gates.py` **EXIT=0**，七项全过（文件范围 20 条两两不重叠 / 关键路径 3 / 无环 / 无悬挂 / 并发可行）；pr-004 = 6 文件 · 8 验收
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:48:00 · 收到报告 · dev（pr-002）
+
+- 1. 改了什么文件：新增 `<PR worktree>/oamp/src/pool-routing.js`（唯一代码文件），提交 **`9c5de19`**
+- 2. 测试结果：`/tmp/0030-pr-002/verify.out` **31 条 PASS + RESULT PASS**；`resolver-boundary.out` **5 条 PASS + RESULT PASS**（追加契约的 `roleOfPoolInstance` 三段语义与边界）；提交后复跑通过
+- 3. 疑问/待办：如实说明**追加契约使模块具名导出变为 2 个**（原 tasks 的"恰 1 个 `createPoolRouting`、导出计数 = 1"已被新契约覆盖）——该变更已由主 agent 预授权并同步进 PR 文件验收标准
+- 4. 违反边界之事：无；`git diff` 基准仅 `A oamp/src/pool-routing.js`，`status` clean
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 3 例取证）
+
+### 2026-09-17 15:49:00 · 收到报告 · architect（T0 相关的架构同步）
+
+- 收口内容（`architecture.md` 4 处、均最小措辞）：§4 A-05 新增「阈值透传通道（必要改动，实测依据）」条；§5「修改」表新增 `oamp/src/context-pool.js` 行（形参 → 队列项 → `client.prompt` 实参两键透传）并从「明确不改」清单移出（就地注明移出）；§6 新增「唯一例外」注（本节断言均为**语义级**、无一行断言文件级零改动）；§10 新增第 11 条记录来源
+- 逐条核对：§1.3 **未提及** `context-pool`（grep 0 命中）⇒ 无矛盾、未改；`grep -n "context-pool\|ContextPool"` 余 11 处命中逐条确认为"只涉键语义/失败串位置，不涉选项通道"，与新口径一致
+- 越界自检：未动 `prd/**`、`prs/**`、`oamp/**`、`status`/`history`/`deferred-demand-changes`
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:50:00 · 派发 · verifier（pr-002 验收）
+
+- 阶段：阶段 5 · pr-002 独立验收
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `9c5de19` 的 diff（判据来源 = **修订后的** PR 文件 6 条验收标准）+ `architecture.md` §4 A-06 补定 / §4 A-07
+- 独立取证要求：不得采信 `/tmp/0030-pr-002/*.out`，自写探针、自造注入解析器与快照，覆盖全部条目（含 4 条边界、4 种粘性情形、预留净值）
+
+### 2026-09-17 16:00:00 · 收到报告 · verifier（pr-002 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-145350-pr-002.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 2）；verifier 自写探针独立取证
+- 偏差记录 2 条（**同一性质**）：PR worktree 里的 `architecture.md` §3.4 与 `prs/pr-002-*.md` 是**规划期快照**（导出面只写三类、判据为旧公式），而实现与**迭代工作区当前**的架构真源/PR 文件一致 ⇒ verifier 正确裁定"文档权威在迭代工作区，PR worktree 内文档为基线快照，不阻塞验收"。属 0028 G-12 同类固有性质（PR worktree 从分支 tip 检出，不随后续文档修订前进）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 16:02:00 · 调度决策 · PR 合并 + 第二次槛位释放
+
+- 决策内容：pr-002 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-002-pool-routing-module` ⇒ `4bcfbc3`，1 file / 105 lines）；现场清理（`worktree remove` + `branch -d`）；`累计槛位释放次数 = 2` ⇒ `当前有效上限 = min(3 + 2×3, 5) = 5`（维持硬上限）
+- **解锁扫描结果：无新增已解锁 PR** —— 五个无依赖 PR 中 pr-001/pr-002 已合并、pr-003/pr-004/pr-007 在飞；pr-005 仍缺 pr-003 与 pr-004 的合并；pr-006/pr-008 依赖 pr-005。⇒ **释放出的 2 个槛位保持空置**，不放宽解锁条件（`workflow-pb.md` §阶段 5"没有已解锁且排队中的 PR 时，释放出的槛位保持空置"）
+- 触发依据：`clarifications/verify-20260917-145350-pr-002.md` 结论 PASS；`git merge` 输出；依赖图重扫（`prs/*.md` 的 `depends_on` × 已合并集）
+
+### 2026-09-17 16:06:00 · 收到报告 · dev（pr-003）
+
+- 1. 改了什么文件：仅 `<PR worktree>/oamp/src/persist.js`（inbox DDL + 索引 + `insertInbox`/`listInbox`/`deleteInbox`），提交 **`33005c0`**；证据已回填迭代区 tasks 文件末尾
+- 2. 测试结果：`node --check` PASS；完整 AC 脚本 PASS；既有库补齐 PASS；base 对照 `behavior` 段无差异（仅新增 **3 个 sqlite 对象 / 3 个句柄键**——含 SQLite 自动索引，与 planner 演练时纠正的口径一致）；零维护/迁移 grep 命中 0
+- 3. 疑问/待办：无
+- 4. 违反边界之事：无（scope 仅 `persist.js`）
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 4 例取证）
+
+### 2026-09-17 16:07:00 · 派发 · verifier（pr-003 验收）
+
+- 阶段：阶段 5 · pr-003 独立验收
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `33005c0` 的 diff（判据 = PR 文件 5 条验收标准 + architecture §4 A-01/A-09）
+- 独立取证要求：不得采信执行方证据；自建 `/tmp/verify-p003/` 临时库自调三方法覆盖全部条目（幂等重复插入、principal 隔离与升序、删不存在行、连续两次 `openDb`、既有三表回归）
+
+### 2026-09-17 16:12:00 · 调度决策 · 跨 PR 接缝冻结记录落盘
+
+- 决策内容：把阶段 5 期间逐条冻结的跨 PR 接口固化为一份权威记录 `docs/iterations/0030-hub-communication-upgrade/clarifications/cross-pr-contracts-2026-09-17.md`（6 节：`reasonOf` / `createPoolRouting` / `roleOfPoolInstance` / `persist` 的 inbox 三方法 / 环境阈值键与 `context-pool` 透传 / pr-005 需提供给下游的接缝）。每条注明**提供方 PR + 已合并提交 + 冻结形态 + 消费方要求**，并在提供方未合并时明标"待合并"
+- 动因：pr-005 是本迭代的汇聚点（`web.js` 六处接线 + `pickup.js` 退役，依赖 4 个上游 PR），其 planner/dev/verifier 都要消费同一组形态；分散在四份 tasks 文件与四份 PR 文件里的口径容易被各写一版（本轮已出现两处同型风险：`roleOfPoolInstance` 的签名与 `persist` 的入参体例）。本记录同时作为阶段 6 验证的核对面
+- 触发依据：`workflow-pb.md` §阶段 5"决定跨任务契约并在派发简报里写死"；已合并提交 `f81d5c6` / `4bcfbc3` 与在飞提交 `33005c0` 的实测形态；`architecture.md` §4 A-01/A-03/A-04/A-06/A-07/A-08/A-09
+
+### 2026-09-17 16:20:00 · 收到报告 · verifier（pr-003 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-153745-pr-003.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 2）
+- 偏差记录 2 条：① `insertInbox` 把 `envelope` **原样**写入 TEXT 列、模块内**不做** `JSON.stringify` ⇒ **接线 PR（pr-005）必须传已序列化字符串**（否则落库为 `[object Object]`）；② `persist.js:2` 文件头注释"消费方接线见 pr-003/pr-004"已过期（既有注释、本提交未改），后续顺手改
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 16:21:00 · 调度决策 · pr-003 合并 + 偏差①写入跨界契约
+
+- 决策内容：pr-003 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-003-inbox-table-persistence` ⇒ `9fc962a`，1 file / 40 lines）；现场清理（`worktree remove` + `branch -d`）；偏差①**立即写入跨界契约记录**（`clarifications/cross-pr-contracts-2026-09-17.md` §4 消费方要求，并把该节状态改为 ✅ 已合并）——它是 pr-005 的传参义务，不写死会在接线时才暴露（`[object Object]` 落库属"能跑但错"的典型）
+- 解锁扫描：**无新增已解锁 PR**（pr-005 现**仅缺 pr-004**；pr-006/pr-008 待 pr-005）⇒ 空闲的 3 个槛位保持空置
+- 计数更正（主 agent 自身错误）：`status.md` 派发台账的**数据行 = 27**（非 commit message `cefc958` 里写的"28 行"——后者误把表头计入）；由 `DevP007` 提出后经主 agent 复核确认并更正，已同步告知该 dev 不要"快照 +1"
+- 触发依据：`clarifications/verify-20260917-153745-pr-003.md` 结论 PASS 与偏差记录①；依赖图重扫；`DevP007` 的取数核对消息与主 agent 的逐行复核
+
+### 2026-09-17 16:35:00 · 收到报告 · dev（pr-007）
+
+- 1. 改了什么文件：PR 文件声明的**四个 docs 路径**（`model-routing-carrier.md` / `dispatch-ledger.md` / `evidence/f09-process-contract.md` / `deferred-demand-changes.md` 追加），提交 **`ffb4b6b`**；另按允许例外回填迭代区 tasks 文件 §8 六块证据（含 `status.md` 全表原样快照、两条 brief 抽检、git 事实、提交号）
+- 2. 测试/自证结果：唯一台账校验 **27 行 / 失败 0**；锚点校验 **9 项 / 失败 0**；`deferred` 三要素 **4/4/4**、追加 diff **8 增 0 删**；`evidence/` 仅 `f09-process-contract.md`（**无** `f08-*`、无 `/tmp` 引用）；`oamp/**`、`roles/**`、`tools/**`、`cluster.json` 作用域 diff 为空；PR worktree clean
+- 3. 疑问/待办：无
+- 4. 违反边界之事：无
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 5 例取证）
+- 附注：该 dev 在取数环节**主动质疑并纠正了主 agent 的台账行数**（27 数据行 vs 主 agent 所述 28）——已按其实测更正，并确认"快照已含自身行 ⇒ 不重复建行"
+
+### 2026-09-17 16:36:00 · 派发 · verifier（pr-007 验收）
+
+- 阶段：阶段 5 · pr-007 独立验收（过程/证据类 PR）
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `ffb4b6b` 的四个 docs 产物（判据 = PR 文件 10 条验收标准）
+- 独立取证要求：不得采信执行方证据；台账行数/列数/每行取值/仅追加性/单一声明文件/改动面封闭**全部自己数、自己查、自己 diff**；并要求同时报告 `roles/**` 递归层命中分布（既有取证产物命中**不判 fail**、不得改写）
+
+### 2026-09-17 16:45:00 · 收到报告 · dev（pr-004）
+
+- 1. 改了什么文件：六个指定 `oamp/src` 文件（`config.js` / `agent.js` / `acp-client.js` / `rpc-client.js` / `oneshot-client.js` / **`context-pool.js`（T0 两键透传）**），提交 **`53c27a0`**；tasks 执行证据已回填迭代工作区
+- 2. 自证结果：`node --check` 六文件通过、`git diff --check` 通过；证据含 R1 配置面（默认 / 压缩 / 五组非法值）、one-shot·rpc·acp 的 idle/net 双计时 + progress、ACP 门冻结、`null` pending、池 idle/net 透传、R7 `reason` 归类、R8 残留证据（均落 `/tmp/0030-pr-004/`）
+- 3. 疑问/待办：**主动限定证据强度**——"R2/R3 是客户端直接桩 smoke（非 router 端到端），供 verifier 复核"。该声明已如实转入 verifier 的委托，要求其对每一结论**标明取证层次**（全链路 / 客户端桩 / 静态读码），不得把桩结论写成端到端结论
+- 4. 违反边界之事：无
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 6 例取证）
+
+### 2026-09-17 16:46:00 · 派发 · verifier（pr-004 验收）
+
+- 阶段：阶段 5 · pr-004 独立验收
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `53c27a0` 的六个文件 diff（判据 = **修订后** PR 文件 8 条验收标准，含 `context-pool.js` 两键透传条）
+- 独立取证要求：不得采信执行方证据；自写桩 + 自设压缩阈值复现双计时/门冻结/`null` 不当 0ms/两触发可区分/daemon 路径阈值非 null；**每结论标注取证层次**；**不得启动真实集群**（默认端口/socket 属非隔离共享资源），需端到端时应在环境变量层面隔离
+
+### 2026-09-17 17:00:00 · 收到报告 · verifier（pr-007 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-155525-pr-007.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（pass 9 / fail 0 / partial 1 / blocked 0）；偏差 5 条；verifier **自数**台账 27 行、自核六列、自 diff 仅追加性（`8 insertions, 0 deletions`，父提交前 34 行 SHA-256 与当前前 34 行一致）、自核改动面恰 4 路径
+- 关键自查证据（不采信执行方）：`dev` 行 5 条全 `openai/gpt-5.6-luna`、`verifier` 行 5 条全 `powerby/grok-4.6`、其余角色全 `deepseek/deepseek-v4-flash`；brief 抽检两条尺寸/关键词复核（`roles/dev/dev.md` 195 行、`roles/planner/planner.md` 204 行，均与其自数一致）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 17:02:00 · 调度决策 · pr-007 合并 + partial 定性（委托方标准超出真源，不返工）
+
+- **partial 定性（主 agent 裁决）**：partial 落在"F09 过程证据文档是否逐条含五款（通道 / 每 PR 派生要点 / 取证形态 / 摩擦搭置 / 产物落点）"——**不通过侧的三款（每 PR 派生要点、摩擦专段、产物落点专段）是主 agent 内联标准自行加宽的**，非真源要求。核查 `prd/F09-…md` 的验收标准共 6 条：通道单一 / 台账逐条 / brief 抽检 / **摩擦搭置（载体明确为 `deferred-demand-changes.md`）** / 并发证据形态 / 产物落点（即"落在工作区目录"这一事实）。产物两处均已做到；PR 文件 AC 8 口径（≥1 条 brief 抽检 + 阶段6 形态声明）**pass**。⇒ **不返工**；改由 `pr-planner` 在 PR 文件 AC 8 补一句边界说明（摩擦载体是 `deferred-demand-changes.md`，证据文档不重复摘录），防后续按更宽口径复发
+- **偏差 5 条处置**：① AC 4 写"五列" vs 台账实际六列 → 派 `pr-planner` 改为"含五列 + 时点作行标识列"（依据 MI-P3 裁决 + F09 卡用"含"字）；② `roles/**` 递归层既有取证命中 → 已由 MI-P1 裁决与搭置条目覆盖，本迭代不改既有证据；③/④ 台账截止 16:07 的 `未回报/在途` 行与 `status.md` 追赶不同步 → **属预期**（台账是提交时快照，合并物不追滚动视图），登记为该表的固有约定；⑤ 抽检用途措辞与台账用途列用词未对齐 → 与 ① 同批处理
+- pr-007 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-007-model-routing-and-process-evidence` ⇒ **`58e30cd`**，4 files / 170 insertions / 0 deletions）；现场清理（`worktree remove` + `branch -d`）
+- **主 agent 自身错误更正**：`status.md` 中该行合并哈希先被误写为 `9be2a4e`（未经核实先行写下），经 `git log --merges` 复核后更正为 `58e30cd`。登记以警示：台账类哈希必须**取自命令输出**，不得凭预期书写
+- 解锁扫描：**无新增已解锁 PR**（pr-005 仅缺 pr-004）⇒ 空闲的 4 个槛位保持空置
+- 触发依据：`clarifications/verify-20260917-155525-pr-007.md` §逐项判定 / §偏差记录 / §结论；`prd/F09-process-contract-and-friction-log.md` §验收标准 6 条；`git log --merges`
+
+### 2026-09-17 17:10:00 · 收到报告 · pr-planner（pr-007 文本收口）
+
+- 改动：`prs/pr-007-model-routing-and-process-evidence.md` **仅两行**——L29 台账列口径改为"含五列（角色/用途/通道/自报模型/终态）；另以「时点」作行标识列 ⇒ 实际表头六列"；L33 末尾追加**边界句**（摩擦与需求层问题的仲裁载体是 `deferred-demand-changes.md`、证据文档不重复摘录，覆盖"通道声明/取证形态/brief 抽检"三项即可）
+- 未动：该 PR 的文件范围（4 路径）/ `depends_on`（无）/ `batch`（1）/ 参考资料；其它 PR 文件；已合并产物（`dispatch-ledger.md` / `evidence/**` / `model-routing-carrier.md` / `deferred-demand-changes.md`）逐字未触碰；`architecture.md` / `prd/**` / `oamp/**` / `status.md` / `history.md` 未动
+- 机械复核：`tools/check-pr-gates.py` **EXIT=0**，七项全过
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 17:20:00 · 收到报告 · verifier（pr-004 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-161050-pr-004.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 4）；verifier 自写桩 + 压缩阈值独立复现（未采信执行方 `/tmp/0030-pr-004/*`），并对每条结论标注取证层次
+- 偏差记录 4 条（均不阻塞）：① 人类可读报文前缀按客户端既有形态分化（rpc `轮次…` / acp `session/prompt …` / oneshot `一次性执行…`），idle/net 可区分性成立，全仓字面统一属文档或后续 PR；② `RECONCILE_TTL` 联动不在本 PR（属 pr-005，跨 PR 接缝）；③ 文档面同步属 pr-006；④ **`acp-client._onProcessGone` 仍只清一个计时器**（idle/net 计时器在进程退出路径可能残留至下次 tick；`expire` 有 `_pending.has(id)` 守卫，实测未表现为误判死）——实现洁癖/泄漏面，非本 PR 验收项，登记为下一迭代候选
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 17:22:00 · 调度决策 · pr-004 合并 + pr-005 解锁派发
+
+- pr-004 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-004-idle-net-turn-timers` ⇒ **`1b02689`**，6 files / 157 insertions / 147 deletions）；现场清理（`worktree remove` + `branch -d`）
+- **解锁扫描：pr-005 已解锁**（依赖 pr-001/002/003/004 全部合并）⇒ 按"合并进迭代分支才算解锁"的硬约束，**从合并后的 tip `1b02689` 拉出** `pr-005` 的 worktree（`feat/0030-pr-005-web-inbox-and-pool-wiring`）——并复核确认该 worktree 的 `oamp/src/**` 已含全部上游产物（`reason.js` / `pool-routing.js` / `persist.js` + 四个计时文件 + `context-pool.js`）。顺序错了会让 pr-005 的子 agent 看不到依赖产物而自行造一套
+- 派发 `PlanP005`（pr-005 的 planner）：输入含 PR 文件 10 条验收标准 + `architecture.md` + **跨界契约冻结记录**（`cross-pr-contracts-2026-09-17.md`）+ **worktree 内已合并的上游真实代码**（要求按真实形态规划，不凭描述推断）
+- 触发依据：`clarifications/verify-20260917-161050-pr-004.md` 结论 PASS；`git merge` 输出；`git diff --name-only main HEAD -- oamp/` 复核（9 个文件）；`workflow-pb.md` §阶段 5 解锁条件
+
+### 2026-09-17 17:45:00 · 收到报告 · planner（pr-005）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-005-web-inbox-and-pool-wiring-tasks.md（**538 行**）；任务总数 **8**（T1 池内选择接线 / T2 principal 派生+无条件写 inbox / T3 取件两端点改读写 / T4 `reason` 追加 / T5 对账 TTL 联动 / T6 退役 `pickup.js` / T7 role 列同源 / T8 集成自证）；PR 10 条 AC 全覆盖，无孤儿任务、无无主 AC
+- 2. 依赖图：8 条边、无环；最长链 `T2 → T3 → T6 → T8`（4 节点）
+- 3. `[model_inferred]` 列表：MI-P1 / MI-P6~MI-P10（6 项）
+- 4. 循环依赖：无
+- 5. 疑问/越界：8 条**实测事实更正**（F-1~F-8，均附实跑证据）：**F-1** 信封实为 **10 键**（非文档所述 11）；**F-2**（重要）"空池 ⇒ 既有 404"**与实测不符**——实际是 **200 + `submitted`**（`sendTask` 吞错、handler 失败分支不可达），404 只出现在"角色不可解析"；**F-3** `RECONCILE` 默认值算式 = `taskNetMs + 30000ms`（与"约 4h30m"表述不一致）；**F-4** 取件面 Router 不可达时 502 → 200（预期改进）；**F-5** `POST /api/calls` Router 不可达基线 = 200 + submitted（故快照查询必须吞错回落）；**F-6** 池内命中 `pb-<role>-<n>` 时信封 `agent` 会变 `null`（与 role 列矛盾）；**F-7** `sdk/surface.js` 无 `--new-session` flag（硬编码白名单，`sdk/**` 零改动）⇒ 调用方途径 = 裸 HTTP 项级字段；**F-8** 退役 grep 口径应为**实现面**零命中
+- **判据可判定性前置证明（本迭代最强）**：planner 在 `/tmp/0030-pr-005/base/` 用 **真 Router + 真 web + 假节点**跑 **45 条 e2e 断言**：**19 PASS / 26 FAIL**，且 **FAIL 集合恰为 PR 应翻转的面**（必达/持久化/`reason`/池化/role 列），**PASS 集合恰为必须保持不变的既有面**；形状指纹脚本两次运行 diff 为空 ⇒ "既有面逐字不变"可用 diff 判定（期望差异恰 3 行块）；跨重启两阶段脚本在基线 FAIL、改造后须 PASS；AC10 用压缩 env 核对清理日志
+- 通道实况：本地 subagent，调用 `completed`（14m54s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 17:47:00 · 调度决策 · pr-005 六项 MI 裁决 + 三路并发（dev + 文本校正 + 真源校正）
+
+- **MI 裁决**：**MI-P1 采纳**（10 键实况，`reason` 落末位、不补齐）；**MI-P6 采纳**（`new_session` 只认 `=== true`，不新增 400 分支）；**MI-P7 采纳并扩大**（`web.js` 的 role 反推含 `:444-446` 与 `:673` **统一与池成员判定同源**消费 `roleOfPoolInstance(id, roleFromInstanceId)`——否则出现"`role` 列=dev 但信封 `agent`=null"的自相矛盾）；**MI-P8 采纳**（快照取数失败 ⇒ 视作空池回落，保 200 基线、不新造 502）；**MI-P9 采纳并扩大一次**（本 PR **更新 `POST /api/calls` 的路由元数据 `desc`** 使 `new_session` 在 `/api/docs` 可见；该行变化属**预期差异**）；**MI-P10 采纳**（自派发告警基准改为本次实际选中目标）
+- **真源校正（F-2/F-3/F-1）三路并发**：① `PrPlan` 改 pr-005 的 AC8（拆为"角色不可解析 ⇒ 404 逐字"+"空池 ⇒ 200 逐字、不新造错误面"）、AC1（退役 grep 改**实现面**口径）、AC4（10 键）并按需同步 pr-008；② `ArchSpec` 改 `architecture.md` §4 A-06 空池行为（404 → **200 + submitted** 实况）、§4 A-03/§3.x 的"11 键"→10 键、§4 A-05 第 6 条 TTL 算式口径（去近似值、取不变式 `缺省 TTL ≥ config.taskNetMs`）+ 两条如实补记（grep 口径、SDK 无 flag）；③ `DevP005`（gpt）开工，全部裁决与实测口径随简报冻结
+- 触发依据：`PlanP005` 报告第 3/5 项与 `/tmp/0030-pr-005/base/` 的 45 条断言实跑结果；`workflow-pb.md` §阶段回退"技术方案/实现路径问题 ⇒ 执行侧在当前阶段解决"；`prd/F01/F02/F03/F04/F06/F07` 相关验收项
+
+### 2026-09-17 18:00:00 · 收到报告 · pr-planner（pr-005/pr-008 实测口径校正）
+
+- `prs/pr-005-web-inbox-and-pool-wiring.md` 六处：L5/L29 计数 **11 键 → 10 键**（并列实测键名 + 注明架构/prd 文中的 11 键表述有误）；L26 AC1 退役 grep 改**实现面**零命中（排除 `docs/` `roles/` `.pb-agents/` `node_modules/`）；**L33/L34 原 AC8 拆为两条**——① 角色不可解析 ⇒ 404 且文案逐字（回归面）② 空池回落 ⇒ 与基线**逐字一致**（实测 = HTTP 200 + `submitted`），不得新造错误码/文案/状态（验收条数 10 → 11）；L35 AC9 补 `/api/docs` 的 `desc` 预期差异说明
+- `prs/pr-008-existing-surface-guard.md` L18：**planner 主动扩的一格**（原未引用错误数字，补实测 10 键口径以防阶段 6 按架构文假失败）——**判断正确，保留**
+- 上报残留：`prs/pr-001-*-tasks.md:61` 仍写「第 12 键 / 既有 11 键」（已合并 pr-001 的 planner 产物、未获授权故未改）
+- 机械复核：`tools/check-pr-gates.py` **EXIT=0**，七项全过
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 18:02:00 · 调度决策 · 授权修 pr-001 计数残留
+
+- 决策内容：授权 `pr-planner` 修正 `prs/pr-001-reason-mapping-module-tasks.md`（及必要时其 PR 文件）的计数口径（11 键 → 10 键、第 12 键 → 第 11 键），并要求**注明"实现本身为追加到既有键之后、与更正后口径一致"**——避免读者误以为实现有问题；边界：只改计数口径、不动验收判据语义与执行证据段
+- 理由：该计数是**已合并实现的描述**，留着会让阶段 6 验证者按"11 键"对账；同时需防"为了对上旧文档而回头改实现"这类更坏的结果
+- 触发依据：`PrPlan` 的上报（未授权未改，主动请示）；`prs/pr-005-*-tasks.md` 已自行更正为 10 键并留 F-1 记录
+
+### 2026-09-17 18:12:00 · 收到报告 · pr-planner（pr-001 计数残留收口）
+
+- 改动：`prs/pr-001-reason-mapping-module-tasks.md` **仅 L61 一处**——改为「追加在既有 10 键之后（末位），即成为**第 11 键**；不补齐任何键」并附「计数随实测口径更正」注，明确**实现本身与更正后口径一致**（防读者以为实现有误）；`prs/pr-001-reason-mapping-module.md` 复核后**无需改**（全文无计数类表述）
+- 复核：全仓 `grep -rn "11 键\|第 12 键" prs/*.md` 余 **7 行全部为"更正说明本身 / 被更正对象的引述"**，零处以错误计数作口径
+- 机械复核：`tools/check-pr-gates.py` **EXIT=0**，七项全过
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 18:15:00 · 收到报告 · architect（实测口径三处更正 + 两条补记）
+
+- 收口内容（`architecture.md`，13 行）：① §4 A-06 空池条 + §3.4 bullet + §1.1 派发行 + §9-2 重写 + 新增 §9-13 —— 空池口径改为**与基线逐字一致（HTTP 200 + 受理态 `submitted`，投递失败在 `sendTask` 内被吞）**，404 仅限**角色不可解析**；② §1.1 与 §4 A-03 的"11 键"→**10 键**（并注明 `web.js:539` 注释滞后属既有、未改代码）；③ §4 A-05 第 6 条与 §7 L2-05 的"≈4h30m"→**不变式 + 算式**（`缺省 TTL ≥ config.taskNetMs`；`taskNetMs + RECONCILE_SLOW_DEFAULT_MS` = 4h+30s）；④ 补记两条（§5 退役判据 = 实现面零命中；§4 A-07 `new_session` 调用方可达性 = 裸 HTTP 项级字段、`sdk/**` 零改动）；⑤ §3.4 第 4 条"唯一池成员恒为 `pb-<role>`"同类收紧；⑥ §10 新增第 12 条记录全部更正与来源
+- **新发现（需求层空洞，§9-2 / §9-13）**：`sendTask` 两次重试后不抛出 ⇒ 派发失败时调用方只拿到 200 + `submitted`，该调用**永不产生终态** ⇒ 既进不了收件箱也拿不到 `reason` —— F01「必达」在同一分支上的**既有空洞**（非本迭代引入）
+- 主 agent 处置：**授权**其修正 `prd/**` 三处「架构维度」段遗留（F05:37 TTL / F06:34 空池 404 / F04:34 11 键，边界同前：只改该段、产品维度五段逐字不动），并要求**把 §9-2 的空洞按协议追加到 `deferred-demand-changes.md`**（三要素格式、仅追加、不动 pr-007 已追加的那节）
+- 复核：`grep -n "11 键\|404"` 余 6 处**全部与实测口径一致**；`grep -n "4h30m"` 仅 1 处（更正记录本身）
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 18:25:00 · 收到报告 · architect（prd 三处更正 + 搭置条目落盘）
+
+- ① `prd/**` 三处「架构维度」段按实测更正（各单行替换，带「（口径随实测更正，2026-09-17）」标记）：`F05:37` TTL → 不变式 + 算式；`F06:34` 空池 → 实测口径（200 + `submitted`，404 仅限角色不可解析）；`F04:34` 11 键 → **10 键**。三卡仍各 5 个 `##` 段，产品维度五段逐字未动；`grep -rn "11 键\|= 4h30m" prd/` **零残留**
+- ② `deferred-demand-changes.md` **仅末尾追加**一条（`git diff --numstat` 复核 = **9 增 0 删**；既有内容含 pr-007 那节一字未动）：标题 `## 2026-09-17 · 阶段 3 / 阶段 5 复核（architect，见 architecture.md §9-2 / §9-13 / §10-12）`，三要素成条 —— 问题（「派发失败」不是终态 ⇒ F01 必达在该分支的既有空洞）/ 机制（`sendTask` 两次重试后不抛出 ⇒ handler catch 不可达、`dispatch_failed` 只在对话面 out、基线塔实跑读数）/ 为什么是需求层（唯一修法是让"派发失败"成为终态，属需求层结论变更）/ 本迭代如何处理（不改吞错语义、空池按基线对齐、§9-13 属既有缺陷不在范围）/ 下一迭代候选 2 条
+- 主 agent 核验（读文件不采信自述）：`git diff` 逐文件抽查确认 prd 改动落在「架构维度」段、单行替换；`deferred` 仅追加；prd 零残留
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 18:40:00 · 收到报告 · dev（pr-005）
+
+- 1. 改了什么文件：**仅** `<PR worktree>/oamp/src/web.js`（M）+ `oamp/src/pickup.js`（**D**），提交 **`ba31e6a`**；任务证据已回填迭代区 tasks 文件 §7（主 agent 复核：文件 538 → 546 行，§7「执行证据（dev 回填）」段在位，PR worktree clean）
+- 2. 自证结果：`node --check` 通过、`git diff --check` 通过；实现面 `pickup.js`/旧 TTL 常量搜索零命中；`createApiRoutes` 路由数 **29** 且 `/api/docs` 的 `tasks` 描述含 `new_session`；一次性桩脚本通过（目标 `pb-dev-2`、`noReuse`、`release`、`pickup`、`reason`、`ack`）；隔离 HTTP：Router 不可达时 `POST /api/calls` = **200 + submitted**、`GET /api/pickup` = **200**（F-4/F-5 的预期改进面）；`reasonOf` 五值映射通过、失败信封 `reason` 末位追加、成功侧不带；**TTL 隔离实测**：`OAMP_TASK_NET_MS=1000` 时清理日志为 **31s**；**隔离 web 重启实测**：未 ack 条目与 `reason` 跨重启保留
+- 3. 疑问/待办：无
+- 4. 违反边界之事：无（未跑全量测试/格式化/lint）
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 7 例取证）
+
+### 2026-09-17 18:42:00 · 派发 · verifier（pr-005 验收，本迭代最关键一次）
+
+- 阶段：阶段 5 · pr-005 独立验收（端到端）
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `ba31e6a` 的 diff（`web.js` M + `pickup.js` D）；判据 = **修订后** PR 文件 **11 条验收标准**（AC8 已拆两条）+ 架构 §3.1~§3.4/§4 A-01/A-02/A-03/A-06/A-07 + 跨界契约记录
+- 独立取证要求：不得采信执行方证据；**自建隔离环境**（`/tmp/verify-p005/` 副本 + 真 Router + 真 web + 自建假节点），自跑必达三态/只写终态/`reason` 末位与三面同源/取件形状与 ack 幂等/**跨重启**/池化分流与粘性/**空池 200 逐字 vs 角色不可解析 404 逐字**/**形状指纹逐行列出差异并判定是否仅限预期两处**/TTL 压缩动态/路由条数 29；每结论标注取证层次；**不得占用默认端口/socket**
+
+### 2026-09-17 18:55:00 · 收到报告 · verifier（pr-005 验收，本迭代最关键一次）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-171058-pr-005.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 3）；verifier 自建隔离环境独立复现全部条目（未采信执行方 `/tmp/0030-pr-005/*`），每结论标注取证层次
+- 偏差 3 条（**全部为文档滞后类型、零功能缺陷**）：① `architecture.md` §3.1 的 `insertInbox` 示例写 snake_case，而实测接线按冻结契约走 camelCase + 预先序列化（`web.js:2246-2253`）⇒ 派 `architect` 对齐；② `web.js:1386` 的 400 文案仍列旧参数集（无 `new_session?`）而运行时已接受——**本迭代不修**（`web.js` 已随 pr-005 合并、不在任何未合并 PR 文件范围内，"所有代码变更必须经 PR" 是硬约束，为一处提示文案重开规划不划算）⇒ 记入下一迭代候选；③ 架构文"11 键"残留（已于 18:15 那批更正）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（verifier 派发第 8 例）
+
+### 2026-09-17 18:57:00 · 调度决策 · pr-005 合并 + 第六次槛位释放 + 末两个 PR 同时解锁
+
+- pr-005 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-005-web-inbox-and-pool-wiring` ⇒ **`9a4f424`**；`web.js` +61/−76、`pickup.js` 删除）；现场清理（`worktree remove` + `branch -d`）
+- **解锁扫描：pr-006 与 pr-008 同时解锁**（二者仅依赖 pr-004/pr-005，均已合并）⇒ 从合并后 tip `9a4f424` 各自拉出 worktree；复核实现面相对 `main` 共 11 个路径（10 个改动 + `pickup.js` 删除）
+- 派发 `PlanP006`（文档面同步）与 `PlanP008`（G01 证据）两条 planner 并发；共享背景里给出**本迭代已登记的 5 条预期差异清单**（role 列取值域 / 取件 502→200 / `/api/docs` desc 行 / 失败侧 10→11 键 / `pickup.js` 退役），并要求"除这些之外任何差异都当作回归"
+- 触发依据：`clarifications/verify-20260917-171058-pr-005.md` 结论 PASS；`git merge` 输出；依赖图重扫（pr-006 ← pr-004/pr-005；pr-008 ← pr-005，均已合并）
+
+### 2026-09-17 19:05:00 · 收到报告 · architect（insertInbox 契约对齐）
+
+- 收口内容（`architecture.md` 3 节 3 行 + 1 条记录）：§3.1 步骤 2 示例改 camelCase 六字段并注明**冻结契约 + 序列化义务**；步骤 3 注明 `listInbox(principal)` 按 `terminal_at` 升序、行字段为 DB 列名、`envelope` 为已序列化 JSON（读侧 `JSON.parse`）；步骤 4 `deleteInbox(callId)` 用 camelCase + 幂等语义注；§5 的 `persist.js` 变更行同步；§10 新增第 13 条记录来源
+- 复核：`grep -n "insertInbox"` 余 4 处**均为 camelCase 形态**；`insertInbox({call_id` / `deleteInbox(call_id)` **零命中**（无 snake_case 示例残留）；§4 A-01 原文即 `ORDER BY terminal_at ASC`、语义一致故未动
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:20:00 · 收到报告 · planner（pr-006）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-006-api-docs-sync-tasks.md；任务总数 **9**（T1~T9：API.md `reason` 字段面 / 参数表 / README / env 表 / 跨重启与 `acked` / llms.txt 重生成 / `hub doctor` R1 与三处条数 / skill 判定 / 全量复跑与封闭性）
+- 2. 依赖图：8 条边、无环；最长链 `T1 → T7 → T9`（3 节点）
+- 3. `[model_inferred]`：MI-P6-1（README 范围 = 单句 + env 表三行）/ MI-P6-2（§4.4 `call_result` 行保留键集列举 + 追注失败侧末位 `reason`）/ MI-P6-3（`skill/hub.md` 补一句跨重启、保留"仅判定"为可接受形态）—— 主 agent **全部采纳**
+- 4. 循环依赖：无
+- 5. 疑问/越界：**F-1** `API.md` 有 4 组**重复章节号**（`3.11/3.12/3.13/3.18` 各两次）⇒ 裸编号会指错节；连带事实：`POST /api/calls` 参数表在 **§3.14**（`:649`），而 `architecture.md` §4 A-07 与 `prd/F07` 写的「§3.9」指向 `GET /api/stream`（**:520**）⇒ 引用滞后；**F-2** `doctor` R1 **只比 method+path、不比 `params`** ⇒ 字段/参数同步不进机械锁，只能靠人工判据；**F-3** `hub doctor` 在 `pass:false` 时**退出码仍为 0** ⇒ 判据必须读 JSON；**F-4** `llms.txt` 正文行不含字段名 ⇒ 本 PR 的正确期望是**零 diff**（先由生成器重生成再比）。另声明界线：未改任何代码/PR 文件/上游产物、未执行 git 写、未占默认端口（隔离取证用非默认端口 17931 + `/tmp` socket/db，跑后已 stop）
+- **判据可判定性前置证明（实跑）**：自建 `doccheck.mjs`（C1~C9、29 条断言）对改造前树 = **11 PASS / 18 FAIL**（FAIL 集合恰为待改 18 项），对模拟目标形态 = **29 PASS / 0 FAIL** 且不变面始终 PASS；**隔离起真 Router + 真 web 跑真机械锁** `hub.js doctor` ⇒ `pass:true`（R1×29 全 ok），**反例门**：向 §3 清单插一行 `GET /api/nope` ⇒ `pass:false`、唯一失败项 `R1 GET /api/nope / 登记缺失`，复原后回全 PASS；三处条数一致（`routes[]` = 29 ∧ `API.md` §3 命中 = 29 ∧ `llms.txt` 头部 29）；生成器输出 `接口 29 条，3493 字节` 与仓库 `llms.txt` **diff 为空**
+- 通道实况：本地 subagent，调用 `completed`（7m14s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:22:00 · 调度决策 · pr-006 三项 MI 裁决 + dev 派发 + F-1 真源修复
+
+- **MI-P6-1/2/3 全部采纳**（README = 单句 + env 表三行；`call_result` 行保留键集列举 + 追注；`skill/hub.md` 最小补充），随 dev 简报冻结
+- 派发 `DevP006`（gpt）：唯一写入面 = 四份文档；`llms.txt` **必须由生成器重生成**、判据读 `hub doctor` 的 **JSON**（不看退出码）、R1 不比 params 故字段同步靠自建判据
+- **F-1 真源修复**派回 `architect`（`architecture.md` 的「§3.9 参数表」→ §3.14；并按"编号 + method/path"联合锚点表述，因 `API.md` 编号不唯一）；若同一引用落在 `prd/F07` 的架构维度段则同批更正，否则只回报
+- 触发依据：`PlanP006` 报告第 3/5 项与 `/tmp/0030-pr-006/` 的 doccheck + 真 doctor 实跑结果
+
+### 2026-09-17 19:30:00 · 收到报告 · architect（API.md 章节引用失真更正）
+
+- 收口内容：`architecture.md:343`（§4 A-07）`API.md §3.9 的参数表` → **§3.14（POST /api/calls）**，并就地立**引用纪律**（该文件 §3.x 有 4 组重复编号 ⇒ 一律"编号 + `METHOD /path`"联合定位；裸 §3.9 实为 `GET /api/stream` `:520`）；`:416`（§5 机械锁提示）`（§3.9 的 new_session）` → **§3.14 + 联合定位注**；`:535` 新增 §10-14 记录来源与纪律，并注明 §1.x/§2.x 编号经核无重复（`§2.4 等待语义` 唯一）故仅 §3.x 需联合锚点
+- **prd 面**：同一引用在 `prd/F07:32`、位于**架构维度段**（非产品维度五段）⇒ 按授权同批更正为 `§3.14` + 引用纪律括注；该卡仍 5 个 `##` 段、其余四段逐字未动
+- 复核：`grep -n "3\.9" architecture.md` 余 2 处**均与 `POST /api/calls` 参数表无关**（第 343 行该注自身、第 535 行 §10-14 记录）；`grep -rn "3\.9" prd/` 余 1 处（`prd/F07:32` 同一说明括注）；`architecture.md:312` 的 `API.md §2.4` 引用正确且唯一故未改
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:45:00 · 收到报告 · architect（§9 登记取件面取值变化 + §6 逐行扫描）
+
+- 来源：pr-006 planner 的登记核验 + pr-005 tasks §0.3 A9（实跑基线 502）
+- 收口内容（`architecture.md` 3 行）：**§9 新增第 14 条**——取件面在 Router 不可达时的响应码变化：基线 = 有未取件条目时逐条 `task_get` 抛错 ⇒ **502 `UPSTREAM_UNAVAILABLE`**；改后 = 读本地 `inbox` ⇒ **200 + DB 条目**；性质 = **预期改进**、**字段类型与既有取值域不变**（200 响应体形状与正常时逐字相同，变的只是**触发条件**）、**路由正常时两态无差异**；**§6 第 4 行**末尾追加指向 §9-14；**§10 新增第 15 条**记录来源
+- **§6 十二行扫描结论**：除第 4 行外**无其它遗漏**——其余候选均已在别处登记（失败侧 `call_result` payload 多 `reason` → §9-9；多实例派发目标与 `/api/agents` 的 `role` 列 `null`→角色名 → §9-10 + §4 A-06；对账软 TTL 默认值变化 → §4 A-05 第 6 条 / §7 L2-05）；第 2/3/5/6/7/9/11/12 行确无取值或触发条件变化
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:50:00 · 收到报告 · planner（pr-008）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-008-existing-surface-guard-tasks.md（**623 行**）；任务总数 **9 个 dev 任务（T1~T9）+ 1 个独立核验任务（T10，verifier 面）**；AC1→T9+T2/T4/T8；AC2→T4/T5/T6/T7；AC3→T2+T3；AC4→T8；无孤儿任务、无无主 AC；每条判据带追溯行
+- 2. 依赖图：无环；`T1 → {T2..T8} → T9 → T10`，最长链 4 节点（T1→T4→T9→T10）；写入仲裁 = `evidence/g01-existing-surface.md` **只由 T9 装配**，T2~T8 证据回填 tasks §7 ⇒ 该批可无损并发
+- 3. `[model_inferred]` 5 条（见下条调度决策逐条裁决）
+- 4. 循环依赖：无
+- 5. 疑问/越界 + **9 条事实更正**（隔离副本 `/tmp/g01probe-*` 实跑），其中三条是**上游文档缺陷**：**①** PR AC3 的 `oamp/cluster.json` **不存在**（真实文件在仓库根，489 B）⇒ 该行会**永远空转"通过"**；**②** `roles/**` 递归面非零改动（9 个 A 全在 `roles/*/data/**`，设计内过程产物）⇒ 按字面核会**假报失败**；**③** `architecture.md` §5 的 `pickup` 退役判据（裸 `grep -rn pickup oamp/src oamp/sdk oamp/bin oamp/scripts`）实测**命中 8 处**（`/api/pickup` 路由名 + `sdk/surface.js` 的 `pickup list`/`pickup ack` CLI 名，均为 G01 要求保留的面）⇒ 会**假报"退役失败"**；其余：`hub doctor` 不接受 `--port`（走 env `OAMP_WEB_PORT`）且须 Router 在线、git pathspec 裸 `*` 跨 `/`（`roles/*/*.md` 实测 9 行、必须加 `:(glob)`；`ls-tree` 不支持 `:(glob)`）、PR AC4 的"三处同值"实为 **5 处**（4 静态 + 1 运行时）、`web.js:539` 的"11 键"注释是**既有滞后**（main 同写 11、实际 10 键）、绑定范围须用"带 `model` 键的角色集合"（`main`/`HEAD` 同为 `dev,verifier`）、`RECONCILE_TTL` 算式与 `entry.agentId=target` 属 §5 明文改动非回归
+- **判据可判定性前置证明（实跑）**：基线 `main = 706e3d0…` = merge-base、diff vs HEAD = 11 个 `oamp/src/**`（10 M + `pickup.js` D）；零改动面各组 diff 全 0 且**存在性计数非 0**（`sdk=7`/`web=11`/`scripts=1`/定义面=22）、正对照 `web.js=1` ⇒ 非空洞；`context-pool.js` diff `--stat` = 1 file/4+/2−、`-U0` 行集恰 6 行且全落白名单，**归一化剔除两键透传后与 main 逐字相同**（该判据本身即"键语义/FIFO/LRU 零改动"的证明）；事件面 `CALL_EVENTS`/`FILTERED_EVENT_KINDS` 常量行 diff 空、`transport\.` 差异行 = 0；信封两侧键序抽取**全等**（10 键）、`reason` 追加行仅在 `state==='failed'` 分支末位；取件两端点参数行两侧 diff 空；**五处路由计数全 = 29**；`hub doctor` 隔离塔：Router 缺 ⇒ `UPSTREAM_UNAVAILABLE`/exit 3、`--port` ⇒ `USAGE`/exit 2、Router+web 齐备 ⇒ **exit 0、items 66、R1 29 项 0 失败**
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`（9m12s）
+
+### 2026-09-17 19:55:00 · 调度决策 · pr-008 MI 裁决 + 上游文档三处更正 + DevP008 暂缓
+
+- **MI-P8-01 采纳（并回派 architect）**：§5 退役判据改用**模块级**口径（`pickup.js` 文件不存在 + 模式限定 `pickup\.js`/`pickup\.add`/`pickup\.ack` 零命中；路由名与 CLI 名中的 `pickup` 属保留面）——该口径即 pr-005 已执行并通过独立验收的口径
+- **MI-P8-02 采纳（并回派 architect）**：§5 `roles/**` 从"整片零改动"改**分层口径**（定义面 `roles/*/*.md` + `roles/_template/**` 零改动；`roles/*/data/**` 为设计内过程产物区）。权威依据 = `scm-protocol.md:157` + `roles/_template/role-structure-reference.md`
+- **MI-P8-03 采纳（PR 文件更正回派 pr-planner）**：AC3 的 `oamp/cluster.json` → 仓库根 `cluster.json` + **补负向断言**防"永远空转通过"；同批把 `roles/**` 改分层口径、AC4"三处同值"改"四处静态 + 一处运行时"
+- **MI-P8-04 采纳**：`hub doctor` R1 **保留真跑**（隔离塔已证可行：exit 0 / items 66 / R1 29 项 0 失败），不降级为静态复算
+- **MI-P8-05 采纳**：T10 的"无 Router 仅 web"200 活体读数**只作已登记取值变化②的证据**，不参与回归判定
+- **DevP008 暂缓派发**（本决策的推理）：pr-008 的 T1 要枚举"相对 `main` 的 diff 全集"，而 `pr-006` 的文档面改动（`API.md`/`README.md`/`llms.txt`/`skill/hub.md`）**尚未合并** ⇒ 此刻跑出的 diff 全集不含这四项，属结构性遗漏（阶段 6 会当"遗漏功能点"打回）。⇒ **等 `pr-006` 合并后从最终 tip 派发 `DevP008`**，使其证据覆盖迭代最终 diff
+- 触发依据：`PlanP008` 报告第 3 项（5 条 MI）与第 5 项（9 条事实更正 + 隔离实跑读数）
+
+### 2026-09-17 19:58:00 · 派发 · pr-planner（pr-008 PR 文件事实更正）
+
+- 派发 `PrPlanFix`：唯一可写文件 = `prs/pr-008-existing-surface-guard.md`（PR 文件是 pr-planner 产出物，按协议只有它能改）；三项更正见上条；不提交（主 agent 统一提交）；顺带核其它 PR 文件是否有同一 `oamp/cluster.json` 错误（只报告不改）
+- 依据：`PlanP008` 的事实更正 ①②⑥ + 本会话对 `scm-protocol.md:157` 与 `roles/_template/role-structure-reference.md` 的权威口径核验
+
+### 2026-09-17 20:10:00 · 调度决策 · 台账补齐 + 两处过程缺口如实登记（不回填杜撰）
+
+- 触发：阶段 6 要拿「派发台账」核**并发调度真实执行证据**与 F08 模型归属，而台账最后一行停在 16:07 ——**17 次派发未入账**
+- 处置：从 history 的权威时点补 17 行（16:36 verifier pr-007 → 19:58 pr-planner pr-008 文件更正），台账行数 29 → **46**；模型归属汇总按**台账实计数**刷新（`dev` 8 行 / `verifier` 10 行；不再用 history 文本计数，因其本身有缺条，见下）
+- **如实登记两处过程缺口（不补写历史、不杜撰内容）**：
+  - **缺口 A：`pr-001` 的 dev 报告条目当时未记入 history**。派发在 `14:41:30`，其后可查的条目直接跳到 `14:53:53` 的 verifier 验收报告。**可复核的客观替代证据**：该 PR worktree 的提交与 `clarifications/verify-20260917-143053-pr-001.md`（PASS，0/0/2 偏差）；**不**据推测补写一份"dev 报告"条目。
+  - **缺口 B：`pr-001` 的 tasks 文件无「执行证据（dev 回填）」段**。成因明确：证据落点规则在 `14:44:40` 才由调度决策确立（回应 pr-003 planner 疑问），而 pr-001 的 dev 已于 `14:41:30` 派出 ⇒ **规则晚于派发**，非执行方漏做。处置 = 保留原状（该 PR 已合并、其证据面由 verifier 报告承担），**不做追溯回填**。
+- 关联核验：`pr-008` PR 文件更正（`PrPlanFix`）实测 `roles/*/data/**` 新增 **10** 个（architect 1 + prd 1 + verifier 8）——与 §5 分层口径一致；`:(glob)roles/*/*.md` 定义面 diff = **0 行**（裸 pathspec 会得 10 行 = 假失败）
+- 触发依据：台账与 history 的条目数对比（`grep -c "agent=dev"` = 8 / `agent=verifier` = 10；history 报告条目 dev 5 / verifier 9）；`prs/pr-001-reason-mapping-module-tasks.md` 无 `执行证据` 命中
+
+### 2026-09-17 20:25:00 · 收到报告 · dev（pr-006）
+
+- 1. 改了什么文件：**仅** PR worktree 的 `oamp/API.md` + `oamp/README.md` + `oamp/skill/hub.md`（`git diff --name-status 9a4f424 HEAD` = 三行 M），提交 **`5277713`**，PR worktree clean；`oamp/llms.txt` **未改**（由副本生成器核对**零 diff** ⇒ 正是 F-4 登记的预期）；迭代工作区唯一写入 = tasks 文件 §7 回填段
+- 2. 自证结果：自建 `doccheck`（29 条断言）**29 PASS / 0 FAIL**；隔离塔起真 Router + 真 web 跑 **真机械锁** `hub doctor` ⇒ JSON `pass=true`、`R1=29` / `r1Ok=29` / `allOk=true` / `nonOk=[]`；**反例门**：插假行 ⇒ `pass=false` 且唯一 `nonOk` = `R1 GET /api/nope`（并注明**退出码仍 0**，故按 JSON 判定）；三处条数一致
+- 主 agent 现场复核：PR worktree 提交与改动面逐条对上（三份文档 M、无 `oamp/src/**` 改动）；迭代工作区 `git status` 仅该 tasks 文件
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 8 例取证）
+
+### 2026-09-17 20:27:00 · 派发 · verifier（pr-006 验收）
+
+- 阶段：阶段 5 · pr-006 独立验收（文档面同步）
+- 产出物：PR worktree 提交 `5277713`（相对 `9a4f424`：`M oamp/API.md` / `M oamp/README.md` / `M oamp/skill/hub.md`）；判据 = 该 PR 文件 **5 条验收标准逐字** + `architecture.md` §5「文档面同步」与「文档面机械锁提示」+ §4 A-05 + §9-6/§9-8 + 四张功能卡相关验收项
+- 独立取证要求：不得采信执行方证据（**不读**其 `/tmp/0030-pr-006/`、**不读** tasks 文件 §7 回填段作为证据）；自建隔离环境（`/tmp/verify-p006/` 副本 + 真 Router + 真 web + 自建假节点，非默认端口，**不得占用默认 7788 / 主集群 socket**）；五项必须独立复现——① 字段/参数与实现一致（`reason` 五值/末位/仅失败侧；`new_session` 项级可选布尔与重绑语义；超时缺省空闲 10min + 安全网 4h 且显式 `timeout_ms` 仍为绝对上限；取件写入时机/跨重启/`acked` 恒 false）② `llms.txt` 逐字节（并判定"未改"是预期而非遗漏）③ 三/五处计数全为 29（**锚点纪律**：`API.md` 有 4 组重复章节号，须用「编号 + `METHOD /path`」联合定位）④ 真机械锁读 **JSON**（不看退出码）+ **反例门** ⑤ README 三个 env 默认值可在 `config.js`/`web.js` 找到对应；另核 `skill/hub.md` 字面"不冲突"是否成立 + 红线违规检查（执行方是否动了 `oamp/src/**`/`sdk/**`/`scripts/**`）
+- 触发依据：`DevP006` 完成回报 + 主 agent 现场复核（提交 `5277713` / 迭代工作区仅 tasks 回填）
+
+### 2026-09-17 20:40:00 · 收到报告 · verifier（pr-006 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-184753-pr-006.md（+ `roles/verifier/data/verify-20260917-184753-0030-pr-006.md`）
+- 结论：**pass**（AC1~AC5 **逐条 pass**）；隔离塔 `/tmp/verify-p006`（真 Router + web + 假节点，端口 **17916**，跑后已 stop），未采信执行方证据（不读其 `/tmp/0030-pr-006/` 与 tasks §7）
+- 五条判定：AC1 `reason` 五值闭集/仅失败末位、`new_session` 项级可选、取件终态一次写入 + 跨重启 + `acked` 恒 false **全链路复现一致**；AC2 README 已删"omp 默认 1800s 绝对上限"、改为空闲 10min/安全网 4h + 显式 `timeout_ms` 仍为绝对上限；AC3 `llms.txt` **未改**且与副本重跑 `gen-llms-txt` **逐字节相等**（零 diff = **预期**而非遗漏）、五处计数全 29；AC4 `skill/hub.md` 等待仍指 `API.md` 唯一真源且不复述字段；AC5 四项字段/参数与实现对应、`doctor pass:true`、**反例门**唯一失败项指向插入的不存在路径
+- 红线违规检查：**pass**（仅改三份文档、未动 `oamp/src`/`sdk`/`scripts`、`llms.txt` 未改为预期）
+- 差异 3 条（**均标 blocks_merge=false**）：① `API.md` §3.19 第 901 行 `reason` 类型列写 `string | null`，与同行"成功与受理态不带该键"及实现（失败侧恒 string）相斥；② `README.md` 第 187 行对账段仍写"软 TTL **30min**"，与同文件第 96 行 env 表的 `taskNetMs + 30000`（缺省 14430000）自相矛盾；③ `web.js:1386` 的 400 文案无 `new_session?` —— **pr-005 遗留、不在本 PR 范围**（已在下一迭代候选登记）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（9m59s）
+
+### 2026-09-17 20:42:00 · 调度决策 · pr-006 验收后收口（差异①②在合并前修，差异③留档）
+
+- 裁决：差异 ①② **虽不阻塞合并，但都落在本 PR 自己的文件面内、且是同文件自相矛盾** ⇒ 决定**合并前收口**（留到下迭代会让本迭代的文档面带着已知自相矛盾交付，且修成本极低）；差异 ③ 涉及 `web.js`（已随 pr-005 合并、不在任何未合并 PR 文件范围内）⇒ 维持"记入下一迭代候选"，本迭代不修
+- 派发 `DevP006Fix`（原地 dev，`agent=dev`，保持 gpt 归属）：只改 `API.md:901` 的类型列（`string | null` → `string`）与 `README.md:187` 的 TTL 口径（→ 与第 96 行 env 表同口径）；要求重跑自建 doccheck（29/0）、五处计数 29、`llms.txt` 逐字节一致（**不新增 diff**）、`doctor pass:true` + 反例门、改动面仅两文件，并回填 tasks §7；另要求顺带 grep 报告**其它**残留的旧口径数字（只报告不改）
+- 触发依据：`verify-20260917-184753-pr-006.md` 差异清单 ①②（blocks_merge=false 但属本 PR 文件面）+ 主 agent 对两处原文的逐行复核（`API.md:901` / `README.md:96` vs `:187`）
+
+### 2026-09-17 20:55:00 · 收到报告 · dev（pr-006 收口）
+
+- 1. 改了什么文件：**仅** PR worktree 的 `oamp/API.md`（§3.19 字段表 `reason` 类型列 `string | null` → **`string`**）+ `oamp/README.md`（对账段「软 TTL 30min」→ 「软 TTL `taskNetMs + 30s`（缺省 `14430000` ms ≈ 4h+30s）」），提交 **`06d86e6`**；`git diff --stat 5277713 06d86e6` = **2 files, 2 insertions(+), 2 deletions(-)**；回填 tasks §7
+- 2. 自证结果：`doccheck` **29 PASS / 0 FAIL**（收口前后一致；并声明 C1~C9 **无** `string | null` 类型基线断言、**未改断言口径**——这点已由主 agent 复核其 diff 仅 2 行得以佐证）；路由计数四处 **29/29/29/29**；`gen-llms-txt.mjs` stdout = `接口 29 条，3493 字节`、与仓库 `llms.txt` **diff-lines = 0**；隔离真 `doctor` JSON `{pass:true, r1:29, r1Ok:29, nonOk:[]}`（端口 **17931**、`/tmp` socket/db，跑后已 stop）
+- 3. 疑问/待办：顺带 grep 的**其它**旧口径数字仅命中「`API.md` 的等待预算 30 分钟」「`README` 显式 `timeout_ms` 上限 1800000/1800s」——两者**均非矛盾**（前者是 `--wait`/`mode:block` 的**客户端等待预算**，§9-6 明文"不改"；后者是显式 `timeout_ms` 的**绝对上限**，§9-7 明文"保留既有语义"）⇒ 无需再改
+- 4. 违反边界：无（改动面仅两文件两行）
+- 主 agent 现场复核：增量 diff 逐行对上（恰 2 处）；相对 `9a4f424` 完整改动面仍为三份文档、`llms.txt` 未改
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**
+
+### 2026-09-17 20:57:00 · 派发 · verifier（pr-006 增量定向复核）
+
+- 理由（协议要求）：**产物在验收后又变了** ⇒ 已出的 PASS（针对 `5277713`）不能自动覆盖 `06d86e6`，须对增量独立复核；委托范围**仅限增量**，不重跑全量
+- 验证标准 6 条：① 增量面精确（恰 2 行 2 文件）+ 完整面仍三文档、`llms.txt` 未改；② 修正 1 与实现一致（隔离环境跑成功/失败各一次，抽键集证"成功侧无该键 ≠ null"）；③ 修正 2 与实现一致（旧值零残留 + 算式在 `web.js`/`config.js` 有对应 + 与 README env 表同口径）；④ 前份 AC1~AC5 是否仍成立（需重跑者重跑并给读数）；⑤ 机械锁仍绿（JSON `pass:true`/`R1=29`/`nonOk=[]`）+ `llms.txt` 逐字节；⑥ 红线违规检查（`oamp/src|sdk|scripts` 零改动、路由仍 29）
+- 产出：`clarifications/verify-<ts>-pr-006-delta.md` + `roles/verifier/data/` 副本；要求明确回答"本增量是否使该 PR 可合并（blocking / non-blocking）"
+- 触发依据：`DevP006Fix` 完成回报（提交 `06d86e6`）+ 主 agent 对增量 diff 的逐行复核
+
+### 2026-09-17 21:05:00 · 收到报告 · verifier（pr-006 增量定向复核）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-194317-pr-006-delta.md（+ `roles/verifier/data/` 副本）
+- 结论：**PASS**（6 条标准逐条 pass）、**diff 清单为空**、明确判定 **non-blocking**；红线违规检查 pass（`oamp/src|sdk|scripts` 相对 `5277713` 与 `9a4f424` 均为空、路由仍 29）
+- 关键独立读数：**信封实测**——成功侧 `10` 键且 `success_has_reason=false`；受理态 `submitted_has_reason=false`；失败侧 `11` 键、`fail_reason=timeout`、**`fail_last_key=reason`**（⇒ `reason` 类型写作 `string` 正确，`string | null` 是错的）；`doctor {pass:true, R1:29, r1Ok:29, nonOk:[]}`；`llms_equal=true`；前份 `AC1~AC5` **仍成立**
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（5m12s）
+
+### 2026-09-17 21:07:00 · 调度决策 · pr-006 合并 + 第七次槛位释放 + pr-008 worktree 重建
+
+- pr-006 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-006-api-docs-sync` ⇒ **`4748e78`**；3 文档 / 17 插入 / 12 删除）；现场清理（`worktree remove` + `branch -d`）
+- **pr-008 的 worktree 从新 tip 重建**（`worktree remove` + `branch -D` + 从 `4748e78` 重新 `worktree add`）：该 PR 尚无提交，但其证据要枚举"相对 `main` 的 diff 全集"——若仍用旧基点 `9a4f424`，diff 全集**会缺文档四项**，阶段 6 会当"遗漏功能点"打回（为此本 PR 的 dev 有意暂缓到 pr-006 合并后）
+- 复核合并后 diff 全集 = **14 路径**：`oamp/API.md`、`oamp/README.md`、`oamp/skill/hub.md`（M）+ `oamp/src/{acp-client,agent,config,context-pool,oneshot-client,persist,rpc-client,web}.js`（M）+ `oamp/src/pickup.js`（D）+ `oamp/src/{pool-routing,reason}.js`（A）；**`oamp/llms.txt` 不在 diff 中**（生成物内容未变，属预期）
+- **槛位算法**：pr-006 返回"成功合并" ⇒ `累计槛位释放次数 = 7`，`当前有效上限 = min(3 + 7×3, 5) = 5`（仍触硬上限）
+- 派发 `DevP008`（gpt）：T1~T9（T10 = verifier 的独立核验任务，不属 dev 交付）；裁决随简报冻结（MI-P8-01~05 全采纳 + §5.2 六条上报项处置 + 5 条已登记预期取值变化清单）
+- 触发依据：`verify-20260917-194317-pr-006-delta.md` 结论 PASS / non-blocking；`git merge` 输出；`git diff --name-status main HEAD -- oamp/`（14 路径）
+
+### 2026-09-17 21:20:00 · 调度决策 · `roles/*/data/**` 条数漂移的裁决（不冻结计数）
+
+- 上报：`DevP008` 在执行 T1/T2 时发现 tasks 文件 F6/K3 写的「`roles/**` 新增 **9** 个」与实测不符（它测到 **11**），并声明"将按实测 11 记录并标注差异，不误写 9"
+- 主 agent 复核（读文件不采信转述）：**PR 文件 AC3(b) 的判据本来就没有冻结该数**——原文含「…须在证据文档中如实登记（本次事实更正实测新增 10 个…；**条数随验证产出单调增长，不作为判据的冻结值，判据只要求新增全部落在 `data/` 层**）」；陈旧的是 **tasks 文件 F6 / §4.2-D 写的「9 个」**（planner 在 pr-006 合并前的测量值）
+- 裁决：① **不冻结计数**——判据实体 = 分层（定义面 `:(glob)roles/*/*.md` diff = 0 + 新增全部落在 `roles/*/data/**`）；② dev 按**自身基点**取值并写明 ref：`main(706e3d0) → HEAD(4748e78)` 下为 **11**（1 architect + 1 prd + 9 verifier），而**迭代 tip 现值 12**（第 12 个是 `roles/verifier/data/verify-20260917-194317-pr-006-delta.md`，在 pr-006 合并**之后**才入库 ⇒ 不在 dev 基点内）⇒ 证据须写「两个 ref + 命令」，不得写 12；③ 定义面三条并写（`:(glob)` = 0 行 / `ls-tree` 两级计数 = 22 / 非 magic 写法 = 11 行，构成"陷阱 + 正对照"）；④ **条数单调增**须写成显式声明并附本次实测两值；⑤ tasks 文件的「9」作为**陈旧字面**记入 dev 报告第 3 项，**不改 planner 产物**（除 dev 自己的 §7 回填段）
+- 触发依据：`DevP008` 的 IRC 上报；`git diff --name-status main HEAD -- roles` 在 `4748e78` 与 `6aff428` 两个 ref 下的实测差（11 vs 12）；`prs/pr-008-existing-surface-guard.md` AC3(b) 原文
+
+### 2026-09-17 21:35:00 · 调度决策 · T9 闭合守卫口径升级（计数 → 枚举相等 + PR 声明并集对账）
+
+- 上报：`DevP008` 发现 tasks 文件 T9 的闭合守卫 `git diff main HEAD --name-only | grep -vE '^docs/|^roles/.*/data/'` 实测得 **14**（11 源码 + 3 文档），而配方写的是 **11**（pr-006 合并前的陈旧字面）；它提了两个候选口径（排除 `oamp/*.md` / 断言剩余集 = 11）并声明不隐藏
+- 主 agent **否决其两个候选并升级口径**：① 排除 `oamp/*.md` 会**静默放过"多出一个未被任何 PR 声明的 `.md`"**（正是守卫要拦的事）；② 计数相等不排除"少一个多一个"的对冲（同计数可由不同集合产生）
+- 裁决（两层）：**第一层 = 枚举相等**——剔除过程产物区（`docs/**`、`roles/*/data/**`）后的集合必须逐行等于 14 条期望集（用 `diff <(期望集|sort) <(实测集|sort)` 断言空输出，不比行数）；并如实记 11 条落 `oamp/src/**`（8 M + 1 D + 2 A）、3 条落 `oamp/*.md`。**第二层 = 与所有 PR 文件「文件范围」声明之并集对账**——`实测集 ⊆ 声明并集`（多出来即"未声明变更"）+ **声明了但零 diff 的路径逐一列出并解释**（预期恰为 `oamp/llms.txt`：生成物内容未变、pr-006 已声明且其 AC3 明写"未改是预期"⇒ 属"声明 ⊇ 实际"的正常形态，不是遗漏）
+- 理由：第二层才真正对应阶段 6 验证目标的「PR 间文件范围无重叠、无遗漏功能点」；闭合守卫的实体是**集合相等/包含**，不是计数
+- 通道纪要：dev 连续三次选择"记实测 + 标陈旧字面 + 不迁就旧数"（`roles` 计数、T9 守卫，及更早的 `oamp/cluster.json`），三次均为正确处理，已在回信中确认
+- 触发依据：`DevP008` IRC 上报；主 agent 对 T9 配方原文与该命令在两个 ref 下实测值的复核
+
+### 2026-09-17 21:50:00 · 收到报告 · dev（pr-008）
+
+- 1. 改了什么文件：**仅** PR worktree 的 `docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md`（**A**，266 行 / 13 个 `##` 段），提交 **`8b200cf`**；`git diff --name-status 4748e78 HEAD` = 恰该一行 A；PR worktree clean；迭代工作区唯一写入 = tasks 文件 §7 回填段（T1~T9 全量证据）
+- 2. 自证结果：**12 条**"不回归"逐条判据（G01 验收 1~12）+ **5 条**已登记预期取值变化登记；路由 **29**（四处静态 + 一处运行时）；`hub doctor` **`pass=true` / R1=29 / nonOk=[]**；**T9 两层封闭性守卫**：剔除过程产物区后**枚举 14 条**（11 源码 + 3 文档）、与 PR 声明并集对账**未声明项 = 0**、声明了却零 diff 的**仅 `llms.txt` 且有解释**；closure enumeration `exit=0`
+- 3. 疑问/待办（**两处陈旧字面，如实记录未迁就**）：① tasks 文件 F6 写 `roles/**` 新增 **9**，实测按其基点 `4748e78` 为 **11**（迭代 tip 现值 **12**，随验证产出单调增）；② tasks 文件 T9 封闭守卫期望 **11**，实测剔除过滤后为 **14**（pr-006 合并时序所致）。两处均已按主 agent 裁决处理（判据实体 = 分层与集合相等，不是计数）
+- 4. 违反边界：无（零代码改动、未落仓脚本/测试文件、未改 PR 文件）；`git status` 证明改动面封闭
+- 主 agent 现场复核：提交与改动面逐条对上（单文件 A / clean / 266 行 13 段）
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**
+
+### 2026-09-17 21:52:00 · 派发 · verifier（pr-008 验收，含 T10 反证）
+
+- 阶段：阶段 5 · pr-008 独立验收（G01 零回归证据面）
+- 产出物：PR worktree 提交 `8b200cf`（单文件 `evidence/g01-existing-surface.md`）；判据 = PR 文件 **4 条 AC 逐字** + tasks 文件 **T10 四条判据**（该 PR 把独立核验内置为 T10 并明确归属 verifier）
+- **T10 核心 = 反证**（本迭代第一次把"判据要有辨别力"写成硬判据）：要求在 `/tmp` 副本上做三种人为改动——(a) `transport.js` 加一行注释；(b) 改 `context-pool.js` **LRU 分支**一行；(c) 改 `web.js` 的 `CALL_EVENTS` 一处事件名——**三者必须全部被捕获（报 FAIL）**，任一未被捕获即判"该判据无辨别力 ⇒ 本 PR 不通过"；并要求给出"破坏前 PASS → 破坏后 FAIL"的**成对读数**
+- 其余独立核：§11 命令族逐条复跑与文档记载比对（不一致项注明"文档错 / 环境差"）；`doctor` JSON（不看退出码）R1 29 项 0 失败；三条更正确认（不含 `oamp/cluster.json` / `roles/**` 分层 / 退役判据非字面 `grep pickup`）；5 条预期取值变化登记是否如实；路由 29；T9 两层守卫；红线违规检查
+- 另明确告知两处**已知陈旧字面**（`roles` 计数 9→11、T9 守卫 11→14），并要求 verifier **不得自行改数**，只核"文档记的是否是它自己基点的实测值且声明了不冻结"
+- 触发依据：`DevP008` 完成回报（`8b200cf`）+ 主 agent 现场复核（单文件 A / clean / 266 行 13 段）
+
+### 2026-09-17 22:05:00 · 收到报告 · verifier（pr-008 验收，含 T10 反证）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-205039-pr-008.md（+ `roles/verifier/data/` 副本）
+- 结论：**pass**、**non-blocking**；**T10 四条判据 4/4 pass**、**AC1~AC4 4/4 pass**
+- **反证（本迭代首次：证明判据有辨别力）——三处人为破坏全部被捕获，且给了成对读数**：(a) `transport.js` 加一行注释 ⇒ `cmp 0 → 1`（PASS→FAIL）；(b) `context-pool.js` LRU 分支改一行（`>=` vs `>`）⇒ 归一化 `DIFF_EXIT 0 → 1`；(c) `web.js` 的 `CALL_EVENTS` 改一处事件名（`call_result_x`）⇒ 常量 `DIFF_EXIT 0 → 1`
+- 机械锁：`doctor {pass:true, items:66, R1:29, R1_fail:0, routes_length:29}`（隔离端口 17808）；红线违规检查四项全 false（未动 `src`/未新增路由/未落仓脚本或测试/**未写 PR worktree**）
+- 差异 3 条：**C05 = 真实缺陷**（见下条）；C01（文档记 HEAD `4748e78`、实为 `8b200cf` —— 后者即证据提交自身、`oamp` 面未变）与 C08（文档端口 17788 vs 验方环境 17808）属**环境/ref 差**，非缺陷
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（11m29s）
+
+### 2026-09-17 22:10:00 · 调度决策 · C05 缺陷定性（stdin 形态）+ 合并前收口派遣
+
+- 缺陷：证据文档 §11 的 `keys()` 用 `paste -sd,`（无显式操作数）。verifier 报其在 Darwin 上恒空
+- 主 agent **独立定性**（不采信单方读数、也不轻易归为环境差）：把该行**逐字节**写成脚本，用 `bash`/`zsh`/`sh` 三种 shell 跑 ⇒ 全部 `rc=1` + `usage: paste [-s] [-d delimiters] file ...` + **空输出**；实测矩阵（stdin 形态 × 写法）：
+  - harness 直接 bash（stdin 正常）⇒ `paste -sd,` **通过**（`a,b,c`）
+  - 脚本文件 / 子进程（`stdin=DEVNULL` / `PIPE` / 继承）⇒ `paste -sd,` **rc=1 空输出**；`paste -sd, -` **三种形态全通**
+  - ⇒ 触发条件是**stdin 非交互继承**，而这恰是**文档的目标使用场景**（agent 工具调用 / 脚本重跑）⇒ 判为**真实复现性缺陷**（"命令写错 ⇒ 恒空 ⇒ 假通过"类，tasks §5.3-1 明写要防），非环境差
+- 顺带初筛同文件其它 GNU-ism：`grep -cE '^\|\s*...'`（含 `\s`）一处可疑，**本机 BSD grep 实测正常（=29）** ⇒ 不改；`sed -i`/`date -d`/`readlink -f`/`stat -c`/`grep -P`/`sort -V`/`xargs -r` **零命中**
+- 裁决：**合并前收口**（改一行 `paste -sd,` → `paste -sd, -`），派 `DevP008Fix`（原地 dev，`agent=dev`，保持 gpt 归属）；要求修后**在非交互形态**（`/tmp` 一次性脚本 + `bash`/`sh`）给出**成对读数**（修前 rc=1 空 / 修后 rc=0 十键），并复跑 `KEYS-IDENTICAL`、确认 diff 只有那一个 token、文档仍 266 行；改后按协议做**增量定向复核**
+- 触发依据：`verify-20260917-205039-pr-008.md` 的 C05；主 agent 的 stdin 形态实测矩阵（可复现命令见 history 与 tasks §7）
+
+### 2026-09-17 22:20:00 · 收到报告 · dev（pr-008 收口）
+
+- 1. 改了什么文件：**仅** PR worktree 的 `evidence/g01-existing-surface.md` 第 218 行一个 token（`paste -sd,` → `paste -sd, -`），提交 **`3c63846`**；`git diff --stat` = 1 file / **1 insertion / 1 deletion**；文档仍 **266 行**；PR worktree clean；迭代工作区唯一写入 = tasks §7 回填
+- 2. 自证结果（**非交互形态成对读数**）：`bash <脚本>` / `sh <脚本>` 两形态——修前 `old_stdout=<>` + `usage:` + `old_rc=1`；修后完整 **10 键** + `new_rc=0` + 脚本 rc=0；`KEYS-IDENTICAL`（两侧键序逐字 = `call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code`）
+- 3. 疑问/待办：顺带扫描仅命中 evidence 第 235 行 `grep -cE '^\|\s*...'`（含 `\s`），**BSD 实测 = 29、rc=0** ⇒ 正常，未改；tasks §7 无命中
+- 4. 违反边界：无
+- 主 agent 现场复核：增量 diff 恰 1 行 1 token、266 行、clean 逐条对上
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**
+
+### 2026-09-17 22:22:00 · 派发 · verifier（pr-008 增量定向复核）
+
+- 理由（协议要求）：产物在验收后又变了（`8b200cf` → `3c63846`）⇒ 已出的 PASS 不能自动覆盖；委托范围仅限增量
+- 验证标准 6 条：① 增量面精确（1 file/1+1，逐行确认只有一个 token，266 行，clean）；② **修正真正生效（非交互形态）**——verifier 须**自跑**"修前 rc=1 + usage + 空 / 修后 rc=0 + 10 键"成对读数，不得转述 dev；③ C05 原结论仍成立（`KEYS-IDENTICAL` + 两侧键序）；④ 前份 T10 4/4 + AC 4/4 是否仍成立；⑤ 红线违规检查（`oamp/src|sdk|scripts` 零改动、路由仍 29、未落仓脚本/测试）；⑥ 顺带扫同类"依赖 stdin 继承/平台差异"写法（只报告）
+- 产出：`clarifications/verify-<ts>-pr-008-delta.md` + `roles/verifier/data/` 副本；要求明确回答 blocking / non-blocking
+- 触发依据：`DevP008Fix` 完成回报（`3c63846`）+ 主 agent 对增量 diff 的逐行复核
+
+### 2026-09-17 22:35:00 · 收到报告 · verifier（pr-008 增量定向复核）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-211337-pr-008-delta.md（+ `roles/verifier/data/` 副本）
+- 结论：**PASS**、**non-blocking**；6 条标准逐条 pass、**diff 清单为空**、红线无违规
+- 关键独立读数（**verifier 自跑，未采信 dev**）：非交互脚本形态（`exec </dev/null`）——修前 `rc=1` + `stdout` **空（0B）** + `usage: paste [-s] [-d delimiters] file ...`；修后 `rc=0` + 完整 10 键（87B）+ stderr 空；`KEYS-IDENTICAL` 成立；增量 = 1 file/1+/1−、唯一 token、266 行、clean；前份 T10-1~4 与 AC1~AC4 **仍成立**（`oamp/**` vs `8b200cf`/`4748e78` 空 diff）
+- 顺带发现（范围外，只报告）：**tasks §7 还有三处无操作数 `paste`**（L437 / L453 / L515），脚本形态下同样 `rc=1`+usage+空（非交付物，不改主判定）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（3m55s）
+
+### 2026-09-17 22:38:00 · 调度决策 · pr-008 合并（第 8/8 个）+ 记录一致性收尾派发
+
+- pr-008 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-008-existing-surface-guard` ⇒ **`e49ad27`**，1 file / 266 insertions）；现场清理（`worktree remove` + `branch -d`）
+- **阶段 5 完成度复核**：`git worktree list` = 2 条（仅剩迭代工作区 + 主工作区）、`git branch | grep -c feat/0030` = **0**、相对 `main` 的改动面 = 80 路径（含全部迭代文档 + `oamp/**` 14 + `roles/*/data/**` 12）⇒ **8/8 PR 全部合并、零遗留现场**
+- 派发 `DevP008Rec`（原地 dev）：把 tasks §7 三处无操作数 `paste` 统一为可移植写法（` -`）+ **就地透明度注记**（说明原写法在脚本/子进程形态下恒空、已按交付物同一修正同步、语义与结论不变），并要求非交互形态成对读数；**不静默改写历史记录**
+- 触发依据：`verify-20260917-211337-pr-008-delta.md` 结论 PASS + 其顺带发现第 6 项；`git merge` 与 stage-5 完成度复核输出
+
+### 2026-09-17 22:40:00 · 调度决策 · 补派失踪的独立观测（progress-observer 漏触发登记）
+
+- **如实登记的调度侧漏项**：`workflow-pb.md` §可观测性要求「**每次一个 PR 完成 merge 之后**（或阶段 1~4 任一推进后）自动派发一次 `progress-observer`，保持 `docs/iterations/{迭代ID}/progress.md` 新鲜」——本迭代**全程未派发该角色**，`progress.md` **不存在**。这是主 agent 的调度漏项，非执行角色问题
+- 影响面（如实评估）：① 阶段 6「并发调度真实执行证据」第 1 项原本要以 `progress.md` 历史记录或 `git worktree list` 时间信息判定 worktree 时间窗重叠——本迭代已改用**git 提交/合入交替序列 + 两个 PR worktree 同刻创建的磁盘事实**替代（见 `status.md` §并发执行证据）；② 迭代期间无独立状态对账快照（`status.md` 的准确性未被第三方核过）
+- 处置：**现在补派 `ProgObs`**（唯一写入 `progress.md`，整体覆盖），并明确告知其历史新鲜度不可回溯、**不得为弥补历史而编造时间线**；补派产物可作为阶段 6 第 1 项的辅助证据源
+- 触发依据：`workflow-pb.md` §可观测性：progress-observer 自动/按需触发（第 1 条）；`git worktree list` / 迭代目录实测无 `progress.md`
+
+### 2026-09-17 22:50:00 · 收到报告 · progress-observer（补派的独立状态对账）
+
+- 产出：`docs/iterations/0030-hub-communication-upgrade/progress.md`（**首次生成**，整体覆盖，六部分齐全；入库 `2483408`）
+- 结论摘要：阶段 1~4 产物文件与声称**一致**；7 条 `depends_on` 边逐条用 `merge-base --is-ancestor` 核实**全部满足**（0 条未满足）；8 个 `--no-ff` 合并提交全在迭代分支、`feat/0030-*` 分支与 PR worktree **零残留**；可并发但闲置 PR = **0**
+- **并发出真实并发证据（git 可核实且唯一一对）**：`pr-004` 分支提交 `53c27a0` @ 15:53:31 ∈ `pr-007` 窗口 [`ffb4b6b` 15:43:08 → `58e30cd` 15:59:37] ⇒ 两者均未合入而均已提交 ⇒ 并发确曾发生
+- **核出 `status.md` 14 条不一致**（逐条附命令），其中**三条是我自己的判断失误而非笔误**：①「pr-002/pr-003/pr-007/pr-004 的提交均早于其前序合入」**实测仅 pr-004 成立**（其余三个方向相反）⇒ 该句作为并发证据**不成立**；②「每个 PR 分支自身恰 1 个提交」对 pr-006/pr-008 不成立（各 2 个）；③ ③ 项内写"现值 6"与首部"7"自相矛盾
+- 另核出**两条提交信息与内容不符**：`4247dca` 信息称"8/8 阶段5 完成"却未触及 `status.md`；`b49e7d0` 信息称"补齐 4 份"实际只新增 1 份（另 3 份早已入库）
+- 无法核实项 8 条（台账 22 条派发的时点/耗时/自报模型、`history.md` 叙述时点、L1-01 工作区外载体、`depends_on` 理由的代码级内容、原 worktree `stat` 磁盘证据已不可复跑）；并如实记「本文件为阶段 5 收尾后首次生成，迭代期间无历史快照可比对」，**未为弥补历史而编造时间线**
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`（2m9s）
+
+### 2026-09-17 22:55:00 · 调度决策 · 依独立核查更正 status.md（12 处）+ 2 条提交信息失真登记
+
+- 处置：**12 处就地更正**（阶段状态 5 → ✅ 8/8、pr-008 行 → ✅ `e49ad27`、汇总句 → 8/8、并发配置四字段、首部「当前阶段/状态」、并发证据节的**判读句与提交数口径**、③ 项现值、派发台账 4 行终态与自报模型），**2 条提交信息失真如实登记**（历史提交不可改，已在 status.md 新增「记账更正」节写明）
+- **并发证据节重写**（这是本次最实质的更正）：判据收敛为「某 PR 的**提交**时间落入另一 PR 的**提交→合入**窗口」，只保留 git 支持的**唯一一对**（pr-004 ∈ pr-007 窗口）；明确写出该判据**覆盖不到**的区间（PR 期初未提交阶段）；并把"两个 worktree 同刻创建"的磁盘事实**降级为历史记录**（目录已清理、不可复跑），指明**可复跑的首要证据**是上述窗口重叠——正好对应阶段 6 强制核查第 1 项的实质要求
+- 触发依据：`progress.md` §3/§4/§5（14 条，逐条附 git 命令）；主 agent 对第 ⑥⑦⑧⑨⑩ 条的逐条复核
+
+### 2026-09-17 23:10:00 · 派发 · verifier（阶段 6 迭代级终验）
+
+- 阶段：**阶段 6 · 迭代级终验（最终产物）**——本迭代最关键的一次独立验证
+- 产出物：迭代分支 tip **`a291343`** 的全部迭代产物（`oamp/**` 相对 `main` 14 路径 + `docs/iterations/0030-…/**`）；`main` 尚未合并，本次只针对迭代分支最终态
+- 验证标准（六组，逐条判定）：**A** demand §达到什么效果 **1~6** 逐条（含效果 6 的模型归属，并要求说明该判据**不是 git 可核实项**的可达性边界）；**B** **搭置报告原文置顶**——`deferred-demand-changes.md` 路径**显式传入**，要求原文摘录（不转述不总结）且置顶/显著呈现，禁止脚注式，并明确**不做二次判断、只透传**；**C** PR 粒度三条锚点逐 PR；**D** 依赖正确性**代码级**（7 条边逐条核理由里点名的真实符号/行号，非合并图层面）+ 无环 + 文件范围无重叠 + F01~F09/G01 无遗漏；**E** **并发三项强制核查**（worktree 时间窗重叠 / 并发配置区块真实初始化与更新 / 爬升公式真实触发），声明缺一即判 partial、不接受"协议文本正确"代替证据；**F** status/progress/history 三者的阶段与合并状态是否与 git 一致（含核实 `2483408` 那次更正后是否真的一致）
+- 独立取证要求：效果 1~5 **自建隔离塔端到端复跑**（`/tmp` 副本 + 真 Router + 真 web + 假节点，非默认端口，跑后 stop），**不采信任何 PR 验收报告与 tasks §7**；G01 至少抽查 3 条（事件类集合 / 信封键序 / 路由 29）并独立取证；E 组三项必须给**自己复跑**的 git 输出
+- 产出：`clarifications/verify-<ts>-iteration.md` + `roles/verifier/data/` 副本；回报要求单列「搭置条数」供向用户呈报
+- 触发依据：阶段 5 完成（8/8 合并、现场零遗留）；`workflow-pb.md` §验证目标（搭置报告强制呈现 / PR 粒度框架 / 依赖正确性 / 并发真实执行证据）；`progress.md` §2 确认 7 条依赖边在合并图层面全部满足（**代码级仍待本阶段核**）
+
+### 2026-09-17 23:35:00 · 收到报告 · verifier（阶段 6 迭代级终验）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-220603-iteration.md（+ `roles/verifier/data/` 副本；报告已把 `deferred-demand-changes.md` **原文量顶呈现**）
+- 结论：**PASS**（六组判据 A~F 全部通过；G01 抽查通过）；**搭置条数 = 5**（供向用户呈报）
+- 逐组：**A** 效果 1~6 **全 pass**（效果 6 标注"非 git 可核实、边界已文档化"）；**B** 搭置报告**原文摘录 + 置顶**、5 条、**未做二次判断**（符合"只透传"要求）；**C** 8 个 PR 粒度逐条 pass（pr-005 登记"可审查性成本"但未判 fail）；**D** 依赖正确性**代码级** 7 条边全 pass、无环、文件范围无重叠、F01~F09+G01 全覆盖；**E** 并发三项全 pass（E1 `53c27a0` @ 15:53:31 ∈ pr-007 窗口 [15:43:08, 15:59:37)；E2 并发配置区块 `9f071b8` 初始化 vs `2023e88`/`2483408` 更新；E3 爬升公式 N=0→3 / N=1→5 / N=8→5）；**F** `2483408` 更正后 status 与 8 次合并一致、8+8 份 PR/tasks 文件齐全
+- G01 抽查：事件类集合一致、信封键序一致（失败侧 `reason` 末位）、路由 29、`doctor pass=true`、Router 不可达时取件 200
+- 差异 5 条（**均非阻塞**）：① `RECONCILE_TTL_DEFAULT_MS` 符号改为 `taskNetMs + 30s` 算式（属 §5 明文改动）；② `dispatch-ledger.md` 停在 16:07 且有在途行（**已处置**：依其自述的在途行补写协议回填 3 行 + 声明 16:07 后滚动面 = `status.md` 台账）；③ `agent_error` 有算式覆盖但无 daemon 端到端实例（`context_crashed` 落 `infra_error`，属 §9-1 已登记局限）；④ 效果 4 用压缩 `idle=1500ms` 而非墙上 30 分钟（判据可判定性要求，已在报告标注）；⑤ HEAD `809f259` = `a291343` + 两笔记账提交、`oamp` 面逐字相同（⇒ 终验结论对最终态成立）
+- 红线违规检查：未改产品文件、未写主工作区、未占默认端口/socket、隔离塔已停；证据根 `/tmp/0030-ver-iter{,2,3}`
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（25m5s）
+
+### 2026-09-17 23:40:00 · 调度决策 · 阶段 6 PASS ⇒ 启动收口（迭代分支合入 main）
+
+- 依据：`verify-20260917-220603-iteration.md` 结论 PASS；`workflow-pb.md` §迭代分支合并进 main（三步 + 第 3 步前置游离动作）
+- 处置：① 迭代工作区 `checkout --detach`（前置动作）→ ② 仓库主工作区 `checkout main` + `merge --no-ff iteration/0030-hub-communication-upgrade`（message 格式按规范）→ ③ `branch -d`；合并后把 `status.md` 的 `**迭代分支**` 字段改为"（已合并）"
+- 附加处置（终验差异 ②）：**已按 `dispatch-ledger.md` 自述的在途行补写协议回填三行**（dev pr-007/pr-004 = `openai/gpt-5.6-luna`、verifier pr-003 = `powerby/grok-4.6`），并声明 16:07 之后的滚动面为 `status.md` §派发台账；未改该文件的自述范围与其它内容

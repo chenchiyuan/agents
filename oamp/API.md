@@ -657,12 +657,13 @@ data: {"instance_id":"demo-2","last_heartbeat":1789184787786}
 | `chat_id` | string | **是** | — | 调用**归属**：必须指向**已存在**的对话（调用面不新建对话）。未提供 / `null` / 空串 / 非字符串同判 → `400` |
 | `agent` | string | **是** | — | **角色名**（如 `dev`）——不是实例名。解析 = 由角色名推出的实例名可反解回该角色（角色文件存在）；「不可解析 / 离线 / 不存在」三种情形**不区分** → `404` + 同一文案 |
 | `task` | string | 条件必填 | — | 任务文本（`trim` 后不得为空）；与 `tasks` **互斥**。以 `!` 开头时按**普通文本**处理（本面不走 shell） |
-| `tasks` | array | 条件必填 | — | 批量形态：每项 `{task, output_schema?, schema_mode?, mode?, model?}`；**每项 = 一个独立调用**（各得一个 `call_id`）；空数组 / 非数组 → `400` |
+| `tasks` | array | 条件必填 | — | 批量形态：每项 `{task, output_schema?, schema_mode?, mode?, model?, new_session?}`；**每项 = 一个独立调用**（各得一个 `call_id`）；空数组 / 非数组 → `400` |
 | `context` | string | 否 | 无 | **本次调用的共享说明**（`trim` 后非空才生效）：作为独立区块**前置**装配，不污染任务文本；批量提交时对各项共享生效 |
 | `output_schema` | object | 否 | 无 | **期望的返回结构**（受限子集，见下）；形态超出子集 → `400` |
 | `schema_mode` | string | 否 | `permissive` | `permissive` / `strict`；`strict` 且终态结构未通过校验 ⇒ `state` 为 `failed`、`error` 为 `structured_output_invalid` |
 | `mode` | string | 否 | `background` | `background`（立即受理）/ `block`（响应挂起至终态，不设人为上限） |
 | `model` | string | 否 | 无（既有默认模型链） | 须匹配 `^[A-Za-z0-9._/-]{1,128}$`；非法 → `400` |
+| `new_session` | boolean | 否 | 无（= 沿用既有绑定） | **项级**可选字段（单任务形态即写在请求体本身，批量形态写在 `tasks[]` 的每一项）：`true` ⇒ 本次派发**忽略既有绑定**（会话粘性），按池内**最空闲**实例重选并**重绑**（下一轮不再声明时粘到本次选中的实例）；缺省不出现 ⇒ 沿用既有绑定。**仅 `true` 生效**，其余取值（`false` / `null` / 非布尔）与缺省等价，**不新增校验分支与错误码**（既有响应形状零变化） |
 
 未声明的字段**忽略**（与 §3.8 同口径）。
 
@@ -895,12 +896,13 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 | `truncated` | boolean | 过程记录是否被既有上限截断（与 §3.18 同一口径） |
 | `text` | string \| null | 终态产出的原文；失败且无文本时 `null` |
 | `structured_output` | object \| null | 带 `output_schema` 且终态校验通过时的对象；否则 `null`（不带 `output_schema` 时恒 `null`，只交付 `text`） |
-| `error` | string \| null | `failed` 且执行侧 / 校验侧给出机器可读原因时给出（校验侧如 `structured_output_invalid`）；否则 `null`。**shell / 一次性失败以 `exit_code` 表达，此时 `error` 为 `null`** |
+| `error` | string \| null | `failed` 且执行侧 / 校验侧给出机器可读原因时给出（校验侧如 `structured_output_invalid`）；否则 `null`。**shell / 一次性失败以 `exit_code` 表达，此时 `error` 为 `null`**；键保留原拼写与原值，语义为人类可读的补充信息，**不新增 `detail` 键** |
 | `exit_code` | number \| string \| null | 常驻（`omp-daemon`）执行**成功** = `0`；常驻执行**失败** / 不可得 = `null`；shell / 一次性执行路径 = 进程真实退出码（被信号终止时为信号名 / `killed`）。`schema_mode: "strict"` 的结构覆写只改 `state` / `error`，不改执行侧退出码 |
+| `reason` | string | **仅失败终态**（`state` 为 `failed`）在既有 10 键之后**末位追加**该键，取值 ∈ 封闭五值：`agent_error`（agent 自报失败但未给出可归类原因 / 自由文本未命中任何已知形态）/ `cancelled_by_client`（调用方取消）/ `infra_error`（会话 / 子进程 / 上下文基础设施失败）/ `timeout`（空闲或安全网超时，**不分子枚举**）/ `rejected`（权限拒绝 / 模型不可用 / 队列满 / 结构校验未通过 / 目标拒绝受理）。成功与受理态**不带**该键 ⇒ 只读 `reason` 即可区分失败类别，无需解析自由字符串 |
 
 - `state` 与 §3.15 的 `state` **同真源**（同一任务记录 + `schema_mode: "strict"` 未通过时的 `failed` 覆写），两处不会漂移。
 - 信封**不含** `chat_id`（任务记录没有该字段）——归属核对请走 `GET /api/chats/<chat_id>` 的 `messages[].meta.task_id`（§3.14 已说明）。
-- 信封的键集合是**封闭的 10 键**（上表）；SSE 的 `call_result` 帧 = 该信封 + `chat_id`（**11 键**，见 §4.4）——参照契约里那几类本仓库拿不到的字段在这里**不提供**：**无数据源，不造假、不估算**（见 §7.3 第 ⑧ 条）。
+信封的键集合是**封闭的 10 键**（上表）；失败终态在该 10 键之后**末位追加** `reason`（失败侧 11 键，既有键名与键序零改动）；SSE 的 `call_result` 帧 = 该信封 + `chat_id`（成功 / 受理 11 键、失败 12 键，见 §4.4）——参照契约里那几类本仓库拿不到的字段在这里**不提供**：**无数据源，不造假、不估算**（见 §7.3 第 ⑧ 条）。
 
 **错误**
 
@@ -1056,7 +1058,7 @@ data: {"chat_id":"chat-…","call_id":"task-…","agent":"dev","state":"working"
 
 | 参数 | 类型 | 必填 | 默认 | 说明 |
 |---|---|---|---|---|
-| `principal` | string | **是** | — | 取件身份（= 派发时声明的 `requester`）；缺失 / 非法 → 400 |
+| `principal` | string | **是** | — | 取件身份 = 该调用的**归属身份**：派发时**显式声明**的 `requester`，未声明时为其缺省身份 `chat:<chat_id>`（见 §3.14）；缺失 / 非法 → 400 |
 | `epoch` | string | 否 | 无（= 不判过期） | 会话代次（口径见 §3.22）；不符 → 409 |
 
 **成功响应** `200`
@@ -1078,9 +1080,9 @@ data: {"chat_id":"chat-…","call_id":"task-…","agent":"dev","state":"working"
 ```
 
 - `agent` 是**角色名**；`envelope` 的键集与取值范围见 §3.19（两个面读同一个记录，形状与取值一致）。
-- `envelope` **正文现算**：每次请求按当刻 Router 任务表重算；登记已不在（进程重启过）⇒ `envelope` 为 `null`，条目本身不因此消失。
-- 只列 `acked === false` 的条目；**无游标、无分页** —— 一轮查询即当刻全集。
-- 保留期 = 调用登记的寿命（进程内、**重启即丢**）；重启后以产物与 DB 为准（hub 的登记是易失的实时视图，不是权威台账）。
+**写入时机 = 终态发布那一刻恰一次**：条目由 hub 在**终态发布点**写入持久层（`submitted` / `working` 的调用**无记录**，不存在半成品条目）；`envelope` 就是那一刻产出的那一份（失败侧含 `reason`）——**不再按当刻 Router 任务表现算**，也不因进程重启而为 `null`。
+- 只列 `acked === false` 的条目；列出的条目 `acked` **恒为 `false`**（未取件集合的定义）；**无游标、无分页** —— 一轮查询即当刻全集。
+- **跨重启可查**：条目存于 hub 的持久层，hub 进程重启后同一身份再取件**仍能取到**该终态，内容与重启前**逐字一致**；保留期 = **至 ack 为止**（未取件条目不设过期，不自动消失）。
 
 **错误**
 
@@ -1114,6 +1116,7 @@ data: {"chat_id":"chat-…","call_id":"task-…","agent":"dev","state":"working"
 ```
 
 - **幂等且不报错**：对不存在 / 已确认 / 不属于该身份的 `call_id` 一律 `200`（按身份划账、无副作用）——「重复确认」不被表达成错误。
+**确认 = 把该条目从待取清单就地删除**：确认后它不再出现在未取件集合中（重启前后一致）；已确认条目在持久层不留历史行（**不做**归档 / 导出 / 历史台账面）。
 
 **错误**
 
@@ -1357,7 +1360,7 @@ data: {"chat_id":"chat-…","call_id":"task-…","agent":"dev","state":"working"
 |---|---|---|
 | `call_state` | `{chat_id, call_id, agent, state}` | ① 派发成功（受理）⇒ `submitted`；② 首个执行增量到达 ⇒ `working`（每次调用**只发一次**） |
 | `call_update` | `{chat_id, call_id, agent, kind, text}`（`kind` = `chunk`）或 `{chat_id, call_id, agent, kind, line}`（`kind` = `stdout` / `stderr`） | 执行过程增量（与既有 `task_update` 同源同形态）；控制条目 `started` / `truncated` **不下发** |
-| `call_result` | `{chat_id, call_id, agent, state, duration_ms, model, truncated, text, structured_output, error, exit_code}` | 终态到达（投递路径或对账路径任一）；**该帧即终态状态迁移**——不再另发同义的 `call_state` |
+| `call_result` | `{chat_id, call_id, agent, state, duration_ms, model, truncated, text, structured_output, error, exit_code}`（**失败终态**在末位追加 `reason`，键位与取值见 §3.19；成功 / 受理侧不带该键） | 终态到达（投递路径或对账路径任一）；该帧即终态状态迁移——不再另发同义的 `call_state` |
 
 - **序列闭合于终态**：`submitted → working → call_update* → call_result`，无悬空帧。
 - **不重放、不补发**：订阅建立之前发生的事件不会补投（与 §4.3 同口径）。需要历史过程请用 §3.18 的转录读取。

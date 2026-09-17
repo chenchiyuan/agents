@@ -26,6 +26,8 @@ const NUMERIC_DEFAULTS = {
   OAMP_HEARTBEAT_TIMEOUT_MS: 30000,
   OAMP_HB_LOG_WINDOW_MS: 60000,
   OAMP_RECONNECT_MAX_MS: 10000,
+  OAMP_TASK_IDLE_MS: 600000,
+  OAMP_TASK_NET_MS: 14400000,
 };
 // F03 心跳空闲档倍率（§3.4）：heartbeatIdleMs = HEARTBEAT_IDLE_FACTOR × heartbeatIntervalMs。
 // 派生值，不是 env 键（N9：不新增用户可调旋钮）；测试 env（interval=50）自动压缩为 300ms。
@@ -150,7 +152,8 @@ export function loadConfig(env = process.env) {
     // D22（demo 自愈）：断线/连接失败后自动重连重注册（0 = 旧行为：断线即退）；退避上限
     reconnect: reconnectRaw === '1',
     reconnectMaxMs: readPositiveInt('OAMP_RECONNECT_MAX_MS', env),
-    // §8.2 逐键优先级：env > 配置文件 > 内置默认；相对路径基准 = 包根（与 cwd 无关），绝对路径原样
+    taskIdleMs: readPositiveInt('OAMP_TASK_IDLE_MS', env),
+    taskNetMs: readPositiveInt('OAMP_TASK_NET_MS', env),
     dbPath: path.resolve(PKG_ROOT, readNonEmptyString(env.OAMP_DB) || file.db || DB_DEFAULT),
     defaultModel: readNonEmptyString(env.OAMP_OMP_MODEL) || file.model || MODEL_DEFAULT,
     contextMax: env.OAMP_CTX_MAX === undefined
