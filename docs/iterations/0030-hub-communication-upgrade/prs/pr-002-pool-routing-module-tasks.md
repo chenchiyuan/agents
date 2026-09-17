@@ -17,7 +17,7 @@
 
 | # | 文件 | 动作 | 内容（任务归属） |
 |---|---|---|---|
-| 1 | `oamp/src/pool-routing.js` | **新建**（唯一代码文件） | 头注 + `createPoolRouting({roleFromInstanceId})` 工厂 + 池成员判定 + 空池回落（**T1**）；次序键选择 + 在飞预留计数（**T2**）；粘性表（读 / 重绑 / `noReuse` / 失效）（**T3**） |
+| 1 | `oamp/src/pool-routing.js` | **新建**（唯一代码文件） | 头注 + `createPoolRouting({roleFromInstanceId})` 工厂 + 具名导出 `roleOfPoolInstance(instanceId, baseResolve)`（多实例感知解析；池成员判定与 `GET /api/agents` role 列同源消费）+ 池成员判定 + 空池回落（**T1**）；次序键选择 + 在飞预留计数（**T2**）；粘性表（读 / 重绑 / `noReuse` / 失效）（**T3**）。**（导出面口径随 A-06 补定与新契约更新，2026-09-17）** |
 
 > `pr-002-pool-routing-module-tasks.md`（本文件）是阶段 5 增量产物，**不计入** PR 的代码改动面（`tools/check-pr-gates.py:39-41` 已把 `-tasks.md` 排除在 PR 文件之外）。
 > 取证产物一律落 `/tmp/0030-pr-002/`，**不入库**（§5）。
@@ -54,11 +54,11 @@
 | **A9** | 叶子模块体例（`role-binding.js`）：头注 4 行 = 职责 / 为什么落在此处 / "零 src 内 import"声明 / 公式唯一性；零第三方依赖 | `oamp/src/role-binding.js:1-4`（`import` 行在 `:8-10`） |
 | **A10** | 仓内**无任何 `*.test.js`**（`find` 命中 0）；`tests/` 仅两个 shell 静态检查脚本、均不涉本模块 ⇒ 本 PR 自证载体 = **一次性脚本 + `grep`**，且 PR 文件范围不含测试面 | 实测 |
 | **A11** | PR worktree 干净；`oamp/**` 在 base `9f071b8` 与迭代分支 tip `e01e2a4` 之间**零差异**（`git diff --name-only` 命中 0 行）⇒ 代码面基准无歧义 | `git -C <worktree> diff --name-only 9f071b8 iteration/0030-hub-communication-upgrade -- oamp/` |
-| **A12** | `cluster-config.js` 的 `roles.<role>` 仅支持 `enabled/model/tools/permission/cwd`，`instance_id` **恒为** `instanceIdForRole(role)`（无覆盖字段）；`cluster.json` 每角色一条 ⇒ 按 A8 的解析规则，**现配置下同角色池上限 = 1**（多实例池的构造问题见 §7 疑问 3） | `oamp/src/cluster-config.js:136,154`、`cluster.json` |
+| **A12** | `cluster-config.js` 的 `roles.<role>` 仅支持 `enabled/model/tools/permission/cwd`，`instance_id` **恒为** `instanceIdForRole(role)`（无覆盖字段）；`cluster.json` 每角色一条 ⇒ 按 A8 的**精确公式**单独看，`pb-dev-2` 不解析为 `dev`；同角色多实例的识别由 A-06 补定的 `roleOfPoolInstance` 承担（用户侧启动 = `oamp agent start pb-<role>-<n> --role <role>`），`cluster.json` 管理的实例恒为 `pb-<role>`。**（口径随 A-06 补定与新契约更新，2026-09-17）** | `oamp/src/cluster-config.js:136,154`、`cluster.json` |
 
 ### 0.4 本 PR 冻结契约（跨 PR 接缝，一次定死；下游 pr-005 按此编码）
 
-1. **落点与形态**：新文件 `oamp/src/pool-routing.js`，ESM；**唯一导出** `createPoolRouting`（具名；**无 default export、无别名、无第二个导出名**）。工厂入参 = `{ roleFromInstanceId }`（本模块的**唯一注入依赖**）。
+1. **落点与形态**：新文件 `oamp/src/pool-routing.js`，ESM；**具名导出恰 2 个**：`createPoolRouting` 与 `roleOfPoolInstance(instanceId, baseResolve)`（**无 default export、无别名**）。工厂入参 = `{ roleFromInstanceId }`（工厂的**唯一注入依赖**）；`roleOfPoolInstance` 的 `baseResolve` 由调用方以**参数**传入（不 import `role-binding.js` ⇒ 契约 11 的零 import 不破），语义 = A-06 补定的同角色多实例识别（精确优先 → 剥尾段 `-<n>` 复用同一公式 → 仍 `null` 则 `null`；`n` 为正整数）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
    〔追溯：PR 验收 1"`roleFromInstanceId` 由调用方注入"；architecture §4 A-06 第 4 条（叶子模块）；§8（`pool-routing.js` 存在理由 = F07 粘性/最空闲 + F06 验收 1 确定性的落点）〕
 2. **工厂返回面恰 4 个方法**（对应 PR 验收 1 的"三类"覆盖关系）：
    - `choose(role, {chatId, noReuse, snapshot})` → `instance_id | null` —— **选择**（并内含粘性写、在飞 +1）；
@@ -70,7 +70,7 @@
    〔追溯：PR 验收 1（无文件与网络 I/O）、验收 5；architecture §3.4 第 3 条〕
 4. **`snapshot` 形状 = `{ nodes, work }`**：`nodes` = `router.status` 的 `nodes`（A1 的 5 字段形状）；`work` = `deriveAgentWork(taskRows)` 的返回 `Map`（A4）。模块只读 `node.instance_id` / `node.state` / `node.connected` 与 `work.get(id)` 的 `queued` / `busy`（缺项 ⇒ `queued 0 / busy false`）。`snapshot` 缺失或 `nodes` 缺失 ⇒ 视作空池（**不抛错**）。
    〔追溯：architecture §4 A-06 第 1~2 条（池成员读数 = `router.status`；负载 = `router.task_list` + `deriveAgentWork`）；本形状为推导项，见 §6 MI-P2〕
-5. **池成员判定**：`node.state === 'online' && node.connected === true && roleFromInstanceId(node.instance_id) === role`；非成员一律不参与选择。
+5. **池成员判定**：`node.state === 'online' && node.connected === true && roleOfPoolInstance(node.instance_id, baseResolve) === role`（`baseResolve` = 工厂注入的 `roleFromInstanceId`）；非成员一律不参与选择；同角色的 `pb-dev` 与 `pb-dev-2` 同属 dev 池、互为**独立实例**（不做别名等价）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
    〔追溯：PR 验收 2；architecture §4 A-06 第 1 条与 §3.4 第 1 条（逐字同式）；A3（`connected` 的必要性）〕
 6. **次序键** = `(queued, busy ? 1 : 0, inflight, instance_id)` **字典序升序取最小**；前三个分量相等时按 `instance_id` **码元升序**（`a < b` 即更小）做确定性 tie-break，**不随机**、不依赖快照内顺序。
    〔追溯：PR 验收 3；architecture §4 A-06 第 3 条（逐字同键）〕
@@ -87,14 +87,14 @@
     〔追溯：PR 验收 2"模块自身不造错误面"；`/api/calls` 已保证 `chat_id` 非空（`web.js:1327-1335`）⇒ 该守卫只兜底，不改变生产路径〕
 11. **零面**：文件内 **0 条 `import`**（连 `node:` 也不要）、无定时器、无文件/网络 I/O、无 `process.*`、无 `Date.now()`。头注照 A9 体例（职责 / 为什么在 web 进程（Router 任务条目不携带 `chat_id`）/ 零依赖声明 / 导出面逐条列名）。
     〔追溯：PR 验收 1；architecture §4 A-07 第 1 条"为什么键在 web 而不在 Router"〕
-12. **下游接缝（本 PR 不实现，仅冻结）**：pr-005 在 `startWeb` 内 `const poolRouting = createPoolRouting({ roleFromInstanceId })`，令 `pickInstance = (role, opts) => poolRouting.choose(role, opts)` 注入 `createApiRoutes` 的 deps（A6 体例），快照每请求取一次（`router.status` + `router.task_list` 两次只读查询）；`/api/calls` 的替换点为 A5；`release` 在每次派发的 settle 处调用（A7）。⇒ 本 PR 冻结的签名与返回面**不得**在后续 PR 中被改写。
+12. **下游接缝（本 PR 不实现，仅冻结）**：pr-005 在 `startWeb` 内 `const poolRouting = createPoolRouting({ roleFromInstanceId })`，令 `pickInstance = (role, opts) => poolRouting.choose(role, opts)` 注入 `createApiRoutes` 的 deps（A6 体例），快照每请求取一次（`router.status` + `router.task_list` 两次只读查询）；`/api/calls` 的替换点为 A5；`release` 在每次派发的 settle 处调用（A7）；`GET /api/agents` 的 `role` 列与池成员判定消费**同一** `roleOfPoolInstance`（实参 `baseResolve` 亦为 `roleFromInstanceId`）⇒ `pb-<role>-<n>` 的 role 列由迭代前的 `null` 变为角色名（A-06 补定的已登记取值变化）。⇒ 本 PR 冻结的签名与返回面**不得**在后续 PR 中被改写。**（口径随 A-06 补定与新契约更新，2026-09-17）**
     〔追溯：architecture §4 A-06 第 4~5 条（`pickInstance(role, {chatId, noReuse, snapshot})` 调用形状与替换落点）+ §5 变更面 `web.js` 第 ①⑦ 项；pr-005 `depends_on` 第 2 条〕
 
 ### 0.5 PR 验收标准 → 任务映射（5 条 AC 全覆盖，无孤儿任务、无无主 AC）
 
 | AC | 验收标准（PR 文件原文摘要） | 服务任务 |
 |---|---|---|
-| AC1 | 文件存在，导出面覆盖"选择 / 粘性读写 / 在飞预留增减"三类；无定时器、无文件与网络 I/O、无对其它 `src/**` 的 import | **T1**（形态骨架 + 注入口）+ **T4**（导出面与零面的机械核查） |
+| AC1 | 文件存在，导出面**恰两类**（工厂 `createPoolRouting({ roleFromInstanceId })` + 具名 `roleOfPoolInstance(instanceId, baseResolve)`）、工厂返回面覆盖"选择 / 粘性读写 / 在飞预留增减"三类；无定时器、无文件与网络 I/O、无对其它 `src/**` 的 import | **T1**（形态骨架 + 注入口）+ **T4**（导出面与零面的机械核查）**（口径随 A-06 补定与新契约更新，2026-09-17）** |
 | AC2 | 池成员过滤正确（`offline` / `connected === false` / 异角色三者均不被选中）；池为空 ⇒ `null`，不造错误面、不静默排队 | **T1**（+ T4 复跑，含"空池不留粘性"一条） |
 | AC3 | 选择确定性：同快照 + 同本地预留计数 ⇒ 同输入同输出；负载并列 ⇒ `instance_id` 升序，不随机 | **T2** |
 | AC4 | 粘性：二次选择命中既有绑定；`noReuse` ⇒ 忽略绑定、按最空闲重选**并重绑**；绑定实例不在池 ⇒ 重选重绑且**不抛错** | **T3** |
@@ -107,16 +107,16 @@
 ### T1: `oamp/src/pool-routing.js` —— 骨架 + 工厂与注入口 + 池成员判定 + 空池回落
 
 - **服务哪条 AC**: AC2（AC1 的形态骨架在此建立）
-- **描述**: 新建模块：头注（照 A9 体例 + 导出面列名）、`createPoolRouting({roleFromInstanceId})` 工厂、私有 `membersOf(role, snapshot)` 池成员判定（§0.4 契约 5）、`choose(role, {chatId, noReuse, snapshot})` 的**空池分支**（返回 `null`、不抛错、不造错误面）。本任务**不**实现在飞计数与粘性（T2 / T3）。
+- **描述**: 新建模块：头注（照 A9 体例 + 导出面列名）、`createPoolRouting({roleFromInstanceId})` 工厂、具名导出 `roleOfPoolInstance(instanceId, baseResolve)`（§0.4 契约 1）、私有 `membersOf(role, snapshot)` 池成员判定（§0.4 契约 5，成员解析经 `roleOfPoolInstance`）**（口径随 A-06 补定与新契约更新，2026-09-17）**、`choose(role, {chatId, noReuse, snapshot})` 的**空池分支**（返回 `null`、不抛错、不造错误面）。本任务**不**实现在飞计数与粘性（T2 / T3）。
 - **文件/锚点**: 新建 `oamp/src/pool-routing.js`；头注体例逐条对照 `oamp/src/role-binding.js:1-4`（A9）；成员判定的三个条件与 `oamp/src/router.js:285-287`（A3，`connected` 的理由）和 `oamp/src/registry.js:159-165`（A1，字段名）对照。
-- **步骤**: ① 头注（职责 / 为什么在 web 进程 / 零 import 声明 / 导出面与 4 个方法名）；② `const STICKY_SEP = '\u0000'`（模块级常量，**不导出**）+ 工厂骨架；③ `membersOf`（节点过滤 + 从 `snapshot.work` 取 `queued`/`busy`）；④ `choose` 的空池分支（`members.length === 0` ⇒ `return null`）；⑤ 成员非空时的临时取值（取候选集中最小 `instance_id` 者，仅用于本任务可判；次序键在 T2 替换）。
+- **步骤**: ① 头注（职责 / 为什么在 web 进程 / 零 import 声明 / 导出面（2 个具名导出名）与工厂 4 个方法名）；② `const STICKY_SEP = '\u0000'`（模块级常量，**不导出**）+ 工厂骨架；③ `membersOf`（节点过滤 + 从 `snapshot.work` 取 `queued`/`busy`）；④ `choose` 的空池分支（`members.length === 0` ⇒ `return null`）；⑤ 成员非空时的临时取值（取候选集中最小 `instance_id` 者，仅用于本任务可判；次序键在 T2 替换）。
 - **验收判据（可执行；脚本原文见 §4.2，本任务判定其中 **8 条** = AC2 段中除"空池不留粘性"的 5 条 + 末段"真实解析器"的 3 条）**:
   1. **AC2 过滤**：快照含 `pb-dev-9`（`state='offline'`）、`pb-dev-2`（`connected=false`）、`pb-other`（异角色）、`pb-dev`（合格）⇒ `choose('dev', {chatId, snapshot})` 返回 **`'pb-dev'`**（三者均不被选中）。
   2. **AC2 空池**：`nodes: []` ⇒ 返回 `null`；全部节点被过滤（只剩 `state='offline'`）⇒ 返回 `null`；`snapshot` 数据缺失（只有 `chatId`）⇒ 返回 `null` 且**不抛错**。
   3. **AC2 不造错误面**：上述三条 `null` 分支均不抛异常、不返回错误对象（返回值严格 `null`）。
   4. **AC2 池内选择**：池 = `{pb-dev-2}`（另一节点异角色）⇒ 返回 `'pb-dev-2'`（不返回非池成员）。
-  5. **AC2 真实解析器**：注入 `role-binding.js` 的真实 `roleFromInstanceId`（A8）时，`pb-dev-2` 解析为 `null` ⇒ 池内仅 `pb-dev`：返回 `'pb-dev'`；同一 `chatId` 二次选择仍为 `'pb-dev'`（单实例不回归，F06 验收 2）。
-  6. **形态**：`Object.keys(await import(...))` = `['createPoolRouting']`（**本任务只做骨架**，工厂返回面的 4 方法断言归 T4）。
+  5. **AC2 真实解析器 + 多实例归一**：注入真实 `roleFromInstanceId`（A8）作 `baseResolve` 时，`roleOfPoolInstance` 把 `pb-dev` 与 `pb-dev-2` **均归入 dev 池**（tie-break 选 `pb-dev`）；同一 `chatId` 二次选择仍为同一实例（单实例语义不回归，F06 验收 2）；`pb-dev-0` / `pb-dev-x` / `pb-dev-` / 非字符串入参 ⇒ `null`（不归一、不抛错）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
+  6. **形态**：`Object.keys(await import(...))` = `['createPoolRouting', 'roleOfPoolInstance']`（**具名导出恰 2 个**；工厂返回面的 4 方法断言归 T4）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
 - **前置依赖**: 无
 - **优先级**: P0
 - **追溯**: architecture §4 A-06 第 1 条（池成员三条件）＋ §3.4 第 1 条；prd/F06 验收 3（池成员 = 当前在线实例）、验收 4（hub 不管理生命周期 ⇒ 模块只读快照、不启停）；PR 验收 2。
@@ -166,16 +166,16 @@
 ### T4: 合同面机械核查 + 全量自证复跑 + 改动面封闭性（本 PR 的"自证"交付物）
 
 - **服务哪条 AC**: AC1（导出面与零面的终判）、AC2~AC5（全量复跑）＋ PR「上下文摘要」的"只交付模块与其自证"
-- **描述**: 用 `grep` 族 + 一次性脚本，对**已完成**的模块做四类机械判定：① 导出面（模块恰 1 名 / 工厂恰 4 方法）；② 零面（0 import、0 定时器、0 I/O、0 `process.*`、0 时间读取）；③ 全量行为断言（§4.2 全部 31 条）；④ 改动面封闭性（`oamp/**` 恰新增 1 个文件、`package.json` 零 diff、模块未被任何既有文件 import）。
+- **描述**: 用 `grep` 族 + 一次性脚本，对**已完成**的模块做四类机械判定：① 导出面（模块恰 2 名 / 工厂恰 4 方法）**（口径随 A-06 补定与新契约更新，2026-09-17）**；② 零面（0 import、0 定时器、0 I/O、0 `process.*`、0 时间读取）；③ 全量行为断言（§4.2 全部 31 条）；④ 改动面封闭性（`oamp/**` 恰新增 1 个文件、`package.json` 零 diff、模块未被任何既有文件 import）。
 - **文件/锚点**: 零源码改动（只读 `oamp/src/pool-routing.js` + git 只读命令）；原始输出落 `/tmp/0030-pr-002/`（§5）。
 - **步骤**: ① 跑 §4.1 导出面/零面；② 跑 §4.2 全量脚本；③ 跑 §4.3 真实解析器对照（已并入 §4.2 末段，可单列输出）；④ 跑 §4.4 封闭性；⑤ 汇总原始输出供 stage 报告引用。
 - **验收判据（可执行）**:
-  1. **AC1 导出面**：`Object.keys(await import(...)).sort()` = `['createPoolRouting']`（逐字符相等）；`Object.keys(createPoolRouting({roleFromInstanceId}))` 排序 = `['bindingOf','choose','inflightOf','release']`（**多一个/少一个即失败**）。
-  2. **AC1 零面**：`grep -cE '^import' oamp/src/pool-routing.js` = **0**；`grep -cE 'setTimeout|setInterval'` = **0**；`grep -cE 'node:fs|node:net|node:http|writeFile|createWriteStream|fetch\(|require\('` = **0**；`grep -cE 'process\.'` = **0**；`grep -cE 'Date\.now\(\)'` = **0**；`grep -cE 'export default'` = **0**；`grep -cE '^export '` = **1**。
+  1. **AC1 导出面**：`Object.keys(await import(...)).sort()` = `['createPoolRouting','roleOfPoolInstance']`（逐字符相等）；`Object.keys(createPoolRouting({roleFromInstanceId}))` 排序 = `['bindingOf','choose','inflightOf','release']`（**多一个/少一个即失败**）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
+  2. **AC1 零面**：`grep -cE '^import' oamp/src/pool-routing.js` = **0**；`grep -cE 'setTimeout|setInterval'` = **0**；`grep -cE 'node:fs|node:net|node:http|writeFile|createWriteStream|fetch\(|require\('` = **0**；`grep -cE 'process\.'` = **0**；`grep -cE 'Date\.now\(\)'` = **0**；`grep -cE 'export default'` = **0**；`grep -cE '^export '` = **2**（`createPoolRouting` + `roleOfPoolInstance`）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
   3. **AC2~AC5 全量**：§4.2 脚本 31 条断言全 `PASS`、末行 `RESULT: PASS`、退出码 0（原始输出留存）。
   4. **未接线**：`grep -rn "pool-routing" oamp/ | grep -v '^oamp/src/pool-routing.js:' | wc -l` = **0**（模块未被任何文件 import；排除模块自身头注里的文件名——A9 体例的头注第 1 行含 `src/role-binding.js` 式自指，**不得**用裸 `grep` 判零命中）。
   5. **改动面封闭性**：`git -C <worktree> diff --name-status 9f071b8 HEAD -- oamp/` ⇒ **恰一行** `A oamp/src/pool-routing.js`；`git -C <worktree> diff 9f071b8 HEAD -- oamp/package.json` ⇒ **空**；`git -C <worktree> status --short` 无未跟踪的 `oamp/**` 新文件。
-  6. **头注口径**：文件头注含"零依赖 / 零 import"声明与**逐条列出的 4 个方法名**（照 A9 体例）。
+  6. **头注口径**：文件头注含"零依赖 / 零 import"声明、**2 个具名导出名**（`createPoolRouting` / `roleOfPoolInstance`）与**逐条列出的 4 个方法名**（照 A9 体例）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
 - **前置依赖**: T2、T3（导出面与全量断言覆盖 `release` / `bindingOf` / `inflightOf` 与粘性分支，缺任一则判据 1、3 必失败）
 - **优先级**: P1（**P1 ≠ 可选**：本 PR 的"自证"是 PR 文件明列的交付物）
 - **追溯**: PR 验收 1 + PR「上下文摘要」（"本 PR 只交付模块与其自证"）；architecture §5「新增（2 个文件）」第 2 条、§8（`pool-routing.js` 的保留判定）；A10（仓内无测试文件 ⇒ 自证 = 一次性脚本 + `grep`）。
@@ -251,13 +251,13 @@ const ok = (name, cond) => { console.log(`${cond ? 'PASS' : 'FAIL'} ${name}`); i
 
 const NODE = (id, { state = 'online', connected = true } = {}) => ({ instance_id: id, session_id: `s-${id}`, state, last_heartbeat: 1, connected });
 const WORK = (spec = {}) => new Map(Object.entries(spec).map(([id, v]) => [id, { busy: v.busy === true, current_call_id: null, queued: v.queued ?? 0, since: null }]));
-// 多实例同角色的解析器（真实 roleFromInstanceId 恒把 'pb-<role>' 映到一个角色 ⇒ 池上限 1，见 §7 疑问 3）
+// 多实例同角色的解析器（与真实角色名解耦；A-06 补定后真实解析器经 roleOfPoolInstance 亦可，见脚本末段与 resolver 边界段）（口径随 A-06 补定与新契约更新，2026-09-17）
 const STUB = (id) => { const m = /^pb-([a-z]+)(-\d+)?$/.exec(id); return m ? m[1] : null; };
 const mk = (roleOf = STUB) => createPoolRouting({ roleFromInstanceId: roleOf });
 const snap = (nodes, work = {}) => ({ nodes, work: WORK(work) });
 
 // ---- AC1 导出面 ----
-ok('AC1 模块导出面恰 1 名 createPoolRouting', JSON.stringify(Object.keys(MOD).sort()) === JSON.stringify(['createPoolRouting']));
+ok('AC1 模块导出面含 createPoolRouting 与 roleOfPoolInstance', JSON.stringify(Object.keys(MOD).sort()) === JSON.stringify(['createPoolRouting', 'roleOfPoolInstance'])); // （口径随 A-06 补定与新契约更新，2026-09-17）
 ok('AC1 工厂返回面恰 4 方法（选择 / 粘性读 / 在飞读 / 在飞减）',
   JSON.stringify(Object.keys(mk()).sort()) === JSON.stringify(['bindingOf', 'choose', 'inflightOf', 'release']));
 
@@ -333,17 +333,27 @@ ok('AC1 工厂返回面恰 4 方法（选择 / 粘性读 / 在飞读 / 在飞减
 {
   const r = createPoolRouting({ roleFromInstanceId });
   const s = snap([NODE('pb-dev'), NODE('pb-other', { state: 'offline' }), NODE('pb-dev-2')]);
-  ok('AC2 真实解析器：pb-dev-2 不解析为 dev ⇒ 池内仅 pb-dev', r.choose('dev', { chatId: 'c1', snapshot: s }) === 'pb-dev');
+  ok('AC2 真实解析器：pb-dev 与 pb-dev-2 均归入 dev 池，tie-break 选 pb-dev', r.choose('dev', { chatId: 'c1', snapshot: s }) === 'pb-dev'); // （口径随 A-06 补定与新契约更新，2026-09-17）
   ok('AC2 单实例：二次选择同目标', r.choose('dev', { chatId: 'c1', snapshot: s }) === 'pb-dev');
   ok('AC2 真实解析器下池为空 ⇒ null', r.choose('dev', { chatId: 'c1', snapshot: snap([NODE('pb-dev', { connected: false })]) }) === null);
 }
+// ---- resolver 边界 5 条：roleOfPoolInstance 三段语义直测（原样对应 /tmp/0030-pr-002/resolver-boundary.out）（口径随 A-06 补定与新契约更新，2026-09-17）----
+{
+  const B = (id) => MOD.roleOfPoolInstance(id, roleFromInstanceId);
+  ok('resolver exact pb-dev ⇒ dev', B('pb-dev') === 'dev');
+  ok('resolver suffix pb-dev-2 ⇒ dev', B('pb-dev-2') === 'dev');
+  ok('resolver suffix pb-dev-1 and exact pb-dev preserve distinct identities', B('pb-dev-1') === 'dev' && B('pb-dev') === 'dev');
+  ok('resolver invalid suffix pb-dev-0 / pb-dev-x / pb-dev- ⇒ null', B('pb-dev-0') === null && B('pb-dev-x') === null && B('pb-dev-') === null);
+  ok('resolver non-string input ⇒ null without throw', (() => { try { return B(null) === null && B(123) === null; } catch { return false; } })());
+}
+
 
 console.log(process.exitCode ? 'RESULT: FAIL' : 'RESULT: PASS');
 ```
 
 ### 4.3 一次性断言脚本的运行约束
 
-- `STUB` 解析器（`/^pb-([a-z]+)(-\d+)?$/ ⇒ capture 1`）是多实例同角色池的**唯一构造手段**（原因见 §7 疑问 3）；真实 `roleFromInstanceId` 段（脚本末段）只用于单实例不回归与"未解析 ⇒ 不入池"两条。
+- `STUB` 解析器（`/^pb-([a-z]+)(-\d+)?$/ ⇒ capture 1`）用于**与真实角色名解耦**的池构造；A-06 补定后，真实 `roleFromInstanceId` + `roleOfPoolInstance` **同样**可构造同角色多实例池（脚本末段与 resolver 边界段即此路径）——`STUB` 不再是唯一手段。**（口径随 A-06 补定与新契约更新，2026-09-17）**
 - 每个场景用**新的工厂实例**（`mk()`）⇒ 粘性表与在飞计数互不污染，断言顺序无关（`AC5` 段内对同一实例的调用顺序是判据的一部分，已显式排列）。
 - 脚本**不改仓库文件、不写仓库**；`node` 直跑，cwd = PR worktree 根。
 
@@ -370,7 +380,7 @@ git -C "$WT" diff 9f071b8 HEAD -- oamp/src/web.js oamp/src/role-binding.js   # �
 
 ## 6. model_inferred 验收标准（需主 agent 确认，逐条列出）
 
-- **[model_inferred] MI-P1（T1/T2/T3 的形态：工厂 + 返回面 4 方法）**：模块导出**恰一个** `createPoolRouting({roleFromInstanceId})`，其返回对象恰 4 个方法 `choose / release / bindingOf / inflightOf`。
+- **[model_inferred] MI-P1（T1/T2/T3 的形态：工厂 + 返回面 4 方法）**：模块**具名导出恰 2 个** —— `createPoolRouting({roleFromInstanceId})`（返回对象恰 4 个方法 `choose / release / bindingOf / inflightOf`）与 `roleOfPoolInstance(instanceId, baseResolve)`（A-06 补定的多实例感知解析；`baseResolve` 由参数传入）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
   - 为什么需要推导：PR 验收 1 只写"导出面**覆盖**'选择 / 粘性读写 / 在飞预留增减'三类"与"`roleFromInstanceId` 由调用方注入"，**未点名函数、未定形态**（工厂 vs 模块级函数）。
   - 推导依据：① 注入要求（验收 1）+ A-06 的调用形状 `pickInstance(role, {chatId, noReuse, snapshot})` ⇒ 解析器必须藏在闭包里，调用形状才能逐字一致；② 每场景一个干净实例使 AC3/AC4/AC5 可**各自独立判定**（模块级共享状态会互相污染）；③ A-06 第 4 条称其为"叶子模块"、A9 体例允许"模块级常量 + 函数"或工厂两种既有形态（`inbox.js` 是模块级、`context-pool.js` 是类）。
 - **[model_inferred] MI-P2（T1 判据的快照形状 = `{nodes, work}`）**：`snapshot.nodes` = `router.status` 的 `nodes`（A1），`snapshot.work` = `deriveAgentWork(taskRows)` 的 `Map`（A4）。
@@ -397,11 +407,11 @@ git -C "$WT" diff 9f071b8 HEAD -- oamp/src/web.js oamp/src/role-binding.js   # �
 
 1. **AC1"三类能力"未点名函数 ⇒ 冻结形态与"无多余入口"存在潜在张力**（对应 MI-P1 / MI-P3）：本文件冻结为"工厂 + 恰 4 方法"，其中 `inflightOf` / `bindingOf` 是**只读、无生产消费者**的入口（动机 = 让 AC5 的"净值为 0"可机械判定）。若主 agent 裁定应严格照 0029 的"导出面恰好 N 个且每个都有消费者"口径，改动面 = 2 个函数 + AC5 的 3 条读数断言（见 MI-P3 的替代判据）。
 2. **`snapshot` 形状未定义 ⇒"复用 `deriveAgentWork`"与"模块零 import"两条只能二选一**（对应 MI-P2）：A-06 要求复用既有函数（不复制公式），验收 1 禁止 import 仓内模块，而 `deriveAgentWork` 未导出（A4）⇒ 本文件的取舍 = **调用方注入 `work`**（模块零 import、公式仍只此一处）。若主 agent 裁定模块应自行解析任务数组，则必须在模块内复制负载公式（与 A-06"既有函数复用"冲突），改动面 = `choose` 入参与判据 §4.2 的 `snap()` 辅助函数。
-3. **观察（非本 PR 阻塞，属架构/端到端验收面）——"同角色多实例"缺实例 id 派生路径**：
+3. **观察（原为架构/端到端验收面缺口，**已由 A-06 补定闭环**）——"同角色多实例"的实例 id 派生路径**：
    - 事实：`instanceIdForRole(role)` 恒为 `'pb-' + role` 且是唯一公式（A8）⋅ `roleFromInstanceId` 只认 `'pb-<role>'` 且 `roles/<role>/<role>.md` 必须存在（A8）⋅ `cluster-config.js` 的 `roles.<role>` 无 instance 覆盖字段、`instance_id` 恒由该公式产生（A12）⋅ `cluster.json` 每角色一条 ⋅ Router 侧同 `instance_id` 再注册是 **latest-wins 顶替**（`router.js:118-131`）。
-   - 结论：按 A-06 的池成员口径，**当前生产配置下"同一角色的在线池"上限 = 1**；F06 验收 1（同角色两实例并发分流）在端到端面**没有可构造的两实例**。prd/F06 只写"手动启动同一角色的两个在线实例"，未定义手段；本迭代 9 个 PR 中**无一个**声明覆盖"实例 id 派生 / 多实例启动"（已核 `prs/*.md` 的文件范围与 `depends_on`）。
-   - 对 PR-002 的影响：**无**（本 PR 的 5 条 AC 全部是模块级，可用注入解析器构造，见 §4.2 的 `STUB`）；对下游的影响：pr-005 的"池化分流与粘性"端到端验收与阶段 6 取证需要该路径。
-   - **上报主 agent 裁定**：(a) 按"池化只对既有可解析实例集合生效，多实例由使用者自行提供"接受该端到端验收在生产态不可构造；或 (b) 需要一条额外的实例 id 派生机制（属架构改动，超出 PR-002 文件范围，本 PR 不实现、不预留挂点）。
+   - 结论（**已被 A-06 补定取代**）：本观察促成 A-06 补定 —— 实例 id 为 `pb-<role>` **或** `pb-<role>-<n>`（`n` 正整数）即计入该 role 的池，解析经 `roleOfPoolInstance`（精确优先 → 剥尾段 `-<n>` 复用同一公式；`baseResolve` 由调用方传入）；用户侧启动 = `oamp agent start pb-<role>-<n> --role <role>`。⇒ "同角色在线池上限 = 1" 不再成立，F06 验收 1 在端到端面可构造；registry 仍不携带 role 字段、`role-binding.js` 两公式零改动（A1 / A8 事实不变）。**（口径随 A-06 补定与新契约更新，2026-09-17）**
+   - 对 PR-002 的影响：**无**（本 PR 的 5 条 AC 全部是模块级；多实例池既可用 `STUB` 构造，也可用"真实 `roleFromInstanceId` + `roleOfPoolInstance`"构造，见 §4.2 末两段）；对下游的影响：pr-005 的"池化分流与粘性"端到端验收按 `pb-<role>-<n>` 命名构造同角色两实例。**（口径随 A-06 补定与新契约更新，2026-09-17）**
+   - **原上报项已闭环**：主 agent 裁定 = 最小形态（命名约定 + 新模块具名导出 `roleOfPoolInstance`；协议面**不加** role 字段 ⇒ `agent.register` / `registry.snapshot()` / `role-binding.js` 零改动，备选"自报 role + snapshot 追字段"未采纳，见 architecture §9-10）——即 A-06 补定，**已落定**，无需再裁定。**（口径随 A-06 补定与新契约更新，2026-09-17）**
 4. **粒度决策记录（本 PR 未写 `roles/planner/data/`——该目录不在本 PR 文件范围，故记录于此）**：把单一新文件按**算法断面**切成 T1（池成员/空池）、T2（次序键 + 在飞计数）、T3（粘性）三片，理由是三者各有互不重叠的 AC 归属（AC2 / AC3+AC5 / AC4）与互不相同的判据构造（过滤快照 / 负载快照 + 计数读数 / 粘性快照）；合并成一个"写 `choose`"任务会使失败面无法定位（T3 判据 1"粘性优先于最空闲"尤其需要 T2 已成立的次序键）。T4 单独成任务的依据 = PR 文件把"自证"列为交付物原文，且其判据（导出面 / 零面 / 未接线 / diff 封闭性）**不是 T1~T3 判据的重跑**（其中"未接线"与"改动面封闭性"三项在 T1~T3 中均不包含）。
 5. **未发现 architecture 内部矛盾**：§3.4 第 1~3 条与 §4 A-06 / A-07 在选择口径、粘性键、失效口径、空池口径上逐条同值（次序键 `(queued, busy, inflight, instance_id)`、键 `(chat_id, role)`、无 TTL、"绑定失效 ⇒ 重选重绑不报错"、"空池 ⇒ `null` ⇒ 回落 `instanceIdForRole`"），无需选边。
 6. **上游信息充分性**：5 条 AC 均能在 `architecture.md`（§3.4 / §4 A-06·A-07 / §5 / §8）与 `prd/{F06,F07}` 找到可追溯依据；需要推导的 5 项口径已列 §6 等主 agent 确认；除第 3 条观察外无信息缺口。
