@@ -731,3 +731,19 @@
 - 顺带初筛同文件其它 GNU-ism：`grep -cE '^\|\s*...'`（含 `\s`）一处可疑，**本机 BSD grep 实测正常（=29）** ⇒ 不改；`sed -i`/`date -d`/`readlink -f`/`stat -c`/`grep -P`/`sort -V`/`xargs -r` **零命中**
 - 裁决：**合并前收口**（改一行 `paste -sd,` → `paste -sd, -`），派 `DevP008Fix`（原地 dev，`agent=dev`，保持 gpt 归属）；要求修后**在非交互形态**（`/tmp` 一次性脚本 + `bash`/`sh`）给出**成对读数**（修前 rc=1 空 / 修后 rc=0 十键），并复跑 `KEYS-IDENTICAL`、确认 diff 只有那一个 token、文档仍 266 行；改后按协议做**增量定向复核**
 - 触发依据：`verify-20260917-205039-pr-008.md` 的 C05；主 agent 的 stdin 形态实测矩阵（可复现命令见 history 与 tasks §7）
+
+### 2026-09-17 22:20:00 · 收到报告 · dev（pr-008 收口）
+
+- 1. 改了什么文件：**仅** PR worktree 的 `evidence/g01-existing-surface.md` 第 218 行一个 token（`paste -sd,` → `paste -sd, -`），提交 **`3c63846`**；`git diff --stat` = 1 file / **1 insertion / 1 deletion**；文档仍 **266 行**；PR worktree clean；迭代工作区唯一写入 = tasks §7 回填
+- 2. 自证结果（**非交互形态成对读数**）：`bash <脚本>` / `sh <脚本>` 两形态——修前 `old_stdout=<>` + `usage:` + `old_rc=1`；修后完整 **10 键** + `new_rc=0` + 脚本 rc=0；`KEYS-IDENTICAL`（两侧键序逐字 = `call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code`）
+- 3. 疑问/待办：顺带扫描仅命中 evidence 第 235 行 `grep -cE '^\|\s*...'`（含 `\s`），**BSD 实测 = 29、rc=0** ⇒ 正常，未改；tasks §7 无命中
+- 4. 违反边界：无
+- 主 agent 现场复核：增量 diff 恰 1 行 1 token、266 行、clean 逐条对上
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**
+
+### 2026-09-17 22:22:00 · 派发 · verifier（pr-008 增量定向复核）
+
+- 理由（协议要求）：产物在验收后又变了（`8b200cf` → `3c63846`）⇒ 已出的 PASS 不能自动覆盖；委托范围仅限增量
+- 验证标准 6 条：① 增量面精确（1 file/1+1，逐行确认只有一个 token，266 行，clean）；② **修正真正生效（非交互形态）**——verifier 须**自跑**"修前 rc=1 + usage + 空 / 修后 rc=0 + 10 键"成对读数，不得转述 dev；③ C05 原结论仍成立（`KEYS-IDENTICAL` + 两侧键序）；④ 前份 T10 4/4 + AC 4/4 是否仍成立；⑤ 红线违规检查（`oamp/src|sdk|scripts` 零改动、路由仍 29、未落仓脚本/测试）；⑥ 顺带扫同类"依赖 stdin 继承/平台差异"写法（只报告）
+- 产出：`clarifications/verify-<ts>-pr-008-delta.md` + `roles/verifier/data/` 副本；要求明确回答 blocking / non-blocking
+- 触发依据：`DevP008Fix` 完成回报（`3c63846`）+ 主 agent 对增量 diff 的逐行复核

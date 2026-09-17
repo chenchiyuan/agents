@@ -622,3 +622,58 @@ node -p "Object.keys(require('$W/cluster.json').roles).length"
 ### ⑩ T10 · 独立核验（verifier；报告落 `clarifications/`，此处只记结论与路径）
 
 （待回填）
+### ⑪ C05 `paste` 显式操作数收口（dev，2026-09-17）
+
+命令：一次性 `/tmp/0030-pr-008/keys_probe.sh` 脚本（脚本首行 `exec </dev/null`，同时定义修前 `paste -sd,` 与修后 `paste -sd, -`，直接调用目标 `web.js`）分别执行 `bash /tmp/0030-pr-008/keys_probe.sh "$W/oamp/src/web.js"` 与 `sh /tmp/0030-pr-008/keys_probe.sh "$W/oamp/src/web.js"`。
+
+`bash` 原样 stdout/stderr（exit 0）：
+```text
+old_stdout=<>
+old_stderr=<usage: paste [-s] [-d delimiters] file ...>
+old_rc=1
+new_stdout=<call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code>
+new_stderr=<>
+new_rc=0
+new_output_matches=1
+bash_rc=0
+```
+
+`sh` 原样 stdout/stderr（exit 0）：
+```text
+old_stdout=<>
+old_stderr=<usage: paste [-s] [-d delimiters] file ...>
+old_rc=1
+new_stdout=<call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code>
+new_stderr=<>
+new_rc=0
+new_output_matches=1
+sh_rc=0
+```
+
+命令：`keys(){ awk '/^function composeCallEnvelope/,/^}/' "$1" | grep -oE '^    [a-z_]+' | tr -d ' ' | paste -sd, -; }; keys "$W/oamp/src/web.js"; git -C "$W" show main:oamp/src/web.js >/tmp/0030-pr-008/web.main.js; keys /tmp/0030-pr-008/web.main.js; diff <(keys "$W/oamp/src/web.js") <(keys /tmp/0030-pr-008/web.main.js) && echo KEYS-IDENTICAL`（exit 0），原样输出：
+```text
+call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code
+call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code
+KEYS-IDENTICAL
+```
+
+命令：`git -C "$W" diff --name-status HEAD`；`git -C "$W" diff -U0 HEAD -- docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md`；`git -C "$W" diff --stat HEAD`；`wc -l < "$W/docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md"`（exit 0），原样输出：
+```text
+M	docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md
+diff --git a/docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md b/docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md
+index 632bc04..9ef5e01 100644
+--- a/docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md
++++ b/docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md
+@@ -218 +218 @@ for p in oamp/src/router.js oamp/src/registry.js oamp/src/role-binding.js oamp/s
+- keys(){ awk '/^function composeCallEnvelope/,/^}/' "$1" | grep -oE '^    [a-z_]+' | tr -d ' ' | paste -sd,; }
++ keys(){ awk '/^function composeCallEnvelope/,/^}/' "$1" | grep -oE '^    [a-z_]+' | tr -d ' ' | paste -sd, -; }
+ .../0030-hub-communication-upgrade/evidence/g01-existing-surface.md     | 2 +-
+1 file changed, 1 insertion(+), 1 deletion(-)
+266
+```
+逐行确认：唯一变化是 `paste -sd,` → `paste -sd, -`，其余内容未动。
+
+顺带扫描命令：在 evidence 文档与本 §7 搜索无操作数管道消费者、`sed -i`、`date -d`、`readlink -f`、`stat -c`、`grep -P` 等。命中仅 evidence 第 235 行 `grep -cE '^\|\s*[0-9]+\s*\|\s*...`；tasks §7 无命中。对该可疑 BSD `grep` 写法执行与 evidence 第 235 行相同的计数命令，stdout `29`，exit 0；按要求仅报告，不改。
+提交命令：`git -C "$W" add docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md && git -C "$W" commit -m "docs: make C05 paste input explicit"`，exit 0，commit=`3c63846f209461caf80f34a5bd6a982176b77e66`。
+
+提交后核验命令：`git -C "$W" status --porcelain`；`git -C "$W" diff HEAD`；`git -C "$W" diff --stat HEAD`（均 exit 0）。三者均无输出，worktree clean；提交内容 `git show --format= --no-ext-diff -U0 HEAD -- docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md` 仍仅显示第 218 行 `paste -sd,` → `paste -sd, -` 一处变化。
