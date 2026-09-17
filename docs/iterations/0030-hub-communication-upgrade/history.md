@@ -375,3 +375,9 @@
 - 通道：本地 subagent，`agent=verifier`（预期 grok）
 - 产出物：PR worktree 提交 `33005c0` 的 diff（判据 = PR 文件 5 条验收标准 + architecture §4 A-01/A-09）
 - 独立取证要求：不得采信执行方证据；自建 `/tmp/verify-p003/` 临时库自调三方法覆盖全部条目（幂等重复插入、principal 隔离与升序、删不存在行、连续两次 `openDb`、既有三表回归）
+
+### 2026-09-17 16:12:00 · 调度决策 · 跨 PR 接缝冻结记录落盘
+
+- 决策内容：把阶段 5 期间逐条冻结的跨 PR 接口固化为一份权威记录 `docs/iterations/0030-hub-communication-upgrade/clarifications/cross-pr-contracts-2026-09-17.md`（6 节：`reasonOf` / `createPoolRouting` / `roleOfPoolInstance` / `persist` 的 inbox 三方法 / 环境阈值键与 `context-pool` 透传 / pr-005 需提供给下游的接缝）。每条注明**提供方 PR + 已合并提交 + 冻结形态 + 消费方要求**，并在提供方未合并时明标"待合并"
+- 动因：pr-005 是本迭代的汇聚点（`web.js` 六处接线 + `pickup.js` 退役，依赖 4 个上游 PR），其 planner/dev/verifier 都要消费同一组形态；分散在四份 tasks 文件与四份 PR 文件里的口径容易被各写一版（本轮已出现两处同型风险：`roleOfPoolInstance` 的签名与 `persist` 的入参体例）。本记录同时作为阶段 6 验证的核对面
+- 触发依据：`workflow-pb.md` §阶段 5"决定跨任务契约并在派发简报里写死"；已合并提交 `f81d5c6` / `4bcfbc3` 与在飞提交 `33005c0` 的实测形态；`architecture.md` §4 A-01/A-03/A-04/A-06/A-07/A-08/A-09

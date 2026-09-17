@@ -476,6 +476,9 @@ git status --short
 
 #### §4.1 合同面 / 对象集探针
 
+```sh
+$ node --input-type=module -e '<§4.1 合同面 / 对象集探针>'
+```
 ```text
 handleKeys: ["activateChat","archiveChat","close","closeChat","createProject","deleteInbox","getChat","getProject","insertInbox","insertInput","insertOutput","listArchivable","listChats","listInbox","listProjects","projectByChat","renameChat","startupSweep","upsertChat"]
 moduleExports: ["openDb"]
@@ -484,6 +487,9 @@ objects: [{"type":"table","name":"chats"},{"type":"index","name":"idx_chats_proj
 
 #### §4.2 全量 AC 断言脚本
 
+```sh
+$ node /tmp/0030-pr-003-ac.mjs
+```
 ```text
 PASS T1.1 inbox+index 恰 2 对象
 PASS T1.2 列序逐位
@@ -527,6 +533,9 @@ RESULT: PASS
 
 #### §4.3 base 对照（`diff` 原始输出；stderr 的 `ExperimentalWarning` 省略）
 
+```sh
+$ node /tmp/pr003-drive.mjs /tmp/pr003-base/persist.js > /tmp/pr003-base.json && node /tmp/pr003-drive.mjs /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-003-inbox-table-persistence/oamp/src/persist.js > /tmp/pr003-after.json && diff -u /tmp/pr003-base.json /tmp/pr003-after.json
+```
 ```text
 --- /tmp/pr003-base.json
 +++ /tmp/pr003-after.json
@@ -557,6 +566,12 @@ RESULT: PASS
 
 #### §4.4 grep / diff 族
 
+```sh
+$ git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+' | grep -cE 'VACUUM|setTimeout|setInterval|ALTER TABLE|DROP TABLE|DROP INDEX|user_version|归档|导出|游标|cursor|TTL'
+$ git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+' | grep -oE 'CREATE TABLE IF NOT EXISTS inbox|CREATE INDEX IF NOT EXISTS idx_inbox_principal|INSERT OR IGNORE INTO inbox|SELECT .* FROM inbox|DELETE FROM inbox WHERE call_id = \?' | sort | uniq -c
+$ git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+' | grep -cE 'ALTER TABLE|user_version|migrations'
+$ git diff --name-status 9f071b8 -- oamp/; git diff --stat 9f071b8 -- oamp/package.json; grep -c '"dependencies": {}' oamp/package.json; git status --short
+```
 ```text
 ① zero-maintenance
 0
