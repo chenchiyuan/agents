@@ -260,3 +260,16 @@
 - dev（pr-002）：`agent=dev`（gpt-5.6-luna）；worktree `feat/0030-pr-002-pool-routing-module`；输入 tasks 文件（408 行）+ PR 文件 + §4 A-06/A-07；MI-P1~MI-P5 采纳；跨 PR 契约（导出形态与 `snapshot` 形状）随简报冻结
 - planner ×2：`PlanP004`（pr-004，5 文件计时改造；要求给出**可压缩时间轴**的取证配方——10 分钟真实等待不可行）与 `PlanP007`（pr-007，F08+F09 过程/证据 PR；已把 L1-01 已决事实写入简报，要求台账单一声明、不碰 `oamp/**`）
 - 并发状态：在飞 = pr-002(dev)、pr-003(dev/待回报)、pr-004(planner)、pr-007(planner) = 4 ≤ 当前有效上限 5
+
+### 2026-09-17 15:07:00 · 收到报告 · architect（A-06 补定）
+
+- 收口内容：`architecture.md` **6 处**（§4 A-06 判据改 `roleOfPoolInstance` + 新增「补定：同角色多实例的识别约定」块 / §3.4 池成员 bullet / §5 新增模块职责 / §7 L2-06 / §9 新增 10~12 / §10 新增第 10 条记录来源）
+- 约定要点：实例 id = `pb-<role>` 或 `pb-<role>-<n>`（`n` 正整数）计入该 role 池；**解析顺序** = 先既有精确公式（角色文件存在优先、向后兼容）→ 未命中再剥尾段 `-<n>` 复用**同一**公式（不重建映射）；用户侧启动 = `agent start pb-<role>-<n> --role <role>`（`--role` 必带）；resolver 由 `pool-routing.js` 导出，`role-binding.js` 零改动；**池成员判定与 `GET /api/agents` 的 role 列必须同源**；作用域仅手动启动的实例（`cluster.json` 管理路径恒 `pb-<role>`）；不新增协议字段（备选"register 自报 role"被否决并登记 §9-10）
+- 如实登记的不一致 3 条（§9-10~§9-12）：`/api/agents` 的 role 列对 `pb-<role>-<n>` 由 `null` → 角色名（字段类型与取值域不变）；`/api/subscribe` 角色归一不识别后缀 id；`/api/messages` 不经池化
+- 遗留处置请求：`prd/F06` 第 30 行仍写旧判据（其写入面不在 architect 授权内）
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:08:00 · 调度决策 · 补定收口（授权 + 契约冻结 + 在飞 dev 纠偏）
+
+- 决策内容：① **授权** architect 修正 `prd/F06-role-instance-pooling.md` 的「架构维度」段（第 30 行判据行 + 第 35 行"唯一池成员恒为 `pb-<role>`"措辞），边界 = 只改该段、产品维度五段逐字不动；② **冻结 resolver 签名**（主 agent 定，避免 pr-005 各写一版）：`roleOfPoolInstance(instanceId, baseResolve)`，三段语义（精确优先 → 剥 `-<n>` 正整数后缀复用同一 resolver → null），`baseResolve` 为**参数**（零 import 约束不破）；③ **在飞 dev 纠偏**：pr-002 的 dev 简报原冻结「导出仅 `createPoolRouting`」，与补定后的落点不一致 ⇒ 立即向 `DevP002` 注入追加契约（新增该具名导出 + 工厂内部复用 + 5 条边界断言 + 证据回填），不推倒重来
+- 触发依据：`architect` 收口报告；`architecture.md` §4 A-06 补定块（"`roleOfPoolInstance` 由新增模块 `src/pool-routing.js` 导出"）与 §5 第 397 行；`workflow-pb.md` §阶段 5"同一轮内决定跨任务契约并在派发简报里写死"

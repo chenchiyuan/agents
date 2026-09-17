@@ -394,7 +394,7 @@ flowchart TB
 
 **新增（2 个文件）**
 1. `oamp/src/reason.js` —— 源串→`reason` 枚举的唯一映射（A-03 / A-04）。
-2. `oamp/src/pool-routing.js` —— 池内选择 + 粘性表 + 在飞预留计数（A-06 / A-07）。
+2. `oamp/src/pool-routing.js` —— 池内选择 + 粘性表 + 在飞预留计数 + **多实例感知的角色解析 `roleOfPoolInstance`**（A-06 含补定 / A-07）。
 
 **修改（既有文件）**
 
@@ -451,7 +451,7 @@ flowchart TB
 | L2-03 | `reason` 由**消费侧唯一映射函数**归类（既有失败产生点零改动） | G01 验收 3 / F04 验收 5 与"不做文案归一"约束下唯一可行；详见 A-04 |
 | L2-04 | 空闲/安全网判据落在**执行侧轮次计时原语**（而非新增 web 看门狗 / Router 看门狗） | 既有 30 分钟上限的同一实现处（"取代全部生效位置"的字面形态）；避免第二判死源与僵尸轮次；`background`/`block` 天然同源 |
 | L2-05 | 对账登记软 TTL 默认值与 `taskNetMs` 联动（4h30m） | 不联动即破 F01 必达（§4 A-05 第 6 条） |
-| L2-06 | 池成员 = `state === 'online' && connected`；负载复用 `deriveAgentWork` + 在飞预留计数 | 可投递性 + 零新增度量 + F06 验收 1 的确定性 |
+| L2-06 | 池成员 = `state === 'online' && connected` + 多实例感知角色解析（`pb-<role>` / `pb-<role>-<n>`，resolver 在新模块导出，`role-binding` 既有公式零改动）；负载复用 `deriveAgentWork` + 在飞预留计数 | 可投递性 + 零新增度量 + F06 验收 1 的确定性；多实例识别见 §4 A-06 补定（hub 侧无 role 信息 ⇒ 只能走命名约定） |
 | L2-07 | 粘性键 = `(chat_id, role)`，表在 web 进程；"不延续"声明 = 项级可选 `new_session` | Router 任务条目无 `chat_id` ⇒ 粘性只能在 web；可选布尔字段满足 G01 验收 10 |
 | L2-08 | 新增两个叶子模块（`reason.js` / `pool-routing.js`），不新增协议方法、不新增进程 | 奥卡姆检验见 §8 |
 | L2-09 | 显式 `timeout_ms` 语义保留（含 30 分钟上限）；移除其"缺省档" | shell 命令硬上限语义不可改；call 面不暴露该参数 |
@@ -493,8 +493,8 @@ flowchart TB
 6. **长任务的调用方等待预算未变**：`--wait` / `mode:block` 的客户端预算仍为 30 分钟 ⇒ 超过 30 分钟仍在跑的长任务会先收到 `timed_out:true`（**不改任务状态**），随后经取件面（F01）拿到终态。这是 F05 × F01 的协同，不是冲突；是否抬高客户端默认预算属产品口径（`demand.md` 无条目 ⇒ 不改）。
 7. **显式 `timeout_ms` 的调用方仍受 30 分钟上限**（A-05 第 5 条）：call 面不暴露该参数；`oamp task send` 的 demo 面保留既有语义与既有文档措辞（仅"默认 30 分钟"一档改为新判据）。
 8. **取件条目的 `acked` 恒为 `false`**（A-09）：响应键位与类型不变，信息量为常量。
-9. **`reason` 只存在于失败终态**：受理态与成功态信封键值集不变（MI-4）；SSE `call_result` 帧在失败侧的 payload 多一个键（事件类不变）。
-10. **同角色多实例识别走命名约定，而非协议字段（已评估的备选未采纳）**：hub 侧看不到实例的角色（`agent.register` 不带 role、节点快照无 role 字段），本迭代用 `pb-<role>-<n>` 的后缀约定解决（§4 A-06 补定）。备选"`agent.register` 自报 role + `snapshot()` 追加 role 字段"更显式，但要改四处（`agent.js` / `router.js` / `registry.js` / `/api/agents` 投影）并扩协议载荷，收益仅是省掉一条命名约定 ⇒ 不采纳（YAGNI）；代价 = 实例 id 必须遵守该命名（否则不进池，仍是既有"实例不在线"的结论）。
+9. **`reason` 只存在于失败终态**：受理态与成功态信封键集不变（MI-4）；SSE `call_result` 帧在失败侧的 payload 多一个键（事件类不变）。
+10. **同角色多实例识别走命名约定，而非协议字段（已评估的备选未采纳）**：hub 侧看不到实例的角色（`agent.register` 不带 role、节点快照无 role 字段），本迭代用 `pb-<role>-<n>` 的后缀约定解决（§4 A-06 补定）。备选"`agent.register` 自报 role + `snapshot()` 追加 role 字段"更显式，但要改四处（`agent.js` / `router.js` / `registry.js` / `/api/agents` 投影）并扩协议载荷，收益仅是省掉一条命名约定 ⇒ 不采纳（YAGNI）；代价 = 实例 id 必须遵守该命名（否则不进池，仍是既有"实例不在线"的结论）。附一处**取值变化**（如实登记）：`GET /api/agents` 行的 `role` 列对 `pb-<role>-<n>` 从 `null` 变为角色名——字段类型与既有取值域（`string|null`）不变，且该 id 形态在迭代前本就不被识别（该值此前无意义）。
 11. **`/api/subscribe` 的角色归一不识别多实例后缀 id**：该面的 `matchesAgent` 用 `roleFromInstanceId` / `instanceIdForRole` 归一 token ⇒ 用**确切实例名**（`pb-dev-2`）过滤正常，用**角色名**（`dev`）过滤会漏掉多实例实例的事件。F06 只覆盖调用面、`demand.md` 无订阅面条目 ⇒ 本迭代不改，如实登记（若要一致化，改法与 A-06 补定同源：接入 `roleOfPoolInstance`）。
 12. **`/api/messages`（对话面板路径）不经池化路由**：该面按 `instance_id` 直接寻址（不做角色→实例解析），因此面板可以精确寻址到 `pb-dev-2`，但同一 chat 的面板提问不会被池内路由分散/粘性化 —— 池化在本迭代只覆盖 `/api/calls`（F06 范围）。
 
@@ -523,6 +523,7 @@ flowchart TB
 7. **MI-12 的取值口径**：F08 验收 3 的"当刻全局默认值"在 harness 侧 = 父会话当刻生效模型（可能随 `/model` 变化），与 `modelRoles.default` 不必然相等 ⇒ 架构侧不写死（A-08 末段）。
 8. **既有 HTTP 路由条数的口径更正（29 条）**：本文件初稿在 §2 拓扑与 §5 文档面提示中误写"21 条"（沿用了 0029 基线口径）。更正来源 = 阶段 6 独立验证的偏差记录（`clarifications/verify-20260917-140951-stage4-prs.md` 第 3 条）+ 主 agent 复核：`awk '/function createApiRoutes/,0' oamp/src/web.js | grep -cE "method: '(GET|POST|PUT|DELETE)'"` ⇒ **29**，且与 `oamp/API.md` §3 编号至 29、`oamp/llms.txt` 头部"接口（29 条）"三处同值 ⇒ 已按 29 改正，§1.1 基线行同时补上该实测口径（"本迭代不新增路由"的判据语义不变）。
 9. **`prd.md` 索引的「架构待填汇总」表**未随本文件更新（该文件的写入面不在本角色授权内）⇒ 状态列（`待填`）与 §0 表格的"已填定"不一致，提请主 agent 在收口时同步。
+10. **A-06 池成员判据的补定（同角色多实例识别约定，2026-09-17）**：来源 = **阶段 5 planner 发现 + 主 agent 代码复核**（`agent.js:841` 的 `client.register(instanceId)` 不带 role；`registry.js:156-169` 的 `snapshot()` 无 role 字段；`role-binding.js` 的 `roleFromInstanceId` 只认 `^pb-(.+)$` + 角色文件存在性 ⇒ `pb-dev-2` 解析为角色 `dev-2` → `null`）⇒ 本文件初稿的 `roleFromInstanceId(...) === role` 判据使**同角色在线池上限恒为 1**，F06 验收 1 与效果#5 在端到端面不可构造。已补定为"`pb-<role>` 或 `pb-<role>-<n>` 计入该 role 的池；解析先精确公式、未命中再剥后缀复用同一公式；用户侧以 `agent start pb-<role>-<n> --role <role>` 启动；resolver 由新增模块 `pool-routing.js` 导出、`role-binding.js` 既有公式零改动；池成员判定与 `GET /api/agents` 的 role 列同源"，全文见 §4 A-06 补定。**与 §1.3 既有面硬约束、§6 零影响声明无冲突**（不新增协议字段、不改既有可观测面的字段集与语义、不改 `cluster.json`/`roles/**`）；未采纳的显式备选与两处相邻不一致（订阅面归一、`/api/messages` 不经池化）已登记于 §9-10 ~ §9-12。
 
 ---
 
