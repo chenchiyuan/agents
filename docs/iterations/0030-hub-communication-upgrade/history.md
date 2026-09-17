@@ -128,3 +128,21 @@
 - 阶段：阶段 6（独立验证）—— 阶段 4→5 门口触发的定向验证
 - 任务：不接收执行过程上下文，独立评判 `prs/` 目录产物的质量
 - 渠道：本地 subagent，`agent=verifier`（实报模型待回报，预期 `powerby/grok-4.6`）
+
+### 2026-09-17 14:25:51 · 收到报告 · verifier（PrsVerifier）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-140951-stage4-prs.md（+ `roles/verifier/data/verify-20260917-140951-0030-prs.md`）
+- 结论：**PASS**（pass 6 / fail 0 / partial 3 / blocked 0）；偏差记录 4 条；下一迭代候选 5 条
+- 逐项判定：① 七字段 pass ② 功能点覆盖 pass ③ 文件范围无重叠 pass ④ **依赖正确性 partial**（7 条边逐条给出代码级证据、无环无悬挂通过；**不通过侧 = `pr-007 → pr-008` 证据不成立**：两张 PRD 卡未点名 `dispatch-ledger.md`，且 pr-007 的 `evidence/f08-model-attribution.md` 与 pr-008 的 `dispatch-ledger.md` 不是同一文件、无共享符号 ⇒ 判"顺序偏好误标为依赖"）⑤ **验收标准可独立判断 partial**（不通过侧 = pr-007 验收 4 依赖 L1-01 载体落点裁决；且 F08 验收 4 与 F09 验收 2 的"同一张表"被拆到两份文件）⑥ **PR 粒度 partial**（不通过侧 = pr-005 可审查性：`web.js` 单文件承载 F01~F07 七卡接线，审查者需同时装载七张卡心智模型）⑦ 并发可行性 pass ⑧ 关键路径 3 pass ⑨ 委派文件原文摘录置顶 pass（`deferred-demand-changes.md` 三节全文摘录、未转述、未放文末）
+- 偏差记录 4 条：① pr-007→pr-008 边证据与实际不符；② pr-005→pr-001 证据行的"5 个消费点"与源码实际调用点不符（另有 `:1482`/`:1763`/`:1769`/`:2144`）；③ **路由条数口径错**：architecture / pr-006 / pr-009 写"21 条"，实测 `createApiRoutes` 登记 **29 条**；④ F08 验收 4 与 F09 验收 2 的"同一张表"被规划拆成两份文件
+- 通道实况：本地 subagent 通道，调用 `completed`（15m54s），子 agent 自报模型 **`powerby/grok-4.6`**（= D-34 绑定，F08 验收 2 成立）
+
+### 2026-09-17 14:28:00 · 调度决策 · 阶段推进核查（Gate 验证结论处置 + 返工派发）
+
+- 决策内容：Gate 的独立验证结论为 PASS ⇒ **Gate 闭合**（推进条件六项 + 机械七项 + 独立验证 pass 三项齐备）。三条 partial 的不通过侧与 4 条偏差逐条处置：修正 1 依赖边不合规（合并 pr-007/pr-008 或删边并把取证收敛到同一张台账）、修正 2 路由条数 21→29（**主 agent 独立复核确认 verifier 正确**：`awk '/function createApiRoutes/,0' oamp/src/web.js | grep -cE "method: '(GET|POST|PUT|DELETE)'"` = 29）、修正 3 证据行数按实测更新、修正 4 把 L1-01 已决事实回填 pr-007（使验收 4 可独立判）、修正 5 接受 pr-005 可审查性代价并如实记录（同文件不可拆）。返工派发回 `pr-planner`（同一 agent 续做，保留上下文）
+- 触发依据：`clarifications/verify-20260917-140951-stage4-prs.md` 的 §逐项判定 / §偏差记录 / §结论；主 agent 对"21"口径的独立复核（29 条）；`workflow-pb.md` §Gate"未通过：回到阶段 4 修订 PR 文件，不进入阶段 5"（本次为 partial 级修订，结论已 pass，修订后再跑靶向复核）
+
+### 2026-09-17 14:28:00 · 派发 · pr-planner（返工续做）
+
+- 阶段：阶段 4（PR 规划）—— 验证反馈驱动的定向返工
+- 任务：按验证报告修正 5 项（依赖边 / 路由条数 / 证据行数 / L1-01 回填 / pr-005 代价记录）并内部重跑 Verify
