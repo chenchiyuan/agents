@@ -174,3 +174,20 @@
 
 - verifier：对返工后的 PR 集合做**靶向复验**（上一轮 3 个 partial 的不通过侧 + 4 条偏差逐条销项 + 一致性回归 + 原文摘录置顶要求），新时间戳报告不覆盖旧报告
 - architect：修正 `architecture.md` 中过时的路由条数口径（21 → 实测 29，含 §0/§1.1/§5/§6 逐处核对 + 一行更正来源说明）
+
+### 2026-09-17 14:41:16 · 收到报告 · planner（pr-001）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-001-reason-mapping-module-tasks.md（328 行）；任务总数：**3**（T1 模块落点+唯一导出+全函数骨架 / T2 三段式匹配表落地 / T3 自证与零影响核查）
+- 2. 依赖图摘要：链式 `T1 → T2 → T3`，无环；关键路径任务 = T1 → T2 → T3（3 节点）
+- 3. `[model_inferred]` 列表：MI-P1~MI-P4（4 项，均为**收窄/收紧口径**：§4.2 负例边界行由已定规则反面推出；"无 import"收紧为 0 条含 node: 内置；文件头注内容要求；映射表常量为模块级私有）——按 `workflow-pb.md` §需要用户决策的情况（阶段 4/5 的 `model_inferred` **不触发暂停**），由主 agent 作为决策者**采纳本 4 项口径**并写入 dev 简报
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：4 条如实说明（措辞差按 architecture 更严口径统一，生产点全部满足、无行为差；PR worktree 的 `docs/**` 副本滞后于迭代分支 tip，但 `oamp/**` 在两者间**零差异**、代码面基准无歧义；本 PR 不接线故一切验收在函数级完成、已在 tasks 文件写死防越界；未补充任何技术决策、未改上游产物）
+- 通道实况：本地 subagent，调用 `completed`（5m16s），子 agent 自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:41:30 · 派发 · dev（pr-001，**gpt**）
+
+- 阶段：阶段 5 · pr-001 实现与自证
+- 通道：本地 subagent，`agent=dev`（= D-34 绑定 `openai/gpt-5.6-luna`，L1-01 载体 B）
+- worktree：`<迭代工作区>/.pb-agents/worktrees/0030-pr-001-reason-mapping-module`，分支 `feat/0030-pr-001-reason-mapping-module`
+- 输入：该 PR 的 tasks 文件（唯一执行依据）+ PR 文件 + `architecture.md` §4 A-03/A-04 + `role-binding.js` 体例
+- 完成定义：4 条验收标准全过（按 tasks §4.2 全探针表逐行 PASS 取证）+ 无简报外改动（既有 `oamp/src/**` 零 diff）+ 在 worktree 内提交
