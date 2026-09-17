@@ -471,3 +471,108 @@ git status --short
 ## 执行证据（dev 回填）
 
 > 由 dev 在 T5 完成时回填：§4.2 / §4.3 脚本的**原样 stdout**，以及 §4.4 的 `grep`/`diff` 原始输出（原始命令 + 紧跟输出，不做二次加工）。落点 = 本节内追加，不新建文档。
+
+### dev 原始取证（2026-09-17）
+
+#### §4.1 合同面 / 对象集探针
+
+```text
+handleKeys: ["activateChat","archiveChat","close","closeChat","createProject","deleteInbox","getChat","getProject","insertInbox","insertInput","insertOutput","listArchivable","listChats","listInbox","listProjects","projectByChat","renameChat","startupSweep","upsertChat"]
+moduleExports: ["openDb"]
+objects: [{"type":"table","name":"chats"},{"type":"index","name":"idx_chats_project_updated"},{"type":"index","name":"idx_chats_updated"},{"type":"index","name":"idx_inbox_principal"},{"type":"index","name":"idx_messages_chat_time"},{"type":"table","name":"inbox"},{"type":"table","name":"messages"},{"type":"table","name":"projects"},{"type":"index","name":"sqlite_autoindex_chats_1"},{"type":"index","name":"sqlite_autoindex_inbox_1"},{"type":"index","name":"sqlite_autoindex_projects_1"},{"type":"index","name":"sqlite_autoindex_projects_2"},{"type":"table","name":"sqlite_sequence"}]
+```
+
+#### §4.2 全量 AC 断言脚本
+
+```text
+PASS T1.1 inbox+index 恰 2 对象
+PASS T1.2 列序逐位
+PASS T1.2 约束
+PASS T1.3 索引列序
+PASS T1.3 显式索引
+PASS T1.4 结构幂等
+PASS T1.6 增量恰 2 且无 user_version
+PASS T2.1 首次 true
+PASS T2.2 重复 false
+PASS T2.2 不覆盖首条
+PASS T2.4 默认值
+PASS T2.4 envelope 原样字符串
+PASS T2.6 非法 principal=undefined 抛错且不落行
+PASS T2.6 非法 principal=null 抛错且不落行
+PASS T2.6 非法 principal= 抛错且不落行
+PASS T2.6 非法 principal=123 抛错且不落行
+PASS T2.6 非法 callId=undefined 抛错且不落行
+PASS T2.6 非法 callId=null 抛错且不落行
+PASS T2.6 非法 callId= 抛错且不落行
+PASS T2.6 非法 callId=123 抛错且不落行
+PASS T3.1 归属过滤
+PASS T3.2 升序
+PASS T3.3 行键集 6 键
+PASS T3.3 envelope 原样
+PASS T3.6 读口无副作用
+PASS T4.1 删除 true
+PASS T4.1 移出未取件集合
+PASS T4.2 重复删除 false 不抛错
+PASS T4.3 不存在 false 不抛错
+PASS T4.4 重插可复活
+PASS T4.5 无 acked 列
+PASS T4.3 非法 callId= 抛错
+PASS T4.3 非法 callId=123 抛错
+PASS T4.3 非法 callId=null 抛错
+PASS T5.1 句柄 19 键
+PASS T5.2 模块导出 1 键
+PASS T5.6 对象集
+RESULT: PASS
+```
+
+#### §4.3 base 对照（`diff` 原始输出；stderr 的 `ExperimentalWarning` 省略）
+
+```text
+--- /tmp/pr003-base.json
++++ /tmp/pr003-after.json
+@@ -14,10 +14,18 @@
+     {
+       "type": "index",
++      "name": "idx_inbox_principal"
++    },
++    {
++      "type": "index",
+       "name": "idx_messages_chat_time"
+@@ -47,12 +59,15 @@
+     "close",
+     "closeChat",
+     "createProject",
++    "deleteInbox",
+     "getChat",
+     "getProject",
++    "insertInbox",
+     "insertInput",
+     "insertOutput",
+     "listArchivable",
+     "listChats",
++    "listInbox",
+```
+
+`behavior` 段无差异；差异仅为 inbox 表、显式索引、隐式主键索引及 3 个句柄键。
+
+#### §4.4 grep / diff 族
+
+```text
+① zero-maintenance
+0
+② SQL classes
+      1 CREATE INDEX IF NOT EXISTS idx_inbox_principal
+      1 CREATE TABLE IF NOT EXISTS inbox
+      1 DELETE FROM inbox WHERE call_id = ?
+      1 INSERT OR IGNORE INTO inbox
+      1 SELECT call_id, principal, agent, chat_id, terminal_at, envelope FROM inbox
+③ migration
+0
+④ scope
+M	oamp/src/persist.js
+package diff
+deps
+1
+status
+ M oamp/src/persist.js
+```

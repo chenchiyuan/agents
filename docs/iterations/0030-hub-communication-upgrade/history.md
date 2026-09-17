@@ -360,3 +360,18 @@
 - 决策内容：pr-002 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-002-pool-routing-module` ⇒ `4bcfbc3`，1 file / 105 lines）；现场清理（`worktree remove` + `branch -d`）；`累计槛位释放次数 = 2` ⇒ `当前有效上限 = min(3 + 2×3, 5) = 5`（维持硬上限）
 - **解锁扫描结果：无新增已解锁 PR** —— 五个无依赖 PR 中 pr-001/pr-002 已合并、pr-003/pr-004/pr-007 在飞；pr-005 仍缺 pr-003 与 pr-004 的合并；pr-006/pr-008 依赖 pr-005。⇒ **释放出的 2 个槛位保持空置**，不放宽解锁条件（`workflow-pb.md` §阶段 5"没有已解锁且排队中的 PR 时，释放出的槛位保持空置"）
 - 触发依据：`clarifications/verify-20260917-145350-pr-002.md` 结论 PASS；`git merge` 输出；依赖图重扫（`prs/*.md` 的 `depends_on` × 已合并集）
+
+### 2026-09-17 16:06:00 · 收到报告 · dev（pr-003）
+
+- 1. 改了什么文件：仅 `<PR worktree>/oamp/src/persist.js`（inbox DDL + 索引 + `insertInbox`/`listInbox`/`deleteInbox`），提交 **`33005c0`**；证据已回填迭代区 tasks 文件末尾
+- 2. 测试结果：`node --check` PASS；完整 AC 脚本 PASS；既有库补齐 PASS；base 对照 `behavior` 段无差异（仅新增 **3 个 sqlite 对象 / 3 个句柄键**——含 SQLite 自动索引，与 planner 演练时纠正的口径一致）；零维护/迁移 grep 命中 0
+- 3. 疑问/待办：无
+- 4. 违反边界之事：无（scope 仅 `persist.js`）
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 4 例取证）
+
+### 2026-09-17 16:07:00 · 派发 · verifier（pr-003 验收）
+
+- 阶段：阶段 5 · pr-003 独立验收
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `33005c0` 的 diff（判据 = PR 文件 5 条验收标准 + architecture §4 A-01/A-09）
+- 独立取证要求：不得采信执行方证据；自建 `/tmp/verify-p003/` 临时库自调三方法覆盖全部条目（幂等重复插入、principal 隔离与升序、删不存在行、连续两次 `openDb`、既有三表回归）
