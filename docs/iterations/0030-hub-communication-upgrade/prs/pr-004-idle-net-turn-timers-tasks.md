@@ -478,3 +478,14 @@ cd $WT
 > verifier 的独立报告落 `clarifications/verify-<ts>-pr-004.md` + `roles/verifier/data/`，**不回填**本段。
 
 （待回填）
+
+## 5. dev 执行证据（2026-09-12，openai/gpt-5.6-luna）
+
+- R1 `/tmp/0030-pr-004/R1.out`：默认 `600000 14400000 PASS`；压缩 `2000 9000 PASS`；`abc/0/-1/2.5/""` 五个非法值均 `PASS`。
+- R2/R3 客户端桩证据：`/tmp/0030-pr-004/R2-client.out`、`R3-rpc.out`、`R3-acp.out`。one-shot idle/net 分别报 `一次性执行空闲超时（空闲 80ms）` / `一次性执行安全网超时（累计 80ms）`，进展场景完成；rpc 分别报 `轮次空闲超时（空闲 80ms）` / `轮次安全网超时（累计 80ms）`，进展场景完成；acp 分别报 `session/prompt 空闲超时（空闲 80ms）` / `session/prompt 安全网超时（累计 80ms）`，进展场景完成。
+- R5 ACP 审批门冻结：`/tmp/0030-pr-004-acp-gate.mjs` 输出正常完成 `text=answered`，门等待约 150ms 且 idle=50/net=100 未判死。
+- R6 `/tmp/0030-pr-004/R6.out`：三值缺省 one-shot 静默桩 80ms 后 `settled=false`；无 `nullms`。
+- daemon 透传 `/tmp/0030-pr-004/daemon-passthrough.out`：`idleMs=123, netMs=456`。
+- R7 `/tmp/0030-pr-004/R7.out`：`timeout`、`timeout_after_1500ms`、`timeout_after_4000ms`、`timeout_after_1200ms` 均归类 `timeout`；中文轮次空闲文案归 `agent_error`（未进入 error 字段）。
+- R8 `/tmp/0030-pr-004/R8.out`：三客户端/agent 默认常量残留均无；`MAX_TIMEOUT_MS=1800000` 与 shell `DEFAULT_TASK_TIMEOUT_MS=30000` 保留；sdk/web 改动为空；改动面仅六个指定 `oamp/src` 文件。
+- 所有六个指定 JS 文件 `node --check` 通过；`git diff --check` 通过。

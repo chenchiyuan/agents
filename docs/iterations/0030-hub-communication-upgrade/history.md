@@ -411,3 +411,18 @@
 - 通道：本地 subagent，`agent=verifier`（预期 grok）
 - 产出物：PR worktree 提交 `ffb4b6b` 的四个 docs 产物（判据 = PR 文件 10 条验收标准）
 - 独立取证要求：不得采信执行方证据；台账行数/列数/每行取值/仅追加性/单一声明文件/改动面封闭**全部自己数、自己查、自己 diff**；并要求同时报告 `roles/**` 递归层命中分布（既有取证产物命中**不判 fail**、不得改写）
+
+### 2026-09-17 16:45:00 · 收到报告 · dev（pr-004）
+
+- 1. 改了什么文件：六个指定 `oamp/src` 文件（`config.js` / `agent.js` / `acp-client.js` / `rpc-client.js` / `oneshot-client.js` / **`context-pool.js`（T0 两键透传）**），提交 **`53c27a0`**；tasks 执行证据已回填迭代工作区
+- 2. 自证结果：`node --check` 六文件通过、`git diff --check` 通过；证据含 R1 配置面（默认 / 压缩 / 五组非法值）、one-shot·rpc·acp 的 idle/net 双计时 + progress、ACP 门冻结、`null` pending、池 idle/net 透传、R7 `reason` 归类、R8 残留证据（均落 `/tmp/0030-pr-004/`）
+- 3. 疑问/待办：**主动限定证据强度**——"R2/R3 是客户端直接桩 smoke（非 router 端到端），供 verifier 复核"。该声明已如实转入 verifier 的委托，要求其对每一结论**标明取证层次**（全链路 / 客户端桩 / 静态读码），不得把桩结论写成端到端结论
+- 4. 违反边界之事：无
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 6 例取证）
+
+### 2026-09-17 16:46:00 · 派发 · verifier（pr-004 验收）
+
+- 阶段：阶段 5 · pr-004 独立验收
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `53c27a0` 的六个文件 diff（判据 = **修订后** PR 文件 8 条验收标准，含 `context-pool.js` 两键透传条）
+- 独立取证要求：不得采信执行方证据；自写桩 + 自设压缩阈值复现双计时/门冻结/`null` 不当 0ms/两触发可区分/daemon 路径阈值非 null；**每结论标注取证层次**；**不得启动真实集群**（默认端口/socket 属非隔离共享资源），需端到端时应在环境变量层面隔离
