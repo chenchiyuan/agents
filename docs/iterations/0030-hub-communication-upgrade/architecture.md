@@ -184,7 +184,7 @@ flowchart TB
 ### 3.4 池化与池内路由（F06 + F07）
 
 1. 派发时（`/api/calls` handler）：每个请求取**一次**池与负载快照 —— `queryOnce(router.status)` + `queryOnce(router.task_list)`（两个既有只读方法，**不新增协议方法**）；
-   - **池成员** = `roleFromInstanceId(node.instance_id) === role && node.state === 'online' && node.connected === true`（`connected=false` 的节点投递必然得 `AGENT_OFFLINE`，纳入池只是浪费选择）；
+   - **池成员** = `roleOfPoolInstance(node.instance_id) === role && node.state === 'online' && node.connected === true`（`connected=false` 的节点投递必然得 `AGENT_OFFLINE`，纳入池只是浪费选择）；`roleOfPoolInstance` = **多实例感知的角色解析**（`pb-<role>` 或 `pb-<role>-<n>`：先走既有精确公式，未命中再剥后缀复用同一公式；约定全文与来源见 **§4 A-06 补定**），且**与 `GET /api/agents` 的 `role` 列同源**（同一函数，不各写一遍）；
    - **负载** = 复用 `deriveAgentWork(taskRows)` 的 `{queued, busy}` + `pool-routing` 维护的**在飞预留计数**；次序键 = `(queued, busy, inflight, instance_id)` 的字典序最小值 ⇒ 确定性、可复现（验收 2/5 可判定）。
 2. **粘性**：`pool-routing` 内 `Map<'<chat_id>\u0000<role>', instance_id>`：
    - 命中且该实例 ∈ 池 ⇒ 复用（验收 1）；
@@ -315,9 +315,16 @@ flowchart TB
 
 ### A-06 池成员判定与选择算法（追溯：F06 验收 1~5；MI-9；D-30 / D-32）
 
-- **池成员读数来源**：`router.status` 的 `nodes`（既有方法、任意连接可查、零新增协议面）：`state === 'online' && connected === true && roleFromInstanceId(instance_id) === role`。
+- **池成员读数来源**：`router.status` 的 `nodes`（既有方法、任意连接可查、零新增协议面）：`state === 'online' && connected === true && roleOfPoolInstance(instance_id) === role`。
   - 为什么要求 `connected`：`message.send` 对 `connId === null` 的节点直接回 `AGENT_OFFLINE`（`router.js:100`）⇒ 未连通的节点进池只是浪费一次选择。
-  - `roleFromInstanceId` 是**既有唯一反向映射**（复用，不复制公式）。
+  - `roleOfPoolInstance` = **多实例感知的角色解析**（见下方补定）：先走既有 `roleFromInstanceId`（`pb-<role>` 精确公式 + 角色文件存在性），未命中时剥离尾段 `-<n>` 再走**同一**公式 ⇒ 不重新实现角色↔实例映射公式（"公式只此一处"的既有取向不破），只新增"同角色多实例的后缀归一"这一条新知识。
+
+- **补定：同角色多实例的识别约定（2026-09-17，来源见 §10-10）**
+  - **约定的必要性（代码实测）**：hub 侧**无法**从协议面得知实例的角色 —— `agent.register` 载荷只有 `instance_id`（`agent.js:841` `client.register(instanceId)`），`registry.snapshot()` 的节点字段 = `instance_id / session_id / state / last_heartbeat / connected`（**无 role**，`registry.js:156-169`）。既有反向映射 `roleFromInstanceId` 只认 `^pb-(.+)$` 且要求 `<root>/roles/<role>/<role>.md` 存在 ⇒ `pb-dev` → `dev`，而 `pb-dev-2` 会去解析角色 `dev-2`（角色文件不存在）⇒ 返回 `null`。⇒ 若池成员判据只认精确公式，**同角色在线池上限恒为 1**，F06 验收 1 与效果#5 在端到端面**不可构造**。
+  - **约定**：实例 id 形如 `pb-<role>` **或** `pb-<role>-<n>`（`n` = 正整数）即计入该 role 的池。**解析顺序**：① 先按既有精确公式（若 `roles/dev-2/dev-2.md` 真实存在，则 `pb-dev-2` **就是**角色 `dev-2` 的实例 —— 精确优先、向后兼容）；② 未命中再剥离尾段 `-<n>`，用**同一**角色文件存在性判据解析 `<role>`。⇒ 无歧义、无第二套角色真源；`pb-dev-1` 与 `pb-dev` 视为两个独立实例（不做别名等价）。
+  - **用户侧启动方式**：`oamp agent start pb-<role>-<n> --role <role>`（**`--role` 必带**）：agent 侧的角色绑定 = `explicitRole || roleFromInstanceId(instanceId)`（`agent.js:677`），不带则 `pb-dev-2` 在 agent 侧同样绑不上角色（角色文件预检与 `--tools` 缺省档都会退化）；`--role` 的既有校验（无分隔符、非 `.`/`..`、角色文件必须存在否则退出 2）**全部保留**。
+  - **落点与同源要求**：`roleOfPoolInstance` 由**新增模块** `src/pool-routing.js` 导出（`role-binding.js` 的既有两公式**零改动** ⇒ §5「明确不改」清单与 §1.3 / §6 的声明逐字成立）；**池成员判定与 `GET /api/agents` 的 `role` 列必须消费同一函数**（`web.js:673` 现用 `roleFromInstanceId` ⇒ 不同步会出现"能进池但 role 列显示 `null`"的自相矛盾，直接损害验收 5 的可观测性）。
+  - **作用域（不做扩散）**：**仅**手动启动的实例走该约定；`cluster.json` 管理的实例恒为 `pb-<role>`（`cluster-config.js` 的 `instanceIdForRole` 零改动）⇒ 与 D-30 / D-32（hub 不管生命周期、固定配置）一致。协议面**不加 role 字段**（备选"`agent.register` 自报 role + `snapshot()` 追加 role 字段"要改 `agent.js` / `router.js` / `registry.js` / `/api/agents` 投影四处并扩协议载荷，收益仅是省掉一条命名约定 ⇒ 不采纳，见 §9-10）。
 - **负载读数来源**：`router.task_list`（既有方法）+ `deriveAgentWork`（**既有函数**，服务 `GET /api/agents` 与 `agent_state` 帧）⇒ "最空闲"不需要新度量。
 - **选择口径**：次序键 `(queued, busy, inflight, instance_id)` 取字典序最小（`queued`/`busy` 来自任务表；`inflight` = 本进程"已选中未落表"的预留计数；`instance_id` 升序做确定性 tie-break）。
 - **实现口径与调用点**：新增 `src/pool-routing.js`（叶子模块：粘性表 + `choose()` + 预留计数），在 `startWeb` 内接线为 `pickInstance(role, {chatId, noReuse, snapshot})` 并注入 `createApiRoutes` 的 deps（体例 = 既有 `sendTask` / `scheduleReconcile` 的注入方式）；替换点 = `/api/calls` handler 的 `const agentId = instanceIdForRole(role)`（**唯一调用点**）。
@@ -486,7 +493,10 @@ flowchart TB
 6. **长任务的调用方等待预算未变**：`--wait` / `mode:block` 的客户端预算仍为 30 分钟 ⇒ 超过 30 分钟仍在跑的长任务会先收到 `timed_out:true`（**不改任务状态**），随后经取件面（F01）拿到终态。这是 F05 × F01 的协同，不是冲突；是否抬高客户端默认预算属产品口径（`demand.md` 无条目 ⇒ 不改）。
 7. **显式 `timeout_ms` 的调用方仍受 30 分钟上限**（A-05 第 5 条）：call 面不暴露该参数；`oamp task send` 的 demo 面保留既有语义与既有文档措辞（仅"默认 30 分钟"一档改为新判据）。
 8. **取件条目的 `acked` 恒为 `false`**（A-09）：响应键位与类型不变，信息量为常量。
-9. **`reason` 只存在于失败终态**：受理态与成功态信封键集不变（MI-4）；SSE `call_result` 帧在失败侧的 payload 多一个键（事件类不变）。
+9. **`reason` 只存在于失败终态**：受理态与成功态信封键值集不变（MI-4）；SSE `call_result` 帧在失败侧的 payload 多一个键（事件类不变）。
+10. **同角色多实例识别走命名约定，而非协议字段（已评估的备选未采纳）**：hub 侧看不到实例的角色（`agent.register` 不带 role、节点快照无 role 字段），本迭代用 `pb-<role>-<n>` 的后缀约定解决（§4 A-06 补定）。备选"`agent.register` 自报 role + `snapshot()` 追加 role 字段"更显式，但要改四处（`agent.js` / `router.js` / `registry.js` / `/api/agents` 投影）并扩协议载荷，收益仅是省掉一条命名约定 ⇒ 不采纳（YAGNI）；代价 = 实例 id 必须遵守该命名（否则不进池，仍是既有"实例不在线"的结论）。
+11. **`/api/subscribe` 的角色归一不识别多实例后缀 id**：该面的 `matchesAgent` 用 `roleFromInstanceId` / `instanceIdForRole` 归一 token ⇒ 用**确切实例名**（`pb-dev-2`）过滤正常，用**角色名**（`dev`）过滤会漏掉多实例实例的事件。F06 只覆盖调用面、`demand.md` 无订阅面条目 ⇒ 本迭代不改，如实登记（若要一致化，改法与 A-06 补定同源：接入 `roleOfPoolInstance`）。
+12. **`/api/messages`（对话面板路径）不经池化路由**：该面按 `instance_id` 直接寻址（不做角色→实例解析），因此面板可以精确寻址到 `pb-dev-2`，但同一 chat 的面板提问不会被池内路由分散/粘性化 —— 池化在本迭代只覆盖 `/api/calls`（F06 范围）。
 
 **架构内部一致性检查（无冲突）**：
 - F01 × F03：必达的实现依赖持久层；两者写入点同一（`publishCallResult`）⇒ 不产生"必达但重启即丢"的中间态。

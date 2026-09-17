@@ -225,3 +225,38 @@
 
 - 决策内容：① **证据落点裁决**（回应 pr-003 planner 的疑问）——dev 的原始输出落**该 PR 的 tasks 文件末尾「执行证据（dev 回填）」段**，verifier 的独立报告落 `clarifications/verify-<ts>-pr-00N.md` + `roles/verifier/data/`；两者都不写回 PR 文件（PR 文件七字段无证据段，且其「文件范围」只列代码路径，写回即越界）。② **跨 PR 契约采纳**（pr-003 MI-P1 是 pr-005 的调用契约）：`persist.js` 三个新方法取**同文件既有体例**——入参 camelCase 对象（`callId`/`principal`/`agent`/`chatId`/`terminalAt`/`envelope`）、`insertInbox`/`deleteInbox` 返回 boolean；该契约写入 pr-005 的 dev 简报（跨 PR 接缝在派发前定死，不留待协商）
 - 触发依据：pr-003 planner 报告第 5 项疑问 1；MI-P1 的判定理由（architecture §3.1 写 snake_case 调用式，而 `persist.js` 既有写口一律 camelCase ⇒ 取同文件体例）；`workflow-pb.md` §阶段 5"决定跨任务契约并在派发前写入简报"
+
+### 2026-09-17 14:53:53 · 收到报告 · verifier（pr-001 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-143053-pr-001.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 2）；verifier 自写探针独立复跑（未采信 dev 的 `/tmp` 证据）
+- 偏差记录 2 条：① architecture §4 A-04 表第 10/11 行的展示形态 `` `spawn_failed: <msg>` `` 易被读成"空格是匹配条件"（说明 2 已写"冒号后任意文本"，属展示微调）；② PR 文件验收标准四条复选框仍为 `- [ ]`
+- 下一迭代候选 3 条：接线尚未发生（消费点在 pr-005，否则 F04 信封面不成立）；精确匹配大小写敏感；`context_crashed`/`dispatch_failed` 是精确键非前缀
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 14:54:30 · 调度决策 · PR 合并 + 槛位释放
+
+- 决策内容：pr-001 **合并进当前迭代的迭代分支**（`git -C <迭代工作区> merge --no-ff feat/0030-pr-001-reason-mapping-module` ⇒ `f81d5c6`，1 file / 42 lines）；合并面预检已做（PR 分支只动 `oamp/src/reason.js`，迭代分支只动 `docs/**`+`roles/verifier/data/**`，零交集、`merge-tree` 无冲突）；合并后**清理现场**（`worktree remove` + `branch -d feat/0030-pr-001-reason-mapping-module`）；欠账登记：两条偏差（A-04 展示微调 → 归 architect；PR 复选框勾选 → 归 pr-planner）**批到阶段 5 收尾统一处理**，不单独开派发
+- **门槛位算法**：pr-001 返回"成功合并" ⇒ `累计槛位释放次数 = 1`，`当前有效上限 = min(3 + 1×3, 5) = 5`（触及硬上限）；在飞 = pr-002、pr-003（2 个）⇒ 可再派 3 个已解锁 PR
+- 触发依据：`workflow-pb.md` §阶段 5"每当一个 PR merge 完成，重新扫描依赖图"与 §并发槛位算法；`clarifications/verify-20260917-143053-pr-001.md` 结论 PASS
+
+### 2026-09-17 14:56:00 · 调度决策 · 架构层补定（A-06 池成员判据缺口）
+
+- 决策内容：`planner`（pr-002）发现的实质问题经主 agent 代码复核**成立**——`client.register(instanceId)` 载荷不带 role（`agent.js:841`）、`registry.snapshot()` 节点无 role 字段（`registry.js:156-169`）、hub 一律用 `roleFromInstanceId` 反推而该公式只认 `pb-<role>`（`role-binding.js`）⇒ 按 A-06 判据**同角色在线池上限恒为 1**，prd F06 验收 1 与效果#5 在端到端面不可构造。用户侧 `agent start pb-dev-2 --role dev` 路径存在（`agent.js:578,677`），缺的只是 hub 侧识别约定
+- 判断与处置：按 `workflow-pb.md` §阶段回退标准，**不改变 demand.md 任何结论**（D-30 已定"池子规模交给使用者"）⇒ 属**架构层判据不完整**，归执行侧在当前阶段解决：派回 `architect` 在 §4 A-06 / §3.4 / §10 补定多实例识别约定（`pb-<role>` 或 `pb-<role>-<n>` 计入该 role 池；由 pr-005 注入的 resolver 实现，`role-binding.js` 保持零改动），文档面由 pr-006 承担
+- 触发依据：`PlanP002` 报告第 5 项疑问 3（附证据链）+ 主 agent 逐条代码复核（`role-binding.js` / `agent.js:578,677,841` / `registry.js:156-169` / `web.js:44,445,673`）
+
+### 2026-09-17 14:58:00 · 收到报告 · planner（pr-002）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-002-pool-routing-module-tasks.md（408 行）；任务总数 **4**（T1 骨架+工厂+池成员判定+空池回落 / T2 次序键+在飞预留 / T3 粘性表 / T4 合同面核查+全量自证复跑+改动面封闭性）
+- 2. 依赖图摘要：`T1→T2→T3→T4`（4 条边），无环、唯一拓扑序；关键路径 = T1→T2→T3→T4
+- 3. `[model_inferred]` 列表：MI-P1~MI-P5（导出形态 `createPoolRouting` + 4 方法 / `snapshot={nodes,work}` 由调用方注入 / 两个只读读数入口 / `chatId` 非法时跳过粘性读写 / `release` 下界保护）——按阶段 4/5 规则**不触发暂停**，主 agent **全部采纳**
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：5 条（含上述**架构缺口升级**、MI 取舍的替代方案、粒度与记录归属、上游信息充分性）；另注：`§4.2` 验收脚本已用 `/tmp` 一次性参照实现演练 ⇒ **31/31 PASS、退出码 0**（判据可判定性前置证明）
+- 通道实况：本地 subagent，调用 `completed`（14m58s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:59:00 · 派发 · dev（pr-002，**gpt**）+ planner ×2（pr-004 / pr-007）
+
+- dev（pr-002）：`agent=dev`（gpt-5.6-luna）；worktree `feat/0030-pr-002-pool-routing-module`；输入 tasks 文件（408 行）+ PR 文件 + §4 A-06/A-07；MI-P1~MI-P5 采纳；跨 PR 契约（导出形态与 `snapshot` 形状）随简报冻结
+- planner ×2：`PlanP004`（pr-004，5 文件计时改造；要求给出**可压缩时间轴**的取证配方——10 分钟真实等待不可行）与 `PlanP007`（pr-007，F08+F09 过程/证据 PR；已把 L1-01 已决事实写入简报，要求台账单一声明、不碰 `oamp/**`）
+- 并发状态：在飞 = pr-002(dev)、pr-003(dev/待回报)、pr-004(planner)、pr-007(planner) = 4 ≤ 当前有效上限 5

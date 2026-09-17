@@ -36,9 +36,9 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **当前有效上限**：3
-- **累计槛位释放次数**：0
-- **已派发总数**：0
+- **当前有效上限**：**5**（`min(3 + 1×3, 5)`，pr-001 合并后触发首次爬升并触及硬上限）
+- **累计槛位释放次数**：**1**（pr-001 成功合并）
+- **已派发总数**：**5**（planner ×3 + dev ×2）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -46,14 +46,16 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-reason-mapping-module.md | （无） | ⏸ | feat/0030-pr-001-reason-mapping-module | ⬜ | **占用**（planner 在途） |
-| pr-002-pool-routing-module.md | （无） | ⏸ | feat/0030-pr-002-pool-routing-module | ⬜ | **占用**（planner 在途） |
-| pr-003-inbox-table-persistence.md | （无） | ⏸ | feat/0030-pr-003-inbox-table-persistence | ⬜ | **占用**（planner 在途） |
-| pr-004-idle-net-turn-timers.md | （无） | ⬜ | feat/0030-pr-004-idle-net-turn-timers（已建） | ⬜ | 排队(等待槛位) |
-| pr-005-web-inbox-and-pool-wiring.md | pr-001、pr-002、pr-003、pr-004 | ⬜ | | ⬜ | 排队(依赖未满足) |
+| pr-001-reason-mapping-module.md | （无） | ✅ | (已清理) | ✅ `f81d5c6` | 已释放（槛位释放 1） |
+| pr-002-pool-routing-module.md | （无） | ⏸ | feat/0030-pr-002-pool-routing-module | ⬜ | **占用**（dev 在途 @ gpt） |
+| pr-003-inbox-table-persistence.md | （无） | ⏸ | feat/0030-pr-003-inbox-table-persistence | ⬜ | **占用**（dev 在途 @ gpt） |
+| pr-004-idle-net-turn-timers.md | （无） | ⏸ | feat/0030-pr-004-idle-net-turn-timers | ⬜ | **占用**（planner 在途） |
+| pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002、pr-003、pr-004 | ⬜ | | ⬜ | 排队(依赖未满足：001 已满足，002/003/004 未合并) |
 | pr-006-api-docs-sync.md | pr-004、pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-007-model-routing-and-process-evidence.md | （无） | ⬜ | | ⬜ | 排队(等待槛位) |
+| pr-007-model-routing-and-process-evidence.md | （无） | ⏸ | feat/0030-pr-007-model-routing-and-process-evidence | ⬜ | **占用**（planner 在途） |
 | pr-008-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
+
+> 在飞 4 个（≤ 当前有效上限 5）。已合并 1/8。**欠账（阶段 5 收尾统一处理）**：① `architecture.md` §4 A-04 表第 10/11 行展示微调（verifier 偏差）→ architect；② 已合并 PR 的验收复选框勾选（verifier 偏差）→ pr-planner。
 
 > **PR 集合已按验证反馈返工**：9 → 8 个（`pr-007` = 旧 007+008 合并，覆盖 F08+F09；原 009 重编号为 `pr-008`，覆盖 G01）。**已解锁集** = {pr-001, pr-002, pr-003, pr-004, pr-007}（5 个无依赖）；首轮按起始并发 3 派发前 3 个。
 
