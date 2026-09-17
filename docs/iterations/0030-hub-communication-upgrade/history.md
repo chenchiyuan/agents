@@ -747,3 +747,25 @@
 - 验证标准 6 条：① 增量面精确（1 file/1+1，逐行确认只有一个 token，266 行，clean）；② **修正真正生效（非交互形态）**——verifier 须**自跑**"修前 rc=1 + usage + 空 / 修后 rc=0 + 10 键"成对读数，不得转述 dev；③ C05 原结论仍成立（`KEYS-IDENTICAL` + 两侧键序）；④ 前份 T10 4/4 + AC 4/4 是否仍成立；⑤ 红线违规检查（`oamp/src|sdk|scripts` 零改动、路由仍 29、未落仓脚本/测试）；⑥ 顺带扫同类"依赖 stdin 继承/平台差异"写法（只报告）
 - 产出：`clarifications/verify-<ts>-pr-008-delta.md` + `roles/verifier/data/` 副本；要求明确回答 blocking / non-blocking
 - 触发依据：`DevP008Fix` 完成回报（`3c63846`）+ 主 agent 对增量 diff 的逐行复核
+
+### 2026-09-17 22:35:00 · 收到报告 · verifier（pr-008 增量定向复核）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-211337-pr-008-delta.md（+ `roles/verifier/data/` 副本）
+- 结论：**PASS**、**non-blocking**；6 条标准逐条 pass、**diff 清单为空**、红线无违规
+- 关键独立读数（**verifier 自跑，未采信 dev**）：非交互脚本形态（`exec </dev/null`）——修前 `rc=1` + `stdout` **空（0B）** + `usage: paste [-s] [-d delimiters] file ...`；修后 `rc=0` + 完整 10 键（87B）+ stderr 空；`KEYS-IDENTICAL` 成立；增量 = 1 file/1+/1−、唯一 token、266 行、clean；前份 T10-1~4 与 AC1~AC4 **仍成立**（`oamp/**` vs `8b200cf`/`4748e78` 空 diff）
+- 顺带发现（范围外，只报告）：**tasks §7 还有三处无操作数 `paste`**（L437 / L453 / L515），脚本形态下同样 `rc=1`+usage+空（非交付物，不改主判定）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（3m55s）
+
+### 2026-09-17 22:38:00 · 调度决策 · pr-008 合并（第 8/8 个）+ 记录一致性收尾派发
+
+- pr-008 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-008-existing-surface-guard` ⇒ **`e49ad27`**，1 file / 266 insertions）；现场清理（`worktree remove` + `branch -d`）
+- **阶段 5 完成度复核**：`git worktree list` = 2 条（仅剩迭代工作区 + 主工作区）、`git branch | grep -c feat/0030` = **0**、相对 `main` 的改动面 = 80 路径（含全部迭代文档 + `oamp/**` 14 + `roles/*/data/**` 12）⇒ **8/8 PR 全部合并、零遗留现场**
+- 派发 `DevP008Rec`（原地 dev）：把 tasks §7 三处无操作数 `paste` 统一为可移植写法（` -`）+ **就地透明度注记**（说明原写法在脚本/子进程形态下恒空、已按交付物同一修正同步、语义与结论不变），并要求非交互形态成对读数；**不静默改写历史记录**
+- 触发依据：`verify-20260917-211337-pr-008-delta.md` 结论 PASS + 其顺带发现第 6 项；`git merge` 与 stage-5 完成度复核输出
+
+### 2026-09-17 22:40:00 · 调度决策 · 补派失踪的独立观测（progress-observer 漏触发登记）
+
+- **如实登记的调度侧漏项**：`workflow-pb.md` §可观测性要求「**每次一个 PR 完成 merge 之后**（或阶段 1~4 任一推进后）自动派发一次 `progress-observer`，保持 `docs/iterations/{迭代ID}/progress.md` 新鲜」——本迭代**全程未派发该角色**，`progress.md` **不存在**。这是主 agent 的调度漏项，非执行角色问题
+- 影响面（如实评估）：① 阶段 6「并发调度真实执行证据」第 1 项原本要以 `progress.md` 历史记录或 `git worktree list` 时间信息判定 worktree 时间窗重叠——本迭代已改用**git 提交/合入交替序列 + 两个 PR worktree 同刻创建的磁盘事实**替代（见 `status.md` §并发执行证据）；② 迭代期间无独立状态对账快照（`status.md` 的准确性未被第三方核过）
+- 处置：**现在补派 `ProgObs`**（唯一写入 `progress.md`，整体覆盖），并明确告知其历史新鲜度不可回溯、**不得为弥补历史而编造时间线**；补派产物可作为阶段 6 第 1 项的辅助证据源
+- 触发依据：`workflow-pb.md` §可观测性：progress-observer 自动/按需触发（第 1 条）；`git worktree list` / 迭代目录实测无 `progress.md`
