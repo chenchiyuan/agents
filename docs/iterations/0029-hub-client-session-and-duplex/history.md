@@ -783,3 +783,70 @@
 - 3. **自查复跑**：对证据段 23 个命令块机械复跑，并自查修掉自己 4 处证据缺陷
 - 4. 裁决：**MI-P1 小节号撞车** ⇒ 主 agent 裁定**接受现状 + 记偏差（DC-38）**（锚点可解析且唯一、doctor 全 pass、文档↔运行 1:1 ⇒ 功能契约成立；仅编号风格不合惯例；修它需动已合并已验证的 pr-005 代码与证据 ⇒ 交下一迭代）
 - 5. 越界：无实质违规（未调 `hub api calls create`；socket 落 `.cache/o29p6/` 属 DC-36 例外且已清理；一次自伤事故仅影响其自身隔离集群并已修复复核；未触碰清单 `git diff` 为空）
+
+### 2026-09-16 23:58:04 · 收到报告 · verifier（pr-006，本地 subagent Pr006Verifier）
+
+- 结论：**PASS**（判定项 13 / pass 13 / fail 0 / partial 0 / blocked 0；偏差 8 条）
+- 报告：`clarifications/verify-20260916-235108-pr-006-protocol-docs-and-index.md`
+- 独立取证要点：自建隔离集群（socket 38 B 短路径、端口 8536、全新空 DB，**未触碰主集群**：主集群 router/web/pb-dev 全程存活）；**机械复跑证据段 28 对命令-输出**（跳过启动块与生成器块）⇒ **26 个可跑块中 25 个逐字节一致**，唯一差异仅 `call_id`/`duration_ms`（6010 vs 6006）；`API.md`/`llms.txt` 的 **sha256 取证前后未变**（未改被验证产物）；AC1 双向 1:1、AC2 8/8、AC3 全量 slug 反查（仅 1 处 base 既有错配）、AC6/AC7 生成器拷贝树复核 + HTTP sha256 同源、AC8 doctor `{pass:true,total:66}`、AC10 自造调用验证"超时不改状态"
+- 偏差（8 条，不阻塞）：含 ①§3 小节号同号并存（DC-38 已裁定）③既有 21 节不含 docLink 行（base 形态）④**本工作区 deferred 副本止于 DC-23（真源在父工作区且当时未提交）**⑥8 节摘要带「0029 新增…」前缀 ⑦AC7/AC8/AC10 证据隐含依赖已启动的隔离集群 ⑧§2.4 第 3 条与实现一致（已被核过）
+
+### 2026-09-16 23:58:04 · 调度决策 · 槛位释放
+
+- 决策内容：① pr-006 **PASS ⇒ 合并进迭代分支**（merge commit **`22f6859`**；`5 files changed, 2343 insertions(+), 13 deletions(-)`；`API.md` §3 = **29 节** ✓）；合并前收录验收报告（`5f27f3c`）+ 合并前修掉验收者报的"复选框双重真相"（builder 提交 `1186bfa` 10 条全勾、`7f7e9f5` 对齐 AC9 证据）⇒ 清理 worktree 与分支 ⇒ 槛位释放累计 **7**、累计进度 **7/8**
+- **解锁校验**：`pr-007` 依赖 pr-001 ✓ + pr-005 ✓（均已合并）**且**调度附加约束"须待 pr-006 合并" ✓（`22f6859`）⇒ **正式解锁**，立即派其"planner+dev 合一"本地 subagent
+- 触发依据：`clarifications/verify-20260916-235108-pr-006-…md` 结论 PASS；`git -C <迭代工作区> log` 显示 `22f6859`；`grep -c "^### 3\." oamp/API.md` = 29
+### 2026-09-16 23:58:04 · 派发 · planner+dev 合一（pr-007，本地 subagent）
+
+- 阶段：阶段 5（PR 实现）· **本地 subagent 直接执行**（`demand.md` D-19）
+- 任务：先产出该 PR 内部任务列表，再完成实现与验收证据
+- PR：prs/pr-007-hub-entries-and-skill-lists.md；worktree 分支 feat/0029-pr-007-hub-entries-and-skill-lists（base = 迭代分支 `22f6859`）
+- 通道：本地 `task` subagent（planner + dev 角色定义全文注入）
+
+### 2026-09-17 00:14:49 · 收到报告 · planner+dev（pr-007，本地 subagent Pr007Builder）
+
+- 结论：完成主体。**13 条 AC 全 pass**；5 个提交；改动 4 文件（`oamp/sdk/surface.js` 69+/8-、`oamp/skill/hub.md` 21+/6-、PR 文件（仅证据段 + 13 条勾选）、tasks 文件）；base `22f6859`（已验证 pr-006 合并提交在祖先链上）；`git status --short` 干净
+- 1. 层 A 入口 **21→29**（`ENTRIES=49` = 29/9/11）；既有 40 条 × 8 字段**逐字比对差异 0**；非注释删除行 **0**
+- 2. 层 B **8→9**（`router.task_cancel` → `session.taskCancel(task_id)`；`UDS_ENTRIES` 第 9 条 `acceptsAs:false`）
+- 3. **F19 落地**：`skill/hub.md` 暴露 `--mode block`（:109）与 `cli task watch`（:110）各带适用场景；「序列 1」重写为**派发→等待→取件**，:114 明写"**轮询是兜底，不是主推路径**"
+- 4. 机械锁：`hub doctor` `pass:true`、`R1=29` = 层 A 条数 = `API.md` §3 表行数 29（三方一致）；`R3=8` 既有方法不变
+- 5. **上报跨 PR 契约缺口 F-1**（`api pickup ack` 的 `principal`/`epoch` 为 query 参数，但既有 `runApi` 仅在 GET 时发送 query ⇒ 该条目恒 400）⇒ 主 agent 裁定**采纳最小修复**（1 行 + 机械等价证明），登记 **DC-39**（含与 AC1 括注的偏差）
+
+### 2026-09-17 00:19:31 · 收到报告 · dev（pr-007 裁决项落地）
+
+- 结论：F-1 裁决项已落地，可派独立验收。**9 个提交**（含 `f6be0e3` 修复 / `998d12d` 证据回填 / `717cbf3` 任务列表 §5 / `07b2f6f` §4.1 复现方式）
+- 1. **实施方发现我给的 1 行不够**并自行补足：既有通道规则是"非 GET 条目的 flags 一律进 body、query 只由**位置参数**填充" ⇒ 除去掉 `runApi` 的 `spec.method === 'GET'` 条件外，还把 `api pickup ack` 的两个 query 字段按**既有先例**（`api stream chat` 的 `chat_id`）声明为位置参数（`args=call_id, principal, epoch`）
+- 2. **等价证明（静态+动态）**：静态"非 GET 且含 `in:'query'` 的既有条目数 = **0**"（既有 40 条中非 GET 8 条，全无 query 字段）；动态在隔离集群对同一 socket/端口/DB 重跑四类命令，`api docs` / `api calls list` / `hub doctor` 三段**逐字节相同**，`uds router.status` 与 `cli status` 去掉时变的心跳字段后逐字节相同，**退出码均不变**
+- 3. **成功路径真通**：`hub api pickup ack task-nope-0001 pr007-cli` ⇒ `{"call_id":"task-nope-0001","acked":true}` + exit 0；伪造 epoch ⇒ 409 `STALE_EPOCH` + exit 1（证明 epoch 亦经 query 送达）
+- 4. 偏差登记于三处（PR §1.1 / §2 / §4.1 ④ + tasks §5），PR 文件验收标准文字未改 ⇒ 与 **DC-39** 一致
+- 5. 自查：`hub doctor` pass、R1=29、R3=8、层 A 计数 29（总 49=29/9/11）、三层清单同序同名、工作区干净、隔离集群已停
+
+### 2026-09-17 00:27:26 · 收到报告 · verifier（pr-007，本地 subagent Pr007Verifier）
+
+- 结论：**PASS**（pass 15 / fail 0 / partial 1 / blocked 0；偏差 5 条）
+- 报告：`clarifications/verify-20260917-001931-pr-007-hub-entries-and-skill-lists.md`
+- 1. **13 条 AC 全 pass**；标准 2（改动面封闭性）pass；**标准 4（争议修复复核）pass**——独立确认 DC-39 两半对既有面严格等价，并自行核实先例（`api stream chat` 的 `chat_id` 亦为 `in:'query'` 却按位置参数声明）
+- 2. 计数四方一致：`hub doctor` `{pass:true,total:66,R1:29,R2:29,R3:8}`；**层 A 29 = `API.md` §3 表行数 29 = `api docs` routes 29**；`R3` 仍 8 个既有方法
+- 3. `hub.md` 三层 29/9/11 与 ENTRIES **同序同名**；层 C 清单/doctor 段落/四条红线删除行 = 0；**F19**：:109 `--mode block`、:110 `cli task watch` 各带适用场景，:114「轮询是兜底，不是主推路径」，序列 1 标题已改为「派发 → 等待 → 取件」
+- 4. AC4/AC5 在其自建隔离集群（相对短 socket 19B）真跑新增 8 条层 A 入口 ✓
+- 5. **标准 3 partial（唯一不合格项，纯文档）**：① §5 命令块在全新集群照抄跑不通（缺"建项目"步骤 ⇒ `POST /api/messages` 回 400；本仓写 projects 表唯一入口是 `POST /api/projects`）② §4.1 只内联改动后一侧、基线侧落点在被忽略目录 ⇒ 原始产物不可核对
+- 6. 处置：派回同一 builder 做**纯文档 2~5 行修复**（§5 内联建项目步骤 + §4.1 内联基线侧并明写基线 sha `3ed309b`），改完即合并
+
+### 2026-09-17 00:30:08 · 收到报告 · dev（pr-007 文档修复）
+
+- 结论：标准 3 partial 的两处**纯文档修复**已落地，仅有 2 个提交（`5d9fca7` §5 块自足性 + `6a9fdc7` §4.1 内联基线侧并明写基线 sha `3ed309b`），两提交仅触及 PR 文件
+- 主 agent 机械复验：§5 已内联 `POST /api/projects` 步骤与真实 `PRJ=prj-…` 输出 ✓；§4.1 已含基线 checkout 命令、两侧"逐字节相同"读数与 sha256 ✓；`surface.js` 语法 OK ✓
+
+### 2026-09-17 00:30:08 · 调度决策 · 槛位释放
+
+- 决策内容：pr-007 **PASS ⇒ 合并进迭代分支**（merge commit **`860fa2a`**；`5 files changed, 1985 insertions(+), 29 deletions(-)`）；合并前收录验收报告（`a6e736b`）；清理 worktree 与分支 ⇒ 槛位释放累计 **8**、**累计进度 8/8（全部 PR 已合并）**
+- 迭代分支健康：相对 `main` **12 files changed, 1365 insertions(+), 48 deletions(-)**（`oamp/src/web.js` +779 为主；`oamp/sdk/surface.js` 含层 A 29 / 层 B 9 清单）
+- 触发依据：`clarifications/verify-20260917-001931-pr-007-…md` 结论 PASS（fail 0）+ 主 agent 对两处文档修复的机械复验通过；`git -C <迭代工作区> log --oneline main..HEAD | grep -c "merge: pr-"` = **8**
+
+### 2026-09-17 00:30:08 · 派发 · 阶段 6 迭代级独立验证（本地 subagent）
+
+- 阶段：阶段 6（独立验证）· **迭代级**（全部 PR 已合并、收口之前）
+- 任务：不接收执行过程上下文，独立评判迭代最终产物
+- 产出物：`docs/iterations/0029-hub-client-session-and-duplex/`（全量）+ 迭代分支相对 `main` 的全部代码改动
+- 验证标准（4 条）：① 验收面覆盖（抽查 F01~F19+G01，F04 按 D-16 出本迭代）② `architecture.md` §6 零影响声明核对 ③ 产物一致性（D 决策/索引/PR depends_on/status 子状态/history 与合并提交相互一致）④ **并发调度真实执行证据三项**（worktree 时间窗重叠 / 并发配置真实初始化与更新 / 爬升公式重算）
+- 通道：本地 `task` subagent（verifier 角色全文注入；依 D-19 不走 hub）

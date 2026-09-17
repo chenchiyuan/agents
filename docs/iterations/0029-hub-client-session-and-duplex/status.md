@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.13.0
 **迭代**: 0029-hub-client-session-and-duplex
-**当前阶段**: PR 规划（阶段 4）完成 ⇒ **方案确认门待用户确认**
+**当前阶段**: 独立验证（阶段 6）· 迭代级验证已派发
 **阶段 2 结果**: 产物完整（`prd.md` 30089 B + 20 卡）；**prd 调用终态 failed（error=timeout，30 分钟上限）**，报告未回——按 D-14（产物为权威）以产物推进
 **迭代分支**: iteration/0029-hub-client-session-and-duplex
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex
@@ -19,16 +19,17 @@
 | 2 | 功能规格 | ✅ | ✅ | `prd.md` + **20 张卡（F01~F19 + G01）**；主 agent 核产物：卡 100% 带『来源』行、双向覆盖表齐、**A-01~A-14 架构待填已登记**、卡内无架构决策；**11 项 `model_inferred` 逐条确认（11/11 采纳）** |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md`（49769 字符）：A-01~A-14 逐项答案 + 追溯、§6 零影响声明、§8 剃刀检验；`prd.md` 14 行已回填；**L1-01 / L1-02 经用户确认（2026-09-16）** |
 | 4 | PR 规划 | ✅ | ⬜ | **8 个 PR** 全七字段；覆盖 19/20 卡（未覆盖 F04 系 D-16 出范围）；文件范围 21 条两两不重叠；**依赖无环、无悬挂**；**关键路径 = 3**（≤3）；并发可行性通过；无 `split-suggestion.md` |
-| 5 | PR 实现 | ⬜ | ⬜ | — |
+| 5 | PR 实现 | ✅ | ⬜ | **8/8 PR 全部合并**（pr-001~008）；两轮独立验收（pr-005 partial 证据文本已修缮、pr-007 partial 纯文档已修）|
 | 6 | 独立验证 | ⬜ | ⬜ | — |
 
 ## 并发配置（阶段 5）
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **累计槛位释放次数**：6（pr-002、pr-003、pr-001、pr-004、pr-008、pr-005 合并）
+- **累计槛位释放次数**：8（**全部 8 个 PR 已合并**）
 - **当前有效上限**：5（`min(3 + 5×3, 5)`，维持硬上限）
-- **已派发总数**：7（+ pr-006 的 planner+dev 合一，本地 subagent）
+- **已派发总数（hub 通道，统计至 D-19 切换点 22:30）**：7（pr-001~pr-005 的 planner/dev/verifier 等，逐条见下表）
+- **本地 subagent 通道（D-19 之后）**：新起 7 个 agent（`Pr005Finisher` / `Pr005Verifier` / `Pr006Builder` / `Pr006Verifier` / `Pr007Builder` / `Pr007Verifier` / `FinalVerifier`），另有若干次「唤醒续做」（如 pr-005 名册剔除、pr-006 复选框、pr-007 文档修复）；逐条见 `history.md`
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -39,8 +40,8 @@
 | pr-003-sse-transport-additions.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 | pr-004-console-call-stream-stop.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 | pr-005-web-session-and-call-surface.md | pr-001、pr-002、pr-003 | ✅ | (已清理) | ✅ | 已释放 |
-| pr-006-protocol-docs-and-index.md | pr-005 | ⏸ | feat/0029-pr-006-protocol-docs-and-index | ⬜ | 占用 |
-| pr-007-hub-entries-and-skill-lists.md | pr-001-router-status-primitives.md、pr-005-web-session-and-call-surface.md〔**调度附加约束**：还须待 pr-006 合并——见 verify-20260916-153039 缺边〕 | ⬜ | feat/0029-pr-007-hub-entries-and-skill-lists | ⬜ | 排队(依赖未满足) |
+| pr-006-protocol-docs-and-index.md | pr-005 | ✅ | (已清理) | ✅ | 已释放 |
+| pr-007-hub-entries-and-skill-lists.md | pr-001、pr-005〔调度附加约束已满足：pr-006 已合并 `22f6859`〕 | ✅ | (已清理) | ✅ | 已释放 |
 | pr-008-friction-log-completion.md | （无） | ✅ | (已清理) | ✅ | 已释放 |
 
 ## 派发台账
@@ -67,7 +68,9 @@
 | 19:33 | verifier | 阶段 6 · pr-002 重验 | `task-afc70338` | completed（**PASS** ⇒ 合并 `cfb6736`） | 不需 | 推送面 | 4.6 min | `powerby/grok-4.6` |
 | 19:42 | verifier | 阶段 6 · pr-003 重验 | `task-cc60948d` | completed（**PASS** ⇒ 合并 `f8f382a`） | 不需 | 推送面 | 3.6 min | `powerby/grok-4.6` |
 | 19:38 | planner ×2 | 阶段 5 · pr-004 / pr-008 的 tasks | `task-c48ac1f4` / `task-5c579e20` | completed ×2 | 不需 | 推送面 | 4.6 / — min | `deepseek/deepseek-v4-flash` |
-| 19:43 | dev | 阶段 5 · pr-004 实现 | `task-7553a07d` | 在途 | 不需 | 推送面 | — | `openai/gpt-5.6-luna` |
+| 19:43 | dev | 阶段 5 · pr-004 实现 | `task-7553a07d` | completed（⇒ 合并 `4c6ddba`） | 不需 | 推送面（自动送达） | 22.9 min | `openai/gpt-5.6-luna` |
+
+**台账范围**：本表记录**统计至 D-19 切换点（2026-09-16 22:30）之前的 hub 派发**；此后阶段 5 余下实现与阶段 6 验证经用户裁决改用**本地 subagent**（`demand.md` D-19），其派发与续做记录见 `history.md`（同表口径的三问在本地通道下为：① 是否需盯守=不需 ② 结果到手=任务直接回报 ③ 耗时=各 subagent 回报值）。
 
 **体感基线（用于 D-13 对照）**：**阶段 2~4 的三条长调用全部"需盯守"且空耗 ≈70 分钟**（产物早已落盘、调用仍烧满 30 分钟）；**阶段 5 起改用推送订阅（`api stream calls`）后，所有调用均"不需盯守"、结果自动到手**——这正是本迭代要交付的形态，实测对比见上表 ① 列由「需」转「不需」。
 
@@ -112,3 +115,5 @@
 - 2026-09-16: **pr-004 独立验收 PASS ⇒ 合并 `4c6ddba`**；累计 4/8 已合并；槛位释放 4
 - 2026-09-16: **pr-008 验收 PASS ⇒ 合并 `ecba11d`**（解冲突：pr-008 条目改号 DC-23）+ 修复截断事故 `aa6bd02`；累计 **5/8** 已合并
 - 2026-09-16: **pr-005 验收 PASS ⇒ 合并 `b090369`**（迭代分支路由 21→29）；累计 **6/8**；pr-006 解锁并派本地 subagent
+- 2026-09-16: **pr-006 验收 PASS ⇒ 合并 `22f6859`**（API.md §3 = 29 节）；累计 **7/8**；**pr-007 解锁**（含调度附加约束已满足）并派本地 subagent
+- 2026-09-17: **pr-007 验收 PASS ⇒ 合并 `860fa2a`**（8/8 全部合并；迭代分支相对 main 12 文件 / 1365 增 / 48 删）；阶段 6 迭代级验证已派本地 subagent

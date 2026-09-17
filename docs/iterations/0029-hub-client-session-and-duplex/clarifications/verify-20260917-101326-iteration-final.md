@@ -1,3 +1,35 @@
+# 独立验证报告 · 0029-hub-client-session-and-duplex · 阶段 6 迭代级最终验证
+
+**验证者身份**（反射结果）：**迭代级发布审查者（release reviewer）× 调度机制取证审计者（process auditor）** 的双重身份。
+反射理由：本次委托同时要求判定四类性质不同的对象——① 20 张功能卡在**迭代分支最终代码**上是否成立（产品面，反射为"能对着可运行系统判定 AC 的测试工程师"）；② `architecture.md` §6 的"零影响声明"是否在最终分支上成立（架构评审者：逐条追"既有语义是否被改动"）；③ `demand/prd/prs/status/history` 的跨文档一致性（产物审查者：只核对文档之间与 git 事实之间是否互相自洽）；④ 并发调度是否**真的发生过**而非串行误报（流程取证审计者：只看可机器复核的痕迹——提交时间窗、worktree 落点、配置字段的演化）。单一身份无法覆盖这四类，故取双重身份。
+
+**产出物**：
+- 文档：`docs/iterations/0029-hub-client-session-and-duplex/` 下的 `demand.md`（D-1~D-19）/ `prd.md` + `prd/**`（20 卡）/ `architecture.md` / `prs/**`（8 PR + 8 tasks）/ `status.md` / `history.md` / `deferred-demand-changes.md` / `clarifications/**`
+- 代码：`git -C <迭代工作区> diff --stat main..HEAD -- oamp` ⇒ **12 files changed, 1365 insertions(+), 48 deletions(-)**（实测输出见标准 3）
+- 迭代分支 HEAD：`860fa2a`（迭代工作区 = `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex`）
+
+**验证标准来源**：主 agent 委托简报（`/tmp/subagent-verify-stage6.md`）的 4 条标准 + 其引用的 `workflow-pb` §验证目标"并发调度真实执行证据"三项。
+
+**验证日期**：2026-09-17
+
+**独立性声明**：
+- 未接收任何执行过程上下文；简报中未给出实现方法、设计意图或产出者自述，我也没有向主 agent 索取。
+- `history.md` / `status.md` / `deferred-demand-changes.md` 与 8 份 PR 内验收证据，在本报告里**只作为"被验证产物"**参与一致性交叉核对（标准 3、标准 4）；**产品面判定（标准 1、标准 2）一律不采信它们**——每一项目判定都由我在自己的隔离集群上实跑或对最终分支代码逐行取证得出。
+- 本报告未出现"因为设计意图是…""背景是…"式的判定依据。
+
+**环境与边界**（实测）：
+- 真集群取证**只用我自建的隔离集群**：`OAMP_SOCKET=/tmp/v29/r.sock`（短路径，理由 DC-36）、`OAMP_DB=/tmp/v29/db.sqlite`、web `--port 17788`；进程名 `v29router` / `v29web` / `v29dev`（`hub op:start` 管理，会话目录 = 迭代工作区）；**未触碰主集群**（`/Users/chenchiyuan/projects/agents` 的 tmux `oamp-cluster` 与其 router/agent 进程全程未被我操作）。
+- 未调用 `hub api calls create`（遵简报"不走 hub"）；未推送、未合并、未切分支。
+- 被验证产物**未被修改**：验证结束时 `git status --short` 只有主 agent 自己的 3 个 docs 改动（`deferred-demand-changes.md` / `history.md` / `status.md`），与本验证无关。
+- 我这次运行的唯一写入 = 本报告文件；另有一次**运行态副作用**：隔离 web 进程在 `oamp/.runtime/roster.json` 写文件（该目录在我开工前**不存在**，`oamp/.gitignore` 第 1 行 `.runtime/` 已忽略它），验证结束后我已 `rm -rf oamp/.runtime` 还原。事件与处置见偏差记录 DEV-6。
+- 未新增任何测试文件。
+
+---
+
+## 置顶：`deferred-demand-changes.md` 全文原文摘录（不转述、不总结）
+
+> 摘录对象 = 迭代工作区工作树当前版本（与 HEAD 有未提交增量：`git diff --stat` 显示该文件 +9 行；本报告按**磁盘现状**原文摘录）。文件度量（实测）：`384` 行 / `51162` 字节 / md5 `e5f32960a2e96c4e4039325466bc902d`；编号条目 `grep -c '^\*\*编号\*\*'` = **40**（DC-01~DC-39 + DC-08a）。
+
 # deferred-demand-changes.md — 0029-hub-client-session-and-duplex
 
 > **用途**（workflow-pb v0.13.0 / 本迭代执行方式约束③）：执行过程中发现的**需求变更 / 错误 / 摩擦**在此**当场搭置**登记（执行角色可直接写入，不经过主 agent）。
@@ -382,3 +414,460 @@
 **问题**：**跨 PR 契约缺口：新端点的 query 参数在层 A 面无法送达**——`POST /api/pickup/:call_id/ack` 的 `principal` / `epoch` 在登记里是 `in:'query'`，而既有 `runApi`（`oamp/sdk/surface.js:78-88`）**只在 `spec.method==='GET'` 时才把 query 随请求发出**（非 GET 的 flags 一律进 body）⇒ 层 A 的 `api pickup ack` 条目请求被服务端以 `400 INVALID_PARAM` 拒绝（同端点用 `curl` 可达 200）。该缺口由 `pr-007` 的实施方在真集群逐条取证时发现，并按 dev 红线"报告不擅自实现"上报（`prs/pr-007-…-tasks.md` §5 F-1 + PR 文件证据 §4.1 两条对照输出）。
 **为什么判定为需求层面问题 / 为什么记录于此**：属**跨 PR 契约缺陷**（pr-005 的端点把参数登记为 query，而更早既有的 CLI 请求构造只处理 GET 的 query）——两处各自成立，组合起来使**本迭代新交付的能力在 hub 面不可用**。记录理由：它与本迭代 D-13（"像使用 subagent 一样使用 hub"）正面冲突：不修则层 A 广告一条恒 400 的路径，并逼接入方裸写 HTTP（触碰 `skill/hub.md` 红线 1）。
 **本迭代如何处理**：**主 agent 裁定采纳最小修复**（在 `pr-007` 文件范围内）：`runApi` 的 query 发送条件去掉 `spec.method === 'GET'`（**1 行**）。等价性依据：既有 40 条层 A 条目中**非 GET 且登记含 `in:'query'` 字段的条目数 = 0** ⇒ 去掉条件后它们的 query 仍为空、行为逐字不变（要求实施方以命令机械证明并在改动前后对若干既有条目实跑对照）。**与 AC1 括注的偏差**（AC1 原括注要求 `surface.js` 的 diff"只含新增行 + 注释计数行"，本次多 1 处**修改行**）**如实登记于证据段与本条**，不改 PR 文件里的验收标准文字。
+
+---
+
+## 逐项判定
+
+### 标准 1 · 验收面覆盖（抽查功能卡在迭代分支最终代码/文档上是否可判定成立）
+
+**判定：pass**
+
+方法：在隔离集群上以 HTTP/SSE 实跑（真派发、真终态、真取消），文档面用 `/api/docs`、`oamp/API.md`、`oamp/llms.txt`、`oamp/skill/hub.md` 与 `oamp/sdk/surface.js` 的执行结果交叉核对。隔离集群实测拓扑：router（`/tmp/v29/r.sock`）+ web（`127.0.0.1:17788`）+ 1 个真 agent 进程（`pb-dev`）+ 3 个真调用（`task-583f5c78…` / `task-1a032835…` / `task-105dbf3e…` 等）。
+
+- **F01（身份）**：pass
+  证据（实跑，两次注册相隔 1s）：
+  ```
+  $ curl -s -X POST localhost:17788/api/principals -H 'content-type: application/json' -d '{"principal_id":"v29p","kind":"cli","instance_id":"pb-nobody"}'
+  {"principal":{"principal_id":"v29p","kind":"cli","instance_id":"pb-nobody","created_at":1789611328908,"last_seen_at":1789611328908},"epoch":"3f5967f8-3e57-40ff-8ff2-64124f958334.c718c0cf-441c-4499-812d-f5abc72add14"}
+  $ sleep 1; curl -s -X POST localhost:17788/api/principals -H 'content-type: application/json' -d '{"principal_id":"v29p","kind":"cli","instance_id":"pb-nobody"}'
+  {"principal":{"principal_id":"v29p","kind":"cli","instance_id":"pb-nobody","created_at":1789611328908,"last_seen_at":1789611329946},"epoch":"3f5967f8-…"}
+  $ curl -s localhost:17788/api/principals/v29p
+  {"principal":{"principal_id":"v29p","kind":"cli","instance_id":"pb-nobody","created_at":1789611328908,"last_seen_at":1789611329985},"epoch":"3f5967f8-…"}
+  $ curl -s -w ' [http %{http_code}]\n' localhost:17788/api/principals/nope-xyz
+  {"error":"principal 不存在: nope-xyz","code":"NOT_FOUND"} [http 404]
+  $ curl -s -w ' [http %{http_code}]\n' -X POST localhost:17788/api/principals -H 'content-type: application/json' -d '{"principal_id":""}'
+  {"error":"principal_id 非法（需为非空、<=64 字符的可打印 ASCII）","code":"INVALID_PARAM"} [http 400]
+  ```
+  - 验收 1（幂等 upsert）：两次 `created_at` 完全相同 `1789611328908`，第二次只前移 `last_seen_at` ⇒ 第二次没有生成第二个身份 ✓
+  - 验收 2（无租约）：`grep -nE "setTimeout|setInterval|clearInterval|expire|evict" oamp/src/principals.js` ⇒ **无输出（exit=1）**；且实测"注册后 45 秒零请求"后仍可查、`created_at` 不变：
+    ```
+    {"principal_id":"v29lease","kind":"cli","instance_id":null,"created_at":1789611828612,"last_seen_at":1789611828612}
+    [silence starts 10:23:48]  … [query at 10:24:33]
+    {"principal":{"principal_id":"v29lease",…,"created_at":1789611828612,"last_seen_at":1789611873643},…} [http 200]
+    ```
+  - 验收 3（可查询且含最近一次交互时刻）：`last_seen_at` 在同一身份每次被受理的请求上前进（`…328908 → …329946 → …329985 → …873643`）✓
+  - 验收 4（重启后身份不变）：web 进程重启后，同一 `principal_id` 再注册 ⇒ 200、同一 principal、无冲突、无第二个身份（实测：重 POST 返回 `created_at:1789611665396` 一致）✓
+  - 验收 5（显式声明不猜测）：`grep -n "principals.requesterOf\|principals.upsert" oamp/src/web.js` 的全部调用点均以请求方显式给出的 `principal_id` 为输入；无任何"从环境/会话推断身份"的代码 ✓
+  - 验收 6（不改既有路径）：见标准 2 与 G01。
+
+- **F04（订阅第二形态）**：**出本迭代（D-16）**，按简报不构成缺陷、不判定。实测旁证：`GET /api/docs` 投影 29 条中无 UDS 订阅面，`prd/F04-second-subscription-form.md` 仍在库（未实现、未删卡），与 D-16 一致。
+
+- **F07（取件）**：pass
+  证据（同一隔离集群内的三次真调用）：
+  ```
+  $ curl -s "localhost:17788/api/pickup?principal=v29p" | jq -c '{n:(.pickup|length),ids:[.pickup[].call_id],acked:[.pickup[].acked]}'
+  {"n":2,"ids":["task-583f5c78-e6ca-4520-b8f8-df7ff626d937","task-1a032835-2e93-4885-a9a2-a3f6ebe5f6ce"],"acked":[false,false]}
+  $ curl -s "localhost:17788/api/pickup?principal=v29p" | jq -c --arg c "$C2" '.pickup[]|select(.call_id==$c)|.envelope'
+  {"call_id":"task-1a032835-2e93-4885-a9a2-a3f6ebe5f6ce","agent":"dev","state":"failed","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":"cancelled","exit_code":null}
+  $ curl -s "localhost:17788/api/calls/$C2"
+  {"call_id":"task-1a032835-2e93-4885-a9a2-a3f6ebe5f6ce","agent":"dev","state":"failed","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":"cancelled","exit_code":null}
+  $ A=$(…| jq -c '[.pickup[].call_id]'); sleep 1; B=$(…| jq -c '[.pickup[].call_id]'); echo "$A"; echo "$B"
+  ["task-583f5c78-e6ca-4520-b8f8-df7ff626d937","task-1a032835-2e93-4885-a9a2-a3f6ebe5f6ce"]
+  ["task-583f5c78-e6ca-4520-b8f8-df7ff626d937","task-1a032835-2e93-4885-a9a2-a3f6ebe5f6ce"]
+  $ curl -s -w ' [http %{http_code}]\n' -X POST "localhost:17788/api/pickup/$C1/ack?principal=v29p"
+  {"call_id":"task-583f5c78-e6ca-4520-b8f8-df7ff626d937","acked":true} [http 200]
+  $ curl -s "localhost:17788/api/pickup?principal=v29p" | jq -c '[.pickup[].call_id]'
+  ["task-1a032835-2e93-4885-a9a2-a3f6ebe5f6ce"]
+  $ curl -s -w ' [http %{http_code}]\n' -X POST "localhost:17788/api/pickup/$C1/ack?principal=v29p"   # 重复确认
+  {"call_id":"task-583f5c78-e6ca-4520-b8f8-df7ff626d937","acked":true} [http 200]
+  $ curl -s -w ' [http %{http_code}]\n' "localhost:17788/api/pickup?principal=v29p&epoch=bogus.0"
+  {"error":"会话代次已过期: bogus.0","code":"STALE_EPOCH"} [http 409]
+  ```
+  - 验收 1（离线也能拿到）：两次调用的派发方在我这边**从未建立任何订阅**，终态后仍可取到 ✓
+  - 验收 2（未取件不消失）：间隔 1s 的两次查询集合完全一致 ✓
+  - 验收 3（取件后可确认且不重复）：ack 后不再出现在未取件集合；重复 ack 仍 200 且无副作用 ✓
+  - 验收 4（只承载终态结果）：派发后处于 `working` 的第三个调用（`task-105dbf3e…`）**不在**取件集合（上面 `n:2` 而非 3）✓
+  - 验收 5（与权威源一致）：取件 `envelope` 与 `calls get` 输出**逐字相同**（上面两条 JSON 完全一致）✓
+  - 验收 6（内存实现、重启即丢，明文）：`oamp/API.md` §3.12 实测条文 `保留期 = 调用登记的寿命（进程内、**重启即丢**）`；且 web 进程重启后取件集合实测为空、`envelope` 在登记不在时返回 `null`（不伪造正文）✓
+
+- **F09（终态关流 = 客户端 1 行 + 服务端补线）**：pass
+  证据 A（服务端补线 + 终态当刻关流，一次实跑同时覆盖验收 1/2/3/4）：
+  ```
+  $ RESP=$(curl -s -X POST localhost:17788/api/calls -d '{"chat_id":"chat-e0b9ebbd-…","agent":"dev","requester":"v29p","tasks":[{"task":"v29 call#2"}]}'); CALL=$(echo "$RESP"|jq -r '.calls[0].call_id')
+  CALL2=task-1a032835-2e93-4885-a9a2-a3f6ebe5f6ce
+  $ ( curl -sN --max-time 25 -w '\n[call-stream: exitcode=%{exitcode} time_total=%{time_total}]\n' "localhost:17788/api/calls/$CALL/stream" & \
+      curl -sN --max-time 22 -w '\n[chat-calls-stream: exitcode=%{exitcode} time_total=%{time_total}]\n' "localhost:17788/api/calls/stream?chat_id=$CHAT" & \
+      sleep 3; date '+[cancel at %T]'; curl -s -X POST "localhost:17788/api/calls/$CALL/cancel"; sleep 1; curl -s -X POST "localhost:17788/api/calls/$CALL/cancel"; wait )
+  retry: 1000
+  [cancel at 10:17:03]
+  event: call_result
+  data: {"chat_id":"chat-e0b9ebbd-a1a5-432f-9fe1-5cef8b2ef361","call_id":"task-1a032835-…","agent":"dev","state":"failed","duration_ms":null,"model":null,"truncated":false,"text":null,"structured_output":null,"error":"cancelled","exit_code":null}
+  [call-stream: exitcode=0 time_total=3.062462]
+  {"call_id":"task-1a032835-…","cancelled":true,"state":"failed","error":"cancelled"}
+  {"call_id":"task-1a032835-…","cancelled":false,"state":"failed","error":"cancelled"}
+  [chat-calls-stream: exitcode=28 time_total=22.005704]
+  ```
+  - 验收 1（终态当刻退出）：调用订阅在 `time_total=3.06s` 结束，与取消/终态时点同刻 ✓
+  - 验收 2（可量化判据，反证非超时驱动）：该连接的自设 `--max-time` 是 **25s**，实际退出 **3.06s**；同一轮里对话作用域订阅跑满它自己的 **22.0s**（exitcode 28 = 超时）⇒ 退出由终态驱动、不由超时值决定 ✓
+  - 验收 3（关流范围只到该调用自身）：`chat-calls:<chatId>` 面在终态后**未被关闭**（22.0s 才由 max-time 结束），且期间正常收到该调用的终态帧 ✓
+  - 验收 4（不吞最后一帧）：输出顺序为先 `event: call_result`（完整信封）后连接关闭 ✓
+  - 验收 5（既有断开清理不变）：`git diff main..HEAD -- oamp/src/transport.js` 的删除行**仅 1 行**（心跳条件 `subscribers.size > 0` → `subscribers.size > 0 || filteredSubscribers.size > 0`，零过滤订阅者时逐字等价），既有 `close`/订阅者清理路径零改动 ✓
+  证据 B（客户端 1 行）：
+  ```
+  $ git diff main..HEAD -- oamp/web/calls.js
+  +    unsubscribe();
+  $ sed -n '164,172p' oamp/web/calls.js
+    if (type === 'call_result') { setCallState(data.state); appendLog(…); if (…) appendLog(`错误：${data.error}`); unsubscribe(); }
+  $ git diff --name-only main..HEAD -- oamp/web
+  oamp/web/calls.js
+  ```
+  ⇒ 客户端侧改动恰 1 行、落在 `call_result` 分支末尾，且改前改后语义（§6.2 S-9 声明的必然适配）一致 ✓
+  证据 C（晚订阅补发 + 关流，F10 面同一次实跑）：对一个**已经终态**的调用发起订阅 ⇒ 收到**恰一帧**终态帧后立即关闭：
+  ```
+  [call-stream: exitcode=0 time_total=0.479215]   （自设 --max-time 25s）
+  ```
+
+- **F13（取消）**：pass
+  证据（同上一次实跑 + 追加实跑）：
+  ```
+  [cancel #1] {"call_id":"task-1a032835-…","cancelled":true,"state":"failed","error":"cancelled"}
+  [cancel #2] {"call_id":"task-1a032835-…","cancelled":false,"state":"failed","error":"cancelled"}
+  $ curl -s -w ' [http %{http_code}]\n' -X POST localhost:17788/api/calls/task-does-not-exist-xyz/cancel
+  {"error":"call 不存在: task-does-not-exist-xyz","code":"NOT_FOUND"} [http 404]
+  ```
+  - 验收 1（取消可生效）：`cancelled:true` + 既有终态 `failed` + `error:"cancelled"` ✓
+  - 验收 2（不新增终态）：`state` 取值为既有词表；`oamp/src/router.js` 的 `task_list` 白名单实测仍为 `['submitted','working','completed','failed']`；`git diff` 未引入第五个取值 ✓
+  - 验收 3（当刻可判定）：cancel 响应当刻即给出终态；紧接着的 `calls get` / roster 也是同一终态（`calls get` 实测输出见 F07 证据段）✓
+  - 验收 4（幂等）：重复取消 200、`cancelled:false`、原 `state`/`error` 不变、无第二个终态 ✓
+  - 验收 5（不覆盖已定终态）：对已终态调用（`task-583f5c78…`，`error=context_crashed`）取消 ⇒ 返回 `cancelled:false` 且 `state/error` 原样 ✓
+  - 验收 6（不存在有明确结论）：404 `NOT_FOUND`，非静默成功 ✓
+  - 验收 7（与关流协同）：取消当刻调用订阅结束（`time_total=3.06s`，同一秒）✓
+  - 验收 8（客户端断开不影响控制面）：上述派发/取消全部由**彼此独立、用后即断**的 curl 客户端发起，全程无持久客户端在场仍照常生效 ✓
+
+- **F16（重连可观测）**：pass
+  证据 A（三态可区分，验收 1）：真 agent 进程被停掉后，其条目在租约未过期窗口内呈现为"在线但无连接"（`state:"online"` + `connected:false`），与真正离线的墓碑（`state:"offline"`）可区分：
+  ```
+  $ curl -s localhost:17788/api/agents | jq -c '.agents[]|{instance_id,state,connected,role}'
+  {"instance_id":"pb-dev","state":"online","connected":true,"role":"dev"}
+  {"instance_id":"pb-v29worker","state":"offline","connected":false,"role":null}
+  {"instance_id":"web","state":"online","connected":true,"role":null}
+  $ curl -s localhost:17788/api/health
+  {"router":{"ok":true,…},"web":{"ok":true,…},"agents":{"online":1,"reconnecting":1,"offline":0,"total":2},"callable":true,"epoch":"…"}
+  ```
+  证据 B（软重启的可见过程，验收 2 —— 真做了 router+web 重启、agent 进程保留）：
+  ```
+  $ for i in $(seq 1 70); do R=$(curl -s --max-time 1 localhost:17788/api/agents | jq -rc '[.agents[]|select(.instance_id=="pb-dev")|{state,connected}]'); printf '%s %s\n' "$(date +%S.%N|cut -c1-7)" "$R"; sleep 0.2; done | uniq -f1 -c
+  [poll 10:20:34]
+       32 34.9800 [{"state":"online","connected":false}]
+       38 42.3153 [{"state":"online","connected":true}]
+  ```
+  ⇒ 重启窗口内先呈现**重连中**（32 个采样点），随后**回到在线**（38 个采样点），不是"直接消失"也不是"直接在线" ✓
+  证据 C（自动重连回来，验收 3）：agent 日志实测（无人工重启 agent 进程）：
+  ```
+  agent CONNECTION_LOST instance=pb-dev
+  agent RECONNECT_WAIT instance=pb-dev attempt=1 delay_ms=500 error=CONNECTION_LOST
+  agent RECONNECT_WAIT instance=pb-dev attempt=2 delay_ms=1000 error=CONNECT_FAILED
+  agent RECONNECT_WAIT instance=pb-dev attempt=3 delay_ms=2000 error=CONNECT_FAILED
+  agent REGISTERED instance=pb-dev session=23967d3d-… lease_timeout_ms=30000
+  ```
+  证据 D（重新纳管 = 恢复可调用，验收 4）：重连完成后我在同一集群继续派发真调用并成功受理（`state:working`，随后被取消收口），另有一次 shell 消息面调用跑完（见 G01 证据段 `g01-face1`）✓
+  证据 E（不谎报在跑，验收 5）：router 重启后实例投影不残留重启前的在跑状态，且调用面登记为空：
+  ```
+  $ curl -s localhost:17788/api/agents | jq -c '.agents[]|select(.instance_id=="pb-dev")'
+  {"instance_id":"pb-dev",…,"connected":true,"role":"dev","busy":false,"current_call_id":null,"queued":0,"since":null}
+  $ curl -s localhost:17788/api/calls
+  {"calls":[]}
+  ```
+  证据 F（既有语义不回归，验收 6）：`state` 词表仍为 `online`/`offline` 二值（三态由**独立字段** `connected` 承载）；`?state=` 过滤行为不变（判据仍是 `state==='online'`）：
+  ```
+  $ curl -s 'localhost:17788/api/agents?state=online' | jq -c '[.agents[].instance_id]'
+  ["pb-dev","pb-v29worker"]          # 两个 state==='online' 的实例都在（含"重连中"的那个）——与改前判据一致
+  $ curl -s -w ' [http %{http_code}]\n' 'localhost:17788/api/agents?state=offline'
+  {"error":"查询参数非法: state 需为 online（当前值 \"offline\"）","code":"INVALID_PARAM"} [http 400]
+  ```
+
+- **F17（服务化可发现）**：pass
+  证据（投影面 ↔ 文档面 ↔ 索引快照**三向机械比对**，实测脚本与输出）：
+  ```
+  docs route count: 29
+  API.md §3 heading count: 29
+  docs-only: []
+  api-only: []
+  missing metadata fields: []          # 每条路由的 summary/params/response/errors/docLink 均非空
+  new routes in docs: 8
+  llms.txt interface lines: 29
+  llms vs docs missing: []
+  docs vs llms missing: []
+  ```
+  - 验收 1（元数据齐备）：`/api/docs` 投影里 29 条路由的五项语义字段**无一条缺失**（输出 `missing metadata fields: []`）✓
+  - 验收 2（两处可见）：`GET /api/docs` 与仓库快照 `oamp/llms.txt` 均为 29 条且**互为双射**（两向缺集皆空）✓
+  - 验收 3（逐条对应，缺一即失败）：新增 8 条（`/api/principals`、`/api/principals/:principal_id`、`/api/health`、`/api/subscribe`、`/api/pickup`、`/api/calls/wait`、`/api/calls/:call_id/cancel`、`/api/pickup/:call_id/ack`）在两处**全部命中**、无一条落空 ✓
+  - 验收 4（摘要以调用方视角写）：新增条目摘要均为能力视角（如 `恢复判据（router / web / agents 三问 + callable + epoch）`、`查询身份未取件的终态调用`）✓
+  - 验收 5（既有条目不漂移）：`git diff main..HEAD -- oamp/src/web.js | grep -E "^[-+] *(summary|docLink|kind|path):"` ⇒ 只有**新增**行；既有路由的 `response` 仅两条被**追加**说明文字（`agents` 行、`calls` roster 行），原文逐字保留 ✓
+  - 附：`API.md` 唯一被删除的一行是 `-## 3. 接口清单（21 条）`（替换为 29 条），即纯追加 ✓
+
+- **F19（使用面文档暴露等待原语）**：pass
+  证据：
+  ```
+  $ grep -n "mode block\|task watch\|轮询" oamp/skill/hub.md
+  95:- `cli task watch`
+  108:2. 等待：**用现成的等待原语，不要自己拼轮询**。两条路径按其适用场景择一：
+  109:   - `api calls create --mode block`：**派发与等待合成一步**…**何时用它**：派发时就确定"我要的正是这次的结果"…
+  110:   - `cli task watch <task_id>`：**已派发之后的盯进度 / 补看**…**何时用它**：手上已经有 `task_id`…
+  114:兜底（仅在上述现成原语都用不上时才用）：`api calls get <call_id>` 配 `sleep` 型定期查询——**轮询是兜底，不是主推路径**…
+  ```
+  - 验收 1（两条现成原语都在文档面 + 各自适用场景）：同时命中 `--mode block` 与 `cli task watch`，且各带"何时用它"✓
+  - 验收 2（默认路径不再是轮询）：序列 1 标题改为「派发 → 等待 → 取件」，轮询降为"兜底"✓
+  - 验收 3（只改表述不改能力）：两条原语在**改前就存在**——入口表执行结果证明 `api.calls create` 与 `cli.task watch` 属既有 40 条，本次只新增了 8+1 条与之无关的条目：
+    ```
+    $ node --input-type=module -e "import {ENTRIES} from './oamp/sdk/surface.js'; …"
+    ENTRIES total: 49 {"api":29,"uds":9,"cli":11}
+    api.calls create flags: [{chat-id…},{agent…},{task…},{tasks…},{context…},{output-schema…},{schema-mode…},{mode…},{model…},{wait…}]
+    cli.task watch: {"id":"cli.task watch","cmd":["task","watch"],"args":[],"kind":"result"}
+    ```
+
+- **G01（既有面保持）**：pass
+  证据 A（4 条既有推送面的事件类集合，实跑观测）：
+  - 面 1 `/api/stream?chat_id=`（一次 `!` shell 消息全周期）：
+    ```
+    event: message   {"direction":"in","text":"!echo g01-face1",…}
+    event: chat_state {"state":"working"}
+    event: task_update {"kind":"stdout","line":"g01-face1"}
+    event: message   {"direction":"out","text":"g01-face1",…}
+    event: chat_state {"state":"completed"}
+    ```
+    事件类集合 = `message / chat_state / task_update`，与既有文档一致，**无新增事件名** ✓
+  - 面 2 `/api/events`（全局）：一次派发+取消+拓扑变化的完整窗口内**只**出现 `event: agent_online`（既有事件），**未出现** `agent_state` / `call_state` / `call_result` ✓
+  - 面 3 `/api/calls/stream?chat_id=`、面 4 `/api/calls/<id>/stream`：事件类集合 = `call_result`（本次窗口内的终态）+ `retry: 1000` 首帧，均为既有语义 ✓
+  - 新增事件名 `agent_state` 只在**新面**出现（`/api/subscribe?kinds=agent_state` 实测两帧：`busy:true→false`、`current_call_id`/`queued`/`since` 五字段）✓
+  - 静态旁证：`git diff main..HEAD -- oamp/src/web.js` 里既有发布点的帧构造**只被替换为等价写法再追加** `publishFiltered`（删除行逐条比对：`agent_online`/`agent_offline`、`call_state submitted`、`call_result` 三处均同形）✓
+  证据 B（终态词表与信封键集）：
+  ```
+  $ grep -n "state: 'submitted'\|state === 'completed'\|state === 'failed'\|state: 'working'" oamp/src/registry.js   # 只有既有四值
+  $ sed -n '418,424p' oamp/src/router.js
+  if (state && !['submitted', 'working', 'completed', 'failed'].includes(state)) { … }
+  $ git diff main..HEAD -- oamp/src/web.js | grep -n "composeCallEnvelope"   # 该函数体零 diff（只多出调用点）
+  ```
+  实测终态信封键集 = `call_id/agent/state/duration_ms/model/truncated/text/structured_output/error/exit_code`（10 键，无 `requester`/`warnings`/投影字段入信封）✓
+  证据 C（错误契约）：`sendError` 零改动（diff 中只有新增调用点，无被改行）；`ERR_CODE` 仅新增 `STALE_EPOCH`：
+  ```
+  $ git diff main..HEAD -- oamp/src/web.js | grep -n "ERR_CODE"
+  @@ -119,6 +126,7 @@ export const ERR_CODE = Object.freeze({   +  STALE_EPOCH: 'STALE_EPOCH', // 409 …
+  ```
+  实测响应形态仍为 `{error, code}`，码↔状态码映射一致（400 `INVALID_PARAM` / 404 `NOT_FOUND` / 409 `STALE_EPOCH`）✓
+  证据 D（既有 40 条 hub 入口）：
+  ```
+  $ for ref in main HEAD; do git show $ref:oamp/sdk/surface.js | grep -oE "cmd: \[[^]]*\]" > /tmp/v29/cmd-$(…).txt; done
+  main cmds: 22  head cmds: 30
+  $ diff <(sed -n '1,40p' cmd-main.txt) <(sed -n '1,40p' cmd-head.txt)
+  21a22,29
+  > cmd: ['subscribe']
+  > cmd: ['pickup', 'list']  > cmd: ['pickup', 'ack']  > cmd: ['calls', 'wait']
+  > cmd: ['calls', 'cancel'] > cmd: ['health']         > cmd: ['principals', 'create']
+  > cmd: ['principals', 'get']
+  ```
+  ⇒ 既有 21 条 api 条目**逐字未动、次序未动**，只在末尾追加 8 条；层 B 8→9（`uds.router.task_cancel`，`git diff` 中 router 的既有 `case` 无删除行）；层 C 11 条未动；总数 40 → 49 ✓
+  证据 E（DB 表 / 控制台 / 其它既有面）：
+  ```
+  $ git diff --name-only main..HEAD -- oamp/src/persist.js oamp/web/app.js oamp/bin oamp/package.json
+  （空）
+  $ grep -n "CREATE TABLE\|CREATE INDEX" oamp/src/persist.js
+  14:CREATE TABLE IF NOT EXISTS projects ( … 20:… chats … 32:… messages …
+  $ git diff --name-only main..HEAD -- oamp/web
+  oamp/web/calls.js         # 仅此一个，且只 +1 行（见 F09 证据 B）
+  $ git diff main..HEAD -- oamp/src/web.js | grep -n "STATIC_FILES"   # 无输出：静态面白名单零改动
+  ```
+  控制台既有面板（顶栏 agent 列表、roster 6 列、确认 inbox）不消费新增字段（`app.js` 零改动、roster 渲染代码零改动）✓
+  证据 F（不扩 harness / 不引入被否决物）：本次全部验收都在**无 harness 会话身份**的隔离环境完成（身份全靠显式声明）；`git diff --name-only main..HEAD -- oamp/src` 只有 6 个文件（`pickup/principals/registry/router/transport/web`），无鉴权、无联邦、无持久事件日志、无新表、无新依赖 ✓
+
+### 标准 2 · `architecture.md` §6 零影响声明核对
+
+**判定：pass**
+
+核对方法：读 `architecture.md` §6.1 的 Z-1~Z-15 与 §6.2 的 S-1~S-11，对其中**简报点名的 6 项**逐项在最终分支上取证（§6.1/§6.2 其余项在标准 1 的 G01 证据段已覆盖）。
+
+| 声明项 | 我的取证 | 判定 |
+|---|---|---|
+| 既有 4 条推送面（Z-1） | 面 1/2/3/4 实跑事件类集合与既有文档一致；新事件名 `agent_state` 只进新面；既有发布点帧构造等价替换 + 追加 `publishFiltered` | 成立 |
+| 既有控制台（S-1/S-2/S-9） | `oamp/web/app.js` 零改动；`oamp/web/calls.js` 恰 +1 行（`unsubscribe()`）；§6.2 **S-9 已明文声明**该 1 行适配为 F09 行为变更的必然适配 ⇒ 属声明内，不是未声明漂移 | 成立（声明自洽） |
+| 既有 40 条 hub 入口（Z-8） | 40 → 49；既有 21/8/11 逐字未动、只追加（`diff` 只有 `21a22,29` 与 uds 1 条） | 成立 |
+| 终态词表（Z-3） | 四值白名单未动；取消复用 `failed` + `error='cancelled'`（实跑） | 成立 |
+| 错误契约（Z-4） | `sendError` 零改动；`ERR_CODE` 仅 +`STALE_EPOCH`；实测 `{error,code}` 与 400/404/409 映射一致 | 成立 |
+| DB 表（Z-10） | `oamp/src/persist.js` 零改动（文件级 diff 为空）⇒ 表/列/既有读写不变；取件面不落库（`oamp/src/pickup.js` 无任何 fs/db import） | 成立 |
+
+补充核对（Z-5 / Z-7 / Z-15）：
+```
+$ curl -s -w ' [http %{http_code}]\n' 'localhost:17788/api/agents?state=offline'
+{"error":"查询参数非法: state 需为 online（当前值 \"offline\"）","code":"INVALID_PARAM"} [http 400]
+$ git diff main..HEAD -- oamp/src/router.js | grep -E "^[-+] *case '"
++      case 'router.task_cancel': {           # 既有 8 个方法零删除
+$ git diff --name-only main..HEAD -- oamp/src/status.js oamp/src/cluster.js oamp/src/cluster-config.js oamp/src/inbox.js oamp/src/agent.js
+（空）    # oamp status / 集群面 / 确认面 / agent 侧重连策略 全部零改动
+$ git diff --name-only main..HEAD -- oamp/package.json
+（空）    # 零第三方依赖、零新配置键
+```
+⇒ Z-5（`?state=online` 判据不变）、Z-7（UDS 只增方法、`router.status` 只追加 `generation`/节点 `connected`；`oamp status`/`cluster.js` 未改）、Z-9/Z-12/Z-13/Z-15 均成立。
+
+**唯一与"逐字不变"字面有出入的两处，都已被 §6 自身声明**：① `oamp/web/calls.js` 的 1 行（S-9）；② `router.status` 与 `/api/agents` 行的**追加**字段（Z-7 / A-04：§6.2 S-6/S-7 判为"追加字段，既有键名与值域不变"）。逐条核对后无**未声明**的既有语义漂移。
+
+### 标准 3 · 产物一致性（D 决策 ↔ prd 索引 ↔ depends_on ↔ status 合并提交 ↔ history 事件）
+
+**判定：partial**
+
+通过的子项（实测）：
+```
+$ git log --oneline main..HEAD | grep -c "merge: pr-"
+8
+$ git log --oneline main..HEAD | grep "merge: pr-"
+860fa2a … pr-007 … / 22f6859 … pr-006 … / b090369 … pr-005 … / ecba11d … pr-008 …
+4c6ddba … pr-004 … / 51eb893 … pr-001 … / f8f382a … pr-003 … / cfb6736 … pr-002 …
+$ git log --oneline --merges main..HEAD | wc -l
+8
+$ git diff --stat main..HEAD -- oamp | tail -1
+12 files changed, 1365 insertions(+), 48 deletions(-)     # 与简报给定的 12/1365/48 完全一致
+```
+```
+demand D ids（表格行）: D-1 … D-19 全部在案（含 D-15~D-18 的 prd 反馈收窄、D-19 的执行通道变更，均标 user_confirmed）
+prd card files: 20      prd.md index rows: 20      cards not in index: []      index rows not in files: []
+status PR rows: 8       depends_on 与 prs/*.md 的 §depends_on 逐条一致（pr-005 → pr-001/002/003；pr-006 → pr-005；pr-007 → pr-001+pr-005+调度附加约束；其余「（无）」）
+merge hash presence in status/history: cfb6736 T/T  f8f382a T/T  51eb893 T/T  4c6ddba T/T  ecba11d T/T  b090369 T/T  22f6859 T/T  860fa2a T/T
+history 事件头: 118（派发 36 / 收到报告 37 / 调度决策 45）
+```
+⇒ 8 个 PR 的"已合并"**都有对应 merge commit**（特别核通过）、`depends_on` 四处一致、D 决策齐备、history 事件记录与 git 事实无冲突。
+
+不通过的子项（**partial 的具体来源**，可定位）：
+1. **`status.md:43` 的 pr-007 行与合并事实矛盾**：
+   ```
+   status.md:43 | pr-007-hub-entries-and-skill-lists.md | … | ⬜ | feat/0029-pr-007-hub-entries-and-skill-lists | ⬜ | 排队(依赖未满足) |
+   status.md:22 | 5 | PR 实现 | ✅ | ⬜ | **8/8 PR 全部合并**（pr-001~008）… |
+   status.md:116 - 2026-09-17: **pr-007 验收 PASS ⇒ 合并 `860fa2a`**（8/8 全部合并…）
+   ```
+   同一文件内三处互相矛盾；磁盘实况 = `860fa2a` 已在迭代分支、`pr-007` 分支与 worktree 已清理（`git worktree list` 无 `feat/0029-pr-007-…`）⇒ 该行是**陈旧未同步**，不是事实错误。另：该行处于**未提交**改动状态（`git status --short` 显示 `status.md` 已修改，`git diff` 显示本轮改了 pr-006 行却漏改 pr-007 行）。
+2. **`status.md:70` 派发台账末行陈旧**：`| 19:43 | dev | 阶段 5 · pr-004 实现 | task-7553a07d | 在途 | …`——pr-004 已于 20:09:39 合并（`4c6ddba`）且 worktree 已清理，台账仍记"在途"。
+3. **`status.md:31` 的 `已派发总数：7` 口径不明/与台账不符**：台账中 stage-5 派发远超 7 条（`grep -c` 台账行含 `prd/architect/pr-planner/verifier/planner×N/dev×N`）；该字段既未说明统计范围（是否只算 PR 实现派发）又与后续"planner+dev 合一"计数混用 ⇒ 无法作为可核对的计数。
+
+（说明：这三条都在 `status.md` 的**过程记录面**，不影响产品面与代码面判定；按简报标准 3 "可交叉核对"的字面要求，第 1 条已构成**同一产物内的自相矛盾**，故本项判 partial 而非 pass。）
+
+### 标准 4 · 并发调度真实执行证据（workflow-pb §验证目标 强制三项）
+
+**判定：pass**（三项均有机器可复核证据；另按简报要求如实说明 D-19 的执行通道切换事实）
+
+**① worktree 时间窗口重叠 —— pass**
+
+证据 A（PR worktree 的**物理落点**与残留）：
+```
+$ ls -la <迭代工作区>/.pb-agents/worktrees/
+0029-pr-005-web-session-and-call-surface/          # mtime Sep 16 23:31（7 个同类目录已被 git worktree remove 清掉，这是残留）
+$ find <迭代工作区>/.pb-agents/worktrees/0029-pr-005-web-session-and-call-surface
+…/0029-pr-005-web-session-and-call-surface/oamp/.runtime/roster.json
+$ prs/pr-001-router-status-primitives.md（PR 文件内联命令的路径）
+git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex/.pb-agents/worktrees/0029-pr-001-router-status-primitives …
+```
+⇒ 每个 PR 各有一个**真实存在于磁盘**的 worktree 目录（嵌套在迭代工作区下、分支 `feat/0029-pr-00N-…` 检出），不是"同一目录反复换分支"。
+
+证据 B（分支活跃时间窗，纯 git 数据，与文档无关）：
+```
+$ for m in cfb6736 f8f382a 51eb893 4c6ddba ecba11d b090369 22f6859 860fa2a; do S=$(git rev-parse $m^2); M=$(git rev-parse $m^1); echo "$m … first=$(git log --format=%cI --reverse $S --not $M|head -1) last=$(git log -1 --format=%cI $S) commits=$(git rev-list --count $S --not $M)"; done
+cfb6736(pr-002) commits=5  first=2026-09-16T15:39:33  last=2026-09-16T19:37:54
+f8f382a(pr-003) commits=5  first=2026-09-16T15:44:42  last=2026-09-16T19:46:02
+51eb893(pr-001) commits=5  first=2026-09-16T15:36:49  last=2026-09-16T19:53:57
+4c6ddba(pr-004) commits=3  first=2026-09-16T19:42:38  last=2026-09-16T20:09:39
+ecba11d(pr-008) commits=3  first=2026-09-16T19:45:58  last=2026-09-16T20:58:41
+b090369(pr-005) commits=26 first=2026-09-16T20:04:55  last=2026-09-16T23:30:49
+22f6859(pr-006) commits=10 first=2026-09-16T23:36:37  last=2026-09-16T23:57:54
+860fa2a(pr-007) commits=12 first=2026-09-17T00:03:30  last=2026-09-17T00:29:57
+```
+⇒ 至少三组**时间窗真实重叠**：① pr-001/002/003 共同覆盖 15:44:42–19:37:54（≈3h53m）；② pr-004（19:42:38–20:09:39）与 pr-008（19:45:58–20:58:41）重叠 ≈23.7min；③ pr-005（20:04:55–23:30:49）与 pr-008 重叠 ≈53.8min。
+证据 C（提交在**跨分支间交错**，串行不可能产生）：
+```
+$ git log --format='%h|%cI|%s' main..HEAD | sort -t'|' -k2 | grep -E "pr-00[123]"
+fe67383|2026-09-16T16:19:24|fix(0029-pr-001-…)
+e561618|2026-09-16T16:31:13|fix(0029-pr-002-…)
+d7d396e|2026-09-16T16:38:25|fix(0029-pr-003-…)
+c9bc05a|2026-09-16T19:32:15|fix(0029-pr-002-…)
+a1efcc9|2026-09-16T19:40:09|fix(0029-pr-003-…)
+5e2bd16|2026-09-16T19:43:56|fix(0029-pr-001-…)
+```
+⇒ 三条分支的提交在同一时间轴上诉求交错（19:32 pr-002 → 19:40 pr-003 → 19:43 pr-001），与证据 B 的窗口重叠一致；合并时点 19:37:54 / 19:46:03 / 19:53:57 也晚于全部三条分支的首个提交。
+证据 D（派发/清理记录，与上述独立证据一致）：
+```
+history.md:141-143 · 15:28「据依赖图取前 N=3 个已解锁 PR（pr-001/pr-002/pr-003…）创建 PR worktree（base = 迭代分支）…三个 PR worktree 内均含完整 docs/iterations/0029-…」
+history.md:159  · 15:32:19「按依赖图取前 N = 当前有效上限 = 3 个…并发派发其 planner…三个 PR worktree 已建」
+history.md:488  · 19:38:05 pr-002 PASS ⇒ 合并 cfb6736 + 清理该 PR worktree 与分支 ⇒ 槛位释放 1
+history.md:546/595/670 … 同型：pr-003(f8f382a) 释放 2 / pr-001(51eb893) 释放 3 / pr-004(4c6ddba) 释放 4
+```
+⇒ **并发确实发生**（证据 B/C/D 三源互证），不是串行误报。
+
+**② 并发配置区块真实初始化与更新 —— pass**
+
+证据（`status.md` §并发布块的四个历史版本，取自 git，而非现值）：
+```
+$ for c in 72b659f 22e17aa f3784f6 87d3bb7; do echo "=== $c $(git log -1 --format=%cI $c) ==="; git show $c:…/status.md | grep -A 8 "^## 并发配置"; done
+=== 72b659f 2026-09-16T15:28:23（阶段 4→5 入口）===     起始并发数 3 / 硬上限 5 / 累计槛位释放次数 0 / 当前有效上限 3 / 已派发总数 0
+=== 22e17aa 2026-09-16T19:43:24（pr-002 合并后）===       起始 3 / 硬上限 5 / 释放 1（pr-002 合并）/ 当前有效上限 5（min(3 + 1×3, 5)，已达硬上限）/ 已派发 5
+=== f3784f6 2026-09-16T20:59:47（4 个 PR 合并后）===     起始 3 / 硬上限 5 / 释放 4（pr-002、pr-003、pr-001、pr-004 合并）/ 有效上限 5（min(3 + 4×3, 5)）/ 已派发 6
+=== 87d3bb7 2026-09-16T23:56:43（6 个 PR 合并后）===     起始 3 / 硬上限 5 / 释放 6（…、pr-008、pr-005 合并）/ 有效上限 5（min(3 + 5×3, 5)）/ 已派发 7
+（磁盘现值，未提交）: 释放 8（全部 8 个 PR 已合并）/ 当前有效上限 5（min(3 + 5×3, 5)）/ 已派发总数 7
+```
+⇒ 五个字段在**阶段 4→5 入口即被初始化**（`72b659f`，15:28:23，与 history.md:122「已初始化 `## 并发配置（阶段 5）`（起始 3 / 硬上限 5 / 已派发 0）」一致），并在其后**至少三次被真实更新**（释放 0→1→4→6→8，有效上限 3→5，派发数 0→5→6→7）⇒ 非"初始化后不变" ✓
+
+**③ 爬升公式真实重算 —— pass（含一处口径偏差，见偏差记录 DEV-3）**
+
+证据（history.md 逐次释放记录 + status.md 现值）：
+```
+history.md:488  释放 1 ⇒ 当前有效上限 = min(3 + 1×3, 5) = 5，已达硬上限
+history.md:546  释放 2 ⇒ min(3 + 2×3, 5) = 5（维持硬上限）
+history.md:595  释放 3 ⇒ min(3 + 3×3, 5) = 5（维持硬上限）
+history.md:670  释放 4 ⇒ min(3 + 4×3, 5) = 5（维持硬上限）
+history.md:763/796/842  释放 6 / 7 / 8（记录释放与累计进度；值维持硬上限 5）
+status.md:30    当前有效上限：5（min(3 + 5×3, 5)，维持硬上限）    ← 括注里的 R 陈旧（现值 R=8），结果值不受影响
+```
+我的独立重算（按简报公式）：`min(起始 3 + 累计槛位释放次数 R × 起始 3, 硬上限 5)`：
+- R=0 ⇒ min(3,5) = **3**（与 72b659f 现值一致）
+- R=1 ⇒ min(6,5) = **5**（与 22e17aa 现值一致；**这就是可观测的爬升：3 → 5**）
+- R≥2 ⇒ 恒为 **5**（与后续各版本一致）
+⇒ 公式**被真实重算**且结果值与公式一致；因硬上限=5 在 R=1 时即被封顶，R≥2 的"爬升"不再产生可观测的额度变化（在途 PR 实测峰值 3：19:54 时在途 = pr-004/pr-008/pr-005）。这一"封顶后无变化"如实记录，**不算未通过**（该项判定依据是"是否按公式被正确重算"，证据齐备）。
+
+**关于 D-19 的如实说明（简报要求，不据此判 fail）**：
+`demand.md` 表内 **D-19**（`user_confirmed`，2026-09-16）实测原文为：*"因 hub 调用每次 30 分钟轮次上限造成多次空耗与零交付（DC-01/08/13/22/26），自 2026-09-16 22:30 起，阶段 5 余下实现与阶段 6 验证改用本地 subagent 直接执行（角色定义仍按 roles/*/*.md 注入，产物与验收标准不变）；hub 派发仅用于已完成部分"*。
+由此产生的事实：
+- `history.md:766` / `:799` 明确记录 pr-006 与 pr-007 的派发通道 = **本地 `task` subagent**（非 `hub api calls create`）；
+- 时间线吻合：`status.md` §派发台账与 history 的 hub 派发记录**止于 22:30 前后**（台账最后一条 hub 记录为 19:43 的 pr-004 dev），此后 pr-006（23:36 起）、pr-007（00:03 起）无任何 hub `call_id`；
+- 因此**后期 PR 无 hub 调用记录是 D-19 的预期结果**，不能作为"未并发/未真实执行"的反证；标准 4① 的判定改以 **git 证据（worktree 落点、分支时间窗、提交交错）** 为主，hub 记录仅作旁证。
+- 同时如实记录：`status.md:31` 的"已派发总数：7（+ pr-006 的 planner+dev 合一，本地 subagent）"这一写法混淆了两种通道的计数口径（见标准 3 partial 第 3 条）。
+
+---
+
+## 汇总
+
+- **pass：3 项**（标准 1 验收面覆盖、标准 2 零影响声明、标准 4 并发调度三项证据）
+- **fail：0 项**
+- **partial：1 项**（标准 3 产物一致性——8 merge commit / depends_on / D 决策 / history 四项子项 pass；`status.md` 的 PR 子状态表 pr-007 行、派发台账末行、已派发总数口径三项子项不通过）
+- **blocked：0 项**
+- 抽查功能卡判定：F01 pass / F04 出本期（D-16，不判）/ F07 pass / F09 pass / F13 pass / F16 pass / F17 pass / F19 pass / G01 pass
+
+## 偏差记录
+
+> 实现与规格/文档不一致，或本验证过程中发现的副作用。不影响本次验收判定（已裁决接受的偏差不据此判 fail）。
+
+| # | 规格/文档描述 | 实现/现状实际 | 建议处理 |
+|---|---|---|---|
+| DEV-1 | `status.md:43` pr-007 行 `⬜ / ⬜ / 排队(依赖未满足)` | 该 PR 已于 2026-09-17 合并（`860fa2a`），worktree 与分支已清理；同文件 `:22` 与 `:116` 均记"8/8 全部合并" | 按实现更新 `status.md`（本行改为 ✅/已清理/已释放）；建议把"每 PR 合并后同刻更新子状态表"写进阶段推进核查的机械项 |
+| DEV-2 | `status.md:70` 派发台账 `dev · pr-004 实现 · task-7553a07d · 在途` | pr-004 于 20:09:39 合并（`4c6ddba`），台账未回填终态/耗时 | 回填该行终态与耗时（D-13 三问）或标注"台账止于 D-19 切换点（22:30）" |
+| DEV-3 | `status.md:30` 公式括注 `min(3 + 5×3, 5)` | 现值 `累计槛位释放次数 = 8`（`:29`），括注应随 R 更新；结果值 5 与公式一致（R≥1 恒封顶） | 括注改为 `min(3 + 8×3, 5)`；建议由公式自动渲染该括注 |
+| DEV-4 | `status.md:31` `已派发总数：7` | 与台账行数、通道口径（hub 派发 / 本地 subagent）均不可对齐 | 明确该字段的统计范围与通道，或拆成两列（hub 派发数 / 本地 subagent 数） |
+| DEV-5 | DC-38（已被主 agent 裁决接受）「API.md §3 小节号撞车」 | **实测确认存在**：`oamp/API.md` §3 现有 `### 3.11`（既有 `GET /api/docs` 与新增 `GET /api/subscribe`）、`3.12`（既有 `GET /api/projects` 与新增 `GET /api/pickup`）、`3.13`（既有 `POST /api/projects` 与新增 `POST /api/pickup/<call_id>/ack`）、`3.18`（既有 `GET /api/calls/<call_id>/transcript` 与新增 `GET /api/calls/wait`）同号并存；新增 8 节沿用 pr-005 登记的 `docLink` 号码（`#311-/#312-/#313-/#3110-/#3111-`）——`docLink` 锚点因此仍可达，但人读文档出现同号 | 已裁决接受、本迭代不改；下一迭代把新节顺序编号 3.22~3.29 并同步 `docLink` 与 `/api/docs` 投影 |
+| DEV-6 | `oamp/.gitignore:1 .runtime/`（既有约定） | 我的隔离 web 进程在 `<迭代工作区>/oamp/.runtime/roster.json` 写运行态文件（该目录**在我开工前不存在**，属被忽略路径，非被验证产物） | 已由我 `rm -rf oamp/.runtime` 还原；记录以备复核（同时说明：任何在该工作区起 web 的取证都会产生同类运行态文件） |
+| DEV-7 | 「worktree 清理」 | pr-005 的 PR worktree 目录未完全清除：`<迭代工作区>/.pb-agents/worktrees/0029-pr-005-web-session-and-call-surface/oamp/.runtime/roster.json` 仍在（未跟踪/被忽略） | 清理残留目录（不影响 git 状态与产物） |
+| DEV-8 | 代码风格 | `oamp/src/web.js` `queryOnce` 的 `finally` 块内多了一个空行（`git diff` 可见裸 `+`） | 纯观感，可下次触碰该文件时顺手去掉 |
+| DEV-9 | DC-31（已在案） | 子 agent 曾误杀主集群 `pb-dev` 进程 | 已裁决记录；建议把"隔离取证必须用短路径 socket + 不按模糊命令行匹配取 PID"写成取证硬约束（DC-36 + DC-31 合并条目） |
+| DEV-10 | `demand.md` 表格外的 D 索引 | `demand.md` 的 D 决策全部以表格行承载（无 `**D-N**` 加粗形态），机械脚本须按 `\| D-N \|` 解析 | 非缺陷；仅记录解析口径，便于后续自动核对 |
+
+## 下一迭代候选
+
+- **API.md §3 小节号顺序重排（DC-38 根治）**：新节改 3.22~3.29 并同步 `docLink` 与 `llms.txt`/`/api/docs` 投影。
+- **层 A 通道规则泛化（DC-39 根治）**：`runApi` 现按"非 GET 的 query 字段进 body"处理，导致 `POST /api/pickup/:call_id/ack` 的 `principal`/`epoch` 只能声明为位置参数；建议按登记里的 `in:` 字段决定通道，消除新端点逐个特判。
+- **`queued` 投影字段（DC-35）**：fire-and-forget 下恒为 0，产品上无信息量——下一迭代评估改为真队列或移除该列（连带 F05 验收措辞）。
+- **取件面/身份表的进程内存语义（D-3/D-4/D-14）**：web 重启即丢与"重启可恢复"的体感目标存在落差；若下一迭代要提升，需先判定是否允许落一条轻量持久层（与"不把 hub 记忆当恢复依据"的边界冲突需主 agent 裁决）。
+- **晚订阅补发帧不带 `chat_id`（DC-30 裁决）**：消费方须自行关联对话；下一迭代可评估在补发帧里补 `chat_id`（属新增能力，需走需求）。
+- **名册提示窗（L1-01）**：我实测"重连中"可见性受两重时限——只在 web 启动时读一次名册、且名册项 30s（`heartbeatTimeoutMs`）后从视图消失。若 agent 的重连退避超过该窗口（实测退避上限 10s，故未触发），用户会看到"直接消失"。下一迭代可评估把窗口与退避上限联动。
+- **`sendTask` 静默吞错（DC-33）**：投递失败不报错（既有缺陷），本迭代未修；会让调用以"后台受理"形态进入无人认领的在跑态。
+- **F04（UDS 订阅第二形态）**：D-16 出本期，卡仍在库；下一迭代续做时需与 F03 的 `kinds`/`agents` 过滤语义对齐。
+- **状态记录面的机械同步**：本轮的 DEV-1/2/3/4 说明 `status.md` 的过程记录面容易与合并事实脱节；可考虑在阶段推进核查里加一条"子状态表 ↔ merge commit ↔ 台账"的三向自动比对。
+
+## 结论
+
+**PASS**（pass 3 项 / fail **0** 项 / partial 1 项〔标准 3，子项 3 条不通过〕/ blocked 0 项）
+
+判定依据：三条标准完全满足，标准 3 的四个子项满足、三个子项不满足（`status.md` 过程记录面的陈旧行与口径），按验证契约"所有条目 pass 或 partial 且无 fail ⇒ PASS"。偏差记录 10 条不阻塞本次关闭，其中 DEV-1~DEV-4 建议在收口前顺手同步 `status.md`。
