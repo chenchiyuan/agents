@@ -215,7 +215,7 @@ for p in oamp/src/router.js oamp/src/registry.js oamp/src/role-binding.js oamp/s
  git -C "$W" diff main HEAD -- oamp/src/web.js | grep -E '^[+-].*transport\.'
 
 # C05 envelope/state
- keys(){ awk '/^function composeCallEnvelope/,/^}/' "$1" | grep -oE '^    [a-z_]+' | tr -d ' ' | paste -sd,; }
+ keys(){ awk '/^function composeCallEnvelope/,/^}/' "$1" | grep -oE '^    [a-z_]+' | tr -d ' ' | paste -sd, -; }
  keys "$W/oamp/src/web.js"; git -C "$W" show main:oamp/src/web.js >/tmp/0030-pr-008/web.main.js; keys /tmp/0030-pr-008/web.main.js
  diff <(keys "$W/oamp/src/web.js") <(keys /tmp/0030-pr-008/web.main.js) && echo KEYS-IDENTICAL
  grep -n 'envelope.reason = reasonOf' "$W/oamp/src/web.js"
