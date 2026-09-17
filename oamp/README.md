@@ -86,12 +86,14 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_DB` | web | `<包根>/data/sql.db` | 对话库路径；相对路径基准 = 包根 |
 | `OAMP_OMP_MODEL` | agent | `deepseek/deepseek-v4-flash` | 默认模型（请求未指定 `model` 时生效）；`openai/gpt-5.6-luna` 为可选值，其首 token 可能数分钟 |
 | `OAMP_CTX_MAX` | agent | `8` | 常驻上下文进程上限（超出按 LRU 淘汰）；正整数 |
+| `OAMP_TASK_IDLE_MS` | agent | `600000` | 轮次**空闲**判死阈值（毫秒，默认 10 分钟）：自轮次开始或最近一次进展事件起算；正整数（非法值启动即报错） |
+| `OAMP_TASK_NET_MS` | agent | `14400000` | 轮次**安全网**阈值（毫秒，默认 4 小时）：自轮次开始起算；正整数（非法值启动即报错） |
 | `OAMP_PROTOCOL` | agent | `rpc` | 常驻链路协议（`rpc` / `acp`）；**全局档**（无 per-chat / per-request 切换入口）；优先级 env > 配置文件 `protocol` > 内置 |
 | `OAMP_WEB_PORT` | web | `7788` | Web 控制台端口（命令行 `--port` 优先） |
 | `OAMP_WEB_TOPOLOGY_POLL_MS` | web | `2000` | 全局事件流（`GET /api/events`）的拓扑轮询间隔（毫秒）；仅有全局订阅者时运行；缺省/非法回退默认（运维/测试可调） |
 | `OAMP_WEB_RECONCILE_INTERVAL_MS` | web | `5000` | 任务对账首查与间隔（毫秒，快速预算 6 次）；缺省/非法回退默认（运维/测试可调） |
 | `OAMP_WEB_RECONCILE_SLOW_MS` | web | `30000` | 快速预算用尽后的低频续查间隔（毫秒）；缺省/非法回退默认 |
-| `OAMP_WEB_RECONCILE_TTL_MS` | web | `1800000` | 对账登记软 TTL（毫秒，默认 30 分钟）：超时清理孤儿条目；缺省/非法回退默认 |
+| `OAMP_WEB_RECONCILE_TTL_MS` | web | `taskNetMs + 30000`（缺省 `14430000`） | 对账登记软 TTL（毫秒）：缺省值与 `OAMP_TASK_NET_MS` **联动**（恒 ≥ 安全网阈值，避免长任务终态被登记清理吞掉）；超时清理孤儿条目；缺省/非法回退该算式 |
 | `OAMP_OMP_BIN` | agent | `omp` | omp 可执行路径（测试注入 fake omp 用） |
 | `OAMP_ROLE_ROOT` | agent | `<仓库根>`（oamp 包根上级） | 角色定义根：角色文件 = `<root>/roles/<role>/<role>.md`（见「集群」） |
 | `OAMP_CLUSTER_CONFIG` | cluster | `<仓库根>/cluster.json` | 集群配置文件路径（`--config` 优先，见「集群」） |
@@ -182,7 +184,7 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
   手动改名不改变对话状态与归档标记，也不刷新最近更新时间（列表位置不变）。
   web 启动时把上次遗留的 `working` 对话置 `failed`（不补记录）。
 - **终态对账补拉**：若 agent 已执行完、Router 任务表已是终态，但 `task.result` 投递丢失（发起者离线窗口/投递竞态），
-  web 按 `router.task_get` 定时对账补落该轮 `out`（快速 5s、6 次用尽转 30s 低频续查、登记软 TTL 30min 清理；落库即停，恰一条 `out`）。
+  web 按 `router.task_get` 定时对账补落该轮 `out`（快速 5s、6 次用尽转 30s 低频续查、登记软 TTL `taskNetMs + 30s`（缺省 `14430000` ms ≈ 4h+30s）清理；落库即停，恰一条 `out`）。
   三个间隔可用 `OAMP_WEB_RECONCILE_*` 覆盖（运维/测试用，不进配置文件）。
 
 ## 接口文档与索引（0016）
@@ -219,7 +221,7 @@ agent 的任务执行器按 payload 路由（Web 控制台由上方「三种提�
   `openai/gpt-5.6-luna` 仍可在模型框显式指定，但它是 reasoning 模型，**首 token 可能长达数分钟**（实测 ≈242s）且本机存在间歇性无响应；
   Web 侧不注入默认值（未指定即回默认链）。对话详情里的 `model` 记录的是 **会话实报的生效模型**（不是请求回显）。
 - 默认 `--no-tools`（纯问答更安全/更快）；需要 agent 干活时 payload 传 `tools:true` 放开工具（仅一次性路径）。
-- omp 默认超时 1800s（30 分钟；`timeout_ms` 可覆盖，上限同为 1800s）；omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
+- omp 轮次超时（**缺省档**）：**空闲 10 分钟**（自轮次开始或最近一次进展事件起算）与**安全网 4 小时**（自轮次开始起算）先到者判死，判死后经既有失败路径产出 `state: "failed"` + `reason: "timeout"`（两种触发只在人类可读文本里区分）；阈值可调（`OAMP_TASK_IDLE_MS` / `OAMP_TASK_NET_MS`）。**显式** `timeout_ms` 语义不变：仍为该轮**绝对上限**（上限 1800s）。omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
 - 输出经 ANSI 清理后回流；回答在对话里以浅色可读排版展示（区别于 shell 的终端块）。
 
 > 安全边界（demo）：`tools:true` 时 omp 可调用工具操作本机；`--no-tools` 不放开。鉴权仍属后续迭代（N6 边界）。
