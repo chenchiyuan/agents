@@ -77,3 +77,32 @@
 
 - 阶段：阶段 4（PR 规划）
 - 任务：反射出可独立合并的提交单元划分及单元间真实依赖，从架构方案 + 代码库现状出发
+
+### 2026-09-17 12:35:30 · 派发 · prd（续做，同一角色的收口动作）
+
+- 阶段：阶段 3 收口（产物一致性）
+- 任务：把 `prd.md` 索引「功能点索引」表的「架构维度」列由 `待填 · A-xx` 改为 `已填定 · A-xx`（8 行），与 architect 已回填的卡内取值一致
+
+### 2026-09-17 12:36:20 · 收到报告 · prd（续做）
+
+- 1. 收口范围：`prd.md` 功能点索引表 F01~F08 八行的「架构维度」列（git diff = 8 增 8 删）
+- 2. 现取值：F01 `已填定 · A-01` / F02 `已填定 · A-02` / F03 `已填定 · A-01 / A-09` / F04 `已填定 · A-03 / A-04` / F05 `已填定 · A-05` / F06 `已填定 · A-06` / F07 `已填定 · A-07` / F08 `已给出技术评估与推荐（载体形态待 L1-01 裁决）· A-08`
+- 3. F09 / G01 仍为 `无待填项`；全文无 `待填 · A-` 残留（`grep -c` = 0，主 agent 复核）
+- 4. 未动卡片与其它文件；未执行 git 写操作
+- 5. 疑问/越界：无
+
+### 2026-09-17 12:36:30 · 收到报告 · pr-planner
+
+- 1. `prs/` 目录路径：docs/iterations/0030-hub-communication-upgrade/prs/
+- 2. 文件列表：pr-001-reason-mapping-module / pr-002-pool-routing-module / pr-003-inbox-table-persistence / pr-004-idle-net-turn-timers / pr-005-web-inbox-and-pool-wiring / pr-006-api-docs-sync / pr-007-model-routing-carrier / pr-008-process-contract-evidence / pr-009-existing-surface-guard（9 个）
+- 3. 各 PR 摘要：见 `prs/*.md` 七字段（涉及功能点 / 文件范围 / depends_on 证据摘要 / batch 逐条写入；主 agent 已逐份抽读核验）
+- 4. 疑问/越界：6 条须知会（web.js 单文件承载六处接线故整文件一个 PR——代码耦合的如实反映 / 约束 4 与 G01 落位建议冲突已按硬约束处理（零改动面只作比对基准不入文件范围）/ **pr-007→pr-008 是产物级依赖**（共享 `dispatch-ledger.md`）请复核 / **pr-005→pr-004 的唯一判据是 RECONCILE_TTL 与 taskNetMs 联动**，若用户否决则该边消失 / L1-01 未决但 pr-007 保持可独立验收、载体落点不写死 / 未越界声明）；未创建 `split-suggestion.md`
+- 5. 关键路径压平结果：最终关键路径 **3**；未发生合并（初始图即为 3）；无 `split-suggestion.md`
+- 通道实况：本地 subagent 通道（D-33），调用 `completed`（3m26s），子 agent 自报模型 `deepseek/deepseek-v4-flash`（= 全局默认，符合 D-34）
+
+### 2026-09-17 12:36:49 · 调度决策 · Gate确认（阶段 4→5 入口）
+
+- 决策内容：阶段 4 推进条件**六项逐项核查通过**（① 七字段 9/9 齐备 ② 覆盖 10/10 卡 ③ 文件范围 21 条两两不重叠 ④ 依赖无环 ⑤ 无悬挂依赖 ⑥ 关键路径 = 3 ≤3）+ `tools/check-pr-gates.py` 七项机械复核 **exit 0**；初始化 `## 并发配置（阶段 5）` 区块（3 / 5 / 3 / 0 / 0）；**呈交方案确认门并暂停等待用户**
+- 触发依据：`tools/check-pr-gates.py docs/iterations/0030-hub-communication-upgrade` 输出「七项全过，满足阶段 4 推进条件」；`prs/*.md` 逐份抽读（pr-004 / pr-005 / pr-007 / pr-009 全文，pr-001/002/003/006 核 文件范围+验收标准+depends_on）；用户 2026-09-17 指令「产出完方案之后再通知我」
+- **Gate 未闭合项（如实登记）**：Gate 的验证内容含「派发阶段 6 独立验证，产物路径 = `prs/`，结论必须为 pass」——该验证须以 `verifier` 角色派发，而 verifier 的模型载体正是 **L1-01 待裁决项**（D-34/F08 验收 2 要求 verifier 跑在 grok 上）⇒ 该验证排在用户裁决 L1-01 之后立即执行，未在本次呈交前完成
+- 呈交内容（四项，逐项对应 `workflow-pb.md` §方案确认门"不能只呈现其中部分"）：产品维度（`prd.md` + `prd/*.md`）/ 架构维度（`architecture.md`）/ PR 拆分摘要（PR 数、依赖图、关键路径；无 `split-suggestion.md`）/ 待裁决项（L1-01、MI-1~MI-12、疑问 B、疑问 C）
