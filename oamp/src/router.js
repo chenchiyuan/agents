@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { loadConfig } from './config.js';
 import { RpcPeer, RpcError, ERR, JSONRPC_CODE } from './rpc.js';
-import { createRegistry, isValidInstanceId, isValidMessageId, newSessionId } from './registry.js';
+import { createRegistry, generation, isValidInstanceId, isValidMessageId, newSessionId } from './registry.js';
 import { createEventLog } from './log.js';
 
 function clampSweepPeriod(timeoutMs) {
@@ -377,8 +377,8 @@ export default async function startRouter(restArgs) {
       }
 
       case 'router.status': {
-        // §4.4：任意连接可用（无需注册身份），4 字段快照按 instance_id 排序
-        if (respond) respond.ok({ nodes: registry.snapshot() });
+        // §4.4：任意连接可用（无需注册身份），5 字段快照按 instance_id 排序
+        if (respond) respond.ok({ nodes: registry.snapshot(), generation });
         return;
       }
       case 'router.task_get': {
@@ -391,7 +391,30 @@ export default async function startRouter(restArgs) {
         if (respond) respond.ok({ task: registry.getTask(taskId) });
         return;
       }
-
+      case 'router.task_cancel': {
+        const taskId = params.task_id;
+        if (typeof taskId !== 'string' || !isValidMessageId(taskId)) {
+          sendError(respond, ERR.INVALID_PARAMS, 'task_cancel 需携带合法 task_id');
+          return;
+        }
+        const { task, error } = registry.finishTask({
+          taskId,
+          from: ident ? ident.instance_id : null,
+          at: Date.now(),
+          state: 'failed',
+          result: { error: 'cancelled' },
+        });
+        if (error === 'TASK_NOT_FOUND') {
+          sendError(respond, 'TASK_NOT_FOUND', 'task_cancel: task not found');
+          return;
+        }
+        if (error === 'TASK_ALREADY_FINAL') {
+          sendError(respond, 'TASK_ALREADY_FINAL', 'task_cancel: task already final');
+          return;
+        }
+        if (respond) respond.ok({ task });
+        return;
+      }
       case 'router.task_list': {
         const state = params.state === undefined ? undefined : String(params.state);
         if (state && !['submitted', 'working', 'completed', 'failed'].includes(state)) {

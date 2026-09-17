@@ -34,9 +34,9 @@ const hub = await createHub();
 
 定位只用"项目根 + 相对位置"表达：不需要先切到某个目录，也不依赖本机特有值。
 
-### 层 A · api（21 条）
+### 层 A · api（29 条）
 
-层 A 走 Web 开放接口面（HTTP / SSE），共 21 条：
+层 A 走 Web 开放接口面（HTTP / SSE），共 29 条：
 
 - `api agents`
 - `api chats list`
@@ -59,10 +59,18 @@ const hub = await createHub();
 - `api calls get`
 - `api confirmations list`
 - `api confirmations decide`
+- `api subscribe`
+- `api pickup list`
+- `api pickup ack`
+- `api calls wait`
+- `api calls cancel`
+- `api health`
+- `api principals create`
+- `api principals get`
 
-### 层 B · uds（8 条）
+### 层 B · uds（9 条）
 
-层 B 走 Router 的 UDS 面（JSON-RPC），共 8 条：
+层 B 走 Router 的 UDS 面（JSON-RPC），共 9 条：
 
 - `uds agent.register`
 - `uds agent.heartbeat`
@@ -72,6 +80,7 @@ const hub = await createHub();
 - `uds router.status`
 - `uds router.task_get`
 - `uds router.task_list`
+- `uds router.task_cancel`
 
 ### 层 C · cli（11 条）
 
@@ -93,10 +102,16 @@ const hub = await createHub();
 
 `doctor`：自检（不属于三层封装）。它是第四个顶层入口，对三个面做自检，不对应单一端点 / 单一方法 / 单一既有命令。
 
-### 序列 1：派发 → 取终态
+### 序列 1：派发 → 等待 → 取件
 
 1. 派发：`node "<项目根>/oamp/bin/hub.js" api calls create`，拿到这次调用的 `call_id`。
-2. 取终态：`node "<项目根>/oamp/bin/hub.js" api calls get <call_id>`，读该调用的终态信封。
+2. 等待：**用现成的等待原语，不要自己拼轮询**。两条路径按其适用场景择一：
+   - `api calls create --mode block`：**派发与等待合成一步**，本次就等到底，回来时要么带结论、要么明确告诉你没结论。**何时用它**：派发时就确定"我要的正是这次的结果"，且愿意用一条连接等下去。
+   - `cli task watch <task_id>`：**已派发之后的盯进度 / 补看**，逐条打印进展、到终态收尾退出。**何时用它**：手上已经有 `task_id`（派发时选了后台形态，或这次调用是别处派发的），或想在终端里边跑边看。
+   两条路径的退出条件是同一个：**结论产生**，不是"时间到了"。等待语义（退出条件、超时只表示放弃等待、客户端等待预算的口径）以 `oamp/API.md` 的「等待语义」小节为**唯一真源**，本文件不复述、不改写。
+3. 取件：`node "<项目根>/oamp/bin/hub.js" api pickup list` 拿回自己尚未取件的终态结果（含完整信封），`api pickup ack <call_id>` 确认取走后从清单里划掉——**离线期间跑完的调用，结论不会丢**。
+
+兜底（仅在上述现成原语都用不上时才用）：`api calls get <call_id>` 配 `sleep` 型定期查询——**轮询是兜底，不是主推路径**，且它拿到的"还没结果"不等于失败判据。
 
 ### 序列 2：截断恢复
 

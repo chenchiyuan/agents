@@ -39,10 +39,15 @@ import { NodeClient } from './node-client.js';
 import { openDb } from './persist.js';
 import { createSseTransport } from './transport.js';
 import * as inbox from './inbox.js'; // 0021 确认面（architecture §6）：在途确认表（进程内、不持久）
+import * as principals from './principals.js';
+import * as pickup from './pickup.js';
 import { instanceIdForRole, roleFromInstanceId } from './role-binding.js';
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); // 包根（静态面白名单的基准：URL → 包根相对文件）
 const SENDER_ID = 'web'; // web 服务作为常驻发送方身份（R2：客户端节点）
+const WEB_BOOT_ID = randomUUID();
+const FILTERED_EVENT_KINDS = ['agent_online', 'agent_offline', 'agent_state', 'call_state', 'call_update', 'call_result', 'confirmation'];
+const ROSTER_FILE = path.join(PKG_ROOT, '.runtime', 'roster.json');
 const DEFAULT_PORT = 7788;
 const QUERY_TIMEOUT_MS = 3000;
 const MODEL_RE = /^[A-Za-z0-9._/-]{1,128}$/; // §7.2 模型标识形态（web 侧校验，非法 → 400）
@@ -71,6 +76,8 @@ const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，�
 const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟；2026-09-13 起 agent 侧 omp 超时上限亦为 30 分钟 ⇒ 覆盖关系由「有余」变为「持平」，待优化）
 // pr-002（F05 / architecture §4.2）：全局拓扑轮询间隔（仅存在全局订阅者时运行）；测试用 env 压缩时间轴。
 const TOPOLOGY_POLL_DEFAULT_MS = 2000;
+// 等待句柄兜底复查间隔（A-09）：只为"已登记等待句柄的 id"复查终态，无等待者时不发任何 UDS 请求。
+const WAIT_RECHECK_MS = 1000;
 // ★ 0021 pr-004 第 2 轮（F07 验收 3 / N5，主 agent 裁决 Q6）：调用面驱动的 chat 状态变化**不进**全局
 // `chat_state` 链路——全局 chat_state 的唯一消费者是前端「对话完成 / 失败」通知派生，而调用面完成明确不
 // 产生通知（N5：事件集合不含 `call_completed`）。传此选项 ⇒ 只发定向 `chat:<id>` 帧（形态与时机逐字不变，
@@ -119,6 +126,7 @@ export const ERR_CODE = Object.freeze({
   CONFLICT: 'CONFLICT', // 409 只读对象被写 / 对象当前状态不允许该操作
   PAYLOAD_TOO_LARGE: 'PAYLOAD_TOO_LARGE', // 413 请求体超限
   UPSTREAM_UNAVAILABLE: 'UPSTREAM_UNAVAILABLE', // 502 Router 不可达 / 内部故障兜底
+  STALE_EPOCH: 'STALE_EPOCH', // 409 客户端持有的易失会话代次已过期
 });
 
 /** 错误响应唯一构造点（architecture §5.3）：`error` 仍是人类可读字符串（既有文案逐字不变 ⇒ 既有调用方零改动），
@@ -185,8 +193,159 @@ async function queryOnce(socketPath, method, params) {
   try {
     return await peer.request(method, params, { timeoutMs: QUERY_TIMEOUT_MS });
   } finally {
+
     peer.close();
   }
+}
+function parseCsv(value) {
+  return value === null || value === '' ? [] : value.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
+function validPrincipalId(value) {
+  return principals.requesterOf({ principal_id: value }) !== null &&
+    principals.requesterOf({ principal_id: value }).principal_id.length <= 64 &&
+    /^[\x21-\x7e]+$/.test(value);
+}
+
+function principalEpoch(webBootId, routerGeneration) {
+  return `${webBootId}.${routerGeneration || '0'}`;
+}
+
+function deriveAgentWork(taskRows) {
+  const work = new Map();
+  for (const task of taskRows || []) {
+    if (!task || typeof task.to !== 'string') continue;
+    let row = work.get(task.to);
+    if (!row) {
+      row = { busy: false, current_call_id: null, queued: 0, since: null, started: -Infinity };
+      work.set(task.to, row);
+    }
+    if (task.state === 'submitted') row.queued += 1;
+    if (task.state === 'working' && (task.started_at ?? -Infinity) >= row.started) {
+      row.busy = true;
+      row.current_call_id = task.task_id;
+      row.since = task.started_at ?? null;
+      row.started = task.started_at ?? -Infinity;
+    }
+  }
+  return work;
+}
+
+/** 实例状态投影（F05 / F16 / architecture §4 A-04）：节点快照 + 任务表 ⇒ 每实例五字段（`connected` + 四字段）。
+ *  快照面（`GET /api/agents`）与推送面（`agent_state` 帧）**共用本函数** ⇒ 两处同源、不各算一份；
+ *  四字段是**追加的投影列**，不参与 `?state=` 过滤（既有在线口径仍是 `state === 'online'`）。 */
+export function projectAgentState(nodes, taskRows) {
+  const work = deriveAgentWork(taskRows);
+  const rows = new Map();
+  for (const node of nodes || []) {
+    const w = work.get(node.instance_id);
+    rows.set(node.instance_id, {
+      connected: node.connected === true,
+      busy: w ? w.busy : false,
+      current_call_id: w ? w.current_call_id : null,
+      queued: w ? w.queued : 0,
+      since: w ? w.since : null,
+    });
+  }
+  return rows;
+}
+
+/** agent 状态投影轮询器（F05 验收 5 / A-04）：与拓扑轮询同间隔、**独立键控** —— 仅当存在 `agent_state` 订阅者
+ *  时运行（零订阅者 ⇒ 零新增 UDS 流量）；每 tick 拉 `router.status` + `router.task_list` 投影五字段，
+ *  与上一 tick **有变化才发**一帧 `agent_state`（播种基线不发事件、订阅建立不发初始帧：当前值走快照面）。 */
+export function createAgentStateWatch({ transport, subscribers, queryNodes, queryTasks, pollMs }) {
+  let timer = null;
+  let prev = null; // Map<instance_id, 五字段>；null = 尚未播种
+  const same = (a, b) => a.connected === b.connected && a.busy === b.busy &&
+    a.current_call_id === b.current_call_id && a.queued === b.queued && a.since === b.since;
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    prev = null; // 丢弃基线：下次订阅重新播种，不补发订阅空窗期的变化
+  }
+
+  async function tick() {
+    if (subscribers.size === 0) {
+      stop();
+      return;
+    }
+    let nodes;
+    let taskRows;
+    try {
+      nodes = await queryNodes();
+      taskRows = await queryTasks();
+    } catch {
+      return; // Router 暂不可达：本轮不更新基线（不产生虚假状态帧）
+    }
+    if (subscribers.size === 0) {
+      stop(); // 查询在途期间订阅者全部断开
+      return;
+    }
+    const rows = projectAgentState(nodes, taskRows);
+    const seeded = prev !== null;
+    const changed = [];
+    if (seeded) {
+      for (const [instanceId, row] of rows) {
+        const before = prev.get(instanceId);
+        if (before === undefined || !same(before, row)) changed.push({ instance_id: instanceId, ...row });
+      }
+    }
+    prev = rows;
+    for (const data of changed) transport.publishFiltered({ type: 'agent_state', data });
+  }
+
+  /** 订阅建立后调用：有 `agent_state` 订阅者而轮询未运行 ⇒ 起表并立即播种一次（重复调用不起第二个表）。 */
+  function ensureRunning() {
+    if (subscribers.size === 0 || timer !== null) return;
+    prev = null;
+    timer = setInterval(() => {
+      tick().catch(() => {});
+    }, pollMs);
+    timer.unref(); // 不阻滞进程退出
+    tick().catch(() => {});
+  }
+
+  return { ensureRunning, stop };
+}
+
+/** 等待句柄的兜底复查（A-09 / F11 验收 7 / F12 验收 3）：只复查**已登记等待句柄**的调用 id —— 覆盖
+ *  「终态已产生，但本进程没有经唯一发布点送达」的窗口（另一进程派发的调用 / web 重启后仍在跑的调用 /
+ *  非调用面派发的任务）。无等待者时每 tick 立即返回 ⇒ 零 UDS 流量；复查**只读**：不产生结论、不改调用状态，
+ *  判据恒为"该 id 当刻终态"（非终态 ⇒ 什么都不做，继续等）。 */
+export function createWaiterWatch({ waiters, queryEnvelope, release, pollMs }) {
+  let timer = null;
+
+  async function tick() {
+    if (waiters.size === 0) return;
+    for (const callId of [...waiters.keys()]) {
+      if (!waiters.has(callId)) continue; // 本轮前已被唯一发布点释放
+      let envelope = null;
+      try {
+        envelope = await queryEnvelope(callId);
+      } catch {
+        continue; // Router 暂不可达：本轮跳过（不产生虚假结论）
+      }
+      if (envelope === null) continue;
+      release(callId, envelope);
+    }
+  }
+
+  /** 进程启动即起表（unref；无等待者时是空转判断，不发任何 UDS 请求）。 */
+  function start() {
+    if (timer !== null) return;
+    timer = setInterval(() => {
+      tick().catch(() => {});
+    }, pollMs);
+    timer.unref(); // 不阻滞进程退出
+  }
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  return { start, stop };
 }
 
 /** 全局事件差值（F05 / architecture §4.2「纯函数边界」）：prev = 上一 tick 的在线集合
@@ -242,8 +401,16 @@ export function createTopologyWatch({ transport, queryNodes, pollMs }) {
     const { online, offline, next } = diffTopology(prev === null ? new Map() : prev, nodes);
     prev = next;
     if (!seeded) return; // 首个订阅者：播种基线，不发事件
-    for (const data of online) transport.publishGlobal({ type: 'agent_online', data });
-    for (const data of offline) transport.publishGlobal({ type: 'agent_offline', data });
+    for (const data of online) {
+      const event = { type: 'agent_online', data };
+      transport.publishGlobal(event);
+      transport.publishFiltered(event);
+    }
+    for (const data of offline) {
+      const event = { type: 'agent_offline', data };
+      transport.publishGlobal(event);
+      transport.publishFiltered(event);
+    }
   }
 
   /** 订阅建立后调用：已有全局订阅者但轮询未运行 ⇒ 起表并立即播种一次（重复调用不起第二个表）。 */
@@ -472,7 +639,12 @@ function compileRouteMatcher(pathPattern) {
  *  新接口必须登记在 `GET /api/chats/:chat_id` 之前（可达性断言会点名被吞掉的那一项）。
  *  handler 体逐字沿用改造前的分支实现，只把闭包引用改为入参解构（`query: qs` / `num` / `params`）。
  *  纯构造：不调用依赖、不读磁盘、不起定时器 ⇒ 漂移锁可直接 `createApiRoutes({})` 取真实表项。 */
-export function createApiRoutes({ db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile }) {
+export function createApiRoutes({
+  db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
+  getEpoch = async () => 'unknown', checkEpoch = async () => null, getAgentProjection = async (nodes) => nodes,
+  onFilteredSubscription = () => {}, agentStateSubscribers = new Set(), waiters = new Map(), settleCancelledCall = () => {},
+  rosterHintRows = () => [],
+}) {
   const routes = [
     {
       method: 'GET',
@@ -481,7 +653,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
       params: [
         { name: 'state', in: 'query', type: 'string', required: false, enum: ['online'], desc: '只接受 online：只返回在线实例；省略或传空 = 返回全部（含 offline 墓碑）' },
       ],
-      response: '对象 { agents: [{ instance_id, session_id, state, last_heartbeat, role }] }',
+      response: '对象 { agents: [{ instance_id, session_id, state, last_heartbeat, role }] }（0029 pr-005：每行追加 connected / busy / current_call_id / queued / since）',
       errors: ['INVALID_PARAM'],
       kind: 'json',
       docLink: 'API.md#31-get-apiagents',
@@ -489,19 +661,131 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
         const r = await queryOnce(config.socketPath, 'router.status', {});
         // ?state=online（F04 验收 2 / §6.2）：服务端过滤，响应形态与无参**同形状**；无参路径逐字透传
         // router.status（含 offline 墓碑）。在线口径 = `state === 'online'`（§16 R-10）。
+        const projected = await getAgentProjection(r.nodes);
+        // ★ 0029 pr-005（F05 / F16 / A-04）：每行**追加** `connected` + 四字段（`busy / current_call_id / queued / since`）
+        // —— 服务端推导，来源 = 节点快照（`connected`）与 `router.task_list`（四字段）；四字段**不参与** `?state=` 过滤。
+        // 快照按请求现拉任务表 ⇒ 取值与当刻事实同源（与 `calls get` 不漂移）；后台投影 tick 只在有订阅者时运行。
+        const work = projectAgentState(projected, (await queryOnce(config.socketPath, 'router.task_list', {})).tasks);
         const agentState = qs.get('state');
         // ★ 0018（F03 / architecture §5）：每个节点**追加** role = 角色名（实例名可反解且角色文件存在时）或 null；
-        // 其余 4 字段名 / 值 / 顺序逐字不变（role 追加在末位）。推导只走 roleOfInstance，不复制公式。
-        const withRole = (nodes) => nodes.map((n) => ({ ...n, role: roleOfInstance(n.instance_id) }));
+        // 其余 4 字段名 / 值 / 顺序逐字不变（role 追加在末位）。
+        // ★ 0029 pr-005：五字段投影追加在 role 之后；推导只走 roleOfInstance 与 projectAgentState，不复制公式。
+        const withRole = (nodes) => nodes.map((n) => ({ ...n, role: roleFromInstanceId(n.instance_id), ...work.get(n.instance_id) }));
         if (agentState === null || agentState === '') {
-          sendJson(res, 200, { agents: withRole(r.nodes) });
+          sendJson(res, 200, { agents: withRole(projected) });
           return;
         }
         if (agentState !== 'online') {
           sendError(res, 400, ERR_CODE.INVALID_PARAM, `查询参数非法: state 需为 online（当前值 ${JSON.stringify(agentState)}）`);
           return;
         }
-        sendJson(res, 200, { agents: withRole(r.nodes.filter((n) => n.state === 'online')) });
+        sendJson(res, 200, { agents: withRole(projected.filter((n) => n.state === 'online')) });
+        return;
+      },
+    },
+    {
+      method: 'POST',
+      path: '/api/principals',
+      summary: '注册客户端身份（幂等）',
+      params: [
+        { name: 'principal_id', in: 'body', type: 'string', required: true, desc: '身份 id：非空、长度 <= 64、仅可打印 ASCII' },
+        { name: 'kind', in: 'body', type: 'string', required: false, desc: '调用方自述类别' },
+        { name: 'instance_id', in: 'body', type: 'string', required: false, desc: '调用方自述实例 id' },
+      ],
+      response: '对象 { principal, epoch }',
+      errors: ['INVALID_PARAM'],
+      kind: 'json',
+      docLink: 'API.md#322-post-apiprincipals',
+      handler: async ({ req, res }) => {
+        let body;
+        try { body = await readBody(req); } catch (err) {
+          const status = err.status || 400;
+          sendError(res, status, status === 413 ? ERR_CODE.PAYLOAD_TOO_LARGE : ERR_CODE.INVALID_PARAM, err.message);
+          return;
+        }
+        const decl = principals.requesterOf(body);
+        if (decl === null) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'principal_id 非法（需为非空、<=64 字符的可打印 ASCII）');
+          return;
+        }
+        const result = principals.upsert(decl);
+        if (result.error) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'principal_id 非法（需为非空、<=64 字符的可打印 ASCII）');
+          return;
+        }
+        sendJson(res, 200, { principal: result.principal, epoch: await getEpoch() });
+      },
+    },
+    {
+      method: 'GET',
+      path: '/api/principals/:principal_id',
+      summary: '查询客户端身份',
+      params: [{ name: 'principal_id', in: 'path', type: 'string', required: true, desc: '身份 id' }],
+      response: '对象 { principal, epoch }',
+      errors: ['NOT_FOUND', 'INVALID_PARAM'],
+      kind: 'json',
+      docLink: 'API.md#323-get-apiprincipalsprincipal_id',
+      handler: async ({ res, params }) => {
+        const id = params.principal_id;
+        if (!validPrincipalId(id)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'principal_id 非法（需为非空、<=64 字符的可打印 ASCII）');
+          return;
+        }
+        const principal = principals.touch(id);
+        if (!principal) {
+          sendError(res, 404, ERR_CODE.NOT_FOUND, `principal 不存在: ${id}`);
+          return;
+        }
+        sendJson(res, 200, { principal, epoch: await getEpoch() });
+      },
+    },
+    {
+      // ★ 0029 pr-005（F15 / architecture §4 A-12 / §5.1）：恢复判据三问 —— 一次调用回答「router 起了吗 /
+      //   web 服务可用吗 / 有实例可调用吗」+ `callable` 结论 + `epoch`。**唯一允许 Router 不可达仍 200 的面**
+      //   （它的职责就是回答 router 起没起）；其余新面在需要 Router 时沿用既有 502 UPSTREAM_UNAVAILABLE。
+      method: 'GET',
+      path: '/api/health',
+      summary: '恢复判据（router / web / agents 三问 + callable + epoch）',
+      params: [],
+      response: '对象 { router: { ok, detail, generation }, web: { ok, detail }, agents: { online, reconnecting, offline, total }, callable, epoch }',
+      errors: [],
+      kind: 'json',
+      docLink: 'API.md#3111-get-apihealth',
+      handler: async ({ res }) => {
+        // ① router：成功 ⇒ ok + generation；失败 ⇒ ok:false + **含 socket 路径**的原始原因（响应仍 200）。
+        let nodes = [];
+        let generation = null;
+        let routerOk = true;
+        let routerDetail = 'ok';
+        try {
+          const status = await queryOnce(config.socketPath, 'router.status', {});
+          nodes = status.nodes || [];
+          generation = status.generation === undefined || status.generation === null ? null : String(status.generation);
+        } catch (err) {
+          routerOk = false;
+          routerDetail = `${err && err.message ? err.message : err}（socket: ${config.socketPath}）`;
+        }
+        // ② web：能返回响应 ⇒ 已在监听；再一次**只读**轻查询证明持久层可读（判据零副作用：不写任何状态）。
+        let webOk = true;
+        let webDetail = '监听中；持久层可读';
+        try {
+          db.listProjects(); // 一次只读 SELECT（轻查询；不写、不建表、不改任何状态）
+        } catch (err) {
+          webOk = false;
+          webDetail = `持久层不可读: ${err && err.message ? err.message : err}`;
+        }
+        // ③ agents：同一次节点集合派生三态（**分别可读**，不是合成数）；名册提示项计入"重连中"（MI-P3）。
+        const rows = [...nodes, ...rosterHintRows(nodes, Date.now())];
+        const online = rows.filter((n) => n.state === 'online' && n.connected === true).length;
+        const reconnecting = rows.filter((n) => n.state === 'online' && n.connected !== true).length;
+        const offline = rows.filter((n) => n.state !== 'online').length;
+        sendJson(res, 200, {
+          router: { ok: routerOk, detail: routerDetail, generation },
+          web: { ok: webOk, detail: webDetail },
+          agents: { online, reconnecting, offline, total: online + reconnecting + offline },
+          callable: routerOk && webOk && online >= 1, // 三问都过 + 至少一个在线实例
+          epoch: await getEpoch(), // Router 观测失败 ⇒ 沿用最后一次已知值（A-07）
+        });
         return;
       },
     },
@@ -763,6 +1047,69 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
       },
     },
     {
+      method: 'GET',
+      path: '/api/subscribe',
+      summary: '按事件类型和 agent 过滤的事件订阅（SSE）',
+      params: [
+        { name: 'principal', in: 'query', type: 'string', required: true, desc: '订阅方 principal_id' },
+        { name: 'epoch', in: 'query', type: 'string', required: false, desc: '会话代次；过期返回 409 STALE_EPOCH' },
+        { name: 'kinds', in: 'query', type: 'string', required: false, desc: '逗号分隔：agent_online,agent_offline,agent_state,call_state,call_update,call_result,confirmation' },
+        { name: 'agents', in: 'query', type: 'string', required: false, desc: '逗号分隔 agent role 或 instance_id；省略表示全部' },
+      ],
+      response: 'SSE 事件流（text/event-stream）；仅推送匹配的过滤事件，不发送初始快照',
+      errors: ['INVALID_PARAM', 'STALE_EPOCH'],
+      kind: 'sse',
+      docLink: 'API.md#311-get-apisubscribe',
+      handler: async ({ req, res, query: qs }) => {
+        const principalId = qs.get('principal');
+        if (!validPrincipalId(principalId)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要合法 principal');
+          return;
+        }
+        const stale = await checkEpoch(qs.get('epoch'));
+        if (stale !== null) {
+          sendError(res, 409, ERR_CODE.STALE_EPOCH, stale);
+          return;
+        }
+        const kinds = parseCsv(qs.get('kinds'));
+        const agents = parseCsv(qs.get('agents'));
+        if (kinds.some((kind) => !FILTERED_EVENT_KINDS.includes(kind))) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'kinds 含非法事件类型');
+          return;
+        }
+        const principal = principals.upsert({ principal_id: principalId });
+        if (principal.error) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, principal.error);
+          return;
+        }
+        principals.touch(principalId);
+        const matchesAgent = (event) => {
+          if (agents.length === 0) return true;
+          const data = event && event.data && typeof event.data === 'object' ? event.data : {};
+          const candidates = new Set();
+          for (const key of ['agent', 'agent_id', 'instance_id', 'to']) {
+            if (typeof data[key] !== 'string') continue;
+            candidates.add(data[key]);
+            candidates.add(roleFromInstanceId(data[key]));
+            try { candidates.add(instanceIdForRole(data[key])); } catch {}
+          }
+          return agents.some((agent) => candidates.has(agent));
+        };
+        const predicate = (event) => (
+          (kinds.length === 0 || kinds.includes(event.type)) &&
+          matchesAgent(event)
+        );
+        transport.handleSubscribe(req, res, { predicate });
+        if (kinds.length === 0 || kinds.includes('agent_state')) {
+          agentStateSubscribers.add(res);
+          req.once('close', () => agentStateSubscribers.delete(res));
+        }
+        // 订阅者**已登记**后才起投影 tick（`ensureRunning` 以订阅者数为前提）。
+        onFilteredSubscription({ principal: principal.principal, kinds, agents });
+        return;
+      },
+    },
+    {
       method: 'POST',
       path: '/api/messages',
       summary: '发送消息（落库 + 派发任务；归档 / 已关闭 → 409）',
@@ -997,6 +1344,18 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
           sendError(res, 404, ERR_CODE.NOT_FOUND, `agent 不可用: ${role}（无对应在线实例）`);
           return;
         }
+        const requester = body.requester === undefined || body.requester === null || body.requester === '' ? null : body.requester;
+        if (requester !== null && !validPrincipalId(requester)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'requester 非法（需为非空、<=64 字符的可打印 ASCII）');
+          return;
+        }
+        const requesterDecl = requester === null ? null : principals.requesterOf({ principal_id: requester });
+        if (requesterDecl !== null) principals.upsert(requesterDecl); // 未注册 ⇒ 按需幂等建立、**不阻断**派发（MI-3）
+        // ★ 0029 pr-005（F14 / A-02）：自派发判定的依据是**该身份声明的 instance_id** —— 声明来自
+        // `POST /api/principals {principal_id, instance_id}`（`requesterOf` 只读请求体，故此处读登记表的当刻值；
+        // 未声明 ⇒ null ⇒ 一律不判自派发），不是请求体里临时给的字段。
+        const requesterInstanceId = requesterDecl === null ? null : (principals.get(requester)?.instance_id ?? null);
+        const warnings = [];
         // ④ 入参形态：上下文类型 / 单批互斥 / 逐项枚举与子集校验（全部先于任何写库与登记）
         if (body.context !== undefined && body.context !== null && typeof body.context !== 'string') {
           sendError(res, 400, ERR_CODE.INVALID_PARAM, 'context 需为字符串（本次调用的共享说明）');
@@ -1081,7 +1440,10 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
           publishState(chatId, 'working', LOCAL_ONLY);
           let resolve = null;
           const done = item.mode === CALL_MODES[1] ? new Promise((r) => { resolve = r; }) : null; // 阻塞等待句柄（释放点 = 终态单一发布点）
-          const call = { callId, role, chatId, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
+          const call = { callId, role, chatId, requester, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
+          if (requesterInstanceId !== null && requesterInstanceId === agentId) {
+            warnings.push({ index: i, call_id: callId, kind: 'self_dispatch', message: 'requester 与目标 agent 相同' });
+          }
           const entry = { chatId, agentId, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null, call };
           tasks.set(callId, entry); // 登记先于 await（首个增量可能与 send 响应同 chunk 到达）
           if (item.outputSchema !== null) callSchemas.set(callId, call); // 终态后仍可按同一 schema 复算 structured_output
@@ -1112,14 +1474,16 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
             return;
           }
           scheduleReconcile(callId, entry); // 派发成功即挂对账（收到投递则随之清除）
-          transport.publishCall(callId, { type: CALL_EVENTS.state, data: { chat_id: chatId, call_id: callId, agent: role, state: 'submitted' } });
+          const submittedEvent = { type: CALL_EVENTS.state, data: { chat_id: chatId, call_id: callId, agent: role, state: 'submitted' } };
+          transport.publishCall(callId, submittedEvent);
+          transport.publishFiltered(submittedEvent);
           // 后台项 = 受理态信封（与终态项同一形状）；阻塞项 = 等待终态单一发布点释放（后台/终态混合时逐项各自处理）
           waits.push(done === null
             ? composeCallEnvelope({ task_id: callId, to: agentId, state: 'submitted', updates: [], updatesTruncated: false, result: null }, call)
             : done);
         }
         const calls = await Promise.all(waits);
-        if (!res.writableEnded && !res.destroyed) sendJson(res, 200, { calls }); // 客户端断连 ⇒ 写入是 no-op，调用仍在后台完成（MI-05）
+        if (!res.writableEnded && !res.destroyed) sendJson(res, 200, { calls, ...(requester === null ? {} : { warnings }) }); // 客户端断连 ⇒ 写入是 no-op，调用仍在后台完成（MI-05）
         return;
       },
     },
@@ -1129,7 +1493,7 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
       path: '/api/calls',
       summary: '调用 roster（每次调用一行；无过滤 / 无分页 / 无编排）',
       params: [],
-      response: '对象 { calls: [{ call_id, agent, state, started_at, ended_at, model }] }（按 created_at 倒序；进行中 ended_at=null）',
+      response: '对象 { calls: [{ call_id, agent, state, started_at, ended_at, model }] }（按 created_at 倒序；进行中 ended_at=null）（0029 pr-005：每行追加 last_event_at）',
       errors: [],
       kind: 'json',
       docLink: 'API.md#315-get-apicalls',
@@ -1148,6 +1512,9 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
               started_at: t.created_at,
               ended_at: state === 'completed' || state === 'failed' ? t.updated_at : null,
               model: t.model ?? null, // listTasks 投影的 model = task.result?.model ?? null（进行中恒 null，不显示推测值）
+              // ★ 0029 pr-005（F06 / A-05）：追加"最后一次事件时刻" = 任务条目 `updated_at`；**不**由服务端给出
+              // `idle_ms`（停滞派生留给消费方，避免服务端口径漂移）。既有 6 列名 / 顺序 / 取值不变。
+              last_event_at: t.updated_at,
             };
           }),
         });
@@ -1189,12 +1556,26 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
       docLink: 'API.md#317-get-apicallscall_idstream',
       handler: async ({ req, res, params }) => {
         const callId = params.call_id;
-        const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
-        if (!r || !r.task) {
+        const initial = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+        if (!initial || !initial.task) {
           sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
           return;
         }
         transport.handleCallStream(req, res, { callId });
+        const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+        const task = r && r.task ? r.task : null;
+        if (!task) {
+          transport.closeCallSubscriptions(callId);
+          return;
+        }
+        const state = callState(task, callSchemas.get(callId) ?? null);
+        // ★ 0029 pr-005（F10 / A-08）：已终态 ⇒ 补发**一帧当刻终态信封**（与 `calls get` 同形同取值）随即关流。
+        // 不变量（每订阅至多一帧终态帧、至多关闭一次）：订阅登记后若终态帧已由实时路径送达并被同一发布点关闭，
+        // 本连接已结束 ⇒ 跳过补发（`res.writableEnded` 由 `closeKey` 的 `res.end()` 置位），不产生第二帧/第二次关闭。
+        if ((state === 'completed' || state === 'failed') && !res.writableEnded && !res.destroyed) {
+          res.write(`event: ${CALL_EVENTS.result}\ndata: ${JSON.stringify(composeCallEnvelope(task, callSchemas.get(callId) ?? null))}\n\n`);
+          transport.closeCallSubscriptions(callId);
+        }
         return;
       },
     },
@@ -1225,6 +1606,198 @@ export function createApiRoutes({ db, transport, config, topologyWatch, tasks, c
         }
         sendJson(res, 200, { call_id: task.task_id, agent: roleOfInstance(task.to), state, truncated: callTruncated(task), entries });
         return;
+      },
+    },
+    {
+      method: 'GET',
+      path: '/api/pickup',
+      summary: '查询身份未取件的终态调用',
+      params: [
+        { name: 'principal', in: 'query', type: 'string', required: true, desc: '取件身份 principal_id' },
+        { name: 'epoch', in: 'query', type: 'string', required: false, desc: '会话代次；过期返回 409 STALE_EPOCH' },
+      ],
+      response: '对象 { pickup: [{ call_id, requester, agent, chat_id, terminal_at, acked, envelope }] }',
+      errors: ['INVALID_PARAM', 'STALE_EPOCH'],
+      kind: 'json',
+      docLink: 'API.md#312-get-apipickup',
+      handler: async ({ res, query: qs }) => {
+        const principalId = qs.get('principal');
+        if (!validPrincipalId(principalId)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要合法 principal');
+          return;
+        }
+        const stale = await checkEpoch(qs.get('epoch'));
+        if (stale !== null) {
+          sendError(res, 409, ERR_CODE.STALE_EPOCH, stale);
+          return;
+        }
+        const principal = principals.get(principalId);
+        if (principal) principals.touch(principalId);
+        const result = [];
+        for (const entry of pickup.listByRequester(principalId)) {
+          const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: entry.call_id });
+          const task = r && r.task ? r.task : null;
+          result.push({ ...entry, envelope: task ? composeCallEnvelope(task, callSchemas.get(entry.call_id) ?? null) : null });
+        }
+        sendJson(res, 200, { pickup: result });
+      },
+    },
+    {
+      method: 'GET',
+      path: '/api/calls/wait',
+      summary: '等待一组调用达到终态',
+      params: [
+        { name: 'ids', in: 'query', type: 'string', required: true, desc: '逗号分隔调用 id；至少一个' },
+        { name: 'timeout_ms', in: 'query', type: 'number', required: false, desc: '正整数超时；省略表示不设上限' },
+      ],
+      response: '对象 { timed_out, timeout_ms, results, unresolved }',
+      errors: ['INVALID_PARAM'],
+      kind: 'json',
+      docLink: 'API.md#318-get-apicallswait',
+      handler: async ({ res, query: qs }) => {
+        const ids = [...new Set(parseCsv(qs.get('ids')))];
+        if (ids.length === 0) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要 ids（至少一个调用 id）');
+          return;
+        }
+        const timeoutRaw = qs.get('timeout_ms');
+        let timeoutMs;
+        if (timeoutRaw !== null && (timeoutRaw === '' || !/^\d+$/.test(timeoutRaw) || Number(timeoutRaw) <= 0)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, 'timeout_ms 需为正整数');
+          return;
+        }
+        if (timeoutRaw !== null) timeoutMs = Number(timeoutRaw);
+        const results = [];
+        const unresolved = [];
+        const pending = [];
+        for (const callId of ids) {
+          const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+          const task = r && r.task ? r.task : null;
+          if (!task) {
+            unresolved.push({ call_id: callId, state: null });
+            continue;
+          }
+          const state = callState(task, callSchemas.get(callId) ?? null);
+          if (state === 'completed' || state === 'failed') {
+            results.push(composeCallEnvelope(task, callSchemas.get(callId) ?? null));
+            continue;
+          }
+          pending.push({ callId, state: task.state });
+        }
+        const outcome = new Map(); // callId → 终态信封（本请求等待到的结果；超时路径据此区分"已得结论"与"仍未终态"）
+        const registered = []; // 本请求登记的句柄（[callId, waiter]）——超时只摘自己登记的，不误删他人句柄
+        const waiting = pending.map(({ callId, state }) => new Promise((resolve) => {
+          let set = waiters.get(callId);
+          if (!set) {
+            set = new Set();
+            waiters.set(callId, set);
+          }
+          const waiter = (envelope) => {
+            outcome.set(callId, envelope);
+            resolve({ callId, state });
+          };
+          set.add(waiter);
+          registered.push([callId, waiter]);
+        }));
+        let timedOut = false;
+        if (timeoutMs !== undefined) {
+          const timeout = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs));
+          timedOut = (await Promise.race([Promise.all(waiting), timeout])) === null;
+          if (timedOut) {
+            // 超时：撤下本请求登记的句柄（不误删其他等待者），随后按"当刻状态"回报——超时不产生结论、不改调用状态。
+            for (const [callId, waiter] of registered) {
+              const set = waiters.get(callId);
+              if (!set) continue;
+              set.delete(waiter);
+              if (set.size === 0) waiters.delete(callId);
+            }
+          }
+        } else {
+          await Promise.all(waiting);
+        }
+        for (const { callId } of pending) {
+          const envelope = outcome.get(callId);
+          if (envelope !== undefined) {
+            results.push(envelope);
+            continue;
+          }
+          const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+          const task = r && r.task ? r.task : null;
+          unresolved.push({ call_id: callId, state: task ? callState(task, callSchemas.get(callId) ?? null) : null });
+        }
+        sendJson(res, 200, { timed_out: timedOut, timeout_ms: timeoutMs ?? null, results, unresolved });
+      },
+    },
+    {
+      // ★ 0029 pr-005（F13 / architecture §4 A-10）：取消 —— 终态真源仍是 Router 任务表（web 侧不覆盖状态）：
+      //   成功 ⇒ Router 以既有唯一终态写点置 `failed` + `result.error='cancelled'`，web 再经**既有唯一终态发布点**
+      //   收口（发布 call_result + 关流 + 解等待句柄）+ 落**恰一条** `out` + 推 `chat_state`（对话不停在 working）。
+      //   重复取消 / 对已终态调用取消 ⇒ 200 `cancelled:false` + 原 `state`/`error` 原样（不改已定终态）。
+      method: 'POST',
+      path: '/api/calls/:call_id/cancel',
+      summary: '取消调用（幂等；已终态调用不改状态）',
+      params: [{ name: 'call_id', in: 'path', type: 'string', required: true, desc: '目标调用 id（= task_id）；不存在 → 404 NOT_FOUND' }],
+      response: '对象 { call_id, cancelled, state, error }（本次生效 ⇒ cancelled:true / state:"failed" / error:"cancelled"；已终态 ⇒ cancelled:false + 原 state/error）',
+      errors: ['NOT_FOUND'],
+      kind: 'json',
+      docLink: 'API.md#3110-post-apicallscall_idcancel',
+      handler: async ({ res, params }) => {
+        const callId = params.call_id;
+        let task = null;
+        try {
+          const r = await queryOnce(config.socketPath, 'router.task_cancel', { task_id: callId });
+          task = r && r.task ? r.task : null;
+        } catch (err) {
+          // 机器码在 JSON-RPC `data.code`（不是 HTTP 码）：按 dataCode 分支，其余错误照旧抛给分发层转 502。
+          if (err && err.dataCode === 'TASK_NOT_FOUND') {
+            sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
+            return;
+          }
+          if (err && err.dataCode === 'TASK_ALREADY_FINAL') {
+            const cur = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+            const existing = cur && cur.task ? cur.task : null;
+            if (!existing) {
+              sendError(res, 404, ERR_CODE.NOT_FOUND, `call 不存在: ${callId}`);
+              return;
+            }
+            const envelope = composeCallEnvelope(existing, callSchemas.get(callId) ?? null);
+            sendJson(res, 200, { call_id: callId, cancelled: false, state: envelope.state, error: envelope.error });
+            return;
+          }
+          throw err;
+        }
+        const envelope = task === null ? null : composeCallEnvelope(task, callSchemas.get(callId) ?? null);
+        settleCancelledCall(callId, task, envelope); // 终态收口（out + chat_state + 发布 + 关流 + 解等待句柄）
+        sendJson(res, 200, { call_id: callId, cancelled: true, state: envelope.state, error: envelope.error });
+      },
+    },
+    {
+      method: 'POST',
+      path: '/api/pickup/:call_id/ack',
+      summary: '确认取件终态调用（幂等）',
+      params: [
+        { name: 'call_id', in: 'path', type: 'string', required: true, desc: '目标调用 id' },
+        { name: 'principal', in: 'query', type: 'string', required: true, desc: '确认身份 principal_id' },
+        { name: 'epoch', in: 'query', type: 'string', required: false, desc: '会话代次；过期返回 409 STALE_EPOCH' },
+      ],
+      response: '对象 { call_id, acked: true }',
+      errors: ['INVALID_PARAM', 'STALE_EPOCH'],
+      kind: 'json',
+      docLink: 'API.md#313-post-apipickupcall_idack',
+      handler: async ({ res, params, query: qs }) => {
+        const principalId = qs.get('principal');
+        if (!validPrincipalId(principalId)) {
+          sendError(res, 400, ERR_CODE.INVALID_PARAM, '需要合法 principal');
+          return;
+        }
+        const stale = await checkEpoch(qs.get('epoch'));
+        if (stale !== null) {
+          sendError(res, 409, ERR_CODE.STALE_EPOCH, stale);
+          return;
+        }
+        if (principals.get(principalId)) principals.touch(principalId);
+        pickup.ack(params.call_id);
+        sendJson(res, 200, { call_id: params.call_id, acked: true });
       },
     },
     {
@@ -1458,6 +2031,73 @@ export default async function startWeb(restArgs) {
     return 1;
   }
   db.startupSweep();
+  let routerGeneration = '0';
+  const getEpoch = async () => {
+    try {
+      const status = await queryOnce(config.socketPath, 'router.status', {});
+      if (status && status.generation !== undefined && status.generation !== null) routerGeneration = String(status.generation);
+    } catch {
+      // Router 不可达时保留最近一次 generation；epoch 仍由 webBootId 保证本次进程唯一。
+    }
+    return principalEpoch(WEB_BOOT_ID, routerGeneration);
+  };
+  const checkEpoch = async (requested) => {
+    if (requested === null || requested === '') return null;
+    const current = await getEpoch();
+    return requested === current ? null : `会话代次已过期: ${requested}`;
+  };
+
+  let rosterHints = new Map();
+  let lastRosterNodes = [];
+  // 名册 = 「**客户端 / agent 实例**的重连可见性」视图（L1-01 / F16 验收 2：软重启窗口里"谁还没回来"）。
+  // 服务端自身的常驻发送身份（SENDER_ID='web'）不是待重新纳管的客户端——把它写进名册会在 web 自身重启时
+  // 冒出一行误导性的"重连中"提示 ⇒ 读写两侧都按同一判据剔除（读侧剔除同时挡住旧文件里的残留项）。
+  const isRosterCandidate = (id) => typeof id === 'string' && id !== '' && id !== SENDER_ID;
+  try {
+    const saved = JSON.parse(fs.readFileSync(ROSTER_FILE, 'utf8'));
+    const writtenAt = Number(saved?.written_at);
+    const ids = Array.isArray(saved?.instance_ids) ? saved.instance_ids : [];
+    if (Number.isFinite(writtenAt)) {
+      rosterHints = new Map(ids.filter(isRosterCandidate).map((id) => [id, writtenAt]));
+    }
+  } catch {
+    rosterHints = new Map();
+  }
+  const writeRoster = (nodes) => {
+    const instanceIds = [...new Set((nodes || []).map((node) => node?.instance_id).filter(isRosterCandidate))];
+    lastRosterNodes = nodes || [];
+    try {
+      fs.mkdirSync(path.dirname(ROSTER_FILE), { recursive: true });
+      fs.writeFileSync(ROSTER_FILE, `${JSON.stringify({ written_at: Date.now(), instance_ids: instanceIds })}\n`);
+    } catch {
+      // 运行态提示是 best-effort，不影响 API。
+    }
+  };
+  /** 名册提示行（L1-01）：启动时读到的实例在 `heartbeatTimeoutMs` 内仍未重新注册 ⇒ 以 `state:'online' + connected:false`
+   *  （= 重连中）呈现，**四字段一律清空**（提示只带实例 id ⇒ 不残留重启前的在跑投影）；超期即从视图移除
+   *  （不是 offline 墓碑 —— 墓碑仍只由既有租约判定产生）。**纯函数**（不写盘）⇒ `/api/health` 的判据复用同一口径
+   *  而不产生任何副作用。 */
+  const rosterHintRows = (nodes, nowMs) => {
+    const present = new Set((nodes || []).map((node) => node?.instance_id));
+    const rows = [];
+    for (const [instanceId, writtenAt] of rosterHints) {
+      if (!present.has(instanceId) && nowMs - writtenAt <= config.heartbeatTimeoutMs) {
+        rows.push({
+          instance_id: instanceId,
+          session_id: null,
+          state: 'online',
+          last_heartbeat: null,
+          connected: false,
+        });
+      }
+    }
+    return rows;
+  };
+  const getAgentProjection = async (nodes) => {
+    writeRoster(nodes);
+    return [...(nodes || []), ...rosterHintRows(nodes, Date.now())];
+  };
+
 
   // §5.1 替换点：换另一种实时传输 = 换这一行构造（不引入 transport 配置项）
   const transport = createSseTransport();
@@ -1468,6 +2108,42 @@ export default async function startWeb(restArgs) {
     transport,
     queryNodes: async () => (await queryOnce(config.socketPath, 'router.status', {})).nodes,
     pollMs: topologyPollMs,
+  });
+
+  // ★ 0029 pr-005（F05 验收 5 / A-04）：`agent_state` 订阅者登记表 + 第二个投影 tick —— 只在**存在订阅者**时运行
+  //   （零常驻 UDS 流量）；订阅建立时经 `onFilteredSubscription` 起表。快照面（GET /api/agents）按请求现拉，
+  //   与本 tick 共用 `projectAgentState` ⇒ 两处同源。
+  const agentStateSubscribers = new Set();
+  const agentStateWatch = createAgentStateWatch({
+    transport,
+    subscribers: agentStateSubscribers,
+    queryNodes: async () => {
+      const nodes = (await queryOnce(config.socketPath, 'router.status', {})).nodes;
+      writeRoster(nodes); // 投影计算即刷新运行态名册（best-effort，L1-01）；失败已由 writeRoster 吞掉
+      return nodes;
+    },
+    queryTasks: async () => (await queryOnce(config.socketPath, 'router.task_list', {})).tasks,
+    pollMs: topologyPollMs,
+  });
+  const onFilteredSubscription = ({ kinds }) => {
+    if (kinds.length === 0 || kinds.includes('agent_state')) agentStateWatch.ensureRunning();
+  };
+
+  // ★ 0029 pr-005（A-09 / F11 验收 7）：等待句柄的兜底复查表 —— 常驻（unref）但**无等待者即空转**（零 UDS 流量）；
+  //   只覆盖"终态已产生但本进程未经唯一发布点送达"的窗口（跨进程派发 / web 重启后仍在跑 / 非调用面任务）。
+  const waiters = new Map();
+  const waiterWatch = createWaiterWatch({
+    waiters,
+    pollMs: WAIT_RECHECK_MS,
+    queryEnvelope: async (callId) => {
+      const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: callId });
+      const task = r && r.task ? r.task : null;
+      if (task === null) return null;
+      const state = callState(task, callSchemas.get(callId) ?? null);
+      if (state !== 'completed' && state !== 'failed') return null;
+      return composeCallEnvelope(task, callSchemas.get(callId) ?? null);
+    },
+    release: (callId, envelope) => releaseWaiters(callId, envelope),
   });
 
   // task_id → { chatId, agentId, lines, landed, attempts, slow, registeredAt, timer }：agent 侧的
@@ -1500,6 +2176,38 @@ export default async function startWeb(restArgs) {
     transport.publishGlobal({ type: 'chat_state', data: { chat_id: chatId, state } });
   };
 
+  /** 等待句柄释放（A-09 / L2-09）：**唯一释放点 = 终态发布点** —— 句柄只在此被解，不在别处；本进程无登记的 id
+   *  由既有对账兜底（`scheduleReconcile` / `reconcileTask`）复查覆盖 ⇒ 等待的退出判据恒为"终态"。 */
+  const releaseWaiters = (callId, envelope) => {
+    const set = waiters.get(callId);
+    if (!set) return;
+    waiters.delete(callId);
+    for (const resolve of set) resolve(envelope);
+  };
+
+  /** 取消收口（F13 / A-10）：终态真源仍是 Router 任务表 —— 本进程有登记的调用 ⇒ 落**恰一条** out
+   *  （`error='cancelled'`，与既有"派发失败"分支同款）+ 推 `chat_state`（对话不停在 `working`）+ 经唯一终态
+   *  发布点收口（发布 → 关流 → 解等待句柄），并即刻撤下登记（迟到的 `task.update` / `task.result` 在状态面被忽略）；
+   *  本进程无登记（另一进程派发 / web 重启后）⇒ 无 out 可落（对话归属不在本进程），仍按同一终态语义收口本进程的
+   *  订阅与等待句柄；内容一律取自任务表，不伪造、不做 web 侧状态覆盖。 */
+  const settleCancelledCall = (callId, task, envelope) => {
+    const entry = tasks.get(callId);
+    if (entry && !entry.landed) {
+      entry.landed = true;
+      clearTimeout(entry.timer);
+      tasks.delete(callId);
+      finishTask(entry, { state: 'failed', error: 'cancelled' });
+      publishCallResult(task, entry); // 同一 tick 内收口（与投递路径共用同一发布点，不出现第二个终态源）
+      return;
+    }
+    if (task === null) return;
+    const cancelledEvent = { type: CALL_EVENTS.result, data: { chat_id: task.chat_id ?? null, ...envelope } };
+    transport.publishCall(callId, cancelledEvent);
+    transport.publishFiltered(cancelledEvent); // 新面同帧转发（与终态发布点同一帧形态）
+    transport.closeCallSubscriptions(callId);
+    releaseWaiters(callId, envelope);
+  };
+
   /** 调用面终态单一发布点（★ 0018，architecture §4.3）：投递路径与对账路径**共用**——① 解阻塞（释放等待句柄，
    *  阻塞中的 POST /api/calls 写 200 终态信封）② 按 call:<callId> 与 chat-calls:<chatId> 两键发布 call_result。
    *  `call.published` 幂等：对账分支另有一次调用（已自带条目），不重复发布、不重复解阻塞。
@@ -1512,9 +2220,23 @@ export default async function startWeb(restArgs) {
     if (envelope !== null) {
       // ★ FIX-1：终态在此**写入**调用登记——strict 覆写随信封一并落到真源，roster / 转录读同一记录，零漂移
       call.terminal = { state: envelope.state, error: envelope.error };
-      transport.publishCall(call.callId, { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } });
+      if (call.requester !== null) {
+        pickup.add({
+          call_id: call.callId,
+          requester: call.requester,
+          agent: call.role,
+          chat_id: call.chatId,
+          terminal_at: Date.now(),
+          acked: false,
+        });
+      }
+      const resultEvent = { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } };
+      transport.publishCall(call.callId, resultEvent);
+      transport.publishFiltered(resultEvent); // ★ 0029 pr-005（契约 4 第 6 名）：新面同帧转发（追加在既有发布之后）
+      transport.closeCallSubscriptions(call.callId);
     }
     if (call.resolve !== null) call.resolve(envelope);
+    releaseWaiters(call.callId, envelope);
   };
 
   /** 终态落盘：恰一条 out 记录 + `message`(out) + `chat_state`（状态取库值，closed 哨兵不被迟到结果覆盖）。 */
@@ -1625,7 +2347,10 @@ export default async function startWeb(restArgs) {
           multiple: body.multiple === true,
           created_at: Number.isFinite(body.created_at) ? body.created_at : Date.now(),
         };
-        if (inbox.add(entry)) transport.publishGlobal({ type: 'confirmation', data: entry });
+        if (inbox.add(entry)) {
+          transport.publishGlobal({ type: 'confirmation', data: entry });
+          transport.publishFiltered({ type: 'confirmation', data: entry }); // ★ 0029 pr-005（契约 4 第 7 名）：新面同帧转发
+        }
         return;
       }
       // ★ 0021 pr-003（architecture §5.3 信封 3）：失效路径（agent 侧轮次已死 / 上下文已淘汰）——只移出在途表，
@@ -1656,12 +2381,16 @@ export default async function startWeb(restArgs) {
         const call = entry.call;
         if (!call.working && body.state === 'working') {
           call.working = true;
-          transport.publishCall(call.callId, { type: CALL_EVENTS.state, data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, state: 'working' } });
+          const workingEvent = { type: CALL_EVENTS.state, data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, state: 'working' } };
+          transport.publishCall(call.callId, workingEvent);
+          transport.publishFiltered(workingEvent); // ★ 0029 pr-005（契约 4 第 5 名）：新面同帧转发
         }
-        transport.publishCall(call.callId, {
+        const updateEvent = {
           type: CALL_EVENTS.update,
           data: { chat_id: call.chatId, call_id: call.callId, agent: call.role, kind: body.kind, text: body.text, line: body.line },
-        });
+        };
+        transport.publishCall(call.callId, updateEvent);
+        transport.publishFiltered(updateEvent); // ★ 0029 pr-005（契约 4 第 4 名）：新面同帧转发
       }
       return;
     }
@@ -1709,7 +2438,6 @@ export default async function startWeb(restArgs) {
         sender = null;
       }
     }
-    throw lastErr;
   };
   /** web → agent 控制消息：`notice{kind:'context_release', chat_id}`（§6.4；best-effort，失败忽略）。 */
   const sendControlNotice = async (agentId, body) => {
@@ -1724,7 +2452,13 @@ export default async function startWeb(restArgs) {
 
   // 路由表（F01）：表顺序 = 匹配优先级 = 改造前 if 链顺序；在依赖构造完成之后、createServer 之前构造，
   // handler 直接闭包引用本作用域局部名（handler 体零改写）。
-  const routes = createApiRoutes({ db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile });
+  // getEpoch / checkEpoch / getAgentProjection / agentStateSubscribers 都是本作用域的真实实现（默认值只服务
+  // 「纯构造」调用方）⇒ 必须在接线处显式传入，否则 epoch 恒为占位值、代次校验失效、名册提示不进视图。
+  const routes = createApiRoutes({
+    db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
+    waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription, settleCancelledCall, rosterHintRows,
+  });
+  waiterWatch.start(); // 等待句柄兜底复查（无等待者时空转；unref ⇒ 不阻滞退出）
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
@@ -1767,6 +2501,9 @@ export default async function startWeb(restArgs) {
       tasks.clear();
       callSchemas.clear(); // 退出不留调用面登记（与任务表同生命周期）
       topologyWatch.stop(); // 退出不留拓扑轮询表
+      agentStateWatch.stop(); // 退出不留投影轮询表
+      waiterWatch.stop(); // 退出不留等待兜底复查表
+      writeRoster(lastRosterNodes); // 正常退出前刷新运行态名册（best-effort，L1-01：软重启窗口的提示来源）
       server.close(() => {
         transport.closeAll();
         db.close();

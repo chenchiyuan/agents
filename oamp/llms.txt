@@ -8,9 +8,12 @@
 - 服务地址：http://127.0.0.1:7788（默认端口；`--port` / `OAMP_WEB_PORT` 可改；仅本机监听，无鉴权）
 - 全量字段元数据（机器可读）：GET /api/docs
 
-## 接口（21 条）
+## 接口（29 条）
 
 - GET /api/agents — 在线 agent 列表（Router 拓扑快照；?state=online 只返回在线实例）
+- POST /api/principals — 注册客户端身份（幂等）
+- GET /api/principals/:principal_id — 查询客户端身份
+- GET /api/health — 恢复判据（router / web / agents 三问 + callable + epoch）
 - GET /api/chats — 对话列表（搜索 / 过滤 / 分页；默认排除已归档）
 - GET /api/chats/:chat_id — 对话详情（含消息，按 created_at ASC, id ASC）
 - POST /api/chats/:chat_id/close — 关闭对话（置 closed、只读；幂等）+ 通知相关 agent 释放上下文
@@ -19,6 +22,7 @@
 - POST /api/chats/:chat_id/rename — 重命名对话（只写 title，不动 updated_at）
 - GET /api/stream — 按对话订阅实时事件（SSE：message / task_update / chat_state / notice）
 - GET /api/events — 全局事件订阅（SSE：agent_online / agent_offline / confirmation / chat_state）
+- GET /api/subscribe — 按事件类型和 agent 过滤的事件订阅（SSE）
 - POST /api/messages — 发送消息（落库 + 派发任务；归档 / 已关闭 → 409）
 - GET /api/docs — 接口元数据（文档页 / 调试台 / 索引文件的数据源）
 - GET /api/projects — 项目列表（含对话数与最近活动时间）
@@ -28,6 +32,10 @@
 - GET /api/calls/stream — 按对话订阅调用事件（SSE：call_state / call_update / call_result）
 - GET /api/calls/:call_id/stream — 按调用订阅事件（SSE：call_state / call_update / call_result）
 - GET /api/calls/:call_id/transcript — 按调用取转录（进程内、不持久；含终态条目）
+- GET /api/pickup — 查询身份未取件的终态调用
+- GET /api/calls/wait — 等待一组调用达到终态
+- POST /api/calls/:call_id/cancel — 取消调用（幂等；已终态调用不改状态）
+- POST /api/pickup/:call_id/ack — 确认取件终态调用（幂等）
 - GET /api/calls/:call_id — 按调用取终态（进行中给状态）
 - GET /api/confirmations — 待确认项列表（跨对话的在途确认项；进程内，不持久）
 - POST /api/confirmations/:confirmation_id/decision — 提交确认项裁决（permission 类 option_id 必填；question 类 option_ids 与 text 至少一个非空；条目随即移出在途表并回传请求方）

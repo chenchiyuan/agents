@@ -164,6 +164,7 @@ function handleCallEvent(type, data) {
     setCallState(data.state);
     appendLog(typeof data.text === 'string' ? data.text : '');
     if (typeof data.error === 'string' && data.error !== '') appendLog(`错误：${data.error}`);
+    unsubscribe();
   }
 }
 
