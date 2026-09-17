@@ -36,10 +36,10 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **当前有效上限**：**5**（`min(3 + 5×3, 5)` = 5，维持硬上限）
-- **累计槛位释放次数**：**5**（pr-001、pr-002、pr-003、pr-004、pr-007 成功合并）
+- **当前有效上限**：**5**（`min(3 + 6×3, 5)` = 5，维持硬上限）
+- **累计槛位释放次数**：**6**（pr-001、pr-002、pr-003、pr-004、pr-005、pr-007 成功合并）
 - **已派发总数（阶段 5 内部）**：**19**（planner ×6 + dev ×6 + verifier ×5；另加 pr-planner/architect 的多次定向收口；不含 Gate 两轮 `prs/` 验证与两条载体探针）
-- **当前在飞**：1（`DevP005`，pr-005 实现）+ 2 条文档校正（`PrPlan` / `ArchSpec`）；**空闲槛位 4 个**（pr-006/pr-008 待 pr-005 合并，无可派发项）
+- **当前在飞**：2（`PlanP006`、`PlanP008` 并发）+ 1 条文档校正（`ArchSpec`）；**空闲槛位 3 个**（8 个 PR 中 6 已合并，无其它可派发项）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -53,10 +53,10 @@
 | pr-002-pool-routing-module.md | （无） | ✅ | (已清理) | ✅ `4bcfbc3` | 已释放（槛位释放 2） |
 | pr-003-inbox-table-persistence.md | （无） | ✅ | (已清理) | ✅ `9fc962a` | 已释放（槛位释放 3） |
 | pr-004-idle-net-turn-timers.md | （无） | ✅ | (已清理) | ✅ `1b02689` | 已释放（槛位释放 5） |
-| pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004✅ | ⏸ | feat/0030-pr-005-web-inbox-and-pool-wiring | ⬜ | **占用**（dev 在途 @ gpt；依赖已全部满足） |
-| pr-006-api-docs-sync.md | pr-004、pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
+| pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004✅ | ✅ | (已清理) | ✅ `9a4f424` | 已释放（槛位释放 6） |
+| pr-006-api-docs-sync.md | pr-004✅、pr-005✅ | ⏸ | feat/0030-pr-006-api-docs-sync | ⬜ | **占用**（planner 在途；依赖已满足） |
 | pr-007-model-routing-and-process-evidence.md | （无） | ✅ | (已清理) | ✅ `58e30cd` | 已释放（槛位释放 4） |
-| pr-008-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
+| pr-008-existing-surface-guard.md | pr-005✅ | ⏸ | feat/0030-pr-008-existing-surface-guard | ⬜ | **占用**（planner 在途；依赖已满足） |
 
 > 在飞 4 个（≤ 当前有效上限 5）。已合并 1/8。**欠账（现已全部出清）**：① ~~`architecture.md` §4 A-04 表展示微调~~ **已完成**（architect）；② ~~已合并 PR 的验收复选框勾选~~ **已完成**；③ ~~`pr-002-pool-routing-module-tasks.md` 旧判据口径~~ **已完成**（pr-planner 2026-09-17 15:57，22 处同步、执行证据段逐字节未动）；④ ~~`pr-008` 的 G01 零回归判据缺例外括注~~ **已完成**。
 
