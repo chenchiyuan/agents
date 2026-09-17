@@ -191,3 +191,15 @@
 - worktree：`<迭代工作区>/.pb-agents/worktrees/0030-pr-001-reason-mapping-module`，分支 `feat/0030-pr-001-reason-mapping-module`
 - 输入：该 PR 的 tasks 文件（唯一执行依据）+ PR 文件 + `architecture.md` §4 A-03/A-04 + `role-binding.js` 体例
 - 完成定义：4 条验收标准全过（按 tasks §4.2 全探针表逐行 PASS 取证）+ 无简报外改动（既有 `oamp/src/**` 零 diff）+ 在 worktree 内提交
+
+### 2026-09-17 14:44:47 · 收到报告 · verifier（靶向复验）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-142447-stage4-prs-rework.md（+ `roles/verifier/data/verify-20260917-142447-0030-prs-rework.md`；**未覆盖**上一份报告）
+- 结论：**PASS**（pass 6 / fail 0 / partial 0 / blocked 0）；偏差记录 **0** 条
+- 复验面：上一轮 3 个 partial 的不通过侧逐条销项（依赖边证据 / "同一张表"闭合 / pr-005 可审查性处置）+ 4 条偏差逐条（依赖边 / 证据行数 / 路由条数 21→29 / 同一张表）+ 一致性回归（七字段 / 覆盖 / 无重叠 / 无环 / 无悬挂 / 关键路径 / 并发可行 / stale 引用检查）+ 原文摘录置顶
+- 通道实况：本地 subagent，`agent=verifier`，子 agent 自报模型 **`powerby/grok-4.6`**（F08 验收 2 第 2 例取证）
+
+### 2026-09-17 14:45:00 · 调度决策 · Gate确认（阶段 4→5 入口，完全闭合）
+
+- 决策内容：Gate 的三项验证内容**全部齐备且结论为 pass**——① 阶段 4 推进条件六项逐项核查通过；② `tools/check-pr-gates.py` 七项机械复核 exit 0；③ 阶段 6 对 `prs/` 的独立验证 **PASS（首轮 0 fail/3 partial → 返工 → 复验 0 fail/0 partial/0 偏差）**。据此：阶段 4 的「已验证」列标记 ✅，阶段 5 全速推进（不受再验证阻塞）
+- 触发依据：`clarifications/verify-20260917-142447-stage4-prs-rework.md` §汇总（pass 6/fail 0/partial 0/blocked 0）与 §结论 PASS；`workflow-pb.md` §Gate"验证结论必须为 pass（每项有文件证据）"
