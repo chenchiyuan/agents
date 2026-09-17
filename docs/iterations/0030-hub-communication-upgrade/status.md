@@ -36,9 +36,9 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **当前有效上限**：**5**（`min(3 + 1×3, 5)`，pr-001 合并后触发首次爬升并触及硬上限）
-- **累计槛位释放次数**：**1**（pr-001 成功合并）
-- **已派发总数**：**5**（planner ×3 + dev ×2）
+- **当前有效上限**：**5**（`min(3 + 2×3, 5)` = 5，维持硬上限；第二次释放后仍触顶）
+- **累计槛位释放次数**：**2**（pr-001、pr-002 成功合并）
+- **已派发总数（阶段 5 内部）**：**12**（planner ×5 + dev ×5 + verifier ×2；不含 Gate 两轮 `prs/` 验证与两条载体探针）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -49,7 +49,7 @@
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
 | pr-001-reason-mapping-module.md | （无） | ✅ | (已清理) | ✅ `f81d5c6` | 已释放（槛位释放 1） |
-| pr-002-pool-routing-module.md | （无） | ⏸ | feat/0030-pr-002-pool-routing-module | ⬜ | **占用**（dev 在途 @ gpt） |
+| pr-002-pool-routing-module.md | （无） | ✅ | (已清理) | ✅ `4bcfbc3` | 已释放（槛位释放 2） |
 | pr-003-inbox-table-persistence.md | （无） | ⏸ | feat/0030-pr-003-inbox-table-persistence | ⬜ | **占用**（dev 在途 @ gpt） |
 | pr-004-idle-net-turn-timers.md | （无） | ⏸ | feat/0030-pr-004-idle-net-turn-timers | ⬜ | **占用**（planner 在途） |
 | pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002、pr-003、pr-004 | ⬜ | | ⬜ | 排队(依赖未满足：001 已满足，002/003/004 未合并) |

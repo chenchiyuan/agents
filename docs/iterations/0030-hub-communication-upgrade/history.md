@@ -347,3 +347,16 @@
 - 通道：本地 subagent，`agent=verifier`（预期 grok）
 - 产出物：PR worktree 提交 `9c5de19` 的 diff（判据来源 = **修订后的** PR 文件 6 条验收标准）+ `architecture.md` §4 A-06 补定 / §4 A-07
 - 独立取证要求：不得采信 `/tmp/0030-pr-002/*.out`，自写探针、自造注入解析器与快照，覆盖全部条目（含 4 条边界、4 种粘性情形、预留净值）
+
+### 2026-09-17 16:00:00 · 收到报告 · verifier（pr-002 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-145350-pr-002.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 2）；verifier 自写探针独立取证
+- 偏差记录 2 条（**同一性质**）：PR worktree 里的 `architecture.md` §3.4 与 `prs/pr-002-*.md` 是**规划期快照**（导出面只写三类、判据为旧公式），而实现与**迭代工作区当前**的架构真源/PR 文件一致 ⇒ verifier 正确裁定"文档权威在迭代工作区，PR worktree 内文档为基线快照，不阻塞验收"。属 0028 G-12 同类固有性质（PR worktree 从分支 tip 检出，不随后续文档修订前进）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 16:02:00 · 调度决策 · PR 合并 + 第二次槛位释放
+
+- 决策内容：pr-002 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-002-pool-routing-module` ⇒ `4bcfbc3`，1 file / 105 lines）；现场清理（`worktree remove` + `branch -d`）；`累计槛位释放次数 = 2` ⇒ `当前有效上限 = min(3 + 2×3, 5) = 5`（维持硬上限）
+- **解锁扫描结果：无新增已解锁 PR** —— 五个无依赖 PR 中 pr-001/pr-002 已合并、pr-003/pr-004/pr-007 在飞；pr-005 仍缺 pr-003 与 pr-004 的合并；pr-006/pr-008 依赖 pr-005。⇒ **释放出的 2 个槛位保持空置**，不放宽解锁条件（`workflow-pb.md` §阶段 5"没有已解锁且排队中的 PR 时，释放出的槛位保持空置"）
+- 触发依据：`clarifications/verify-20260917-145350-pr-002.md` 结论 PASS；`git merge` 输出；依赖图重扫（`prs/*.md` 的 `depends_on` × 已合并集）
