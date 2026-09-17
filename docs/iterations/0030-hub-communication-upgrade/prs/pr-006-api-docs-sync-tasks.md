@@ -717,3 +717,130 @@ M	oamp/skill/hub.md
 ```
 
 禁止路径命令无输出。三处条数取证：`API rows=29`、`## 接口（29 条）`、`llms API lines=29`、`web route registrations=29`。实现交叉锚点原始输出含 `new_session` 命中 `web.js:1309/1394`、取件 `listInbox:1654` / `deleteInbox:1821` / `insertInbox:2246`、双超时文本 `rpc-client.js:292`。T9 全量 doccheck 为 `29 PASS / 0 FAIL`；无代码、依赖、路由改动，无取证残留写入 PR worktree。
+
+### 收口补充证据（2026-09-17）
+
+**运行模型标识**：`openai/gpt-5.6-luna`
+
+本次仅按验收方报告修正两处文档矛盾：`oamp/API.md` §3.19 `reason` 类型由 `string \| null` 改为 `string`，失败终态限定与五值闭集描述保持不动；`oamp/README.md` 对账段登记软 TTL 由 `30min` 改为 `` `taskNetMs + 30s`（缺省 `14430000` ms ≈ 4h+30s） ``，保留定时补落、落库即停、恰一条 `out` 语义。`doccheck` 的 C1~C9 没有把 `string \| null` 当作类型基线（C1 只核对字段键名/键序及失败侧语义），因此未修改或放宽任何断言。
+
+#### 1. doccheck（收口前后）
+
+命令原文：
+
+```bash
+node /tmp/0030-pr-006/doccheck.mjs "$PRWT/oamp"
+```
+
+收口前（`HEAD=52777138c7760d885fb62dca0923753532150171`）原始输出末行：
+
+```text
+29 PASS / 0 FAIL
+```
+
+收口后（`HEAD=06d86e6d124a2981dc00a9852fb051355b016b49`）原始输出末行：
+
+```text
+29 PASS / 0 FAIL
+```
+
+收口后关键断言：
+
+```text
+PASS C1b ... doc rows = call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code,reason
+PASS C1c ... call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code,reason
+PASS C2 ... doc=agent_error,cancelled_by_client,infra_error,timeout,rejected impl=agent_error,cancelled_by_client,infra_error,timeout,rejected
+PASS C5d ... 对账 TTL 默认行与 taskNetMs 联动（不再写 1800000 / 默认 30 分钟）
+29 PASS / 0 FAIL
+```
+
+判定：PASS。既有改造前基线（初始文档树）仍为 `11 PASS / 18 FAIL`；本次收口前后的最终文档判据均为 `29 PASS / 0 FAIL`，未因本次类型/TTL 修正放宽判据。
+
+#### 2. 路由计数（三/五处口径）
+
+命令原文：
+
+```text
+node（只读计数 API.md §3、llms.txt 头部/正文、web.js 路由登记）
+```
+
+原始输出：
+
+```json
+{"apiRows":29,"llmsHead":29,"llmsLines":29,"webRoutes":29}
+```
+
+判定：PASS。`llms.txt` 正文行与头部、`API.md` §3 表行、`web.js` 路由行均为 `29`（五处读数同为 29）。
+
+#### 3. llms.txt 逐字节生成核对
+
+命令原文：
+
+```bash
+(cd /tmp/0030-pr-006/closeout-gen && node oamp/scripts/gen-llms-txt.mjs)
+diff "$PRWT/oamp/llms.txt" /tmp/0030-pr-006/closeout-gen/oamp/llms.txt > /tmp/0030-pr-006/logs/llms-closeout.diff
+```
+
+原始输出：
+
+```text
+llms.txt 已生成：/private/tmp/0030-pr-006/closeout-gen/oamp/llms.txt（接口 29 条，3493 字节）
+diff-lines=0
+```
+
+判定：PASS。`oamp/llms.txt` 与 `/tmp` 副本生成结果逐字节一致，diff 为空，未修改生成物。
+
+#### 4. 隔离真 Router + 真 web 的 hub doctor
+
+环境：Router socket `/tmp/0030-pr-006/closeout-run/rt/router.sock`、数据库 `/tmp/0030-pr-006/closeout-run/rt/hub.db`、web 端口 `17931`；运行后已停止 `pr006-closeout-web` 与 `pr006-closeout-router`。
+
+命令原文：
+
+```bash
+OAMP_SOCKET=/tmp/0030-pr-006/closeout-run/rt/router.sock OAMP_WEB_PORT=17931 OAMP_DB=/tmp/0030-pr-006/closeout-run/rt/hub.db node /tmp/0030-pr-006/closeout-run/oamp/bin/hub.js doctor > /tmp/0030-pr-006/logs/doctor-closeout.json 2>/dev/null
+```
+
+JSON 判定原文（读取 `pass` 与 `items[].ok`，不看退出码）：
+
+```json
+{"pass":true,"r1":29,"r1Ok":29,"nonOk":[]}
+```
+
+判定：PASS。满足 `pass:true`、`R1=29`、`r1Ok=29`、`nonOk=[]`。
+
+#### 5. 改动面、提交与顺带核查
+
+`git -C "$PRWT" diff --name-status HEAD`（提交前）原始输出：
+
+```text
+M	oamp/API.md
+M	oamp/README.md
+```
+
+提交后 `git diff --stat HEAD^ HEAD`：
+
+```text
+ oamp/API.md    | 2 +-
+ oamp/README.md | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+```
+
+提交 hash：`06d86e6d124a2981dc00a9852fb051355b016b49`
+
+提交后工作树 `git status --short` 为空；本次提交仅含 `oamp/API.md` 与 `oamp/README.md`，未改代码、`oamp/llms.txt` 或其它文件。
+
+顺带核查命令：
+
+```bash
+grep -nE '30min|30 分钟|1800' "$PRWT/oamp/API.md" "$PRWT/oamp/README.md" "$PRWT/oamp/skill/hub.md"
+```
+
+原始输出（均为按要求保留、无矛盾的既有口径）：
+
+```text
+API.md:164: CLI 侧 30 分钟的等待预算……不是等待的语义上限
+README.md:70: timeout_ms（默认 30000，上限 1800000）
+README.md:224: 显式 timeout_ms … 绝对上限（上限 1800s）
+```
+
+未发现除本次修正目标外、与超时口径/对账 TTL 矛盾的数字；上述三处均属明确的等待预算或显式命令/调用上限，按要求只报告不修。

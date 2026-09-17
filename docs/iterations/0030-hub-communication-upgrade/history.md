@@ -645,3 +645,19 @@
 - 裁决：差异 ①② **虽不阻塞合并，但都落在本 PR 自己的文件面内、且是同文件自相矛盾** ⇒ 决定**合并前收口**（留到下迭代会让本迭代的文档面带着已知自相矛盾交付，且修成本极低）；差异 ③ 涉及 `web.js`（已随 pr-005 合并、不在任何未合并 PR 文件范围内）⇒ 维持"记入下一迭代候选"，本迭代不修
 - 派发 `DevP006Fix`（原地 dev，`agent=dev`，保持 gpt 归属）：只改 `API.md:901` 的类型列（`string | null` → `string`）与 `README.md:187` 的 TTL 口径（→ 与第 96 行 env 表同口径）；要求重跑自建 doccheck（29/0）、五处计数 29、`llms.txt` 逐字节一致（**不新增 diff**）、`doctor pass:true` + 反例门、改动面仅两文件，并回填 tasks §7；另要求顺带 grep 报告**其它**残留的旧口径数字（只报告不改）
 - 触发依据：`verify-20260917-184753-pr-006.md` 差异清单 ①②（blocks_merge=false 但属本 PR 文件面）+ 主 agent 对两处原文的逐行复核（`API.md:901` / `README.md:96` vs `:187`）
+
+### 2026-09-17 20:55:00 · 收到报告 · dev（pr-006 收口）
+
+- 1. 改了什么文件：**仅** PR worktree 的 `oamp/API.md`（§3.19 字段表 `reason` 类型列 `string | null` → **`string`**）+ `oamp/README.md`（对账段「软 TTL 30min」→ 「软 TTL `taskNetMs + 30s`（缺省 `14430000` ms ≈ 4h+30s）」），提交 **`06d86e6`**；`git diff --stat 5277713 06d86e6` = **2 files, 2 insertions(+), 2 deletions(-)**；回填 tasks §7
+- 2. 自证结果：`doccheck` **29 PASS / 0 FAIL**（收口前后一致；并声明 C1~C9 **无** `string | null` 类型基线断言、**未改断言口径**——这点已由主 agent 复核其 diff 仅 2 行得以佐证）；路由计数四处 **29/29/29/29**；`gen-llms-txt.mjs` stdout = `接口 29 条，3493 字节`、与仓库 `llms.txt` **diff-lines = 0**；隔离真 `doctor` JSON `{pass:true, r1:29, r1Ok:29, nonOk:[]}`（端口 **17931**、`/tmp` socket/db，跑后已 stop）
+- 3. 疑问/待办：顺带 grep 的**其它**旧口径数字仅命中「`API.md` 的等待预算 30 分钟」「`README` 显式 `timeout_ms` 上限 1800000/1800s」——两者**均非矛盾**（前者是 `--wait`/`mode:block` 的**客户端等待预算**，§9-6 明文"不改"；后者是显式 `timeout_ms` 的**绝对上限**，§9-7 明文"保留既有语义"）⇒ 无需再改
+- 4. 违反边界：无（改动面仅两文件两行）
+- 主 agent 现场复核：增量 diff 逐行对上（恰 2 处）；相对 `9a4f424` 完整改动面仍为三份文档、`llms.txt` 未改
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**
+
+### 2026-09-17 20:57:00 · 派发 · verifier（pr-006 增量定向复核）
+
+- 理由（协议要求）：**产物在验收后又变了** ⇒ 已出的 PASS（针对 `5277713`）不能自动覆盖 `06d86e6`，须对增量独立复核；委托范围**仅限增量**，不重跑全量
+- 验证标准 6 条：① 增量面精确（恰 2 行 2 文件）+ 完整面仍三文档、`llms.txt` 未改；② 修正 1 与实现一致（隔离环境跑成功/失败各一次，抽键集证"成功侧无该键 ≠ null"）；③ 修正 2 与实现一致（旧值零残留 + 算式在 `web.js`/`config.js` 有对应 + 与 README env 表同口径）；④ 前份 AC1~AC5 是否仍成立（需重跑者重跑并给读数）；⑤ 机械锁仍绿（JSON `pass:true`/`R1=29`/`nonOk=[]`）+ `llms.txt` 逐字节；⑥ 红线违规检查（`oamp/src|sdk|scripts` 零改动、路由仍 29）
+- 产出：`clarifications/verify-<ts>-pr-006-delta.md` + `roles/verifier/data/` 副本；要求明确回答"本增量是否使该 PR 可合并（blocking / non-blocking）"
+- 触发依据：`DevP006Fix` 完成回报（提交 `06d86e6`）+ 主 agent 对增量 diff 的逐行复核
