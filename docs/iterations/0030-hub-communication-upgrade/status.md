@@ -46,15 +46,16 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-reason-mapping-module.md | （无） | ⬜ | | ⬜ | 排队(依赖满足，待槛位) |
-| pr-002-pool-routing-module.md | （无） | ⬜ | | ⬜ | 排队(依赖满足，待槛位) |
-| pr-003-inbox-table-persistence.md | （无） | ⬜ | | ⬜ | 排队(依赖满足，待槛位) |
-| pr-004-idle-net-turn-timers.md | （无） | ⬜ | | ⬜ | 排队(依赖满足，待槛位) |
+| pr-001-reason-mapping-module.md | （无） | ⏸ | feat/0030-pr-001-reason-mapping-module | ⬜ | **占用**（planner 在途） |
+| pr-002-pool-routing-module.md | （无） | ⏸ | feat/0030-pr-002-pool-routing-module | ⬜ | **占用**（planner 在途） |
+| pr-003-inbox-table-persistence.md | （无） | ⏸ | feat/0030-pr-003-inbox-table-persistence | ⬜ | **占用**（planner 在途） |
+| pr-004-idle-net-turn-timers.md | （无） | ⬜ | feat/0030-pr-004-idle-net-turn-timers（已建） | ⬜ | 排队(等待槛位) |
 | pr-005-web-inbox-and-pool-wiring.md | pr-001、pr-002、pr-003、pr-004 | ⬜ | | ⬜ | 排队(依赖未满足) |
 | pr-006-api-docs-sync.md | pr-004、pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-007-model-routing-carrier.md | pr-008 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-008-process-contract-evidence.md | （无） | ⬜ | | ⬜ | 排队(依赖满足，待槛位) |
-| pr-009-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
+| pr-007-model-routing-and-process-evidence.md | （无） | ⬜ | | ⬜ | 排队(等待槛位) |
+| pr-008-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
+
+> **PR 集合已按验证反馈返工**：9 → 8 个（`pr-007` = 旧 007+008 合并，覆盖 F08+F09；原 009 重编号为 `pr-008`，覆盖 G01）。**已解锁集** = {pr-001, pr-002, pr-003, pr-004, pr-007}（5 个无依赖）；首轮按起始并发 3 派发前 3 个。
 
 ## 派发台账（阶段 2~6；模型归属为本次执行方式约束第 3 条要求）
 

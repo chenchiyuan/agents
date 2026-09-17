@@ -146,3 +146,31 @@
 
 - 阶段：阶段 4（PR 规划）—— 验证反馈驱动的定向返工
 - 任务：按验证报告修正 5 项（依赖边 / 路由条数 / 证据行数 / L1-01 回填 / pr-005 代价记录）并内部重跑 Verify
+
+### 2026-09-17 14:32:00 · 收到报告 · pr-planner（返工）
+
+- 1. 改动文件：新建 `pr-007-model-routing-and-process-evidence.md`（旧 007+008 合并，修正 1 选方案 (a)）与 `pr-008-existing-surface-guard.md`（原 009 重编号）；改 `pr-005`（证据行数 → 实测 9 个消费点 `:1482/1576/1640/1682/1763/1769/1823/2144/2219` + 可审查性代价句）与 `pr-006`（21 → 实测 29，判据改「与迭代前同值」）；删除三个旧文件名
+- 2. PR 总数：9 → **8**（编号连续）；`dispatch-ledger.md` 仅由 pr-007 单一声明，「同一张表」在单 PR 内闭合
+- 3. 最终关键路径：**3**（`004→005→006`、`001→005→008`）；无环、无合并循环、未转出 `split-suggestion.md`
+- 4. 内部 Verify：`tools/check-pr-gates.py` EXIT=0（七字段 / 覆盖 10-10 / 文件范围 19 条两两不重叠 / 无环 / 无悬挂 / 关键路径 3 / 并发可行）；自查无 stale 文件名引用、无「21」残留
+- 5. 疑问/越界：一条事实提请主 agent 收口——`architecture.md` 的「既有 21 条路由」为过时口径，实测 29（三处同值），其 PR 文件已按 29 写
+- 通道实况：本地 subagent，`deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:33:00 · 调度决策 · 阶段推进核查（返工后复核）
+
+- 决策内容：返工后复核通过——`check-pr-gates.py` **exit 0**（8 PR / 10 卡全覆盖 / 19 条文件范围两两不重叠 / 无环 / 无悬挂 / 关键路径 3 / 并发可行）；残留检查：PR 目录内无「21」、无指向已删除文件名的 stale 引用；**解锁集变化**——`pr-007`（合并后的 F08+F09，无依赖）成为新的已解锁 PR ⇒ 无依赖 PR = {pr-001, pr-002, pr-003, pr-004, pr-007}（5 个），按起始并发数 3 取前 3 个派发，`pr-004` 与 `pr-007` 排 `排队(依赖满足，待槛位)`
+- 触发依据：`tools/check-pr-gates.py` 输出；`grep -rn "21 条|= 21" prs/` 零命中；`grep -rn "pr-009|pr-007-model-routing-carrier|pr-008-process-contract" prs/` 零命中
+- 附带动作：`architecture.md` 的路由条数口径修正派回 `architect`（进入其授权范围内的同一产物）；PR 集合的靶向复验派回 `verifier`（原独立验证者，新时间戳报告，不覆盖旧报告）
+
+### 2026-09-17 14:33:00 · 派发 · planner ×3（阶段 5 首轮并发，PR 独立执行流程）
+
+- 阶段：阶段 5（PR 实现）· 内部第一步（planner 产出该 PR 的 tasks 文件）
+- 对象：`pr-001-reason-mapping-module` / `pr-002-pool-routing-module` / `pr-003-inbox-table-persistence`（三者无依赖，占用起始并发 3 个槛位）
+- PR worktree：`feat/0030-pr-00N-<slug>`（各 PR 独立 worktree，base = 迭代分支 `iteration/0030-hub-communication-upgrade` tip `9f071b8`）
+- 通道：本地 subagent（batch `tasks[]` 三条并发；角色定义全文注入于本批共享 context 块，各条 brief 逐行给出字段与角色名/路径）
+- 排队：`pr-004-idle-net-turn-timers`、`pr-007-model-routing-and-process-evidence`（依赖已满足，等待槛位）
+
+### 2026-09-17 14:33:00 · 派发 · verifier（靶向复验）+ architect（口径修正）
+
+- verifier：对返工后的 PR 集合做**靶向复验**（上一轮 3 个 partial 的不通过侧 + 4 条偏差逐条销项 + 一致性回归 + 原文摘录置顶要求），新时间戳报告不覆盖旧报告
+- architect：修正 `architecture.md` 中过时的路由条数口径（21 → 实测 29，含 §0/§1.1/§5/§6 逐处核对 + 一行更正来源说明）

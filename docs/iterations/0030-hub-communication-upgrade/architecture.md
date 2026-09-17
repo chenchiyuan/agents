@@ -42,7 +42,7 @@
 | 面 | 现状（实测） | 位置 |
 |---|---|---|
 | 进程拓扑 | 三进程：`Router`（UDS + 注册表 + 任务表，全内存）／`web`（Node 内建 http + `node:sqlite`）／`pb-<role>` agent 节点 | `src/router.js` / `web.js` / `agent.js` / `cluster.js` |
-| HTTP 面 | `createApiRoutes(deps)` 返回有序数组；错误契约 = `ERR_CODE` 封闭 5 码 + `sendError` 唯一构造点 | `src/web.js:createApiRoutes / sendError` |
+| HTTP 面 | `createApiRoutes(deps)` 返回有序数组 —— **29 条路由**（`method:` 登记数：`awk '/function createApiRoutes/,0' src/web.js \| grep -cE "method: '(GET\|POST\|PUT\|DELETE)'"` = 29，与 `API.md` §3 编号至 29、`llms.txt` 头部"接口（29 条）"三处同值）；错误契约 = `ERR_CODE` 封闭 5 码 + `sendError` 唯一构造点（**本迭代不新增路由** ⇒ 与迭代前同值，见 §5/§10-9） | `src/web.js:createApiRoutes / sendError` |
 | 调用面派发 | `/api/calls` handler：校验 → **`const agentId = instanceIdForRole(role)`**（角色↔实例 **1:1 硬解析**，仅校验角色文件存在）→ 逐项 `sendTask(agentId, …)`；首项投递失败 ⇒ 404 `agent 不可用: <role>（无对应在线实例）`（`AGENT_OFFLINE`/`AGENT_NOT_FOUND`）或 502 `UPSTREAM_UNAVAILABLE` | `src/web.js:1342 / 1468-1472` |
 | 调用登记 | `tasks: Map<call_id, entry>`（entry 含 `chatId/agentId/lines/landed/attempts/slow/registeredAt/timer/call`）与 `callSchemas: Map<call_id, call>`；`call = {callId, role, chatId, requester, outputSchema, schemaMode, done, resolve, published, working, terminal}` —— **全部进程内** | `src/web.js:1443 / 2149-2164` |
 | 终态发布链 | agent 投递 → `handleDeliver(task.result)` → `finishTask(entry, body)`（落 `out` + `message` + `chat_state`）→ `queryOnce(router.task_get)` → **`publishCallResult(task, entry)`（唯一发布点）**；对账兜底 `reconcileTask` 走**同一发布点** | `src/web.js:handleDeliver / finishTask / publishCallResult / reconcileTask` |
@@ -98,7 +98,7 @@ flowchart TB
   end
 
   subgraph WEB["web 进程（既有 + 本迭代加法）"]
-    ROUTES["createApiRoutes 有序路由表<br/><b>21 条既有路由不增不减</b>"]
+    ROUTES["createApiRoutes 有序路由表<br/><b>29 条既有路由不增不减</b>"]
     PR["principals.js（既有，零改动）"]
     REAS["reason.js（新）<br/>源串 &rarr; reason 枚举<br/>唯一映射公式"]
     POOL["pool-routing.js（新）<br/>粘性表 (chat_id, role) &rarr; instance<br/>最空闲选择 + 在飞预留计数"]
@@ -404,7 +404,7 @@ flowchart TB
 
 **明确不改（零改动）**：`src/router.js`（含 UDS 方法集合与错误契约）、`src/registry.js`、`src/context-pool.js`、`src/role-binding.js`、`src/principals.js`、`src/inbox.js`、`src/transport.js`、`src/cluster-config.js`、`oamp/web/**`（控制台前端）、`oamp/sdk/**`、`oamp/scripts/**`、`cluster.json`、`roles/**`、`oamp/package.json`（零新依赖）。
 
-**文档面机械锁提示**：本迭代**不新增 HTTP 路由**（既有 21 条不变），故 `hub doctor` R1 不会因缺行而失败；但 `API.md` 的**参数表**（§3.9 的 `new_session`）与 `reason` 字段说明属人工同步项，阶段 5 需显式核对（`llms.txt` 由脚本重生成）。
+**文档面机械锁提示**：本迭代**不新增 HTTP 路由**（既有 **29 条**不变，与迭代前同值；口径见 §1.1），故 `hub doctor` R1 不会因缺行而失败；但 `API.md` 的**参数表**（§3.9 的 `new_session`）与 `reason` 字段说明属人工同步项，阶段 5 需显式核对（`llms.txt` 由脚本重生成）。
 
 ---
 
@@ -511,7 +511,8 @@ flowchart TB
 5. **取件响应 `acked` 恒 `false`**（A-09）：响应结构不变；语义文档化。
 6. **疑问 5 的处置**：`cluster.json` 零改动（不做#8 ✅）+ 目标两个通道各自适用范围（A-08 末段）；**不引入同步机制**。
 7. **MI-12 的取值口径**：F08 验收 3 的"当刻全局默认值"在 harness 侧 = 父会话当刻生效模型（可能随 `/model` 变化），与 `modelRoles.default` 不必然相等 ⇒ 架构侧不写死（A-08 末段）。
-8. **`prd.md` 索引的「架构待填汇总」表**未随本文件更新（该文件的写入面不在本角色授权内）⇒ 状态列（`待填`）与 §0 表格的"已填定"不一致，提请主 agent 在收口时同步。
+9. **既有 HTTP 路由条数的口径更正（29 条）**：本文件初稿在 §2 拓扑与 §5 文档面提示中误写"21 条"（沿用了 0029 基线口径）。更正来源 = 阶段 6 独立验证的偏差记录（`clarifications/verify-20260917-140951-stage4-prs.md` 第 3 条）+ 主 agent 复核：`awk '/function createApiRoutes/,0' oamp/src/web.js | grep -cE "method: '(GET|POST|PUT|DELETE)'"` ⇒ **29**，且与 `oamp/API.md` §3 编号至 29、`oamp/llms.txt` 头部"接口（29 条）"三处同值 ⇒ 已按 29 改正，§1.1 基线行同时补上该实测口径（"本迭代不新增路由"的判据语义不变）。
+10. **`prd.md` 索引的「架构待填汇总」表**未随本文件更新（该文件的写入面不在本角色授权内）⇒ 状态列（`待填`）与 §0 表格的"已填定"不一致，提请主 agent 在收口时同步。
 
 ---
 

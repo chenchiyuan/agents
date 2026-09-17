@@ -4,6 +4,8 @@
 
 `oamp/src/web.js` 是仓库里的多面接线点，本迭代六处改动落在同一文件，**按代码耦合只能整文件同批提交**：① `/api/calls` 目标由 `pickInstance`（池内选择）决定 + 项级可选 `new_session` + `call.principal` 派生（`显式 requester ?? 'chat:' + chatId`）；② `composeCallEnvelope` 失败侧在既有 11 键**之后**追加 `reason`；③ `publishCallResult` 由"仅显式 `requester`"改为**无条件**写 `db.insertInbox`；④/⑤ `GET /api/pickup` 改读 `db.listInbox`（不再逐条 `router.task_get`）、ack 改 `db.deleteInbox`；⑥ `RECONCILE_TTL_DEFAULT_MS` 默认值与 `config.taskNetMs` 联动（不联动即破 F01 必达：登记被清后长任务终态在 `handleDeliver` 查不到 `entry` 被丢弃）；同时退役 `oamp/src/pickup.js`——**退役与三个消费点在同一 PR**，否则中间态不可构建。
 
+**已知代价（可审查性，无法通过拆 PR 消除）**：单文件同时承载 F01~F07 七张卡的接线，审查者需同时装载七张卡的心智模型才能审完这一 PR；受"同一文件不可被两个 PR 声明"的文件范围互斥约束，该代价只能如实登记，**不因此改动本 PR 的文件范围与验收标准**。
+
 ## 涉及功能点
 
 - F01
@@ -39,7 +41,7 @@
 
 ## depends_on
 
-- pr-001-reason-mapping-module.md（理由：失败侧 `reason` 的唯一归类函数只在 pr-001 新建；证据：`oamp/src/web.js:539` 的 `composeCallEnvelope` 是本仓唯一信封构造点，其 5 个消费点在 `web.js:1576 / 1640 / 1682 / 1823 / 2219`，而 `reasonOf` 由 `src/reason.js` 提供 ⇒ 未合并时信封没有 `reason` 键，F04 验收 1 不成立）
+- pr-001-reason-mapping-module.md（理由：失败侧 `reason` 的唯一归类函数只在 pr-001 新建；证据：`oamp/src/web.js:539` 的 `composeCallEnvelope` 是本仓**唯一信封构造点**（全仓 `composeCallEnvelope(` 命中 10 处 = 定义 1 + 消费 9），其消费点实测为 `web.js:1482`（batch 等待装配 submitted 信封）/ `1576`（SSE `call_result` 帧）/ `1640`（取件现算）/ `1682`（`/api/calls/wait`）/ `1763` 与 `1769`（`cancel` 两分支）/ `1823`（按 id 取终态）/ `2144`（等待句柄现算）/ `2219`（发布点），而 `reasonOf` 由 `src/reason.js` 提供 ⇒ 未合并时上述全部出口都没有 `reason` 键，F04 验收 1 不成立）
 - pr-002-pool-routing-module.md（理由：`/api/calls` 的目标解析要换成池内选择；证据：`oamp/src/web.js:1342` 的 `const agentId = instanceIdForRole(role)` 是该 handler 的唯一目标解析点（`web.js:44` 从 `./role-binding.js` 引入 `instanceIdForRole` / `roleFromInstanceId`），选择算法与粘性表在 `src/pool-routing.js`，且 `pickInstance` 需从接线处（`web.js:2457-2460` 的 `createApiRoutes({...})`）注入 deps）
 - pr-003-inbox-table-persistence.md（理由：发布点与取件面的存储方法由 pr-003 提供；证据：`oamp/src/web.js:39` `import { openDb } from './persist.js'` 与 `web.js:2028` `db = openDb(config.dbPath)` 是 web 进程唯一的持久层句柄来源（既有用例见 `web.js:813` / `web.js:1284`），`insertInbox` / `listInbox` / `deleteInbox` 不存在时 `web.js:2215` 的发布点无写入面、F03 验收 1 不成立）
 - pr-004-idle-net-turn-timers.md（理由：对账登记软 TTL 默认值须与 `config.taskNetMs` 联动；证据：`oamp/src/web.js:76` `RECONCILE_TTL_DEFAULT_MS` 经 `web.js:2164` `readPositiveMs('OAMP_WEB_RECONCILE_TTL_MS', RECONCILE_TTL_DEFAULT_MS)` 生效、在 `web.js:2288-2290` 触发清理，而 `taskNetMs` 由 `oamp/src/config.js:143-163` 的 `loadConfig()` 返回 ⇒ 未合并时读到 `undefined`）
