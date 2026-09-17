@@ -1,7 +1,7 @@
 ---
 name: workflow-pb
 description: |
-  启动并驱动 pb 产品研发工作流（v0.13.0）。主 agent 调度协议：按 6 阶段序列推进、
+  启动并驱动 pb 产品研发工作流（v0.13.1）。主 agent 调度协议：按 6 阶段序列推进、
   逐阶段核查推进条件、阶段3→4之间的方案确认门（默认开启，可关闭）、阶段 5 依赖解锁式并发
   PR 派发（含并发槛位算法）、维护 status.md 进度视图。
   阶段 1（需求收敛）由主 agent 直接内联执行（不派发子 agent）；阶段 2~6 派发执行角色时
@@ -30,9 +30,9 @@ role:
 
 # workflow-pb
 
-**版本**: 1.15.0（对应规范 workflow-pb v0.13.0）
+**版本**: 1.15.1（对应规范 workflow-pb v0.13.1）
 **完整规范**: `{角色定义根}/workflow-pb/workflow-pb.md`（流程契约主体）+ `{角色定义根}/workflow-pb/data/scm-protocol.md`（提交管理协议）+ `{角色定义根}/workflow-pb/data/formats.md`（数据格式规范）——角色来源见「§ 角色文件来源与部署」
-**变更历史**: 见 `memory.md` 索引；最新条目 `data/skill-optimization-v1.15.0.md`
+**变更历史**: 见 `memory.md` 索引；最新条目 `data/skill-optimization-v1.15.1.md`
 
 ---
 
@@ -60,7 +60,7 @@ role:
 
 ## Purpose
 
-接收迭代 ID，按 workflow-pb v0.13.0 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
+接收迭代 ID，按 workflow-pb v0.13.1 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
 
 ## Success criteria
 
@@ -173,6 +173,7 @@ role:
 **触发条件**：阶段 4 推进条件全部通过
 
 **验证内容**：
+- 阶段 4 七项结构性检查可用 `tools/check-pr-gates.py docs/iterations/{迭代ID}` 机械复核（七字段 / 覆盖 / 文件范围两两不重叠 / 依赖无环 / 无悬挂依赖 / 关键路径 ≤3 / 并发可行性；覆盖项为提示，豁免属人的裁决）——工具是核查**辅助**，不替代逐项判断
 - 派发阶段 6 独立验证，产物路径 = `docs/iterations/{迭代ID}/prs/`
 - 验证结论必须为 pass（每项有文件证据，不接受"基本通过"）
 
