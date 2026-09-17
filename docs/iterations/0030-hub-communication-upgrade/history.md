@@ -283,3 +283,22 @@
 
 - 决策内容：`prs/**` 是 verifier 的判据来源，旧判据留在 PR 文件里会导出**假失败**（verifier 按旧口径判实现"越界导出第二个函数"）⇒ 立即派 `pr-planner` 做文本口径对齐：① `pr-002` 上下文摘要第 5 行判据改 `roleOfPoolInstance` + 点明双导出；② `pr-002` 验收标准第 1 条扩为"工厂 + 具名导出 `roleOfPoolInstance`"并补 5 条边界可独立判据；③ `pr-005` 同步池成员/目标解析口径；④ 顺带勾选已合并 pr-001 的四条验收复选框（先前登记的欠账）；**⑤ 明令不动 `pr-002-*-tasks.md`**——dev 正在其末尾回填执行证据，两边同写会互相覆盖，该文件口径修正排到 dev 回报后单独安排
 - 触发依据：`grep -rn "roleFromInstanceId" prs/` 命中清单（pr-002 第 5/18 行属**判据口径**，其余为既有事实引用）；`architecture.md` §4 A-06 补定；`workflow-pb.md` §阶段 4→5"未通过项回到执行角色补充"
+
+### 2026-09-17 15:26:00 · 收到报告 · planner（pr-007）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-007-model-routing-and-process-evidence-tasks.md（474 行）；任务总数 **6**（T1 事实锚点与派发基线快照 / T2 载体声明 / T3 唯一台账 / T4 F09 过程证据 / T5 摩擦条目追加 / T6 封闭性守卫与证据）
+- 2. 依赖图摘要：9 条边、无环；最长链 4 节点（`T1→T3→T4→T6` 与 `T1→T2→T5→T6`）；关键路径任务 = T1 → T3 → T4 → T6
+- 3. `[model_inferred]` 列表：MI-P1~MI-P5（判据层收窄 / 台账允许"未回报+在途"行 / 台账第六列"时点" / brief 抽检样本加严到 2 条 / 摩擦条目机械触发条件）
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：5 条（**status.md 头部依赖图行仍是阶段 4 返工前的旧图**，与 PR 文件/子状态表/已解锁集三处相斥 / 状态载体时间不一致（12:40 vs 13:57）/ `tools/check-model-dispatch-protocol.sh` 在本迭代布局下必然整体失败（V-01 要求 worktree 名带 `agents-` 前缀、V-04 要求 `agent-routing.yaml`）/ `evidence/` 目录不在 workflow-pb 规范树中（先例在 `clarifications/evidence`）/ 记录归属自检）
+- 判据可判定性前置证明：在 `/tmp/0030-pr-007-plan` 用一次性参照实现演练了台账校验器与锚点校验器（正例 exit 0 / 反例 exit 1），并在演练中**发现并修正两处真实缺陷**（校验器未归一单元格内反引号导致正例判负；`grep -c '^-'` 把 diff 文件头 `--- a/` 计为删除 ⇒ 改用 `grep -cE '^-[^-]'`）
+- 通道实况：本地 subagent，调用 `completed`（6m11s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:27:00 · 调度决策 · pr-007 五项 MI 裁决 + 主 agent 产物修正 + dev 派发
+
+- 决策内容：
+  ① **MI-P1（判据层）裁定**：「模型值不进 `roles/**`」这条约束的**判据层 = `roles/*/*.md`（角色定义文件）**（与 V-06 逐字谓词、architecture §1.3-6、§6 表第 11 行一致），该层实测 0 命中即通过；**递归层 `roles/verifier/data/**` 的既有命中不得改写**——那是 F08 验证自身的取证产物，改写即篡改证据，且 `roles/**` 在 §5「明确不改」清单内。prd 卡的 `roles/**` 措辞与 demand D-35「不做什么#9（不把模型值写进**角色定义**）」之间的层差**登记为偏差、留下一迭代收窄措辞**，本迭代不追改既有产物。
+  ② **MI-P2~MI-P5 全部采纳**（台账允许"自报模型=未回报 + 终态=⏸ 在途"行；台账 6 列含时点；brief 抽检 ≥2 条且必含本 PR dev 自身简报 + 一条交叉样本；摩擦条目触发条件 = `roles/*/*.md` 命中 0 且 `roles/**` 递归命中 > 0）。
+  ③ **修正主 agent 自己的产物**：`status.md` 头部依赖图行原写「`pr-008（无依赖）→ pr-007`」属返工前旧图，与三处相斥 ⇒ 已按 PR 文件 `depends_on` 重写并留更正记录；`tools/check-model-dispatch-protocol.sh` 必然失败一事登记为跨迭代候选（本迭代不改该工具）
+  ④ 派发 `DevP007`（`agent=dev` → gpt），把上述裁决随简报冻结；明确其唯一写入面 = PR 文件声明的四个 docs 路径 + 自己的 tasks 文件证据段
+- 触发依据：`PlanP007` 报告第 3/5 项；主 agent 对 `roles/**` 命中分布的复核（谓词层 0 / 递归层 7 命中 3 文件，全在 `roles/verifier/data/`）；`workflow-pb.md` §阶段 4/5 的 `model_inferred` 不触发暂停规则
