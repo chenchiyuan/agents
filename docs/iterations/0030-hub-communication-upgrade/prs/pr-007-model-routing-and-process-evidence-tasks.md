@@ -472,3 +472,242 @@ find "$W" -name 'f08-*'                                      # 期望空
 - **④ T4 · brief 抽检与 git 事实**：两条抽检记录的原文依据 + 三类 fact 的命令与实样
 - **⑤ T5 · 摩擦条目**：触发复核输出 + 追加块 + `--numstat` / `-U0` 只增不改核查
 - **⑥ T6 · 封闭性守卫**：`git status --short` / `--name-only` / `evidence/` 列表 / `find -name 'f08-*'` / `roles/**` 复跑比对
+
+### ① T1 · 事实锚点与派发基线
+
+**1.1 worktree/分支/HEAD/clean/merge-base**
+
+命令：
+```text
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-007-model-routing-and-process-evidence rev-parse HEAD
+f81d5c6796d4fec8599d064ef128c9157897fec0
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-007-model-routing-and-process-evidence status --short
+（基线读取时为空）
+$ git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-007-model-routing-and-process-evidence merge-base HEAD iteration/0030-hub-communication-upgrade
+f81d5c6796d4fec8599d064ef128c9157897fec0
+```
+
+写入产物后 status 出现且仅出现本 PR 四个路径，见第⑥块。迭代分支已前进，PR worktree 相对其差异为 `architecture.md`、两份阶段 6 报告、`history.md`、`prd/F06`、若干 `prs` 文档、`roles/verifier/data/**` 与 `oamp/src/pool-routing.js`；本 PR 未改其中任一路径。
+
+**1.2 派发快照全表（27 行）**
+
+命令：
+```text
+$ sed -n '64,96p' /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/docs/iterations/0030-hub-communication-upgrade/status.md
+```
+
+原样 stdout：
+```text
+## 派发台账（阶段 2~6；模型归属为本次执行方式约束第 3 条要求）
+
+| 时点 | 角色 | 用途 | 通道 | 子 agent 自报模型 | 耗时 | 状态 |
+|---|---|---|---|---|---|---|
+| 12:18 | prd | 阶段 2 · 功能规格 | 本地 subagent | `deepseek/deepseek-v4-flash` | 4m45s | ✅ |
+| 12:23 | architect | 阶段 3 · 技术架构 | 本地 subagent | `deepseek/deepseek-v4-flash` | 7m58s | ✅ |
+| 12:34 | pr-planner | 阶段 4 · PR 规划 | 本地 subagent | `deepseek/deepseek-v4-flash` | 3m26s | ✅ |
+| 12:35 | prd（续做） | `prd.md` 索引收口 | 本地 subagent | `deepseek/deepseek-v4-flash` | <1m | ✅ |
+| 13:57 | dev（载体探针） | L1-01 落地实测 | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** | <1m | ✅ |
+| 13:57 | verifier（载体探针） | L1-01 落地实测 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | <1m | ✅ |
+| 14:00 | verifier（PrsVerifier） | 阶段 6 · 验 `prs/`（Gate 首轮） | 本地 subagent（agent=verifier） | `powerby/grok-4.6` | 15m54s | ✅ PASS（3 partial） |
+| 14:24 | verifier（PrsVerifier 复验） | Gate 返工后靶向复验 | 本地 subagent（agent=verifier） | `powerby/grok-4.6` | ~5m | ✅ PASS（0/0/0） |
+| 14:33 | planner（pr-001） | 阶段 5 · pr-001 内部任务 | 本地 subagent | `deepseek/deepseek-v4-flash` | 5m16s | ✅ |
+| 14:33 | planner（pr-002） | 阶段 5 · pr-002 内部任务 | 本地 subagent | `deepseek/deepseek-v4-flash` | 14m58s | ✅ |
+| 14:33 | planner（pr-003） | 阶段 5 · pr-003 内部任务 | 本地 subagent | `deepseek/deepseek-v4-flash` | 9m27s | ✅ |
+| 14:41 | **dev（pr-001）** | 阶段 5 · pr-001 实现＋自证 | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** | 3m59s | ✅ 提交 `9cb5042`→合并 `f81d5c6` |
+| 14:44 | **dev（pr-003）** | 阶段 5 · pr-003 实现＋自证 | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** | 1h6m | ✅ 提交 `33005c0` |
+| 14:46 | **verifier（pr-001）** | 阶段 5 · pr-001 独立验收 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | 5m7s | ✅ PASS（0/0/2 偏差） |
+| 14:56 | architect（A-06 补定） | 架构层缺口补定（多实例识别约定） | 本地 subagent | `deepseek/deepseek-v4-flash` | ~9m | ✅ |
+| 14:59 | **dev（pr-002）** | 阶段 5 · pr-002 实现＋自证（含追加契约） | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** | 13m30s | ✅ 提交 `9c5de19`→合并 `4bcfbc3` |
+| 14:59 | planner（pr-004） | 阶段 5 · pr-004 内部任务 | 本地 subagent | `deepseek/deepseek-v4-flash` | 11m14s | ✅ |
+| 14:59 | planner（pr-007） | 阶段 5 · pr-007 内部任务 | 本地 subagent | `deepseek/deepseek-v4-flash` | 6m11s | ✅ |
+| 15:07 | architect（prd/F06 收口） | 授权面内的卡片判据修正 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~5m | ✅ |
+| 15:15 | pr-planner（口径对齐） | PR 文件判据与 A-06 补定对齐 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~5m | ✅ |
+| 15:27 | **dev（pr-007）** | 阶段 5 · pr-007 产物落地＋自证 | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** | — | ⏸ 在途 |
+| 15:40 | **dev（pr-004）** | 阶段 5 · pr-004 实现＋自证（含 T0 透传） | 本地 subagent（**agent=dev**） | 待回报 | — | 在途 |
+| 15:46 | pr-planner（T0 落地） | pr-004/pr-008 文件范围与验收修订 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~6m | ✅ |
+| 15:49 | architect（context-pool 同步） | §4 A-05 / §5 / §6 / §10 同步 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~9m | ✅ |
+| 15:50 | **verifier（pr-002）** | 阶段 5 · pr-002 独立验收 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | 6m30s | ✅ PASS（0/0/2 偏差） |
+| 15:57 | pr-planner（欠账收口） | pr-002 tasks 文件口径同步（22 处） | 本地 subagent | `deepseek/deepseek-v4-flash` | ~5m | ✅ |
+| 16:07 | **verifier（pr-003）** | 阶段 5 · pr-003 独立验收 | 本地 subagent（**agent=verifier**） | 待回报 | — | 在途 |
+```
+
+上述 27 条数据行逐条重建为本 PR 的唯一 `dispatch-ledger.md`；没有追加“快照 +1”，15:27 自身派发行只保留一次。
+
+合并行拆分对照（至少三组）：
+```text
+status: planner ×3（pr-001/002/003） → 14:33 planner pr-001；14:33 planner pr-002；14:33 planner pr-003
+history: dev（pr-002）+ planner ×2（pr-004/pr-007） → 14:59 dev pr-002；14:59 planner pr-004；14:59 planner pr-007
+status: 阶段 6 verifier 两轮 → 14:00 verifier 首轮；14:24 verifier 返工后靶向复验
+```
+
+**1.3 载体三文件实测原文**
+
+命令与原样 stdout：
+```text
+$ grep -n 'model:' /Users/chenchiyuan/.omp/agent/agents/dev.md
+4:model: "@dev"
+$ grep -n 'model:' /Users/chenchiyuan/.omp/agent/agents/verifier.md
+4:model: "@verifier"
+$ sed -n '/modelRoles/,/^[a-z]/p' /Users/chenchiyuan/.omp/agent/config.yml
+modelRoles:
+  default: deepseek/deepseek-v4-flash:high
+  # 0030-hub-communication-upgrade · L1-01 裁决：角色别名 → 具体模型值集中在本处（唯一真源）
+  # 消费者 = ~/.omp/agent/agents/{dev,verifier}.md 的 frontmatter `model: "@dev" / "@verifier"`
+  # 载体形态为「用户级」（不触仓库规则 F）；范围仅覆盖 harness 本地 subagent 通道，
+  # 与 oamp 集群通道的角色级绑定（cluster.json 的 roles.<role>.model）互不替代 —— 见迭代产物 model-routing-carrier.md
+  dev: openai/gpt-5.6-luna
+  verifier: powerby/grok-4.6
+dev:
+```
+`default` 的 `:high` 后缀与非绑定角色自报串无后缀，故台账按实测快照比对，不直接把 config 串当自报值。
+
+**1.4 判据层/递归层**
+
+命令与原样 stdout：
+```text
+$ grep -nE '^[[:space:]]*model:' roles/*/*.md || echo "(无命中)"
+(无命中)
+$ grep -nE 'openai/gpt-5.6-luna|powerby/grok-4.6' roles/*/*.md || echo "(无命中)"
+(无命中)
+$ grep -rnE 'openai/gpt-5.6-luna|powerby/grok-4.6' roles/ | wc -l
+6
+$ grep -rlE 'openai/gpt-5.6-luna|powerby/grok-4.6' roles/
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-007-model-routing-and-process-evidence/roles/verifier/data/verify-20260917-142447-0030-prs-rework.md
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-007-model-routing-and-process-evidence/roles/verifier/data/verify-20260917-140951-0030-prs.md
+```
+判据层 0 命中；递归层 6 条、2 个既有 verifier 取证文件，均未改写。
+
+**1.5 deferred 基线（追加前为 3 条）**
+
+命令与原样 stdout：
+```text
+$ grep -c '^## ' deferred-demand-changes.md
+3
+$ grep -cE '^[-*[:space:]]*\*\*问题\*\*' deferred-demand-changes.md
+3
+$ grep -cE '^[-*[:space:]]*\*\*为什么判定为需求层面问题\*\*' deferred-demand-changes.md
+3
+$ grep -cE '^[-*[:space:]]*\*\*本迭代如何处理\*\*' deferred-demand-changes.md
+3
+$ grep -nE '^[-*[:space:]]*\*\*本迭代如何处理\*\*' deferred-demand-changes.md | grep -E '暂停|回退|改需求'
+15:- **本迭代如何处理**：**不回退、不暂停**——阶段 2~4 不受影响（...）
+24:- **本迭代如何处理**：不回退不暂停，作为 **F03/F01 的已知覆盖边界**...
+$ grep -cE '见上文|同上' deferred-demand-changes.md
+0
+```
+两条字面命中均是否定式声明，不是暂停或回退处置动作。
+
+### ② T2 · 载体文档锚点校验
+
+命令：
+```text
+$ /tmp/0030-pr-007/anchor-check.sh docs/iterations/0030-hub-communication-upgrade/model-routing-carrier.md 'openai/gpt-5\.6-luna' 'powerby/grok-4\.6' 'model: "@dev"' 'model: "@verifier"' 'modelRoles\.dev' 'modelRoles\.verifier' '仓库之外' '不入版本控制' 'roles/\*/\*\.md'; echo exit=$?
+```
+
+原样 stdout：
+```text
+PASS [3] openai/gpt-5\.6-luna
+PASS [3] powerby/grok-4\.6
+PASS [2] model: "@dev"
+PASS [2] model: "@verifier"
+PASS [2] modelRoles\.dev
+PASS [2] modelRoles\.verifier
+PASS [1] 仓库之外
+PASS [1] 不入版本控制
+PASS [3] roles/\*/\*\.md
+合计 9 项 / 失败 0 项
+exit=0
+
+人读确认：①其余角色不新增绑定、使用默认 agent 等于当刻生效模型；② `status.md` 用户裁决落定为候选 B，实测证据指向 13:57 台账两行且不引用 12:40；③本地 subagent 与 oamp 集群是两条适用范围，`cluster.json` 零改动且无同步/生成机制。
+
+### ③ T3 · 唯一台账校验
+
+命令与原样 stdout：
+```text
+$ awk -f /tmp/0030-pr-007/ledger-check.awk docs/iterations/0030-hub-communication-upgrade/dispatch-ledger.md; echo exit=$?
+合计 27 行 / 失败 0 项
+exit=0
+$ grep -c '^| 时点 |' docs/iterations/0030-hub-communication-upgrade/dispatch-ledger.md
+1
+```
+27 行均六格非空；`dev` 非未回报行均为 `openai/gpt-5.6-luna`，`verifier` 非未回报行均为 `powerby/grok-4.6`，其余非未回报行均等于快照 `deepseek/deepseek-v4-flash`；2 个未回报行均为 `⏸ 在途`。唯一表为 `dispatch-ledger.md`，没有 `evidence/f08-*`。
+
+### ④ T4 · brief 抽检与 git 事实
+
+抽检 A 为本条 15:27 `dev` 派发：brief 的「工作区地址」原文是 `/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-007-model-routing-and-process-evidence`；`wc -l roles/dev/dev.md` 原样为 `195`，机械证明角色定义全文注入依据可复核。抽检 B 为 history 的 14:33 `planner（pr-001）` 派发：对应 tasks 头部第 6 行给出 pr-001 worktree 绝对路径，且 `wc -l roles/planner/planner.md` 原样为 `204`；history 载荷明确记录该批 brief 的角色定义全文注入。
+
+阶段 6 形态声明含三类 git fact：worktree 落点由 `git worktree list --porcelain`；分支时间窗由 `git log --format='%ci %h %s' <branch>`；提交交错由 `git log --graph --oneline --all`。不要求 hub 调用记录作为证据。
+
+原样实样：
+```text
+$ git -C <PR worktree> worktree list --porcelain
+worktree /Users/chenchiyuan/projects/agents
+HEAD 706e3d004029396b0ab24f95c3951b9fe7226214
+branch refs/heads/main
+worktree /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade
+HEAD 270e712dc9ba442bae55e4dc190630835db8e31e
+branch refs/heads/iteration/0030-hub-communication-upgrade
+worktree <PR worktree>
+HEAD f81d5c6796d4fec8599d064ef128c9157897fec0
+branch refs/heads/feat/0030-pr-007-model-routing-and-process-evidence
+
+$ git -C <PR worktree> log --format='%ci %h %s' -3
+2026-09-17 14:35:03 +0800 f81d5c6 merge: pr-001 reason 映射叶子模块（F04）into iteration/0030-hub-communication-upgrade
+2026-09-17 14:30:35 +0800 99abe6b docs(0030): 派发台账更新（dev pr-001/pr-003 + verifier pr-001 + 两轮 Gate 验证）
+2026-09-17 14:30:25 +0800 8c8bd33 feat(0030): pr-003 tasks 文件（473 行，含 planner 实跑纠正的 4 处事实）+ dev(pr-003, gpt) 派发 + 证据落点/跨PR契约记账
+```
+
+### ⑤ T5 · 摩擦条目
+
+触发复核原样结果：判据层 `roles/*/*.md` 两项均为 `(无命中)`；递归层为 `6` 条 / `2` 文件；deferred 追加前三要素为 `3/3/3`，条目数为 `3`。因此 MI-P5 触发，末尾追加阶段 5 条目，新增条目三要素均为具体内容，并引用 `model-routing-carrier.md` 判据层声明；处置明确“不将该摩擦搭置当作阻塞理由”。
+
+追加后命令与原样 stdout：
+```text
+$ grep -c '^## ' deferred-demand-changes.md
+4
+$ grep -cE '^[-*[:space:]]*\*\*问题\*\*' deferred-demand-changes.md
+4
+$ grep -cE '^[-*[:space:]]*\*\*为什么判定为需求层面问题\*\*' deferred-demand-changes.md
+4
+$ grep -cE '^[-*[:space:]]*\*\*本迭代如何处理\*\*' deferred-demand-changes.md
+4
+$ git -C <PR worktree> diff --numstat -- docs/iterations/0030-hub-communication-upgrade/deferred-demand-changes.md
+8	0	docs/iterations/0030-hub-communication-upgrade/deferred-demand-changes.md
+$ git -C <PR worktree> diff -U0 -- docs/iterations/0030-hub-communication-upgrade/deferred-demand-changes.md | grep -cE '^-[^-]'
+0
+```
+
+### ⑥ T6 · 封闭性守卫
+
+命令与原样 stdout：
+```text
+$ git -C <PR worktree> diff --name-only f81d5c6 -- oamp oamp/sdk oamp/web cluster.json tools roles
+（空）
+$ find <PR worktree> -name 'f08-*'
+（空）
+$ ls <PR worktree>/docs/iterations/0030-hub-communication-upgrade/evidence/
+f09-process-contract.md
+$ git -C <PR worktree> status --short
+ M docs/iterations/0030-hub-communication-upgrade/deferred-demand-changes.md
+?? docs/iterations/0030-hub-communication-upgrade/dispatch-ledger.md
+?? docs/iterations/0030-hub-communication-upgrade/evidence/
+?? docs/iterations/0030-hub-communication-upgrade/model-routing-carrier.md
+```
+
+状态输出恰为本 PR 四个路径；`oamp/**`、`roles/**`、`tools/**`、`cluster.json` 与运行时文件面均无差异；`evidence/` 只有 `f09-process-contract.md`，无 `f08-*`。历史 `history.md` / `clarifications/**` 中的 `dispatch-ledger` 文字是既有规划流水引用，不是第二张表；实际表头计数为 1。
+
+本次提交前验收命令（提交动作按简报指定执行）：
+```text
+$ git -C <PR worktree> add docs && git -C <PR worktree> commit -m "feat(0030-pr-007): 模型路由载体声明 + 唯一派发台账 + F09 过程证据 + 摩擦条目"
+```
+
+提交后原样 stdout：
+```text
+[feat/0030-pr-007-model-routing-and-process-evidence ffb4b6b] feat(0030-pr-007): 模型路由载体声明 + 唯一派发台账 + F09 过程证据 + 摩擦条目
+ 4 files changed, 170 insertions(+)
+ create mode 100644 docs/iterations/0030-hub-communication-upgrade/dispatch-ledger.md
+ create mode 100644 docs/iterations/0030-hub-communication-upgrade/evidence/f09-process-contract.md
+ create mode 100644 docs/iterations/0030-hub-communication-upgrade/model-routing-carrier.md
+$ git -C <PR worktree> status --short
+（空）
+```

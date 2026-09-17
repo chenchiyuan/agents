@@ -395,3 +395,19 @@
 - 解锁扫描：**无新增已解锁 PR**（pr-005 现**仅缺 pr-004**；pr-006/pr-008 待 pr-005）⇒ 空闲的 3 个槛位保持空置
 - 计数更正（主 agent 自身错误）：`status.md` 派发台账的**数据行 = 27**（非 commit message `cefc958` 里写的"28 行"——后者误把表头计入）；由 `DevP007` 提出后经主 agent 复核确认并更正，已同步告知该 dev 不要"快照 +1"
 - 触发依据：`clarifications/verify-20260917-153745-pr-003.md` 结论 PASS 与偏差记录①；依赖图重扫；`DevP007` 的取数核对消息与主 agent 的逐行复核
+
+### 2026-09-17 16:35:00 · 收到报告 · dev（pr-007）
+
+- 1. 改了什么文件：PR 文件声明的**四个 docs 路径**（`model-routing-carrier.md` / `dispatch-ledger.md` / `evidence/f09-process-contract.md` / `deferred-demand-changes.md` 追加），提交 **`ffb4b6b`**；另按允许例外回填迭代区 tasks 文件 §8 六块证据（含 `status.md` 全表原样快照、两条 brief 抽检、git 事实、提交号）
+- 2. 测试/自证结果：唯一台账校验 **27 行 / 失败 0**；锚点校验 **9 项 / 失败 0**；`deferred` 三要素 **4/4/4**、追加 diff **8 增 0 删**；`evidence/` 仅 `f09-process-contract.md`（**无** `f08-*`、无 `/tmp` 引用）；`oamp/**`、`roles/**`、`tools/**`、`cluster.json` 作用域 diff 为空；PR worktree clean
+- 3. 疑问/待办：无
+- 4. 违反边界之事：无
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 5 例取证）
+- 附注：该 dev 在取数环节**主动质疑并纠正了主 agent 的台账行数**（27 数据行 vs 主 agent 所述 28）——已按其实测更正，并确认"快照已含自身行 ⇒ 不重复建行"
+
+### 2026-09-17 16:36:00 · 派发 · verifier（pr-007 验收）
+
+- 阶段：阶段 5 · pr-007 独立验收（过程/证据类 PR）
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `ffb4b6b` 的四个 docs 产物（判据 = PR 文件 10 条验收标准）
+- 独立取证要求：不得采信执行方证据；台账行数/列数/每行取值/仅追加性/单一声明文件/改动面封闭**全部自己数、自己查、自己 diff**；并要求同时报告 `roles/**` 递归层命中分布（既有取证产物命中**不判 fail**、不得改写）
