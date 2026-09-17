@@ -38,7 +38,7 @@
 | **A5** | 行读取体例 = `toPlain(row)`（`{...row}`，转普通对象）+ snake_case 列名；空结果 → `[]`（`listArchivable`）、不存在 → `null`（`getProject`/`getChat`/`projectByChat`） | `:79-82`；`listArchivable` / `getProject` 函数体 |
 | **A6** | 参数校验函数族已存在：`readRequiredString`（非字符串 / 空串 ⇒ 抛错，**绝不静默兜底**）、`readOptionalString`（`undefined`/`null`/`''` ⇒ `null`） | `:127-133`、`:139-143` |
 | **A7** | 本仓**无测试面**：`find . -name '*.test.js'` = **0**；`oamp/package.json` 无 `scripts` 段（实测）⇒ 判据 = 模块级一次性脚本 + `grep`/`diff`（体例先例 = `docs/iterations/0029-hub-client-session-and-duplex/prs/pr-002-session-registries-tasks.md` §4） | 实测 |
-| **A8** | 基线 `sqlite_master` 对象集（实测，新库）= 表 `projects`/`chats`/`messages`/`sqlite_sequence` + 显式索引 `idx_messages_chat_time`/`idx_chats_updated`/`idx_chats_project_updated` + 3 个隐式 `sqlite_autoindex_*` ⇒ 本 PR 后**新增恰 2 个对象**（表 `inbox`、索引 `idx_inbox_principal`） | 实测（`SELECT type,name FROM sqlite_master`） |
+| **A8** | 基线 `sqlite_master` 对象集（实测，新库）= 表 `projects`/`chats`/`messages`/`sqlite_sequence` + 显式索引 `idx_messages_chat_time`/`idx_chats_updated`/`idx_chats_project_updated`（`origin='c'`）+ 3 个隐式 `sqlite_autoindex_*`（`PRIMARY KEY`/`UNIQUE` 自动建，`origin='pk'`/`'u'`）。⇒ 本 PR 后 `sqlite_master` **新增恰 3 个对象**：表 `inbox`、显式索引 `idx_inbox_principal`、隐式主键索引 `sqlite_autoindex_inbox_1`（最后一个由 SQLite 为 `TEXT PRIMARY KEY` **自动创建**，非本 PR 声明，也非"新增索引"） | 实测（`SELECT type,name,origin FROM sqlite_master` / `pragma_index_list`） |
 | **A9** | 幂等"**不覆盖首条**"的既有口径先例：`pickup.add` 首次 `true`、重复 `false`、不覆盖；architecture §4 A-01 明写"与既有 `pickup.add` 的幂等口径**逐字一致**" | `oamp/src/pickup.js:13-20`；architecture §4 A-01「写入时机」 |
 | **A10** | 唯一终态发布点自带**一次性守卫** `if (!call \|\| call.published) return;`（`call.published` 置位）⇒ 同一进程内同一 `call_id` 不可能二次发布；重启后调用登记（进程内 `tasks`/`callSchemas`）已丢 ⇒ 无对账源。**故 ack 之后不会因重复发布而"复活"**（T4 判据 4 的依据） | `oamp/src/web.js:2215-2218` |
 | **A11** | 环境：`node v22.15.0`，`node:sqlite` 可用（`DatabaseSync` 会打 `ExperimentalWarning`，不影响判据）；PR worktree 的 `persist.js` 与迭代分支**逐字节相同**（`diff` 空）⇒ 基线副本可取 `git -C <PR worktree> show 9f071b8:oamp/src/persist.js` | 实测 |
@@ -103,7 +103,7 @@
   3. **索引列与序**：`pragma_index_info('idx_inbox_principal')` 的列序 = `[principal, terminal_at]`（`seqno` 0 → 1）；`pragma_index_list('inbox')` 中该索引 `origin = 'c'`（显式创建，非主键自动索引）〔追溯：architecture §4 A-01「按身份过滤路径」的 `WHERE principal = ? ORDER BY terminal_at ASC` 走覆盖索引〕
   4. **结构幂等**：同一库文件 `openDb → close → openDb`（第二次）**不抛错**；两次的 `sqlite_master` 对象集与 `pragma_table_info('inbox')` **逐字相同**；且全仓无 `ALTER TABLE` / `user_version` / migrations 目录（`grep` 零命中）〔追溯：PR 验收 4；architecture §4 A-01「沿用无迁移机制的既有口径」〕
   5. **既有库补齐（无迁移机制下的唯一正确路径）**：用**改动前**的 `persist.js`（`git show 9f071b8:oamp/src/persist.js` 副本）建库并写入 1 个 project + 1 个 chat + 2 条 message → 用改动后的 `openDb` 打开同一文件 ⇒ 不抛错、`inbox` 表与索引存在、既有三表**行数与内容 dump 逐行不变**〔追溯：A2（无迁移机制）+ architecture §5「沿用 `IF NOT EXISTS` 幂等建表」；PR 验收 4〕
-  6. **对象集增量恰 2**：新库 `sqlite_master` 对象集 = 基线 A8 ∪ {`inbox`, `idx_inbox_principal`}，**无第三项**（无迁移表、`PRAGMA user_version` 仍为 0）〔追溯：PR 验收 1/4；architecture §7 L2-01「收件箱以 SQLite `inbox` 表为唯一存储」+ §0 表格「新增 SQLite 表 1」〕
+  6. **对象集增量**：`sqlite_master` **新增恰 3 个对象** = 表 `inbox`、显式索引 `idx_inbox_principal`（`origin='c'`）、隐式主键索引 `sqlite_autoindex_inbox_1`（SQLite 自动）；表集合 = 基线表 ∪ {`inbox`}、**显式索引集合 = 基线 3 条 ∪ {`idx_inbox_principal`}**（不多不少）；无迁移表，`PRAGMA user_version` 仍为 **0**〔追溯：PR 验收 1/4；architecture §7 L2-01「收件箱以 SQLite `inbox` 表为唯一存储」+ §0 表格「新增 SQLite 表 1」；A8 的实测基线〕
 - **前置依赖**: 无
 - **优先级**: P0
 
@@ -167,16 +167,16 @@
 ### T5: 合同面自证 + 既有面零回归（base 对照）+ 零面核查 + 证据回填
 
 - **服务哪条 AC**: AC2（导出面）、AC4（既有三表读写与索引行为不变）、AC5（零维护动作）；同时是 AC1~AC5 的**证据载体**
-- **描述**: ① 句柄 / 模块导出面判定；② 与 base 副本的**全行为对照**（既有三表读写 + `PRAGMA foreign_keys` + `sqlite_master`）；③ 零维护面（限本 PR 新增行）；④ 改动面封闭性；⑤ 把 §4 全部原始输出回填本文件「执行证据」段。
+- **描述**: ① 句柄 / 模块导出面判定；② 与 base 副本的**全行为对照**（既有 15 个读写口 + 外键强制生效 + `sqlite_master` 对象集，见 §4.3 的驱动脚本）；③ 零维护面（限本 PR 新增行）；④ 改动面封闭性；⑤ 把 §4 全部原始输出回填本文件「执行证据」段。
 - **文件/锚点**: **只读** `oamp/src/persist.js`；base 副本 = `git -C <PR worktree> show 9f071b8:oamp/src/persist.js > /tmp/pr003-base/persist.js`（A11：两份文件逐字节相同 ⇒ 基线可比）；证据落点 = 本文件 `## 执行证据（dev 回填）`。
 - **步骤**: ① §4.2 全量脚本（AC 断言）；② §4.3 base 对照脚本（同一脚本跑两份实现，JSON diff）；③ §4.4 grep/diff 族；④ 逐条粘贴原始输出。
 - **验收判据（可执行）**:
   1. **句柄导出面**：`Object.keys(openDb(<tmp>)).sort()` = A3 的 16 键 ∪ `{deleteInbox, insertInbox, listInbox}` = **19 键**，集合**逐键相等**（多一个 / 少一个即失败）〔追溯：PR 验收 2「既有导出面…逐条不变」〕
   2. **模块导出面**：`Object.keys(await import('<PR worktree>/oamp/src/persist.js'))` = `['openDb']`（不新增模块级导出）〔追溯：PR 验收 2；A3〕
-  3. **既有行为零回归（base 对照）**：同一驱动脚本（§4.3）分别驱动 base 副本与改动版，输出的 JSON 中 **`behavior` 段逐字符相等**（覆盖 `createProject`/`listProjects`/`getProject`/`projectByChat`/`insertInput`/`insertOutput`/`upsertChat`/`closeChat`/`renameChat`/`archiveChat`/`activateChat`/`listArchivable`/`startupSweep`/`listChats`/`getChat` + `PRAGMA foreign_keys` 读回 + 既有三表的行 dump）；差异**只允许**出现在 `schemaObjects`（差集 = `{inbox, idx_inbox_principal}`）与 `handleKeys`（差集 = 3 个新键）两段〔追溯：PR 验收 4「既有三表的读写与索引行为不变」；architecture §6「明确不改」〕
-  4. **零维护面（限本 PR 新增行）**：`git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+'` 的输出中，`VACUUM|setTimeout|setInterval|ALTER TABLE|DROP TABLE|DROP INDEX|user_version|归档|导出|游标|cursor|TTL` 命中数 = **0**；且新增行里的 SQL 语句**只有 5 类**（`CREATE TABLE IF NOT EXISTS inbox` / `CREATE INDEX IF NOT EXISTS idx_inbox_principal` / `INSERT OR IGNORE` / `SELECT … FROM inbox` / `DELETE FROM inbox WHERE call_id = ?`），无第 6 类〔追溯：PR 验收 5；architecture §4 A-09「不做」清单〕
+  3. **既有行为零回归（base 对照）**：同一驱动脚本（§4.3，含 `prj-<uuid>` 归一化）分别驱动 base 副本与改动版，输出的 JSON 中 **`behavior` 段逐字符相等**（覆盖 `createProject`/`listProjects`/`getProject`/`projectByChat`/`upsertChat`/`insertInput`/`insertOutput`（含 `error` 分支）/外键强制生效/`listChats`（含 `state` 过滤与分页）/`getChat`/`renameChat`/`archiveChat`/`listArchivable`/`activateChat`/`closeChat`/`startupSweep`/`close` 后重开读回）；差异**只允许**出现在 `schemaObjects`（新增恰 3 项：`inbox`、`idx_inbox_principal`、`sqlite_autoindex_inbox_1`）与 `handleKeys`（新增恰 3 键）两段〔追溯：PR 验收 4「既有三表的读写与索引行为不变」；architecture §6「明确不改」〕
+  4. **零维护面（限本 PR 新增行）**：`git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+'` 的输出中，`VACUUM|setTimeout|setInterval|ALTER TABLE|DROP TABLE|DROP INDEX|user_version|归档|导出|游标|cursor|TTL` 命中数 = **0**（**新增注释也不得出现这些字样，含否定式表述**，见 §4.4 末注）；且新增行里的 SQL 语句**只有 5 类**（`CREATE TABLE IF NOT EXISTS inbox` / `CREATE INDEX IF NOT EXISTS idx_inbox_principal` / `INSERT OR IGNORE` / `SELECT … FROM inbox` / `DELETE FROM inbox WHERE call_id = ?`），无第 6 类〔追溯：PR 验收 5；architecture §4 A-09「不做」清单〕
   5. **改动面封闭**：`git -C <PR worktree> diff --name-status 9f071b8 -- oamp/` ⇒ **恰 1 行** `M  oamp/src/persist.js`；`git diff 9f071b8 -- oamp/package.json` ⇒ 空；`grep -c '"dependencies": {}' oamp/package.json` = 1；`git status --short` 除 `oamp/src/persist.js`、本 tasks 文件外无其它改动（PR 文件零改动）〔追溯：PR 文件「文件范围」；architecture §5「明确不改」〕
-  6. **对象集复核**：新库 `sqlite_master` 的表集合 = `{projects, chats, messages, sqlite_sequence, inbox}`、显式索引集合 = A8 的 3 条 + `idx_inbox_principal`〔追溯：PR 验收 1；architecture §0 表格「新增 SQLite 表 1」〕
+  6. **对象集复核**：新库 `sqlite_master` 的表集合 = `{projects, chats, messages, sqlite_sequence, inbox}`、**显式**索引集合（`origin='c'`）= A8 的 3 条 + `idx_inbox_principal`（另有 SQLite 为 `TEXT PRIMARY KEY` 自动建的 `sqlite_autoindex_inbox_1`，非本 PR 声明、不计入"新增索引"）〔追溯：PR 验收 1；architecture §0 表格「新增 SQLite 表 1」；A8〕
   7. **证据齐备**：本文件「执行证据」段含 §4.2/§4.3 脚本的**原样 stdout** + §4.4 的 `grep`/`diff` 原始输出；AC1~AC5 每条可指到对应输出（缺一即 T5 未完成）〔追溯：PR 文件全部 5 条验收标准〕
 - **前置依赖**: T1、T2、T3、T4
 - **优先级**: P1（**P1 ≠ 可选**：5 条 AC 全部通过才算本 PR 完成）
@@ -243,12 +243,11 @@ console.log("moduleExports:", JSON.stringify(Object.keys(await import("./oamp/sr
 const { DatabaseSync } = await import("node:sqlite");
 const raw = new DatabaseSync(p);
 console.log("objects:", JSON.stringify(raw.prepare("SELECT type,name FROM sqlite_master ORDER BY name").all()));
-console.log("inboxCols:", JSON.stringify(raw.prepare("SELECT name,type,notnull,pk FROM pragma_table_info(\"inbox\")").all()));
 raw.close(); db.close(); fs.rmSync(dir, {recursive:true, force:true});
 '
 ```
 
-（若上句 `pragma_table_info("inbox")` 报 `no such column`，改写为 `pragma_table_info('inbox')`——单引号在 shell 单引号串内需换用 `node --input-type=module /tmp/pr003-inspect.mjs` 形态落文件执行。）
+（库内 `inbox` 的列 / 约束 / 索引形状由 §4.2 的脚本判定——凡需要内联 SQL 字符串字面量的查询都放在**脚本文件**里跑，避免 shell 单引号嵌套；`node:sqlite` 的 `ExperimentalWarning` 出现在 stderr，不代表失败。）
 
 ### 4.2 全量 AC 断言脚本（T1~T4 判据、T5 判据 7 的证据来源）
 
@@ -331,22 +330,59 @@ h.close(); fs.rmSync(w1.d, { recursive: true, force: true }); fs.rmSync(d, { rec
 console.log(process.exitCode ? "RESULT: FAIL" : "RESULT: PASS");
 ```
 
-> T1 判据 5（既有库补齐）与 T2 判据 4 的默认值与 T2 判据 5（写口唯一性）由同一脚本的两段独立断言补充：前者用 `git show 9f071b8:oamp/src/persist.js` 副本建库后再用改动版打开；后者用 `Object.keys(h).length` 与新增键集合判定（见 §4.3 的 `handleKeys` 段）。
+> 脚本内已含 T1 判据 5（既有库补齐 —— 用 base 副本建库后用本实现打开）与 T2 判据 6（必填校验抛错且不落行；`principal` 的四类非法值）；T2 判据 4 的默认值（`agent`/`chatId` 缺省 ⇒ `null`、`terminalAt` 缺省 ⇒ 当前毫秒）与 T2 判据 5（写口唯一性）分别由 §4.2 的 `T2.4`/`INSERT` 语句与 §4.3 的 `handleKeys` 段判定。脚本**在 base 版本上必然失败**（`T1.1` 起即 FAIL、`T2` 段抛 `h.insertInbox is not a function`）——这是预期行为，dev 完成 T1~T4 后应得到 `RESULT: PASS`。
 
 ### 4.3 base 对照脚本（T5 判据 3；既有面零回归的唯一判据形态）
 
 ```bash
 cd <PR worktree 根>
 mkdir -p /tmp/pr003-base && git show 9f071b8:oamp/src/persist.js > /tmp/pr003-base/persist.js
-# 同一驱动脚本 /tmp/pr003-drive.mjs 接受目标模块路径参数，输出 JSON：{schemaObjects, handleKeys, behavior}
 node /tmp/pr003-drive.mjs ./oamp/src/persist.js        > /tmp/pr003-after.json
 node /tmp/pr003-drive.mjs /tmp/pr003-base/persist.js   > /tmp/pr003-base.json
 diff /tmp/pr003-base.json /tmp/pr003-after.json
 ```
 
-`/tmp/pr003-drive.mjs` 的 `behavior` 段须覆盖（全部在 `os.tmpdir()` 的库上跑，时间戳由调用方显式传入 ⇒ 输出可比）：
-`createProject` → `listProjects` → `getProject` → `projectByChat` → `upsertChat` → `insertInput` → `insertOutput`（含 `error` 非空分支）→ `listChats`（含 `state` 过滤与分页）→ `getChat` → `renameChat` → `closeChat` → `archiveChat` → `activateChat` → `listArchivable` → `startupSweep` → `close` 后重开读回；外加 `PRAGMA foreign_keys` 读回值与三表行 dump。
-**判据**：`diff` 输出中**只允许**出现 `schemaObjects`（表集合差 `inbox`、显式索引差 `idx_inbox_principal`）与 `handleKeys`（差 3 个新键）两段的行；`behavior` 段**逐字符相同**（出现任一 `behavior` 差异 ⇒ 既有面回归，T5 未完成）。
+```js
+// /tmp/pr003-drive.mjs —— 用法: node /tmp/pr003-drive.mjs <persist.js 路径>；输出 { schemaObjects, handleKeys, behavior }
+import os from "node:os"; import path from "node:path"; import fs from "node:fs";
+const { openDb } = await import(process.argv[2]);
+const { DatabaseSync } = await import("node:sqlite");
+const d = fs.mkdtempSync(path.join(os.tmpdir(), "pr003-drive-"));
+const p = path.join(d, "sql.db");
+const dump = (sql) => { const raw = new DatabaseSync(p); const r = raw.prepare(sql).all().map((x) => ({ ...x })); raw.close(); return r; };
+const db = openDb(p);
+const handleKeys = Object.keys(db).sort();
+const behavior = {};
+const prj = db.createProject({ repoUrl: "https://example.com/a.git", nowMs: 1000 });
+behavior.createProject = prj;
+behavior.duplicateProject = db.createProject({ repoUrl: "https://example.com/a.git", nowMs: 1001 }); // 重复地址 ⇒ null
+behavior.listProjects = db.listProjects();
+behavior.getProject = db.getProject(prj.project_id);
+db.upsertChat({ chatId: "chat-1", projectId: prj.project_id, title: "t", nowMs: 2000 });
+behavior.projectByChat = db.projectByChat("chat-1");
+behavior.insertInput = db.insertInput({ chatId: "chat-1", projectId: prj.project_id, text: "hello", agentId: "dev", nowMs: 2100 });
+behavior.insertOutput = db.insertOutput({ chatId: "chat-1", text: "world", agentId: "dev", model: "m", durationMs: 5, nowMs: 2200 });
+behavior.insertOutputErr = db.insertOutput({ chatId: "chat-1", text: "bad", error: "context_crashed", nowMs: 2300 });
+behavior.foreignKeyEnforced = (() => { try { db.insertOutput({ chatId: "ghost", text: "x", nowMs: 2400 }); return false; } catch { return true; } })();
+behavior.listChats = db.listChats({ project: prj.project_id });
+behavior.listChatsState = db.listChats({ project: prj.project_id, state: "failed", limit: 1, offset: 0 });
+behavior.getChat = db.getChat("chat-1");
+behavior.renameChat = [db.renameChat({ chatId: "chat-1", title: "renamed" }), db.renameChat({ chatId: "nope", title: "x" })];
+behavior.archiveChat = db.archiveChat("chat-1", 3000);
+behavior.listArchivableAfterArchive = db.listArchivable();
+behavior.activateChat = db.activateChat("chat-1", 3100);
+behavior.closeChat = [db.closeChat("chat-1", 3200), db.closeChat("nope", 3201)];
+behavior.startupSweep = db.startupSweep();
+db.close();
+behavior.reopenGetChat = (() => { const h = openDb(p); const c = h.getChat("chat-1"); h.close(); return c; })();
+const schemaObjects = (() => { const raw = new DatabaseSync(p); const r = raw.prepare("SELECT type,name FROM sqlite_master ORDER BY name").all().map((x) => ({ ...x })); raw.close(); return r; })();
+// 归一化：project_id 是随机 UUID（prj-<uuid>），与实现无关 ⇒ 抹平后才可逐字节对照
+const norm = (o) => JSON.parse(JSON.stringify(o).replace(/prj-[0-9a-f-]{36}/g, "prj-FIXED"));
+console.log(JSON.stringify({ schemaObjects, handleKeys, behavior: norm(behavior) }, null, 2));
+fs.rmSync(d, { recursive: true, force: true });
+```
+
+**判据**：`diff` 输出中**只允许**出现 `schemaObjects` 与 `handleKeys` 两段的新增行（实测形态：`schemaObjects` 新增恰 3 项 = `idx_inbox_principal` / `inbox` / `sqlite_autoindex_inbox_1`；`handleKeys` 新增恰 3 键 = `deleteInbox` / `insertInbox` / `listInbox`）；**`behavior` 段必须逐字符相同**（出现任一 `behavior` 差异 ⇒ 既有面回归，T5 未完成）。本脚本已在 `9f071b8` 的 base 副本 + 一份满足 §0.4 契约的**一次性参照实现**（`/tmp`，不入仓）上实跑验证：base 与参照实现的 `behavior` 段逐字符相等，`diff` 仅含上述 6 行新增。
 
 ### 4.4 grep / diff 族（T5 判据 4/5）
 
@@ -356,14 +392,16 @@ echo "① 零维护面（新增行）："
 git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+' | grep -cE 'VACUUM|setTimeout|setInterval|ALTER TABLE|DROP TABLE|DROP INDEX|user_version|归档|导出|游标|cursor|TTL'
 echo "② 新增行里的语句类别（应恰 5 类，无第 6 类）："
 git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+' | grep -oE 'CREATE TABLE IF NOT EXISTS inbox|CREATE INDEX IF NOT EXISTS idx_inbox_principal|INSERT OR IGNORE INTO inbox|SELECT .* FROM inbox|DELETE FROM inbox WHERE call_id = \?' | sort | uniq -c
-echo "③ 全仓无迁移机制（本 PR 未引入）："
-grep -rn "ALTER TABLE\|user_version\|migrations" oamp/src/persist.js | wc -l   # 期望 0（既有 isLegacyChats 路径不含这两者）
+echo "③ 新增行无迁移机制（基线文件的 :53 注释里出现过 user_version 字样，故只查新增行）："
+git diff -U0 9f071b8 -- oamp/src/persist.js | grep '^+' | grep -cE 'ALTER TABLE|user_version|migrations'
 echo "④ 改动面封闭："
 git diff --name-status 9f071b8 -- oamp/
 git diff --stat 9f071b8 -- oamp/package.json
 grep -c '"dependencies": {}' oamp/package.json
 git status --short
 ```
+
+> 判据 ① 是**零命中**判据，故新增的注释也**不要**出现这些字样（含"不设 TTL""不做归档"这类否定式表述）——用不含关键词的中文说明替代（如"未取件行只由 ack 收敛"）。
 
 ---
 

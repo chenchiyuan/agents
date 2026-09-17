@@ -203,3 +203,25 @@
 
 - 决策内容：Gate 的三项验证内容**全部齐备且结论为 pass**——① 阶段 4 推进条件六项逐项核查通过；② `tools/check-pr-gates.py` 七项机械复核 exit 0；③ 阶段 6 对 `prs/` 的独立验证 **PASS（首轮 0 fail/3 partial → 返工 → 复验 0 fail/0 partial/0 偏差）**。据此：阶段 4 的「已验证」列标记 ✅，阶段 5 全速推进（不受再验证阻塞）
 - 触发依据：`clarifications/verify-20260917-142447-stage4-prs-rework.md` §汇总（pass 6/fail 0/partial 0/blocked 0）与 §结论 PASS；`workflow-pb.md` §Gate"验证结论必须为 pass（每项有文件证据）"
+
+### 2026-09-17 14:44:10 · 派发 · dev（pr-003，**gpt**）
+
+- 阶段：阶段 5 · pr-003 实现与自证
+- 通道：本地 subagent，`agent=dev`（D-34 绑定 `openai/gpt-5.6-luna`）
+- worktree：`<迭代工作区>/.pb-agents/worktrees/0030-pr-003-inbox-table-persistence`，分支 `feat/0030-pr-003-inbox-table-persistence`
+- 输入：`pr-003-inbox-table-persistence-tasks.md`（473 行，唯一执行依据）+ PR 文件 + `architecture.md` §4 A-01/A-09 + `persist.js` 既有体例
+- 完成定义：5 条验收标准全过 + 无简报外改动（仅 `oamp/src/persist.js`）+ 在 worktree 内提交
+
+### 2026-09-17 14:44:30 · 收到报告 · planner（pr-003）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-003-inbox-table-persistence-tasks.md（473 行）；任务总数 **5**（T1 SCHEMA 增量 / T2 insertInbox / T3 listInbox / T4 deleteInbox / T5 合同面自证 + 既有面零回归）
+- 2. 依赖图摘要：`T1 → T2 → {T3, T4} → T5`（另 `T1 → T5`），5 条边、无环；最长链 `T1 → T2 → T3/T4 → T5`；关键路径任务 = T1 → T2 → T5
+- 3. `[model_inferred]` 列表：MI-P1~MI-P4（① 三方法入参 camelCase 对象、写口返回 boolean；② 同 `terminal_at` 并列不定义 tie-break；③ ack 删除后同一 `call_id` 可再写入（已由 `web.js:2217` 的一次性守卫证实无写回路径）；④ 判据载体 = 一次性脚本 + grep/diff，不新增测试文件）——按 `workflow-pb.md` 阶段 4/5 规则**不触发暂停**，由主 agent 采纳
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：4 条（证据回填落点自主决定在 tasks 文件末尾段，请复核；基线口径以 PR worktree base `9f071b8` 为准；架构信息无缺口；未越界）。另报告**实跑验证配方后的 4 处事实纠正**：SQLite `TEXT PRIMARY KEY` 不隐含 `NOT NULL`（判据改只断言 `pk=1`）；`sqlite_master` 无 `origin` 列（属 `pragma_index_list`）；新增 sqlite_master 对象实为 3 个（含自动索引）；base 对照需归一化 `prj-<uuid>` 才能逐字节比对
+- 通道实况：本地 subagent，调用 `completed`（9m27s），子 agent 自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 14:44:40 · 调度决策 · 两项裁决（证据落点 + 跨 PR 契约）
+
+- 决策内容：① **证据落点裁决**（回应 pr-003 planner 的疑问）——dev 的原始输出落**该 PR 的 tasks 文件末尾「执行证据（dev 回填）」段**，verifier 的独立报告落 `clarifications/verify-<ts>-pr-00N.md` + `roles/verifier/data/`；两者都不写回 PR 文件（PR 文件七字段无证据段，且其「文件范围」只列代码路径，写回即越界）。② **跨 PR 契约采纳**（pr-003 MI-P1 是 pr-005 的调用契约）：`persist.js` 三个新方法取**同文件既有体例**——入参 camelCase 对象（`callId`/`principal`/`agent`/`chatId`/`terminalAt`/`envelope`）、`insertInbox`/`deleteInbox` 返回 boolean；该契约写入 pr-005 的 dev 简报（跨 PR 接缝在派发前定死，不留待协商）
+- 触发依据：pr-003 planner 报告第 5 项疑问 1；MI-P1 的判定理由（architecture §3.1 写 snake_case 调用式，而 `persist.js` 既有写口一律 camelCase ⇒ 取同文件体例）；`workflow-pb.md` §阶段 5"决定跨任务契约并在派发前写入简报"
