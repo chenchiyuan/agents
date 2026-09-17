@@ -898,7 +898,7 @@ data: {"chat_id":"chat-demo-1","call_id":"task-…","agent":"dev","kind":"chunk"
 | `structured_output` | object \| null | 带 `output_schema` 且终态校验通过时的对象；否则 `null`（不带 `output_schema` 时恒 `null`，只交付 `text`） |
 | `error` | string \| null | `failed` 且执行侧 / 校验侧给出机器可读原因时给出（校验侧如 `structured_output_invalid`）；否则 `null`。**shell / 一次性失败以 `exit_code` 表达，此时 `error` 为 `null`**；键保留原拼写与原值，语义为人类可读的补充信息，**不新增 `detail` 键** |
 | `exit_code` | number \| string \| null | 常驻（`omp-daemon`）执行**成功** = `0`；常驻执行**失败** / 不可得 = `null`；shell / 一次性执行路径 = 进程真实退出码（被信号终止时为信号名 / `killed`）。`schema_mode: "strict"` 的结构覆写只改 `state` / `error`，不改执行侧退出码 |
-| `reason` | string \| null | **仅失败终态**（`state` 为 `failed`）在既有 10 键之后**末位追加**该键，取值 ∈ 封闭五值：`agent_error`（agent 自报失败但未给出可归类原因 / 自由文本未命中任何已知形态）/ `cancelled_by_client`（调用方取消）/ `infra_error`（会话 / 子进程 / 上下文基础设施失败）/ `timeout`（空闲或安全网超时，**不分子枚举**）/ `rejected`（权限拒绝 / 模型不可用 / 队列满 / 结构校验未通过 / 目标拒绝受理）。成功与受理态**不带**该键 ⇒ 只读 `reason` 即可区分失败类别，无需解析自由字符串 |
+| `reason` | string | **仅失败终态**（`state` 为 `failed`）在既有 10 键之后**末位追加**该键，取值 ∈ 封闭五值：`agent_error`（agent 自报失败但未给出可归类原因 / 自由文本未命中任何已知形态）/ `cancelled_by_client`（调用方取消）/ `infra_error`（会话 / 子进程 / 上下文基础设施失败）/ `timeout`（空闲或安全网超时，**不分子枚举**）/ `rejected`（权限拒绝 / 模型不可用 / 队列满 / 结构校验未通过 / 目标拒绝受理）。成功与受理态**不带**该键 ⇒ 只读 `reason` 即可区分失败类别，无需解析自由字符串 |
 
 - `state` 与 §3.15 的 `state` **同真源**（同一任务记录 + `schema_mode: "strict"` 未通过时的 `failed` 覆写），两处不会漂移。
 - 信封**不含** `chat_id`（任务记录没有该字段）——归属核对请走 `GET /api/chats/<chat_id>` 的 `messages[].meta.task_id`（§3.14 已说明）。
