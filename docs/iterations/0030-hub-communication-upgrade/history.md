@@ -442,3 +442,10 @@
 - **主 agent 自身错误更正**：`status.md` 中该行合并哈希先被误写为 `9be2a4e`（未经核实先行写下），经 `git log --merges` 复核后更正为 `58e30cd`。登记以警示：台账类哈希必须**取自命令输出**，不得凭预期书写
 - 解锁扫描：**无新增已解锁 PR**（pr-005 仅缺 pr-004）⇒ 空闲的 4 个槛位保持空置
 - 触发依据：`clarifications/verify-20260917-155525-pr-007.md` §逐项判定 / §偏差记录 / §结论；`prd/F09-process-contract-and-friction-log.md` §验收标准 6 条；`git log --merges`
+
+### 2026-09-17 17:10:00 · 收到报告 · pr-planner（pr-007 文本收口）
+
+- 改动：`prs/pr-007-model-routing-and-process-evidence.md` **仅两行**——L29 台账列口径改为"含五列（角色/用途/通道/自报模型/终态）；另以「时点」作行标识列 ⇒ 实际表头六列"；L33 末尾追加**边界句**（摩擦与需求层问题的仲裁载体是 `deferred-demand-changes.md`、证据文档不重复摘录，覆盖"通道声明/取证形态/brief 抽检"三项即可）
+- 未动：该 PR 的文件范围（4 路径）/ `depends_on`（无）/ `batch`（1）/ 参考资料；其它 PR 文件；已合并产物（`dispatch-ledger.md` / `evidence/**` / `model-routing-carrier.md` / `deferred-demand-changes.md`）逐字未触碰；`architecture.md` / `prd/**` / `oamp/**` / `status.md` / `history.md` 未动
+- 机械复核：`tools/check-pr-gates.py` **EXIT=0**，七项全过
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
