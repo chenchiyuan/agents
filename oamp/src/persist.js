@@ -44,6 +44,15 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_chat_time ON messages(chat_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_chats_updated ON chats(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chats_project_updated ON chats(project_id, updated_at DESC); -- 项目范围列表
+CREATE TABLE IF NOT EXISTS inbox (
+  call_id     TEXT PRIMARY KEY,   -- = task_id；主键 ⇒ 同一调用至多一条（F01 验收 4）
+  principal   TEXT NOT NULL,      -- 显式身份 或 缺省 chat:<chat_id>（A-02）
+  agent       TEXT,               -- 角色名（既有信封同口径）
+  chat_id     TEXT,
+  terminal_at INTEGER NOT NULL,   -- epoch ms（写入时刻）
+  envelope    TEXT NOT NULL       -- composeCallEnvelope 的终态信封 JSON（唯一写点产物）
+);
+CREATE INDEX IF NOT EXISTS idx_inbox_principal ON inbox(principal, terminal_at);
 `;
 
 const CHAT_STATES = ['working', 'completed', 'failed', 'closed'];
@@ -279,6 +288,13 @@ export function openDb(dbPath) {
        LIMIT ? OFFSET ?`,
     ),
     countChats: db.prepare(`${LIST_WITH}SELECT COUNT(*) AS total ${LIST_FROM}`),
+    insertInbox: db.prepare(
+      'INSERT OR IGNORE INTO inbox (call_id, principal, agent, chat_id, terminal_at, envelope) VALUES (?, ?, ?, ?, ?, ?)',
+    ),
+    listInbox: db.prepare(
+      'SELECT call_id, principal, agent, chat_id, terminal_at, envelope FROM inbox WHERE principal = ? ORDER BY terminal_at ASC',
+    ),
+    deleteInbox: db.prepare('DELETE FROM inbox WHERE call_id = ?'),
   };
 
   function insertInput({ chatId, projectId, text, agentId = null, meta = null, nowMs = Date.now() } = {}) {
@@ -303,6 +319,29 @@ export function openDb(dbPath) {
     const info = stmts.insertMessage.run(chatId, 'out', agentId, text, model, durationMs, error, nowMs, toMetaJson(meta));
     stmts.setOutputState.run(error ? 'failed' : 'completed', nowMs, chatId);
     return { chat_id: chatId, message_id: info.lastInsertRowid };
+  }
+
+  function insertInbox({
+    callId,
+    principal,
+    agent = null,
+    chatId = null,
+    terminalAt = Date.now(),
+    envelope,
+  } = {}) {
+    const callIdN = readRequiredString(callId, 'call_id');
+    const principalN = readRequiredString(principal, 'principal');
+    const agentN = readOptionalString(agent, 'agent');
+    const chatIdN = readOptionalString(chatId, 'chat_id');
+    return stmts.insertInbox.run(callIdN, principalN, agentN, chatIdN, terminalAt, envelope).changes > 0;
+  }
+
+  function listInbox(principal) {
+    return stmts.listInbox.all(readRequiredString(principal, 'principal')).map(toPlain);
+  }
+
+  function deleteInbox(callId) {
+    return stmts.deleteInbox.run(readRequiredString(callId, 'call_id')).changes > 0;
   }
 
   function upsertChat({ chatId, projectId, title, agentId = null, nowMs = Date.now() } = {}) {
@@ -406,6 +445,7 @@ export function openDb(dbPath) {
   return {
     createProject, listProjects, getProject, projectByChat,
     insertInput, insertOutput, upsertChat, closeChat, renameChat,
+    insertInbox, listInbox, deleteInbox,
     archiveChat, activateChat, listArchivable,
     startupSweep, listChats, getChat, close: () => db.close(),
   };
