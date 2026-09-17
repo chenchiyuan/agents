@@ -40,7 +40,8 @@ import { openDb } from './persist.js';
 import { createSseTransport } from './transport.js';
 import * as inbox from './inbox.js'; // 0021 确认面（architecture §6）：在途确认表（进程内、不持久）
 import * as principals from './principals.js';
-import * as pickup from './pickup.js';
+import { reasonOf } from './reason.js';
+import { createPoolRouting, roleOfPoolInstance } from './pool-routing.js';
 import { instanceIdForRole, roleFromInstanceId } from './role-binding.js';
 
 const PKG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); // 包根（静态面白名单的基准：URL → 包根相对文件）
@@ -72,8 +73,7 @@ const CALL_SCHEMA_LINE = '请仅输出一个 JSON 对象，满足以下结构（
 // Router 任务表已终态，而 web 未落 out（对话缺回复）；Router 任务表是权威运行态，故 web 侧轮询兜底补落。
 const RECONCILE_DEFAULT_MS = 5000; // 快速对账首查与间隔同值（默认 5s）
 const RECONCILE_MAX_ATTEMPTS = 6; // 快速预算：快速频率下 6 次（默认约 30s）用尽后转低频续查
-const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，持续到终态或 shutdown）
-const RECONCILE_TTL_DEFAULT_MS = 30 * 60 * 1000; // 登记软 TTL（默认 30 分钟；2026-09-13 起 agent 侧 omp 超时上限亦为 30 分钟 ⇒ 覆盖关系由「有余」变为「持平」，待优化）
+const RECONCILE_SLOW_DEFAULT_MS = 30000; // 低频续查间隔（默认 30s，持续到终态或 shutdown）；缺省 TTL = taskNetMs + 此值
 // pr-002（F05 / architecture §4.2）：全局拓扑轮询间隔（仅存在全局订阅者时运行）；测试用 env 压缩时间轴。
 const TOPOLOGY_POLL_DEFAULT_MS = 2000;
 // 等待句柄兜底复查间隔（A-09）：只为"已登记等待句柄的 id"复查终态，无等待者时不发任何 UDS 请求。
@@ -440,9 +440,9 @@ function parseMessageBody(payload) {
 
 // ────────────────────────── 0018 调用面纯函数（architecture §2.2 / §2.5 / §3.1 / §3.3 / §5） ──────────────────────────
 
-/** 实例名 → 角色名（§5）：薄封装——推导规则（前缀拼接 + 角色文件存在性）只在 src/role-binding.js 一处，此处不复制。 */
+/** 实例名 → 角色名（§5）：池成员与调用面统一消费多实例感知解析器。 */
 function roleOfInstance(instanceId) {
-  return roleFromInstanceId(instanceId);
+  return roleOfPoolInstance(instanceId, roleFromInstanceId);
 }
 
 /** 截断标记（MI-06，单一真源、OR 口径）：过程记录 1000 条封顶 或 增量行控制条目（`event:'truncated'`）已下发。 */
@@ -534,7 +534,7 @@ function composeCallPrompt({ context, task, outputSchema }) {
   return blocks.join('\n\n');
 }
 
-/** 调用信封（§3.1，唯一形状）：受理 / 进行中 / 终态三态共用同一 11 键与键序。
+/** 调用信封（§3.1，唯一形状）：受理 / 进行中 / 终态共用既有 10 键；失败终态末位追加 reason。
  *  `call` = 调用面登记（提供 output_schema / schema_mode；无登记 ⇒ structured_output 恒 null）。 */
 function composeCallEnvelope(task, call = null) {
   const result = task.result ?? null;
@@ -543,10 +543,11 @@ function composeCallEnvelope(task, call = null) {
   const structured = extracted !== null && validateAgainstSchema(extracted, schema) ? extracted : null;
   // strict 且终态成功但结构未通过 ⇒ 终态词仍是闭集内的 failed + 机器可读原因（§2.5，不新增终态词）
   const invalid = schema !== null && call.schemaMode === 'strict' && task.state === 'completed' && structured === null;
-  return {
+  const state = invalid ? 'failed' : task.state;
+  const envelope = {
     call_id: task.task_id,
     agent: roleOfInstance(task.to),
-    state: invalid ? 'failed' : task.state,
+    state,
     duration_ms: result?.duration_ms ?? null,
     model: result?.model ?? null,
     truncated: callTruncated(task),
@@ -555,6 +556,8 @@ function composeCallEnvelope(task, call = null) {
     error: invalid ? 'structured_output_invalid' : (result?.error ?? null),
     exit_code: result?.exit_code ?? null,
   };
+  if (state === 'failed') envelope.reason = reasonOf(state, envelope.error);
+  return envelope;
 }
 
 /** 调用状态单一读法（★ pr-003 修复轮 FIX-1，§2.5 的 strict 覆写落到终态写入处）：终态在 `publishCallResult`
@@ -641,6 +644,7 @@ function compileRouteMatcher(pathPattern) {
  *  纯构造：不调用依赖、不读磁盘、不起定时器 ⇒ 漂移锁可直接 `createApiRoutes({})` 取真实表项。 */
 export function createApiRoutes({
   db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
+  pickInstance, poolRouting,
   getEpoch = async () => 'unknown', checkEpoch = async () => null, getAgentProjection = async (nodes) => nodes,
   onFilteredSubscription = () => {}, agentStateSubscribers = new Set(), waiters = new Map(), settleCancelledCall = () => {},
   rosterHintRows = () => [],
@@ -670,7 +674,7 @@ export function createApiRoutes({
         // ★ 0018（F03 / architecture §5）：每个节点**追加** role = 角色名（实例名可反解且角色文件存在时）或 null；
         // 其余 4 字段名 / 值 / 顺序逐字不变（role 追加在末位）。
         // ★ 0029 pr-005：五字段投影追加在 role 之后；推导只走 roleOfInstance 与 projectAgentState，不复制公式。
-        const withRole = (nodes) => nodes.map((n) => ({ ...n, role: roleFromInstanceId(n.instance_id), ...work.get(n.instance_id) }));
+        const withRole = (nodes) => nodes.map((n) => ({ ...n, role: roleOfPoolInstance(n.instance_id, roleFromInstanceId), ...work.get(n.instance_id) }));
         if (agentState === null || agentState === '') {
           sendJson(res, 200, { agents: withRole(projected) });
           return;
@@ -1302,7 +1306,7 @@ export function createApiRoutes({
         { name: 'chat_id', in: 'body', type: 'string', required: true, desc: '调用归属：目标对话 id（必须**已存在**，调用面不新建对话）；未提供 / 空 / 非字符串 → 400' },
         { name: 'agent', in: 'body', type: 'string', required: true, desc: '角色名（如 dev）——不是实例名；解析 = 角色规则推导出的实例名且可反解回该角色，不可解析 / 离线 → 404' },
         { name: 'task', in: 'body', type: 'string', required: true, desc: '任务文本（trim 后不得为空）；与 tasks 互斥；`!` 前缀在本面**不**被解释为 shell；label 取前 60 字符' },
-        { name: 'tasks', in: 'body', type: 'json', required: true, desc: '批量形态：数组，每项 {task, output_schema?, schema_mode?, mode?, model?}；**每项 = 一个独立调用**；与 task 互斥；空数组 → 400' },
+        { name: 'tasks', in: 'body', type: 'json', required: true, desc: '批量形态：数组，每项 {task, output_schema?, schema_mode?, mode?, model?, new_session?}；**每项 = 一个独立调用**；与 task 互斥；空数组 → 400' },
         { name: 'context', in: 'body', type: 'string', required: false, desc: '本次调用的共享说明（trim 后非空才生效）：作为独立区块前置装配，**不污染**任务文本；批量时对各项共享生效' },
         { name: 'output_schema', in: 'body', type: 'json', required: false, desc: '期望的返回结构（受限子集 {type?, properties?: {<名>: {type}}, required?}）；超出子集（$ref / oneOf / items / 嵌套 properties …）→ 400' },
         { name: 'schema_mode', in: 'body', type: 'string', required: false, enum: ['permissive', 'strict'], desc: '结构校验模式（默认 permissive）；strict 且终态结构未通过 ⇒ state=failed / error=structured_output_invalid' },
@@ -1349,6 +1353,7 @@ export function createApiRoutes({
           sendError(res, 400, ERR_CODE.INVALID_PARAM, 'requester 非法（需为非空、<=64 字符的可打印 ASCII）');
           return;
         }
+        const principal = requester === null ? `chat:${chatId}` : requester;
         const requesterDecl = requester === null ? null : principals.requesterOf({ principal_id: requester });
         if (requesterDecl !== null) principals.upsert(requesterDecl); // 未注册 ⇒ 按需幂等建立、**不阻断**派发（MI-3）
         // ★ 0029 pr-005（F14 / A-02）：自派发判定的依据是**该身份声明的 instance_id** —— 声明来自
@@ -1385,7 +1390,8 @@ export function createApiRoutes({
             sendError(res, 400, ERR_CODE.INVALID_PARAM, batchMode ? 'tasks 每项需要 task（任务文本，trim 后不得为空）' : '需要 task（任务文本，trim 后不得为空）');
             return;
           }
-          const item = { task: raw.task, outputSchema: null, schemaMode: SCHEMA_MODES[0], mode: CALL_MODES[0], model: null };
+          const item = { task: raw.task, newSession: false, outputSchema: null, schemaMode: SCHEMA_MODES[0], mode: CALL_MODES[0], model: null };
+          if (raw.new_session === true) item.newSession = true;
           if (raw.mode !== undefined && raw.mode !== null && raw.mode !== '') {
             if (!CALL_MODES.includes(raw.mode)) {
               sendError(res, 400, ERR_CODE.INVALID_PARAM, `mode 非法（需为 ${CALL_MODES.join(' / ')}）`);
@@ -1417,12 +1423,22 @@ export function createApiRoutes({
           }
           items.push(item);
         }
+        let snapshot = { nodes: [], work: new Map() };
+        try {
+          const status = await queryOnce(config.socketPath, 'router.status', {});
+          const taskList = await queryOnce(config.socketPath, 'router.task_list', {});
+          snapshot = { nodes: status.nodes, work: deriveAgentWork(taskList.tasks) };
+        } catch {
+          // Router 不可达视作空池，保持既有 /api/calls 的 submitted 回落路径。
+          snapshot = { nodes: [], work: new Map() };
+        }
         // ── ⑤ 逐项派发（判定已全部完成；每项 = 一个独立调用，互不相同的 call_id）──
         const projectRow = db.projectByChat(chatId);
         const project = projectRow === null ? null : { name: projectRow.name, repo_url: projectRow.repo_url, agreement: PROJECT_AGREEMENT };
         const waits = [];
         for (let i = 0; i < items.length; i += 1) {
           const item = items[i];
+          const target = pickInstance(role, { chatId, noReuse: item.newSession === true, snapshot }) ?? agentId;
           const callId = `task-${randomUUID()}`; // M-5 / L2-2：调用 id = 既有 task_id 体系，不新造第二套标识
           const messageId = `msg-${randomUUID()}`;
           const payloadBody = {
@@ -1435,20 +1451,20 @@ export function createApiRoutes({
             ...(project === null ? {} : { project }),
           };
           const inAt = Date.now();
-          const input = db.insertInput({ chatId, projectId: projectRow === null ? null : projectRow.project_id, text: item.task, agentId, meta: { task_id: callId }, nowMs: inAt });
-          publishMessage(chatId, { id: input.message_id, direction: 'in', agent_id: agentId, text: item.task, model: null, duration_ms: null, error: null, created_at: inAt });
+          const input = db.insertInput({ chatId, projectId: projectRow === null ? null : projectRow.project_id, text: item.task, agentId: target, meta: { task_id: callId }, nowMs: inAt });
+          publishMessage(chatId, { id: input.message_id, direction: 'in', agent_id: target, text: item.task, model: null, duration_ms: null, error: null, created_at: inAt });
           publishState(chatId, 'working', LOCAL_ONLY);
           let resolve = null;
           const done = item.mode === CALL_MODES[1] ? new Promise((r) => { resolve = r; }) : null; // 阻塞等待句柄（释放点 = 终态单一发布点）
-          const call = { callId, role, chatId, requester, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
-          if (requesterInstanceId !== null && requesterInstanceId === agentId) {
+          const call = { callId, role, chatId, principal, outputSchema: item.outputSchema, schemaMode: item.schemaMode, done, resolve, published: false, working: false, terminal: null };
+          if (requesterInstanceId !== null && requesterInstanceId === target) {
             warnings.push({ index: i, call_id: callId, kind: 'self_dispatch', message: 'requester 与目标 agent 相同' });
           }
-          const entry = { chatId, agentId, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null, call };
+          const entry = { chatId, agentId: target, lines: [], landed: false, attempts: 0, slow: false, registeredAt: Date.now(), timer: null, call };
           tasks.set(callId, entry); // 登记先于 await（首个增量可能与 send 响应同 chunk 到达）
           if (item.outputSchema !== null) callSchemas.set(callId, call); // 终态后仍可按同一 schema 复算 structured_output
           try {
-            await sendTask(agentId, messageId, callId, payloadBody);
+            await sendTask(target, messageId, callId, payloadBody);
           } catch (err) {
             tasks.delete(callId);
             callSchemas.delete(callId);
@@ -1461,8 +1477,8 @@ export function createApiRoutes({
             // 首项失败：对话侧行为与既有 /api/messages 逐字一致（补一条 out + 推 chat_state 读库值）
             const outAt = Date.now();
             const outText = `派发失败：${reason}`;
-            const out = db.insertOutput({ chatId, text: outText, agentId, error: 'dispatch_failed', nowMs: outAt });
-            publishMessage(chatId, { id: out.message_id, direction: 'out', agent_id: agentId, text: outText, model: null, duration_ms: null, error: 'dispatch_failed', created_at: outAt });
+            const out = db.insertOutput({ chatId, text: outText, agentId: target, error: 'dispatch_failed', nowMs: outAt });
+            publishMessage(chatId, { id: out.message_id, direction: 'out', agent_id: target, text: outText, model: null, duration_ms: null, error: 'dispatch_failed', created_at: outAt });
             const chat = db.getChat(chatId);
             if (chat) publishState(chatId, chat.chat.state, LOCAL_ONLY);
             const unavailable = err && (err.dataCode === 'AGENT_OFFLINE' || err.dataCode === 'AGENT_NOT_FOUND');
@@ -1472,6 +1488,8 @@ export function createApiRoutes({
             }
             sendError(res, 502, ERR_CODE.UPSTREAM_UNAVAILABLE, `调用派发失败: ${reason}`);
             return;
+          } finally {
+            poolRouting.release(target);
           }
           scheduleReconcile(callId, entry); // 派发成功即挂对账（收到投递则随之清除）
           const submittedEvent = { type: CALL_EVENTS.state, data: { chat_id: chatId, call_id: callId, agent: role, state: 'submitted' } };
@@ -1479,7 +1497,7 @@ export function createApiRoutes({
           transport.publishFiltered(submittedEvent);
           // 后台项 = 受理态信封（与终态项同一形状）；阻塞项 = 等待终态单一发布点释放（后台/终态混合时逐项各自处理）
           waits.push(done === null
-            ? composeCallEnvelope({ task_id: callId, to: agentId, state: 'submitted', updates: [], updatesTruncated: false, result: null }, call)
+            ? composeCallEnvelope({ task_id: callId, to: target, state: 'submitted', updates: [], updatesTruncated: false, result: null }, call)
             : done);
         }
         const calls = await Promise.all(waits);
@@ -1633,12 +1651,16 @@ export function createApiRoutes({
         }
         const principal = principals.get(principalId);
         if (principal) principals.touch(principalId);
-        const result = [];
-        for (const entry of pickup.listByRequester(principalId)) {
-          const r = await queryOnce(config.socketPath, 'router.task_get', { task_id: entry.call_id });
-          const task = r && r.task ? r.task : null;
-          result.push({ ...entry, envelope: task ? composeCallEnvelope(task, callSchemas.get(entry.call_id) ?? null) : null });
-        }
+        const rows = db.listInbox(principalId);
+        const result = rows.map((row) => ({
+          call_id: row.call_id,
+          requester: row.principal,
+          agent: row.agent,
+          chat_id: row.chat_id,
+          terminal_at: row.terminal_at,
+          acked: false,
+          envelope: JSON.parse(row.envelope),
+        }));
         sendJson(res, 200, { pickup: result });
       },
     },
@@ -1796,7 +1818,7 @@ export function createApiRoutes({
           return;
         }
         if (principals.get(principalId)) principals.touch(principalId);
-        pickup.ack(params.call_id);
+        db.deleteInbox(params.call_id);
         sendJson(res, 200, { call_id: params.call_id, acked: true });
       },
     },
@@ -2159,9 +2181,11 @@ export default async function startWeb(restArgs) {
   // ★ FIX-1：该登记同时是调用**终态的单一写点/读点**（`publishCallResult` 写 `terminal`，信封 / roster / 转录读它）——
   // 覆写只可能发生在带 output_schema 的调用上，故与登记范围天然一致，既有面不受影响。
   const callSchemas = new Map();
+  const poolRouting = createPoolRouting({ roleFromInstanceId });
+  const pickInstance = (role, opts) => poolRouting.choose(role, opts);
   const reconcileIntervalMs = readPositiveMs('OAMP_WEB_RECONCILE_INTERVAL_MS', RECONCILE_DEFAULT_MS);
   const reconcileSlowMs = readPositiveMs('OAMP_WEB_RECONCILE_SLOW_MS', RECONCILE_SLOW_DEFAULT_MS);
-  const reconcileTtlMs = readPositiveMs('OAMP_WEB_RECONCILE_TTL_MS', RECONCILE_TTL_DEFAULT_MS);
+  const reconcileTtlMs = readPositiveMs('OAMP_WEB_RECONCILE_TTL_MS', config.taskNetMs + RECONCILE_SLOW_DEFAULT_MS);
 
   const publishMessage = (chatId, message) =>
     transport.publish(chatId, { type: 'message', data: { chat_id: chatId, message } });
@@ -2218,18 +2242,15 @@ export default async function startWeb(restArgs) {
     call.published = true;
     const envelope = task === null ? null : composeCallEnvelope(task, call);
     if (envelope !== null) {
-      // ★ FIX-1：终态在此**写入**调用登记——strict 覆写随信封一并落到真源，roster / 转录读同一记录，零漂移
       call.terminal = { state: envelope.state, error: envelope.error };
-      if (call.requester !== null) {
-        pickup.add({
-          call_id: call.callId,
-          requester: call.requester,
-          agent: call.role,
-          chat_id: call.chatId,
-          terminal_at: Date.now(),
-          acked: false,
-        });
-      }
+      db.insertInbox({
+        callId: call.callId,
+        principal: call.principal,
+        agent: call.role,
+        chatId: call.chatId,
+        terminalAt: Date.now(),
+        envelope: JSON.stringify(envelope),
+      });
       const resultEvent = { type: CALL_EVENTS.result, data: { chat_id: call.chatId, ...envelope } };
       transport.publishCall(call.callId, resultEvent);
       transport.publishFiltered(resultEvent); // ★ 0029 pr-005（契约 4 第 6 名）：新面同帧转发（追加在既有发布之后）
@@ -2457,6 +2478,7 @@ export default async function startWeb(restArgs) {
   const routes = createApiRoutes({
     db, transport, config, topologyWatch, tasks, callSchemas, publishMessage, publishState, sendTask, sendControlNotice, scheduleReconcile,
     waiters, getEpoch, checkEpoch, getAgentProjection, agentStateSubscribers, onFilteredSubscription, settleCancelledCall, rosterHintRows,
+    pickInstance, poolRouting,
   });
   waiterWatch.start(); // 等待句柄兜底复查（无等待者时空转；unref ⇒ 不阻滞退出）
 
