@@ -2,10 +2,10 @@
 
 **工作流**: workflow-pb v0.14.0
 **迭代**: 0030-hub-communication-upgrade
-**当前阶段**: 阶段 6 ✅ **迭代级终验 PASS**（8/8 合并 · 收口进行中）
-**迭代分支**: iteration/0030-hub-communication-upgrade
+**当前阶段**: 全部 6 阶段 ✅ 完成（阶段 6 终验 PASS · 迭代分支已合入 main）
+**迭代分支**: iteration/0030-hub-communication-upgrade（已合并）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade
-**状态**: 阶段 5 完成（8/8 合并）；阶段 6 迭代级终验 **PASS**（六组判据 A~F 全过、G01 抽查过、搭置 5 条原文置顶）；按规范进入收口（迭代分支合入 main）
+**状态**: **已交付**——阶段 6 迭代级终验 PASS（六组判据 A~F 全过、G01 抽查过、搭置 5 条原文置顶）；迭代分支 `iteration/0030-hub-communication-upgrade` 已按规范合入 `main`（合并提交 `4bc9f5e`）并删除该分支
 **history**: 开启
 **方案确认门**: enabled —— **已通过**（用户 2026-09-17 确认"没问题，请使用 subagents 推进直到交付"）
 **一句话目标**: 把 hub 的送达模型从"广播给在线连接"收拢为"投递给身份"——收件箱升格为唯一权威送达路径并持久化、终态语义结构化（`reason`）、超时由固定总时长改为空闲判据、角色实例池化；本迭代经本地 subagent 通道执行（dev=gpt / verifier=grok）
@@ -166,3 +166,9 @@
 > 2. 提交 `b49e7d0` 的信息写「补齐入库 **4 份**验收报告」，实际 `git show --stat` 只新增 **1** 个文件（`clarifications/verify-20260917-211337-pr-008-delta.md`）；其余 3 份早在 `a996b6e` / `6aff428` / `2a744cd` 已入库 ⇒ **信息夸大，内容无误**。
 >
 > 另：未经 git 核实项（派发台账 22 条派发的时点/耗时/自报模型、`history.md` 叙述时点、L1-01 工作区外载体、`depends_on` 理由的代码级内容）已在 `progress.md` §6 如实列为**无法核实**，本文件不据此下质量判断。
+
+## 收口记录（2026-09-17）
+
+- 阶段 6 终验 PASS（`clarifications/verify-20260917-220603-iteration.md`，grok-4.6）⇒ 按 `workflow-pb.md` §迭代分支合并进 main 执行三步：迭代工作区 `checkout --detach`（前置）→ 仓库主工作区 `merge --no-ff` ⇒ **`4bc9f5e`** → `branch -d iteration/0030-hub-communication-upgrade`。
+- **合并期一处 git 保护中止的处置（如实登记）**：迭代分支包含三份研究底稿（`docs/hub-*.md`，迭代早期入库），而主工作区里它们仍是**未跟踪副本** ⇒ `git merge` 以"未跟踪文件会被覆盖"中止（未改动任何内容）。处置 = 先备份到 `/tmp/0030-closeout-backup/`、移走未跟踪副本、合并（由分支重建同内容文件）、**再校验三份 md5 逐字节一致** → 内容零变化。
+- 合并后改动面 = **85 路径**（`oamp/**` 14 + `docs/iterations/0030-…/**` + `roles/*/data/**` + 三份研究底稿）。
