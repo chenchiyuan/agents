@@ -449,3 +449,17 @@
 - 未动：该 PR 的文件范围（4 路径）/ `depends_on`（无）/ `batch`（1）/ 参考资料；其它 PR 文件；已合并产物（`dispatch-ledger.md` / `evidence/**` / `model-routing-carrier.md` / `deferred-demand-changes.md`）逐字未触碰；`architecture.md` / `prd/**` / `oamp/**` / `status.md` / `history.md` 未动
 - 机械复核：`tools/check-pr-gates.py` **EXIT=0**，七项全过
 - 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 17:20:00 · 收到报告 · verifier（pr-004 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-161050-pr-004.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 4）；verifier 自写桩 + 压缩阈值独立复现（未采信执行方 `/tmp/0030-pr-004/*`），并对每条结论标注取证层次
+- 偏差记录 4 条（均不阻塞）：① 人类可读报文前缀按客户端既有形态分化（rpc `轮次…` / acp `session/prompt …` / oneshot `一次性执行…`），idle/net 可区分性成立，全仓字面统一属文档或后续 PR；② `RECONCILE_TTL` 联动不在本 PR（属 pr-005，跨 PR 接缝）；③ 文档面同步属 pr-006；④ **`acp-client._onProcessGone` 仍只清一个计时器**（idle/net 计时器在进程退出路径可能残留至下次 tick；`expire` 有 `_pending.has(id)` 守卫，实测未表现为误判死）——实现洁癖/泄漏面，非本 PR 验收项，登记为下一迭代候选
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 17:22:00 · 调度决策 · pr-004 合并 + pr-005 解锁派发
+
+- pr-004 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-004-idle-net-turn-timers` ⇒ **`1b02689`**，6 files / 157 insertions / 147 deletions）；现场清理（`worktree remove` + `branch -d`）
+- **解锁扫描：pr-005 已解锁**（依赖 pr-001/002/003/004 全部合并）⇒ 按"合并进迭代分支才算解锁"的硬约束，**从合并后的 tip `1b02689` 拉出** `pr-005` 的 worktree（`feat/0030-pr-005-web-inbox-and-pool-wiring`）——并复核确认该 worktree 的 `oamp/src/**` 已含全部上游产物（`reason.js` / `pool-routing.js` / `persist.js` + 四个计时文件 + `context-pool.js`）。顺序错了会让 pr-005 的子 agent 看不到依赖产物而自行造一套
+- 派发 `PlanP005`（pr-005 的 planner）：输入含 PR 文件 10 条验收标准 + `architecture.md` + **跨界契约冻结记录**（`cross-pr-contracts-2026-09-17.md`）+ **worktree 内已合并的上游真实代码**（要求按真实形态规划，不凭描述推断）
+- 触发依据：`clarifications/verify-20260917-161050-pr-004.md` 结论 PASS；`git merge` 输出；`git diff --name-only main HEAD -- oamp/` 复核（9 个文件）；`workflow-pb.md` §阶段 5 解锁条件
