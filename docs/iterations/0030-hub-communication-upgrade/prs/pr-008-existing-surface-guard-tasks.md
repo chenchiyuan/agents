@@ -585,39 +585,39 @@ node -p "Object.keys(require('$W/cluster.json').roles).length"
 
 ### ① T1 · 基线与 diff 全集快照
 
-（待回填）
+命令：`git -C "$W" rev-parse HEAD main`; `git -C "$W" merge-base main HEAD`; `git -C "$W" status --porcelain`; `git -C "$W" diff --name-status main HEAD`，其中 `W=/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-008-existing-surface-guard`。输出：HEAD=`4748e78e41808e045b4a49733498dd81809215e6`，main=`706e3d004029396b0ab24f95c3951b9fe7226214`；merge-base=`706e3d004029396b0ab24f95c3951b9fe7226214`；status 为空（exit 0）。G01 关心的 `oamp/` 交付面 `diff --name-status` 为 14 路径：`M oamp/API.md`、`M oamp/README.md`、`M oamp/skill/hub.md`、`M oamp/src/acp-client.js`、`M oamp/src/agent.js`、`M oamp/src/config.js`、`M oamp/src/context-pool.js`、`M oamp/src/oneshot-client.js`、`M oamp/src/persist.js`、`D oamp/src/pickup.js`、`A oamp/src/pool-routing.js`、`A oamp/src/reason.js`、`M oamp/src/rpc-client.js`、`M oamp/src/web.js`（exit 0；仓库级另含 docs/ 与 roles/*/data/ 过程产物）。计数：`oamp/sdk=7`、`oamp/web=11`、`oamp/scripts=1`、`roles` 递归=72（各命令 exit 0）。T1 通过。
 
 ### ② T2 · 零改动面核验 + 正对照
 
-（待回填）
+命令：逐路径 `git ls-tree -r --name-only main -- <path>` + `git diff --name-only main HEAD -- <path>`；`git ls-tree -r --name-only HEAD -- roles | grep -cE '^roles/[^/]+/[^/]+\.md$'`；`test -e "$W/oamp/cluster.json"`；定义面 glob diff；`git diff --name-only main HEAD -- oamp/src/web.js`；`node -p "JSON.stringify(require('$W/oamp/package.json').dependencies)"`。输出：组 A 7/7 均 `exists=1 diff=0`；组 B `oamp/sdk exists=7 diff=0`、`oamp/web exists=11 diff=0`、`oamp/scripts exists=1 diff=0`；根 `cluster.json exists=1 diff=0`，`oamp/cluster.json` 输出 `ABSENT ok`；定义面存在性=22，`git diff ... -- ':(glob)roles/*/*.md' ':(glob)roles/_template/**'` 为空；正对照 `oamp/src/web.js` 输出 1 行；依赖 `{}`（均 exit 0）。同一 ref 的 `git diff --name-status main HEAD -- roles` 实测 11 个 `A`，全部 `roles/{architect,prd,verifier}/data/**`；非 magic `roles/*/*.md` 实测 11 行，说明 `*` 跨 `/` 陷阱。T2 通过；tasks §4.2 的“9 个”是陈旧字面，不改原文。
 
 ### ③ T3 · `context-pool.js` 两键透传例外
 
-（待回填）
+命令：`git -C "$W" diff --stat main HEAD -- oamp/src/context-pool.js`；`git -C "$W" diff -U0 main HEAD -- oamp/src/context-pool.js | grep -E '^[+-][^+-]'`；按 K4 的 sed 归一化后 `diff`。输出：`1 file changed, 4 insertions(+), 2 deletions(-)`；恰 6 行：`prompt` 形参加入 `idleMs, netMs`，queue item 加两键，`client.prompt` 实参加入 `idleMs: turn.idleMs,` / `netMs: turn.netMs,`；归一化 `diff` exit=0 并输出 `NORMALIZED-IDENTICAL`。T3 通过。
 
 ### ④ T4 · 事件面 / 状态面 / 信封面
 
-（待回填）
+命令：事件类集合、`CALL_EVENTS`/`FILTERED_EVENT_KINDS` 两常量行、web diff 中 `transport.` 行、`composeCallEnvelope` 键序、reason 行、state 集合、取消行。输出：事件集合两侧相同（`agent_offline agent_online agent_state boolean call... chat_state confirmation json message notice number string task_update`），输出 `EVENT-SET-IDENTICAL`；常量输出 `CONST-IDENTICAL`；transport 差异 0；键序两侧均 `call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code`，`KEYS-IDENTICAL`；HEAD `web.js:559` 为 `if (state === 'failed') envelope.reason = reasonOf(state, envelope.error);`；取消行 `web.js:2223` 两侧逐字相同；state 值两侧相同 `closed failed online submitted working`。失败文案 `structured_output_invalid`、`cancelled`、`timeout` 的改写 diff 无命中（命令 exit 0；取消/timeout 无命中时 grep 原始 rc=1，按“零命中”记录）。T4 通过。
 
 ### ⑤ T5 · 取件端点契约面 + 边界
 
-（待回填）
+命令：两端点参数抽取与 diff；HEAD 响应映射抽取；main `pickup.js` entry 映射；`grep -n 'db.deleteInbox\|db.listInbox'`; 隔离 web（17788、`/tmp/0030-pr-008/run`，Router 不起）三次 HTTP 请求。输出：两端点参数逐字相同：GET `principal query required`、`epoch query optional`；POST ack `call_id path required`、`principal query required`、`epoch query optional`；HEAD 七键 `call_id,requester,agent,chat_id,terminal_at,acked,envelope`，main 六键 entry 加 envelope。代码行 `1654 db.listInbox(principalId)`、`1821 db.deleteInbox(params.call_id)`。活体：`GET /api/pickup?principal=whoami` → HTTP 200 `{"pickup":[]}`；POST ack → HTTP 200 `{"call_id":"call_x","acked":true}`；正对照 GET `/api/agents` → HTTP 502，body 含 `code:"UPSTREAM_UNAVAILABLE"` 与 socket ENOENT；web 日志 `WEB_READY url=http://127.0.0.1:17788`，进程已停止。产物词 `artifact|产物校验|verify_artifact` 在 `oamp/src` 零命中。T5 通过；200 属已登记取值变化②。
 
 ### ⑥ T6 · 边界与不越界面
 
-（待回填）
+命令：UDS case 计数/名称、生命周期词 grep、transcript 两侧抽取、reconcile diff、角色定义面 grep、根 cluster 绑定集合。输出：UDS=9，名称为 `agent.register agent.heartbeat agent.deregister message.send message.ack router.status router.task_get router.task_cancel router.task_list`；`spawn|scale|startAgent|stopAgent|addInstance|removeInstance` 在 web/pool-routing 命中 0；transcript `TRANSCRIPT-IDENTICAL`；reconcile 差异只含池化 `target/agentId` 与 `RECONCILE_TTL_DEFAULT_MS` 默认算式（`config.taskNetMs + RECONCILE_SLOW_DEFAULT_MS`），`landed/attempts/slow` 判定面未改；定义面 `model:`=0、模型字面量=0；HEAD/main 带 model 角色均为 `dev,verifier`，role 键集=10。两处既有缺陷（transcript 1000 条截断、惰性启动竞态）不在本迭代修。T6 通过。
 
 ### ⑦ T7 · 兼容面与范围面 + 差异登记
 
-（待回填）
+命令：`/api/calls` 参数抽取；`withRole` 两侧；预期差异定位；§5 变更面与 F01~F08 对账。输出：两侧参数行均 9，唯一 desc 差异是 tasks 项追加 `new_session?`，其为可选项且不是顶层 param；`withRole` 从 `roleFromInstanceId` → `roleOfPoolInstance`，role 类型域仍 `string|null`；预期差异①~⑤分别记录于证据文档 §9，均为已登记变化、不构成回归；14 条 oamp diff 与 §5/ F01~F08 可分类，无第六类。`oamp/llms.txt` 不在本快照 diff，虽 pr-006 声明该路径，内容未变。T7 通过。
 
 ### ⑧ T8 · 路由条数与 `hub doctor` R1
 
-（待回填）
+命令：四处静态计数、`GET /api/docs`、隔离 Router+web、`OAMP_WEB_PORT=17788 node bin/hub.js doctor`，并实测陷阱。输出：源码两计数、llms、API、运行时 routes.length **全部 29**；llms 头部第 11 行 `## 接口（29 条）`。Router+web 同在线 doctor exit=0，JSON `pass=true`、`items=66`、R1=29、R1 fails=0（示例 `R1 GET /api/agents ok:true`）；`--port` exit=2，`{"code":"USAGE","error":"doctor 不接受该参数: --port","exit_code":2}`；仅 web、无 Router exit=3，`{"code":"UPSTREAM_UNAVAILABLE",...}`。两进程已停止，未占默认资源。T8 通过。
 
 ### ⑨ T9 · 文档装配与封闭性守卫
 
-（待回填）
+命令：创建并检查证据文档；封闭性守卫采用 C13 的 14 条**枚举相等**（实测 diff 集合与显式 14 条期望集合 `diff` 空、exit=0），并将所有 `pr-*.md` 文件范围并集对账。输出：文档存在且含 11 节标题、12 行结论均“不回归”；C13 枚举相等 exit=0；PR 文件声明并集覆盖实际变更集，未声明变更=0；声明但零 diff 仅 `oamp/llms.txt`，其为生成物且内容未变，pr-006 AC3 已声明预期。注意 tasks T9 原“过滤后 11”是 pr-006 合并前陈旧字面；现 ref 实测 14（11 条 `oamp/src/**` + 3 条 `oamp/*.md`），不得以计数替代枚举。证据文档唯一新建。T9 通过。
 
 ### ⑩ T10 · 独立核验（verifier；报告落 `clarifications/`，此处只记结论与路径）
 

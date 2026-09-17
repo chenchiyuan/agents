@@ -39,7 +39,7 @@
 - **当前有效上限**：**5**（`min(3 + 7×3, 5)` = 5，维持硬上限）
 - **累计槛位释放次数**：**7**（pr-001、pr-002、pr-003、pr-004、pr-005、pr-006、pr-007 成功合并）
 - **已派发总数（阶段 5 内部）**：**22**（planner ×6 + dev ×6 + verifier ×6（含 pr-005 补充验收）+ pr-planner/architect 的多次定向收口；不含 Gate 两轮 `prs/` 验证与两条载体探针）
-- **当前在飞**：1（`DevP008` G01 证据落盘）；**空闲槛位 4 个**（8 个 PR 中 7 已合并，pr-008 是最后一个）
+- **当前在飞**：1（`VerP008` G01 证据验收，含 T10 反证）；**空闲槛位 4 个**（8 个 PR 中 7 已合并，pr-008 是最后一个）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -56,7 +56,7 @@
 | pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004✅ | ✅ | (已清理) | ✅ `9a4f424` | 已释放（槛位释放 6） |
 | pr-006-api-docs-sync.md | pr-004✅、pr-005✅ | ✅ | (已清理) | ✅ `4748e78` | 已释放（槛位释放 7） |
 | pr-007-model-routing-and-process-evidence.md | （无） | ✅ | (已清理) | ✅ `58e30cd` | 已释放（槛位释放 4） |
-| pr-008-existing-surface-guard.md | pr-005✅ | ⏸ | feat/0030-pr-008-existing-surface-guard | ⬜ | **占用**（dev 在途 @ gpt；worktree 已从 `4748e78` 重建，diff 全集 14 路径） |
+| pr-008-existing-surface-guard.md | pr-005✅ | ⏸ | feat/0030-pr-008-existing-surface-guard | ⬜ | **占用**（dev `8b200cf` 完成；verifier 验收在途（含 T10 反证）） |
 
 > 在飞 1 个（≤ 当前有效上限 5）。**已合并 7/8**。**欠账（现已全部出清）**：① ~~`architecture.md` §4 A-04 表展示微调~~ **已完成**（architect）；② ~~已合并 PR 的验收复选框勾选~~ **已完成**；③ ~~`pr-002-pool-routing-module-tasks.md` 旧判据口径~~ **已完成**（pr-planner 2026-09-17 15:57，22 处同步、执行证据段逐字节未动）；④ ~~`pr-008` 的 G01 零回归判据缺例外括注~~ **已完成**。
 
