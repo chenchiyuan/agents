@@ -318,3 +318,32 @@
 - 决策内容：**T0 = 候选 A**（主 agent 定案）——把 `oamp/src/context-pool.js` **纳入 pr-004 文件范围**，只做 `idleMs` / `netMs` **两键透传**（形参表 `:137` / 队列项 `:144` / `client.prompt` 实参 `:170-174`），受保护语义（键语义 / 同键 FIFO 串行 / LRU / 释放路径）零改动。理由：最小改动、保持 A-05 的**单一接线落点**（`agent.js` 传阈值）；候选 B（三客户端各自读 config）把接线点从一处变四处、与 PR 明文「`agent.js` 改传」不符、且引入配置读取漂移面；候选 C（resident spec 构造期注入）改动面无额外收益
 - 三路并发收口：① `pr-planner` 改 `pr-004` 文件范围+验收标准、`pr-008` 的零改动面列举（`context-pool.js` 移出、加"唯一例外 = 两键透传"）、复核两两不重叠；② `architect` 同步 `architecture.md` §4 A-05 / §5（从「明确不改」移出）/ §6（G01 例外注）/ §1.3 / §10；③ `DevP004`（gpt）开工，T0=A 与 MI-P1~MI-P5 随简报冻结（T1~T4 与 T0 无关，可先做，不必等文本落地）
 - 触发依据：`PlanP004` 的 T0 升级（附 `/tmp/pr004-reh2` 复现证据与三条候选）；`workflow-pb.md` §阶段回退"文件范围/接线落点属技术方案问题 ⇒ 执行侧在当前阶段解决，不搭置、不改需求结论"
+
+### 2026-09-17 15:46:00 · 收到报告 · pr-planner（T0 落地）
+
+- 收口内容：`prs/pr-004-idle-net-turn-timers.md` 三处——L18「文件范围」新增 `oamp/src/context-pool.js（仅两键透传…）`；L23「验收标准」新增一条可独立判定（显式键集丢弃未列选项 ⇒ 透传后以 `OAMP_TASK_IDLE_MS=1500` 派发 daemon 任务并停止产出，判死时刻跟随配置阈值、报文阈值数字非 `null`；否证面 = 去掉两键即复现 `轮次安全网超时（累计 nullms）`）；L5 摘要补入 daemon 路径选项通道事实（**此处的摘要一致性修正未在主 agent 指令中，属 planner 主动补全，正确、保留**）。`prs/pr-008-existing-surface-guard.md` 两处——零改动面列举移出 `context-pool.js` 并改为"唯一例外 = 两键透传"（L5 + L19 验收第 3 条）
+- 复核：`oamp/src/context-pool.js` 现**只由 pr-004 声明**（逐文件 awk 扫描「文件范围」段）；其余 6 个 PR 文件对新口径零冲突（`pr-005` 及 pr-003/006/007 对 `ContextPool`/`context-pool` 零命中；`pr-002:29`、`pr-001:5` 属既有事实引用，无需改）
+- 机械复核：`tools/check-pr-gates.py` **EXIT=0**，七项全过（文件范围 20 条两两不重叠 / 关键路径 3 / 无环 / 无悬挂 / 并发可行）；pr-004 = 6 文件 · 8 验收
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:48:00 · 收到报告 · dev（pr-002）
+
+- 1. 改了什么文件：新增 `<PR worktree>/oamp/src/pool-routing.js`（唯一代码文件），提交 **`9c5de19`**
+- 2. 测试结果：`/tmp/0030-pr-002/verify.out` **31 条 PASS + RESULT PASS**；`resolver-boundary.out` **5 条 PASS + RESULT PASS**（追加契约的 `roleOfPoolInstance` 三段语义与边界）；提交后复跑通过
+- 3. 疑问/待办：如实说明**追加契约使模块具名导出变为 2 个**（原 tasks 的"恰 1 个 `createPoolRouting`、导出计数 = 1"已被新契约覆盖）——该变更已由主 agent 预授权并同步进 PR 文件验收标准
+- 4. 违反边界之事：无；`git diff` 基准仅 `A oamp/src/pool-routing.js`，`status` clean
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 3 例取证）
+
+### 2026-09-17 15:49:00 · 收到报告 · architect（T0 相关的架构同步）
+
+- 收口内容（`architecture.md` 4 处、均最小措辞）：§4 A-05 新增「阈值透传通道（必要改动，实测依据）」条；§5「修改」表新增 `oamp/src/context-pool.js` 行（形参 → 队列项 → `client.prompt` 实参两键透传）并从「明确不改」清单移出（就地注明移出）；§6 新增「唯一例外」注（本节断言均为**语义级**、无一行断言文件级零改动）；§10 新增第 11 条记录来源
+- 逐条核对：§1.3 **未提及** `context-pool`（grep 0 命中）⇒ 无矛盾、未改；`grep -n "context-pool\|ContextPool"` 余 11 处命中逐条确认为"只涉键语义/失败串位置，不涉选项通道"，与新口径一致
+- 越界自检：未动 `prd/**`、`prs/**`、`oamp/**`、`status`/`history`/`deferred-demand-changes`
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:50:00 · 派发 · verifier（pr-002 验收）
+
+- 阶段：阶段 5 · pr-002 独立验收
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `9c5de19` 的 diff（判据来源 = **修订后的** PR 文件 6 条验收标准）+ `architecture.md` §4 A-06 补定 / §4 A-07
+- 独立取证要求：不得采信 `/tmp/0030-pr-002/*.out`，自写探针、自造注入解析器与快照，覆盖全部条目（含 4 条边界、4 种粘性情形、预留净值）
