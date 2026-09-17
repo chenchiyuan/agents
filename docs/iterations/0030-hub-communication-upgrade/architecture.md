@@ -43,7 +43,7 @@
 |---|---|---|
 | 进程拓扑 | 三进程：`Router`（UDS + 注册表 + 任务表，全内存）／`web`（Node 内建 http + `node:sqlite`）／`pb-<role>` agent 节点 | `src/router.js` / `web.js` / `agent.js` / `cluster.js` |
 | HTTP 面 | `createApiRoutes(deps)` 返回有序数组 —— **29 条路由**（`method:` 登记数：`awk '/function createApiRoutes/,0' src/web.js \| grep -cE "method: '(GET\|POST\|PUT\|DELETE)'"` = 29，与 `API.md` §3 编号至 29、`llms.txt` 头部"接口（29 条）"三处同值）；错误契约 = `ERR_CODE` 封闭 5 码 + `sendError` 唯一构造点（**本迭代不新增路由** ⇒ 与迭代前同值，见 §5/§10-8） | `src/web.js:createApiRoutes / sendError` |
-| 调用面派发 | `/api/calls` handler：校验 → **`const agentId = instanceIdForRole(role)`**（角色↔实例 **1:1 硬解析**，仅校验角色文件存在）→ 逐项 `sendTask(agentId, …)`；首项投递失败 ⇒ 404 `agent 不可用: <role>（无对应在线实例）`（`AGENT_OFFLINE`/`AGENT_NOT_FOUND`）或 502 `UPSTREAM_UNAVAILABLE` | `src/web.js:1342 / 1468-1472` |
+| 调用面派发 | `/api/calls` handler：校验 → **`const agentId = instanceIdForRole(role)`**（角色↔实例 **1:1 硬解析**，仅校验角色文件存在）→ 逐项 `sendTask(agentId, …)`；**该 handler 的投递失败分支（404 `agent 不可用: <role>（无对应在线实例）` / 502 `UPSTREAM_UNAVAILABLE`）在当前实现下不可达**（`sendTask` 吞错，见 §9-13；404 实际只由"角色不可解析"触发） | `src/web.js:1342 / 1468-1472` |
 | 调用登记 | `tasks: Map<call_id, entry>`（entry 含 `chatId/agentId/lines/landed/attempts/slow/registeredAt/timer/call`）与 `callSchemas: Map<call_id, call>`；`call = {callId, role, chatId, requester, outputSchema, schemaMode, done, resolve, published, working, terminal}` —— **全部进程内** | `src/web.js:1443 / 2149-2164` |
 | 终态发布链 | agent 投递 → `handleDeliver(task.result)` → `finishTask(entry, body)`（落 `out` + `message` + `chat_state`）→ `queryOnce(router.task_get)` → **`publishCallResult(task, entry)`（唯一发布点）**；对账兜底 `reconcileTask` 走**同一发布点** | `src/web.js:handleDeliver / finishTask / publishCallResult / reconcileTask` |
 | 终态信封 | `composeCallEnvelope(task, call)`：**10 键固定键序**（`call_id/agent/state/duration_ms/model/truncated/text/structured_output/error/exit_code`；实测返回键为 10，`src/web.js:539` 的模块注释写"11 键"为既有注释滞后，见 §10-12），`error` 为自由字符串；strict 结构校验失败时以 `error='structured_output_invalid'` **覆写**则 state 降为 `failed` | `src/web.js:539-558` |
@@ -189,9 +189,9 @@ flowchart TB
 2. **粘性**：`pool-routing` 内 `Map<'<chat_id>\u0000<role>', instance_id>`：
    - 命中且该实例 ∈ 池 ⇒ 复用（验收 1）；
    - 未命中 / 命中但实例已不在池（MI-11）/ 调用方本次声明 `new_session: true`（验收 3）⇒ 按最空闲重选并**重绑**（不报错，跨轮上下文可能断 = D-30 的代价，卡内已声明）；
-   - 池为空（MI-9）⇒ 返回 `null` ⇒ 调用方回落 `instanceIdForRole(role)`，交既有 Router 投递路径给出既有结论（404 `agent 不可用: <role>（无对应在线实例）`），**不静默排队、不新造错误面**。
+   - 池为空（MI-9）⇒ 返回 `null` ⇒ 调用方回落 `instanceIdForRole(role)`（既有目标解析）⇒ 响应与**基线逐字一致**（实得 HTTP 200 + 受理态 `submitted`；投递失败在 `sendTask` 内被吞，见 §9-13），**不静默排队到未来实例、不自动拉起实例、不新造错误面**。
 3. **在飞预留**：选中 ⇒ `inflight[instance] += 1`；`sendTask` settle（成功或失败）⇒ `-= 1`。作用：两条并发、不同 `chat_id` 的派发若在"读负载 → 落 Router 任务表"窗口内交错，会同时选中负载相同的实例，使 F06 验收 1 **假失败**；预留计数是让该验收**确定性成立**的最小机制。
-4. **单实例不回归**（验收 2）：唯一的池成员恒为 `pb-<role>` ⇒ 选择结果与迭代前同一目标、同一路径。
+4. **单实例不回归**（验收 2）：池内只有 1 个在线成员时，选择结果恒为该成员（不额外排队、不新增错误面）；该成员即 `pb-<role>`（既有唯一形态）时，目标与投递路径与迭代前**逐字相同**（多实例形态 `pb-<role>-<n>` 是本迭代新增的命名约定，见 §4 A-06 补定）。
 5. **不改变既有 `ContextPool` 键语义**（F06 验收 4 / F07 验收 4）：粘性表只回答"落到哪个实例"；选定后 `ContextPool` 的既有键 `(chat_id, instance_id)` 自然命中同一实例的常驻会话——粘性表**不替代、不改写**该键空间。
 6. **可观测性（验收 5）**：目标实例经**既有标识面**可读——`GET /api/agents` 行的 `instance_id` + 既有五字段投影（`busy`/`current_call_id`/`queued`/`since`，0029 已建），以及转录条目的 `from`（= 上报实例 id）⇒ **不新增第二套标识**。
 
@@ -307,7 +307,7 @@ flowchart TB
   | 3 | `rpc-client.js:14 DEFAULT_TURN_TIMEOUT_MS` / `armTurnTimer` | 改双计时（默认档移除） |
   | 4 | `oneshot-client.js:17 DEFAULT_TIMEOUT_MS` | 改双计时（默认档移除） |
   | 5 | `agent.js:32 MAX_TIMEOUT_MS`（显式值上限 30 分钟） | **保留**：它只约束"调用方显式声明的上限"，不再构成默认截断（call 面从不传 `timeout_ms`） |
-  | 6 | **`web.js:76 RECONCILE_TTL_DEFAULT_MS`（对账登记软 TTL，30 分钟）** | **默认值改为与 `taskNetMs` 联动**（`taskNetMs + RECONCILE_SLOW_DEFAULT_MS` = 4h30m；env `OAMP_WEB_RECONCILE_TTL_MS` 覆盖保留）。**不联动即破 F01**：登记 30 分钟被清后，4 小时长任务的终态在 `handleDeliver` 查不到 `entry` 被丢弃 ⇒ 永不发布（代码自述"覆盖关系由有余变为持平，待优化"） |
+  | 6 | **`web.js:76 RECONCILE_TTL_DEFAULT_MS`（对账登记软 TTL，30 分钟）** | **默认值改为与 `taskNetMs` 联动**（env `OAMP_WEB_RECONCILE_TTL_MS` 覆盖保留）；**判据是不变式而非近似值**：`缺省 TTL ≥ config.taskNetMs`（当前算式 = `taskNetMs + RECONCILE_SLOW_DEFAULT_MS`，即 4h + 30s；`RECONCILE_SLOW_DEFAULT_MS` = 30000）。**不联动即破 F01**：登记 30 分钟被清后，4 小时长任务的终态在 `handleDeliver` 查不到 `entry` 被丢弃 ⇒ 永不发布（代码自述"覆盖关系由有余变为持平，待优化"） |
   | 7 | `shell` 路径 `timeout_ms`（默认 30s、上限 30 分钟） | **保留**：命令超时是调用方期望的**硬上限**语义（与"推理空转"不同），且它不是 F-5 的现象面 |
   | 8 | `sdk/cli.js DEFAULT_WAIT_MS` / `surface.js BLOCK_WAIT_DEFAULT_MS`（30 分钟） | **不改**：它是**调用方的放弃等待预算**，不是判死位置（`API.md` §2.4 明文"超时只表示放弃等待…不产生失败结论"）。后果见 §9-6 |
 
@@ -340,7 +340,7 @@ flowchart TB
   - 为什么键在 web 而不在 Router：`chat_id` 只存在于 web 侧（Router 任务条目**不携带 `chat_id`** ⇒ 无法在 Router 侧做会话粘性）；且粘性决策必须发生在"选目标 → `message.send`"之前，正是 web 的位置。
   - 与既有 `(chat_id, agent_id)` 上下文键的关系：`ContextPool` 的 `agent_id` 实参 = 实例 id（`agent.js` 传 `ctx.instanceId`）⇒ 粘性键 + 选中实例**恰好重构出**该键空间中的一项；粘性表不改写、不替代它（F06 验收 4 / F07 验收 4）。
 - **"最空闲"度量口径**：见 A-06（`(queued, busy, inflight, instance_id)`）。
-- **"不需要延续"声明的承载形态**（MI-10）：`POST /api/calls` 的**项级可选布尔字段 `new_session`**（与既有项内字段 `output_schema`/`schema_mode`/`mode`/`model` 同层；缺省不出现 ⇒ 既有请求形状零变化，G01 验收 10）。语义 = 本次派发忽略既有绑定、按最空闲重选并**重绑**（下一轮若无该声明，则粘到本次选中的实例 ⇒ "新会话从这里开始"）。`API.md` §3.9 的参数表与之同步。
+- **"不需要延续"声明的承载形态**（MI-10）：`POST /api/calls` 的**项级可选布尔字段 `new_session`**（与既有项内字段 `output_schema`/`schema_mode`/`mode`/`model` 同层；缺省不出现 ⇒ 既有请求形状零变化，G01 验收 10）。语义 = 本次派发忽略既有绑定、按最空闲重选并**重绑**（下一轮若无该声明，则粘到本次选中的实例 ⇒ "新会话从这里开始"）。`API.md` §3.9 的参数表与之同步。**调用方可达性（实测口径）**：`oamp/sdk/surface.js` 的 `calls create` flag 白名单是硬编码的（`--chat-id / --agent / --task / --tasks / --context / --output-schema / --schema-mode / --mode / --model / --wait`），**没有** `--new-session`（也没有 `--requester`）⇒ 本迭代该字段的调用方途径 = **裸 HTTP 项级字段**；`oamp/sdk/**` 本迭代零改动（CLI flag 可达性属另一迭代）。
 - **生命周期与增长**：进程内、**无 TTL、无淘汰定时器**；每次选择时顺带丢弃"绑定实例已不在池"的条目（零定时器）。条目上界 = 有派发历史的 `(chat_id, role)` 对，与既有 `principals` 表同阶（同寿命口径）。
 - **失效口径**（MI-11）：绑定实例不在池 ⇒ 回落最空闲并重绑，**不报错**（代价：跨轮上下文可能断，D-30 的必然结果）。
 - **可观测性**（验收 5）：见 §3.4 第 6 条（既有 `instance_id` + 既有五字段投影 + 转录 `from`），不新增标识。
@@ -409,7 +409,7 @@ flowchart TB
 | `oamp/src/config.js` | 新增 `taskIdleMs` / `taskNetMs`（env `OAMP_TASK_IDLE_MS` / `OAMP_TASK_NET_MS`） | A-05 |
 | `oamp/API.md` · `oamp/README.md` · `oamp/llms.txt`（生成物） · `oamp/skill/hub.md` | 文档面同步：`reason` 字段、`new_session` 参数、超时口径、取件跨重启语义、`acked` 恒定值的说明 | 全部 |
 
-**退役（1 个文件）**：`oamp/src/pickup.js`（调用点全部迁移；无 re-export、无兼容层）。
+**退役（1 个文件）**：`oamp/src/pickup.js`（调用点全部迁移；无 re-export、无兼容层）。**退役判据 = 实现面零命中**（`grep -rn pickup oamp/src oamp/sdk oamp/bin oamp/scripts` 无引用）；`docs/**`、`roles/**` 等处的历史文字提及（例如本文件的"现状基线"段与 0029 文档）不在可写面内，**不作为该判据的失败项**。
 
 **明确不改（零改动）**：`src/router.js`（含 UDS 方法集合与错误契约）、`src/registry.js`、`src/role-binding.js`、`src/principals.js`、`src/inbox.js`、`src/transport.js`、`src/cluster-config.js`、`oamp/web/**`（控制台前端）、`oamp/sdk/**`、`oamp/scripts/**`、`cluster.json`、`roles/**`、`oamp/package.json`（零新依赖）。（`src/context-pool.js` 原在本清单，现按 A-05 的实测依据移入上表 —— **仅两键透传**，键语义/串行/LRU 零改动。）
 
@@ -454,7 +454,7 @@ flowchart TB
 | L2-02 | ack = 就地删除；未取件不设 TTL | 可观测行为等价 + 无历史面需求 + 必达承诺不可 TTL 化（A-09） |
 | L2-03 | `reason` 由**消费侧唯一映射函数**归类（既有失败产生点零改动） | G01 验收 3 / F04 验收 5 与"不做文案归一"约束下唯一可行；详见 A-04 |
 | L2-04 | 空闲/安全网判据落在**执行侧轮次计时原语**（而非新增 web 看门狗 / Router 看门狗） | 既有 30 分钟上限的同一实现处（"取代全部生效位置"的字面形态）；避免第二判死源与僵尸轮次；`background`/`block` 天然同源 |
-| L2-05 | 对账登记软 TTL 默认值与 `taskNetMs` 联动（4h30m） | 不联动即破 F01 必达（§4 A-05 第 6 条） |
+| L2-05 | 对账登记软 TTL 默认值与 `taskNetMs` 联动（不变式：缺省 TTL ≥ `config.taskNetMs`；算式 = `taskNetMs + RECONCILE_SLOW_DEFAULT_MS`） | 不联动即破 F01 必达（§4 A-05 第 6 条） |
 | L2-06 | 池成员 = `state === 'online' && connected` + 多实例感知角色解析（`pb-<role>` / `pb-<role>-<n>`，resolver 在新模块导出，`role-binding` 既有公式零改动）；负载复用 `deriveAgentWork` + 在飞预留计数 | 可投递性 + 零新增度量 + F06 验收 1 的确定性；多实例识别见 §4 A-06 补定（hub 侧无 role 信息 ⇒ 只能走命名约定） |
 | L2-07 | 粘性键 = `(chat_id, role)`，表在 web 进程；"不延续"声明 = 项级可选 `new_session` | Router 任务条目无 `chat_id` ⇒ 粘性只能在 web；可选布尔字段满足 G01 验收 10 |
 | L2-08 | 新增两个叶子模块（`reason.js` / `pool-routing.js`），不新增协议方法、不新增进程 | 奥卡姆检验见 §8 |
@@ -490,7 +490,7 @@ flowchart TB
 ## 9. 已知局限（如实说明，不掩饰）
 
 1. **`agent_error` 与 `infra_error` 是消费侧近似划分**：`context_crashed` 一族（会话崩溃 + `rpc prompt` 命令级失败混在同一串）整体归 `infra_error` ⇒ 现状下"agent 自己崩了"与"会话基础设施崩了"仍可能落在同一枚举值上。精确化需要**产生点分码**（+ `_failSession` 轮次级集合扩展），本迭代按 F04 验收 5 / G01 验收 3 的"文案不动"约束不做，列为跨迭代候选。
-2. **`dispatch_failed` 情形下调用方拿不到 `reason`**：投递失败不产生终态信封（既有行为），调用方得到的是 HTTP 错误码（404/502）+ 一条对话 `out`。F04 只覆盖终态 ⇒ 本迭代不改（若需覆盖，属新需求）。
+2. **"派发失败"情形下调用方既拿不到 `reason`、也拿不到失败信号**：该分支在当前实现下**不可达**（§9-13：`sendTask` 吞错）⇒ 投递失败对调用方表现为 HTTP 200 + 受理态 `submitted`，且该调用**永不产生终态**（因而永不进收件箱 —— F01 的"必达"在该分支上的既有空洞：验收 3 的措辞"其终态必然出现"因"无终态"而不被触发，但调用方会一直等）。`dispatch_failed` 只是**对话面 `out` 记录**的串、不在信封域。本迭代不改（修复需先让 `sendTask` 抛出或返回失败信号，属既有缺陷修复；`demand.md` 无对应条目）。
 3. **池选择的乐观窗口**：`connected` 与投递之间仍存在心跳/断连竞态 ⇒ 选中后投递仍可能得 `AGENT_OFFLINE`（既有语义与既有错误码，不新造）。池化降低概率，不消除。
 4. **web 重启期间在飞的调用，其终态不会进入收件箱**：web 侧调用登记为进程内（`tasks` / `callSchemas`），重启即丢；Router 任务条目不携带 `principal`/`chat_id` ⇒ 无法重建归属。**F03 验收 3 明文禁止"派发时先落一条半成品记录"**，故本迭代不修（既有缺口，非本迭代引入）。影响范围 = "终态产生**之前**发生 web 重启"的调用；"终态已产生后重启"由 F03 覆盖。修复方向（后续项）：给 Router 任务条目补归属字段 + 启动时重新认领 —— 需协议面扩容，独立评估。
 5. **粘性表无 TTL**：条目上界 = 有派发历史的 `(chat_id, role)` 对（与 `principals` 同寿命口径）；不引入淘汰定时器（淘汰会让"粘性悄悄失效"变成隐性行为）。
@@ -501,6 +501,7 @@ flowchart TB
 10. **同角色多实例识别走命名约定，而非协议字段（已评估的备选未采纳）**：hub 侧看不到实例的角色（`agent.register` 不带 role、节点快照无 role 字段），本迭代用 `pb-<role>-<n>` 的后缀约定解决（§4 A-06 补定）。备选"`agent.register` 自报 role + `snapshot()` 追加 role 字段"更显式，但要改四处（`agent.js` / `router.js` / `registry.js` / `/api/agents` 投影）并扩协议载荷，收益仅是省掉一条命名约定 ⇒ 不采纳（YAGNI）；代价 = 实例 id 必须遵守该命名（否则不进池，仍是既有"实例不在线"的结论）。附一处**取值变化**（如实登记）：`GET /api/agents` 行的 `role` 列对 `pb-<role>-<n>` 从 `null` 变为角色名——字段类型与既有取值域（`string|null`）不变，且该 id 形态在迭代前本就不被识别（该值此前无意义）。
 11. **`/api/subscribe` 的角色归一不识别多实例后缀 id**：该面的 `matchesAgent` 用 `roleFromInstanceId` / `instanceIdForRole` 归一 token ⇒ 用**确切实例名**（`pb-dev-2`）过滤正常，用**角色名**（`dev`）过滤会漏掉多实例实例的事件。F06 只覆盖调用面、`demand.md` 无订阅面条目 ⇒ 本迭代不改，如实登记（若要一致化，改法与 A-06 补定同源：接入 `roleOfPoolInstance`）。
 12. **`/api/messages`（对话面板路径）不经池化路由**：该面按 `instance_id` 直接寻址（不做角色→实例解析），因此面板可以精确寻址到 `pb-dev-2`，但同一 chat 的面板提问不会被池内路由分散/粘性化 —— 池化在本迭代只覆盖 `/api/calls`（F06 范围）。
+13. **既有 `/api/calls` 的投递失败分支（404 不可用 / 502 派发失败）在当前实现下不可达**：`sendTask` 两次重试均失败后**不抛出**（`lastErr` 未被使用、循环结束即返回 `undefined`）⇒ handler 的 `catch` 分支不可达，投递失败对调用方表现为 **HTTP 200 + 受理态 `submitted`**（实测基线；`agent=nosuch-role` 的 404 走的是另一条通道：角色不可解析）。这是**既有行为**（非本迭代引入），本方案据此把空池行为按基线对齐（见 §4 A-06 空池条）并**不把该分支当作错误面依据**；修复该缺陷不在本迭代范围。
 
 **架构内部一致性检查（无冲突）**：
 - F01 × F03：必达的实现依赖持久层；两者写入点同一（`publishCallResult`）⇒ 不产生"必达但重启即丢"的中间态。
@@ -529,6 +530,7 @@ flowchart TB
 9. **`prd.md` 索引的「架构待填汇总」表**未随本文件更新（该文件的写入面不在本角色授权内）⇒ 状态列（`待填`）与 §0 表格的"已填定"不一致，提请主 agent 在收口时同步。
 10. **A-06 池成员判据的补定（同角色多实例识别约定，2026-09-17）**：来源 = **阶段 5 planner 发现 + 主 agent 代码复核**（`agent.js:841` 的 `client.register(instanceId)` 不带 role；`registry.js:156-169` 的 `snapshot()` 无 role 字段；`role-binding.js` 的 `roleFromInstanceId` 只认 `^pb-(.+)$` + 角色文件存在性 ⇒ `pb-dev-2` 解析为角色 `dev-2` → `null`）⇒ 本文件初稿的 `roleFromInstanceId(...) === role` 判据使**同角色在线池上限恒为 1**，F06 验收 1 与效果#5 在端到端面不可构造。已补定为"`pb-<role>` 或 `pb-<role>-<n>` 计入该 role 的池；解析先精确公式、未命中再剥后缀复用同一公式；用户侧以 `agent start pb-<role>-<n> --role <role>` 启动；resolver 由新增模块 `pool-routing.js` 导出、`role-binding.js` 既有公式零改动；池成员判定与 `GET /api/agents` 的 role 列同源"，全文见 §4 A-06 补定。**与 §1.3 既有面硬约束、§6 零影响声明无冲突**（不新增协议字段、不改既有可观测面的字段集与语义、不改 `cluster.json`/`roles/**`）；未采纳的显式备选与两处相邻不一致（订阅面归一、`/api/messages` 不经池化）已登记于 §9-10 ~ §9-12。
 11. **A-05 阈值透传通道的补定（`context-pool.js` 纳入改动面，2026-09-17）**：来源 = **阶段 5 planner 实测复现 + 主 agent 裁决（候选 A：把该文件纳入 pr-004 文件范围做两键透传）**。实测依据：默认执行器（daemon）路径的选项通道是 `ContextSession.prompt` 的**显式键集**（形参 `:137` / 队列项 `:144` / `client.prompt` 实参 `:170-174`）⇒ 未列入的键被静默丢弃；不改该文件时 daemon 路径阈值变 `null`，任务 ≈2.5s 判死（报文 `轮次安全网超时（累计 nullms）`），或客户端补 null 防御后退化为"该路径无计时器" ⇒ F05 验收 2/3/6 在默认执行器路径不成立。已补定：`context-pool.js` **仅两键透传**（`idleMs` / `netMs`），其键语义 / 同键 FIFO 串行 / LRU 与释放路径**零改动**；§1.3 硬约束与 §6 声明不受影响（本节 §6 已补"唯一例外"注），全文见 §4 A-05 与 §5 变更面表。
+12. **三处实跑事实更正 + 两处补记（2026-09-17）**：来源 = **pr-005 planner 在 /tmp 搭"真 Router + 真 web + 假节点"基线塔实跑**（非推断）。① §4 A-06 空池行为原写"回落 ⇒ 404 `agent 不可用`"⇒ 更正为"与基线逐字一致（HTTP 200 + 受理态 `submitted`；投递失败在 `sendTask` 内被吞），404 仅限**角色不可解析**"，MI-9 意图不变；② 终态信封计数 **11 键 → 10 键**（§1.1 与 §4 A-03；`web.js:539` 的模块注释写"11 键"为既有注释滞后，**未改代码**）；③ §4 A-05 第 6 条与 §7 L2-05 的对账 TTL 由"≈4h30m"改为**算式 + 不变式**（`缺省 TTL ≥ config.taskNetMs`；算式 = `taskNetMs + RECONCILE_SLOW_DEFAULT_MS` = 4h + 30s），去掉歧义近似值。另补记：④ `pickup.js` 退役判据 = **实现面零命中**（`docs/**`、`roles/**` 的历史文字提及不算失败项），见 §5 退役行；⑤ `new_session` **无 CLI flag**（`oamp/sdk/surface.js` 的 `calls create` flag 白名单硬编码、`sdk/**` 本迭代零改动）⇒ 其调用方途径 = **裸 HTTP 项级字段**（与既有 `requester` 同情形），见 §4 A-07。
 
 ---
 
