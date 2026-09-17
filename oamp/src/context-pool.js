@@ -134,14 +134,14 @@ class ContextSession {
    * 入队一轮（同键串行）。立即回绝的场景：键已释放（context_crashed）、队列已满（context_busy）。
    * 排队轮次的 timeoutMs 从实际开始执行时计时（§6.2）。
    */
-  prompt(text, { model = null, timeoutMs, onDelta = null, origin = null, projectContext = null } = {}) {
+  prompt(text, { model = null, timeoutMs, idleMs, netMs, onDelta = null, origin = null, projectContext = null } = {}) {
     if (this.closed) return Promise.reject(new ProtocolError('context_crashed', '上下文已释放'));
     if (this.queue.length >= QUEUE_LIMIT) {
       return Promise.reject(new ProtocolError('context_busy', `同键排队轮次已达上限（${QUEUE_LIMIT}）`));
     }
     if (origin) this.lastOrigin = origin;
     return new Promise((resolve, reject) => {
-      this.queue.push({ text, model, timeoutMs, onDelta, projectContext, resolve, reject });
+      this.queue.push({ text, model, timeoutMs, idleMs, netMs, onDelta, projectContext, resolve, reject });
       this._pump();
     });
   }
@@ -170,6 +170,8 @@ class ContextSession {
       const result = await client.prompt(text, {
         model: turn.model,
         timeoutMs: turn.timeoutMs,
+        idleMs: turn.idleMs,
+        netMs: turn.netMs,
         onDelta: turn.onDelta,
       });
       this.sentTurns += 1;

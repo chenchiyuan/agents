@@ -28,7 +28,6 @@ import { randomUUID } from 'node:crypto';
 // 超时上限、cwd=agent 进程 cwd、stdout/stderr 逐行上报（行数上限防明细爆炸）。
 const MAX_STREAM_LINES = 200;
 const DEFAULT_TASK_TIMEOUT_MS = 30000; // shell 任务默认
-const DEFAULT_OMP_TIMEOUT_MS = 1800000; // omp（LLM）任务默认：给足推理时间
 const MAX_TIMEOUT_MS = 1800000;
 const CONFIRMATION_TITLE_MAX = 120; // §5.3 信封 1（pr-002）：title 截断 120 字符（沿用会话实现的 TOOL_TITLE_MAX 口径）
 const OMP_BIN = () => process.env.OAMP_OMP_BIN || 'omp';
@@ -88,8 +87,8 @@ function parseTaskBody(payload) {
     if (typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {
       return { ok: false, reason: 'omp 任务需要非空 prompt' };
     }
-    const timeoutMs = body.timeout_ms === undefined ? DEFAULT_OMP_TIMEOUT_MS : body.timeout_ms;
-    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+    const timeoutMs = body.timeout_ms === undefined ? null : body.timeout_ms;
+    if (timeoutMs !== null && (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS)) {
       return { ok: false, reason: 'timeout_ms 需为 1~600000 正整数' };
     }
     const model = typeof body.model === 'string' && body.model.length > 0 ? body.model : null;
@@ -112,8 +111,8 @@ function parseTaskBody(payload) {
     if (body.model !== undefined && (typeof body.model !== 'string' || !MODEL_RE.test(body.model))) {
       return { ok: false, reason: 'model 需为 1~128 位 [A-Za-z0-9._/-] 字符' };
     }
-    const timeoutMs = body.timeout_ms === undefined ? DEFAULT_OMP_TIMEOUT_MS : body.timeout_ms;
-    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+    const timeoutMs = body.timeout_ms === undefined ? null : body.timeout_ms;
+    if (timeoutMs !== null && (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS)) {
       return { ok: false, reason: 'timeout_ms 需为 1~600000 正整数' };
     }
     return {
@@ -202,6 +201,8 @@ function runOmpTask(client, logger, message, task, ctx) {
     .prompt(projectContext ? `${projectContext}\n\n${task.prompt}` : task.prompt, {
       model,
       timeoutMs: task.timeoutMs,
+      idleMs: ctx.taskIdleMs,
+      netMs: ctx.taskNetMs,
       // §5.5 增量面 → 既有 task.update 形状：行流 `{kind: 'stdout'|'stderr', line}`；截断事件原样上送（文案由 L2 给）
       onDelta: (delta) => {
         if (delta.event === 'truncated') sendUpdate('working', { event: 'truncated', note: delta.note }).catch(() => {});
@@ -218,7 +219,7 @@ function runOmpTask(client, logger, message, task, ctx) {
         // 超时档沿用既有文案与 timed_out 标记；其余失败报错误文案（真实退出码在 L2 面不可得 ⇒ 取不到即 null）
         const timedOut = err && err.code === 'timeout';
         const body = timedOut
-          ? { state: 'failed', error: `timeout_after_${task.timeoutMs}ms`, timed_out: true, executor: 'omp', duration_ms: Date.now() - startedAt }
+          ? { state: 'failed', error: `timeout_after_${err?.timeoutMs ?? task.timeoutMs}ms`, timed_out: true, executor: 'omp', duration_ms: Date.now() - startedAt }
           : {
               state: 'failed',
               error: err && err.message ? err.message : '一次性执行失败',
@@ -365,6 +366,8 @@ function runDaemonTask(client, logger, message, task, ctx) {
     .prompt(task.prompt, {
       model,
       timeoutMs: task.timeoutMs,
+      idleMs: ctx.taskIdleMs,
+      netMs: ctx.taskNetMs,
       origin,
       // §5.5 增量面：按 kind 原样上送（chunk / thinking / tool_call / tool_output 四类逐类可达；不聚合、不落库）
       onDelta: (delta) => sendUpdate('working', { kind: delta.kind, text: delta.text }).catch(() => {}),
@@ -747,6 +750,8 @@ export default async function startAgent(restArgs) {
     if (resumeHeartbeat) resumeHeartbeat();
   };
   const taskCtx = {
+    taskIdleMs: config.taskIdleMs,
+    taskNetMs: config.taskNetMs,
     pool,
     pending,
     instanceId,
