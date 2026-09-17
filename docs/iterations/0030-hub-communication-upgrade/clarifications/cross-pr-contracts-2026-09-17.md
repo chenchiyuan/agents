@@ -15,7 +15,7 @@
 | 返回值域 | 严格二分：`state !== 'failed'` ⇒ **严格 `null`**；`state === 'failed'` ⇒ ∈ {`agent_error`, `cancelled_by_client`, `infra_error`, `timeout`, `rejected`} 且**恒非 `null`** |
 | 匹配口径 | 三段式：精确（8 串）→ 前缀（`timeout_after_` 且 `ms` 结尾 / `spawn_failed:` / `spawn_error:`）→ 兜底 `agent_error`；**不做关键字启发式** |
 | 零面 | 文件内 0 条 `import`（含 `node:` 内置）、无 I/O / 定时器 / 时间 / `process.env` 读取 |
-| **消费方（pr-005）要求** | 在**唯一信封构造点** `composeCallEnvelope`（`web.js:539`）内 `import { reasonOf } from './reason.js'`，仅当 `state === 'failed'` 时把结果作为**第 12 键** `reason` **追加在既有 11 键之后** |
+| **消费方（pr-005）要求** | 在**唯一信封构造点** `composeCallEnvelope`（`web.js:539`）内 `import { reasonOf } from './reason.js'`，仅当 `state === 'failed'` 时把结果作为 `reason` **追加在既有 10 键之后（末位 ⇒ 即第 11 键）**，**不补齐任何键**。（**口径更正 2026-09-17**：本表原写"第 12 键 / 既有 11 键"，与实测不符——`composeCallEnvelope` 实际产出 **10 键**：`call_id / agent / state / duration_ms / model / truncated / text / structured_output / error / exit_code`；来源 = pr-005 planner 的 F-1 实跑复核） |
 
 ## 2. `createPoolRouting({ roleFromInstanceId })` —— 提供方 pr-002 ✅（合并 `4bcfbc3`，文件 `oamp/src/pool-routing.js`）
 

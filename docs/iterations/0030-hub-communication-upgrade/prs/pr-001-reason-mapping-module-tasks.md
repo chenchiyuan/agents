@@ -58,7 +58,7 @@
    〔追溯：architecture §4 A-04 裁决 1 说明 2（含 HB-10 结论）；PR 验收 4〕
 6. **零依赖面**：文件内 **0 条 `import` 语句**（含 `node:` 内置）；无文件/网络 I/O、无定时器、无 `process.env` 读取、无时间读取（`Date.now()` 一类）；不 import 任何 `src/**` 模块。
    〔追溯：PR 验收 1 + PR「上下文摘要」"零依赖、纯函数、无 I/O、无定时器"；architecture §1.3 硬约束 7（零第三方依赖）〕
-7. **唯一消费点（本 PR 不实现，仅冻结）**：pr-005 在 `composeCallEnvelope`（`oamp/src/web.js:539`，本仓唯一信封构造点）内 `import { reasonOf } from './reason.js'`，仅当 `state === 'failed'` 时把结果作为第 12 键 `reason` 追加在既有 11 键之后。⇒ 本 PR 冻结的签名与返回值**不得**在后续 PR 中被改写。
+7. **唯一消费点（本 PR 不实现，仅冻结）**：pr-005 在 `composeCallEnvelope`（`oamp/src/web.js:539`，本仓唯一信封构造点）内 `import { reasonOf } from './reason.js'`，仅当 `state === 'failed'` 时把结果**追加在既有 10 键之后（末位）**，即成为**第 11 键**；**不补齐任何键**。**（计数随实测口径更正，2026-09-17；实现本身为"追加到既有键之后"，与更正后口径一致）**。⇒ 本 PR 冻结的签名与返回值**不得**在后续 PR 中被改写。
    〔追溯：architecture §4 A-03 第 2 条（信封落点）+ §5 变更面对 `web.js` 的第 ② 项；pr-005 `depends_on` 记录〕
 8. **序列化形态**：返回值是**字符串字面量**；`timeout` 不分子层级（不出现 `timeout.idle` 一类）。
    〔追溯：architecture §4 A-03（"序列化形态"条）；D-29 经 F04 验收 3 转述〕
