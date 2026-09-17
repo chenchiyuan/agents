@@ -661,3 +661,19 @@
 - 验证标准 6 条：① 增量面精确（恰 2 行 2 文件）+ 完整面仍三文档、`llms.txt` 未改；② 修正 1 与实现一致（隔离环境跑成功/失败各一次，抽键集证"成功侧无该键 ≠ null"）；③ 修正 2 与实现一致（旧值零残留 + 算式在 `web.js`/`config.js` 有对应 + 与 README env 表同口径）；④ 前份 AC1~AC5 是否仍成立（需重跑者重跑并给读数）；⑤ 机械锁仍绿（JSON `pass:true`/`R1=29`/`nonOk=[]`）+ `llms.txt` 逐字节；⑥ 红线违规检查（`oamp/src|sdk|scripts` 零改动、路由仍 29）
 - 产出：`clarifications/verify-<ts>-pr-006-delta.md` + `roles/verifier/data/` 副本；要求明确回答"本增量是否使该 PR 可合并（blocking / non-blocking）"
 - 触发依据：`DevP006Fix` 完成回报（提交 `06d86e6`）+ 主 agent 对增量 diff 的逐行复核
+
+### 2026-09-17 21:05:00 · 收到报告 · verifier（pr-006 增量定向复核）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-194317-pr-006-delta.md（+ `roles/verifier/data/` 副本）
+- 结论：**PASS**（6 条标准逐条 pass）、**diff 清单为空**、明确判定 **non-blocking**；红线违规检查 pass（`oamp/src|sdk|scripts` 相对 `5277713` 与 `9a4f424` 均为空、路由仍 29）
+- 关键独立读数：**信封实测**——成功侧 `10` 键且 `success_has_reason=false`；受理态 `submitted_has_reason=false`；失败侧 `11` 键、`fail_reason=timeout`、**`fail_last_key=reason`**（⇒ `reason` 类型写作 `string` 正确，`string | null` 是错的）；`doctor {pass:true, R1:29, r1Ok:29, nonOk:[]}`；`llms_equal=true`；前份 `AC1~AC5` **仍成立**
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（5m12s）
+
+### 2026-09-17 21:07:00 · 调度决策 · pr-006 合并 + 第七次槛位释放 + pr-008 worktree 重建
+
+- pr-006 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-006-api-docs-sync` ⇒ **`4748e78`**；3 文档 / 17 插入 / 12 删除）；现场清理（`worktree remove` + `branch -d`）
+- **pr-008 的 worktree 从新 tip 重建**（`worktree remove` + `branch -D` + 从 `4748e78` 重新 `worktree add`）：该 PR 尚无提交，但其证据要枚举"相对 `main` 的 diff 全集"——若仍用旧基点 `9a4f424`，diff 全集**会缺文档四项**，阶段 6 会当"遗漏功能点"打回（为此本 PR 的 dev 有意暂缓到 pr-006 合并后）
+- 复核合并后 diff 全集 = **14 路径**：`oamp/API.md`、`oamp/README.md`、`oamp/skill/hub.md`（M）+ `oamp/src/{acp-client,agent,config,context-pool,oneshot-client,persist,rpc-client,web}.js`（M）+ `oamp/src/pickup.js`（D）+ `oamp/src/{pool-routing,reason}.js`（A）；**`oamp/llms.txt` 不在 diff 中**（生成物内容未变，属预期）
+- **槛位算法**：pr-006 返回"成功合并" ⇒ `累计槛位释放次数 = 7`，`当前有效上限 = min(3 + 7×3, 5) = 5`（仍触硬上限）
+- 派发 `DevP008`（gpt）：T1~T9（T10 = verifier 的独立核验任务，不属 dev 交付）；裁决随简报冻结（MI-P8-01~05 全采纳 + §5.2 六条上报项处置 + 5 条已登记预期取值变化清单）
+- 触发依据：`verify-20260917-194317-pr-006-delta.md` 结论 PASS / non-blocking；`git merge` 输出；`git diff --name-status main HEAD -- oamp/`（14 路径）
