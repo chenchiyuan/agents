@@ -26,11 +26,11 @@
 - [ ] `model-routing-carrier.md` 存在，含绑定声明（`dev` = `openai/gpt-5.6-luna`、`verifier` = `powerby/grok-4.6`）、别名写法（agent 定义 `model: "@dev"` / `"@verifier"` + `modelRoles.dev` / `modelRoles.verifier` 展开为具体模型串 ⇒ 模型值集中一处）、以及"其余角色不新增绑定、派发时用默认 agent ⇒ 等于当刻生效模型"的口径
 - [ ] 载体落点已裁决并记录在案：用户级 `~/.omp/agent/agents/{dev,verifier}.md` + `~/.omp/agent/config.yml` 的 `modelRoles`；文件内显式标注"该载体在仓库之外、不入版本控制，可追溯性由本文件 + 台账承担"，且**不含**任何 `roles/**` 内的模型值
 - [ ] 模型值不出现在 `roles/**`：全仓检索 `roles/` 下无 `model:` 键与 `openai/gpt-5.6-luna` / `powerby/grok-4.6` 字面量（`tools/check-model-dispatch-protocol.sh` 的 V-06 与 CLR-MD-004 通过）
-- [ ] `dispatch-ledger.md` 逐条含五列（角色 / 用途 / 通道 / 子 agent 自报模型 / 终态），**且它就是 F08 验收 1~4 的取证面**：`dev` 行自报 = `openai/gpt-5.6-luna`、`verifier` 行自报 = `powerby/grok-4.6`、其余角色行自报 = 当刻生效模型（判据不写死模型名字符串）——由此 F08 验收 1~4 可在本 PR 产物内判定通过 / 不通过
+- [ ] `dispatch-ledger.md` 逐条含五列（角色 / 用途 / 通道 / 子 agent 自报模型 / 终态）；另以「时点」作**行标识列** ⇒ 实际表头为**六列**，**且它就是 F08 验收 1~4 的取证面**：`dev` 行自报 = `openai/gpt-5.6-luna`、`verifier` 行自报 = `powerby/grok-4.6`、其余角色行自报 = 当刻生效模型（判据不写死模型名字符串）——由此 F08 验收 1~4 可在本 PR 产物内判定通过 / 不通过
 - [ ] "同一张表"闭合：本迭代不存在第二份自报模型证据文件（无 `evidence/f08-*`）；F08 验收 4 与 F09 验收 2 指向同一份 `dispatch-ledger.md`
 - [ ] 绑定范围与 0028 定案一致：只有 `dev` / `verifier` 两个角色有显式绑定；`oamp/cluster.json` 零改动（不在本 PR 文件范围）
 - [ ] 台账"通道"列取值均为"本地 subagent（宿主 `task` 派发）"，不存在"经 hub 派发"充当角色协作的条目
-- [ ] `evidence/f09-process-contract.md` 含 ≥1 条 brief 抽检记录（判据两条齐：角色定义全文注入、工作区地址字段显式给出），以及阶段 6 并发证据的形态声明（以 git 事实为主：worktree 落点 / 分支时间窗 / 提交交错，**不要求** hub 调用记录作证据）
+- [ ] `evidence/f09-process-contract.md` 含 ≥1 条 brief 抽检记录（判据两条齐：角色定义全文注入、工作区地址字段显式给出），以及阶段 6 并发证据的形态声明（以 git 事实为主：worktree 落点 / 分支时间窗 / 提交交错，**不要求** hub 调用记录作证据）；**边界**：摩擦与需求层问题的仲裁载体是 `deferred-demand-changes.md`（F09 卡验收 4），本 PR 的证据文档**不重复摘录**摩擦条目——证据文档覆盖**通道声明 / 取证形态 / brief 抽检**三项即可。
 - [ ] `deferred-demand-changes.md` 中本迭代新增的每条摩擦记录三要素齐（问题 / 为什么判定为需求层面问题 / 本迭代如何处理）；不存在因搭置而暂停、回退或改需求的记录
 - [ ] 零运行时改动：本 PR 文件范围内不含 `oamp/**`、`oamp/sdk/**`、`oamp/web/**`；`status.md` / `history.md` 的格式规范不被改写
 

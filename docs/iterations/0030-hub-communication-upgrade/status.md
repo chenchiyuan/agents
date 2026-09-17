@@ -36,10 +36,10 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **当前有效上限**：**5**（`min(3 + 3×3, 5)` = 5，维持硬上限）
-- **累计槛位释放次数**：**3**（pr-001、pr-002、pr-003 成功合并）
-- **已派发总数（阶段 5 内部）**：**15**（planner ×5 + dev ×5 + verifier ×3；不含 Gate 两轮 `prs/` 验证与两条载体探针）
-- **当前在飞**：2（`DevP004`、`DevP007`）；**空闲槛位 3 个，因无已解锁 PR 而保持空置**（pr-005 仅缺 pr-004；pr-006/pr-008 待 pr-005）
+- **当前有效上限**：**5**（`min(3 + 4×3, 5)` = 5，维持硬上限）
+- **累计槛位释放次数**：**4**（pr-001、pr-002、pr-003、pr-007 成功合并）
+- **已派发总数（阶段 5 内部）**：**17**（planner ×5 + dev ×5 + verifier ×4；不含 Gate 两轮 `prs/` 验证与两条载体探针）
+- **当前在飞**：1（`DevP004` 的验收 `VerP004`）；**空闲槛位 4 个，因无已解锁 PR 而保持空置**（pr-005 仅缺 pr-004；pr-006/pr-008 待 pr-005）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -55,7 +55,7 @@
 | pr-004-idle-net-turn-timers.md | （无） | ⏸ | feat/0030-pr-004-idle-net-turn-timers | ⬜ | **占用**（planner 在途） |
 | pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004 | ⬜ | | ⬜ | 排队(依赖未满足：**仅缺 pr-004**) |
 | pr-006-api-docs-sync.md | pr-004、pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
-| pr-007-model-routing-and-process-evidence.md | （无） | ⏸ | feat/0030-pr-007-model-routing-and-process-evidence | ⬜ | **占用**（planner 在途） |
+| pr-007-model-routing-and-process-evidence.md | （无） | ✅ | (已清理) | ✅ `58e30cd` | 已释放（槛位释放 4） |
 | pr-008-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
 
 > 在飞 4 个（≤ 当前有效上限 5）。已合并 1/8。**欠账（现已全部出清）**：① ~~`architecture.md` §4 A-04 表展示微调~~ **已完成**（architect）；② ~~已合并 PR 的验收复选框勾选~~ **已完成**；③ ~~`pr-002-pool-routing-module-tasks.md` 旧判据口径~~ **已完成**（pr-planner 2026-09-17 15:57，22 处同步、执行证据段逐字节未动）；④ ~~`pr-008` 的 G01 零回归判据缺例外括注~~ **已完成**。

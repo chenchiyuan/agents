@@ -426,3 +426,19 @@
 - 通道：本地 subagent，`agent=verifier`（预期 grok）
 - 产出物：PR worktree 提交 `53c27a0` 的六个文件 diff（判据 = **修订后** PR 文件 8 条验收标准，含 `context-pool.js` 两键透传条）
 - 独立取证要求：不得采信执行方证据；自写桩 + 自设压缩阈值复现双计时/门冻结/`null` 不当 0ms/两触发可区分/daemon 路径阈值非 null；**每结论标注取证层次**；**不得启动真实集群**（默认端口/socket 属非隔离共享资源），需端到端时应在环境变量层面隔离
+
+### 2026-09-17 17:00:00 · 收到报告 · verifier（pr-007 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-155525-pr-007.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（pass 9 / fail 0 / partial 1 / blocked 0）；偏差 5 条；verifier **自数**台账 27 行、自核六列、自 diff 仅追加性（`8 insertions, 0 deletions`，父提交前 34 行 SHA-256 与当前前 34 行一致）、自核改动面恰 4 路径
+- 关键自查证据（不采信执行方）：`dev` 行 5 条全 `openai/gpt-5.6-luna`、`verifier` 行 5 条全 `powerby/grok-4.6`、其余角色全 `deepseek/deepseek-v4-flash`；brief 抽检两条尺寸/关键词复核（`roles/dev/dev.md` 195 行、`roles/planner/planner.md` 204 行，均与其自数一致）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 17:02:00 · 调度决策 · pr-007 合并 + partial 定性（委托方标准超出真源，不返工）
+
+- **partial 定性（主 agent 裁决）**：partial 落在"F09 过程证据文档是否逐条含五款（通道 / 每 PR 派生要点 / 取证形态 / 摩擦搭置 / 产物落点）"——**不通过侧的三款（每 PR 派生要点、摩擦专段、产物落点专段）是主 agent 内联标准自行加宽的**，非真源要求。核查 `prd/F09-…md` 的验收标准共 6 条：通道单一 / 台账逐条 / brief 抽检 / **摩擦搭置（载体明确为 `deferred-demand-changes.md`）** / 并发证据形态 / 产物落点（即"落在工作区目录"这一事实）。产物两处均已做到；PR 文件 AC 8 口径（≥1 条 brief 抽检 + 阶段6 形态声明）**pass**。⇒ **不返工**；改由 `pr-planner` 在 PR 文件 AC 8 补一句边界说明（摩擦载体是 `deferred-demand-changes.md`，证据文档不重复摘录），防后续按更宽口径复发
+- **偏差 5 条处置**：① AC 4 写"五列" vs 台账实际六列 → 派 `pr-planner` 改为"含五列 + 时点作行标识列"（依据 MI-P3 裁决 + F09 卡用"含"字）；② `roles/**` 递归层既有取证命中 → 已由 MI-P1 裁决与搭置条目覆盖，本迭代不改既有证据；③/④ 台账截止 16:07 的 `未回报/在途` 行与 `status.md` 追赶不同步 → **属预期**（台账是提交时快照，合并物不追滚动视图），登记为该表的固有约定；⑤ 抽检用途措辞与台账用途列用词未对齐 → 与 ① 同批处理
+- pr-007 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-007-model-routing-and-process-evidence` ⇒ **`58e30cd`**，4 files / 170 insertions / 0 deletions）；现场清理（`worktree remove` + `branch -d`）
+- **主 agent 自身错误更正**：`status.md` 中该行合并哈希先被误写为 `9be2a4e`（未经核实先行写下），经 `git log --merges` 复核后更正为 `58e30cd`。登记以警示：台账类哈希必须**取自命令输出**，不得凭预期书写
+- 解锁扫描：**无新增已解锁 PR**（pr-005 仅缺 pr-004）⇒ 空闲的 4 个槛位保持空置
+- 触发依据：`clarifications/verify-20260917-155525-pr-007.md` §逐项判定 / §偏差记录 / §结论；`prd/F09-process-contract-and-friction-log.md` §验收标准 6 条；`git log --merges`
