@@ -31,7 +31,7 @@
 **A-03（已填定，全文见 `architecture.md` §4 A-03）**
 
 - **映射公式落点** = 新增叶子模块 `src/reason.js`（零依赖、唯一公式 `reasonOf(state, error)`，体例同 `role-binding.js` 的"公式只此一处"）；`state !== 'failed'` 时返回 `null`。
-- **信封落点** = `composeCallEnvelope`（既有唯一信封构造点）在 `state === 'failed'` 时**追加** `reason` 键：追加在既有 11 键**之后**（既有键名与键序零改动）；非失败态**不带该键**（MI-4）；取值必须 ∈ 五值闭集（兜底归 `agent_error` ⇒ 失败侧恒有值，不出现空值或枚举外值）。
+- **信封落点** = `composeCallEnvelope`（既有唯一信封构造点）在 `state === 'failed'` 时**追加** `reason` 键：追加在既有 **10 键** 之后（**末位**、不补齐任何键；既有键名与键序零改动）（口径随实测更正，2026-09-17）；非失败态**不带该键**（MI-4）；取值必须 ∈ 五值闭集（兜底归 `agent_error` ⇒ 失败侧恒有值，不出现空值或枚举外值）。
 - **持久化落点** = `inbox.envelope` 列内的 JSON（**不单列一列**：`reason` 无独立查询需求，且必须与信封其余字段同源同字节）。
 - **序列化形态** = 字符串字面量；`timeout` 不分子层级（D-29）；`call.terminal` 不动（仍为 `{state, error}`）。
 - **唯一消费点** ⇒ 信封面五个读点（`/api/calls` 响应、`/api/calls/<id>`、`/api/calls/wait`、`/api/pickup`、SSE `call_result`）**全部同源**。
