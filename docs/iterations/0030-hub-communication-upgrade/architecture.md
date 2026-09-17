@@ -46,7 +46,7 @@
 | 调用面派发 | `/api/calls` handler：校验 → **`const agentId = instanceIdForRole(role)`**（角色↔实例 **1:1 硬解析**，仅校验角色文件存在）→ 逐项 `sendTask(agentId, …)`；首项投递失败 ⇒ 404 `agent 不可用: <role>（无对应在线实例）`（`AGENT_OFFLINE`/`AGENT_NOT_FOUND`）或 502 `UPSTREAM_UNAVAILABLE` | `src/web.js:1342 / 1468-1472` |
 | 调用登记 | `tasks: Map<call_id, entry>`（entry 含 `chatId/agentId/lines/landed/attempts/slow/registeredAt/timer/call`）与 `callSchemas: Map<call_id, call>`；`call = {callId, role, chatId, requester, outputSchema, schemaMode, done, resolve, published, working, terminal}` —— **全部进程内** | `src/web.js:1443 / 2149-2164` |
 | 终态发布链 | agent 投递 → `handleDeliver(task.result)` → `finishTask(entry, body)`（落 `out` + `message` + `chat_state`）→ `queryOnce(router.task_get)` → **`publishCallResult(task, entry)`（唯一发布点）**；对账兜底 `reconcileTask` 走**同一发布点** | `src/web.js:handleDeliver / finishTask / publishCallResult / reconcileTask` |
-| 终态信封 | `composeCallEnvelope(task, call)`：**11 键固定键序**（`call_id/agent/state/duration_ms/model/truncated/text/structured_output/error/exit_code`），`error` 为自由字符串；strict 结构校验失败时以 `error='structured_output_invalid'` **覆写**则 state 降为 `failed` | `src/web.js:539-558` |
+| 终态信封 | `composeCallEnvelope(task, call)`：**10 键固定键序**（`call_id/agent/state/duration_ms/model/truncated/text/structured_output/error/exit_code`；实测返回键为 10，`src/web.js:539` 的模块注释写"11 键"为既有注释滞后，见 §10-12），`error` 为自由字符串；strict 结构校验失败时以 `error='structured_output_invalid'` **覆写**则 state 降为 `failed` | `src/web.js:539-558` |
 | 取件面 | `src/pickup.js`：**进程内** `Map<call_id, {call_id, requester, agent, chat_id, terminal_at, acked}>`（指针，不存正文）；写入点 = `publishCallResult`，条件 = **`call.requester !== null`**；读取 = `listByRequester` 逐条 `queryOnce(router.task_get)` **现算信封**；ack = 置 `acked=true` 移出集合 | `src/pickup.js` / `web.js:1627-1642 / 1791-1796 / 2223-2231` |
 | 身份面 | `src/principals.js`：进程内表 + `requesterOf(source)` 单一接缝；`/api/calls` 把**空串**归为 `null`（既有行为） | `src/principals.js` / `web.js:1347` |
 | 持久层 | `src/persist.js`：`node:sqlite` `DatabaseSync`，`SCHEMA` 字符串 + `CREATE … IF NOT EXISTS` 幂等建表（无迁移机制）；三表 `projects/chats/messages` + 4 索引；SQL 只在本模块 | `src/persist.js` |
@@ -241,7 +241,7 @@ flowchart TB
 - **映射公式落点**：新增叶子模块 `src/reason.js`，导出唯一函数
   `reasonOf(state, error) → 'agent_error' | 'cancelled_by_client' | 'infra_error' | 'timeout' | 'rejected' | null`（**仅在 `state === 'failed'` 时返回非 null**）。体例逐条照 `role-binding.js`：零依赖、"公式只此一处"、纯函数（可独立验收）。
 - **信封落点**：`composeCallEnvelope`（既有唯一信封构造点，`web.js:539`）在 `state === 'failed'` 时**追加** `reason` 键：
-  - 追加在既有 11 键**之后** ⇒ 既有键名与键序零改动；
+  - 追加在既有 **10 键** 之后（**末位**）⇒ 既有键名与键序零改动；
   - `state !== 'failed'` ⇒ **不带该键**（MI-4：成功侧不新增字段，`POST /api/calls` 的受理态信封与成功终态信封键集不变）；
   - 取值必须 ∈ 五值闭集：`reasonOf` 的返回值在 `failed` 时**恒非 null**（兜底归 `agent_error`，见 A-04）⇒ F04 验收 1「不存在缺 `reason` 或取枚举外取值」由构造满足。
 - **持久化落点**：`inbox.envelope` 列内的 JSON —— **不单列一列**（`reason` 无独立查询需求，YAGNI；何况它必须与信封其余字段同源同字节）。
@@ -330,7 +330,7 @@ flowchart TB
 - **选择口径**：次序键 `(queued, busy, inflight, instance_id)` 取字典序最小（`queued`/`busy` 来自任务表；`inflight` = 本进程"已选中未落表"的预留计数；`instance_id` 升序做确定性 tie-break）。
 - **实现口径与调用点**：新增 `src/pool-routing.js`（叶子模块：粘性表 + `choose()` + 预留计数），在 `startWeb` 内接线为 `pickInstance(role, {chatId, noReuse, snapshot})` 并注入 `createApiRoutes` 的 deps（体例 = 既有 `sendTask` / `scheduleReconcile` 的注入方式）；替换点 = `/api/calls` handler 的 `const agentId = instanceIdForRole(role)`（**唯一调用点**）。
 - **"既有角色→实例映射规则的替换落点"**：仅 `/api/calls` 一处；`role-binding.js` 的 `instanceIdForRole` **保留**（空池回落、`/api/messages` 面板路径、自派发判定仍用它），公式仍在唯一处。
-- **空池行为**（MI-9）：回落 `instanceIdForRole(role)` ⇒ 既有 `AGENT_OFFLINE` → 404 `agent 不可用: <role>（无对应在线实例）`（既有错误码与文案**逐字复用**）。
+- **空池行为**（MI-9）：回落 `instanceIdForRole(role)`（既有目标解析），随后与**基线逐字一致**——投递失败（`AGENT_OFFLINE`）在既有 `sendTask` 内被吞（`lastErr` 未被使用、循环结束后返回 `undefined`，见 §9-13），调用方实得 **HTTP 200 + 受理态 `submitted` 信封**；**不新造错误面**、不静默排队到未来实例、不自动拉起实例（MI-9 意图保留）。**404 `agent 不可用: <role>（无对应在线实例）` 只发生在"角色不可解析"**（如 `agent=nosuch-role`：`roleOfInstance(instanceIdForRole(role)) !== role`），与在线与否无关 —— 该文案与分支逐字复用、不受本卡影响。
 - **成本**：每个 `/api/calls` 请求 2 次 UDS 只读查询（无论 1 项还是 N 项，快照只取一次）；池化未启用（单实例）时结果与迭代前一致。
 - **不做**：不新增协议方法（YAGNI：`router.status` + `router.task_list` 已足够；新增 `router.pool_pick` 只为省一次往返，却扩了协议面）；不做实例健康探测/生命周期管理（G01 验收 8）。
 

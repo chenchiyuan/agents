@@ -2,7 +2,7 @@
 
 ## 上下文摘要
 
-`oamp/src/web.js` 是仓库里的多面接线点，本迭代六处改动落在同一文件，**按代码耦合只能整文件同批提交**：① `/api/calls` 目标由 `pickInstance`（池内选择）决定 + 项级可选 `new_session` + `call.principal` 派生（`显式 requester ?? 'chat:' + chatId`）——池成员判定与 `GET /api/agents` 的 `role` 列**同源消费** pr-002 的 `roleOfPoolInstance(id, roleFromInstanceId)`；② `composeCallEnvelope` 失败侧在既有 11 键**之后**追加 `reason`；③ `publishCallResult` 由"仅显式 `requester`"改为**无条件**写 `db.insertInbox`；④/⑤ `GET /api/pickup` 改读 `db.listInbox`（不再逐条 `router.task_get`）、ack 改 `db.deleteInbox`；⑥ `RECONCILE_TTL_DEFAULT_MS` 默认值与 `config.taskNetMs` 联动（不联动即破 F01 必达：登记被清后长任务终态在 `handleDeliver` 查不到 `entry` 被丢弃）；同时退役 `oamp/src/pickup.js`——**退役与三个消费点在同一 PR**，否则中间态不可构建。
+`oamp/src/web.js` 是仓库里的多面接线点，本迭代六处改动落在同一文件，**按代码耦合只能整文件同批提交**：① `/api/calls` 目标由 `pickInstance`（池内选择）决定 + 项级可选 `new_session` + `call.principal` 派生（`显式 requester ?? 'chat:' + chatId`）——池成员判定与 `GET /api/agents` 的 `role` 列**同源消费** pr-002 的 `roleOfPoolInstance(id, roleFromInstanceId)`；② `composeCallEnvelope` 失败侧在**既有 10 键之后（末位）**追加 `reason`（既有 10 键 = `call_id` / `agent` / `state` / `duration_ms` / `model` / `truncated` / `text` / `structured_output` / `error` / `exit_code`，实测口径；架构/prd 文中的「11 键」表述有误，本 PR 按实测的 10 键）；③ `publishCallResult` 由"仅显式 `requester`"改为**无条件**写 `db.insertInbox`；④/⑤ `GET /api/pickup` 改读 `db.listInbox`（不再逐条 `router.task_get`）、ack 改 `db.deleteInbox`；⑥ `RECONCILE_TTL_DEFAULT_MS` 默认值与 `config.taskNetMs` 联动（不联动即破 F01 必达：登记被清后长任务终态在 `handleDeliver` 查不到 `entry` 被丢弃）；同时退役 `oamp/src/pickup.js`——**退役与三个消费点在同一 PR**，否则中间态不可构建。
 
 **已知代价（可审查性，无法通过拆 PR 消除）**：单文件同时承载 F01~F07 七张卡的接线，审查者需同时装载七张卡的心智模型才能审完这一 PR；受"同一文件不可被两个 PR 声明"的文件范围互斥约束，该代价只能如实登记，**不因此改动本 PR 的文件范围与验收标准**。
 
@@ -23,15 +23,16 @@
 
 ## 验收标准
 
-- [ ] 退役闭合：`oamp/src/pickup.js` 已删除，全仓（含 `oamp/**` 与 `docs/**` 之外的实现面）grep `pickup.js` / `pickup.add` / `pickup.ack` 零命中；`GET /api/pickup` 与 `POST /api/pickup/:call_id/ack` 两端点仍注册且行为可达
+- [ ] 退役闭合：`oamp/src/pickup.js` 已删除，且**实现面零命中**——`oamp/**`（排除 `docs/` / `roles/` / `.pb-agents/` / `node_modules/`）grep `pickup.js` / `pickup.add` / `pickup.ack` 全零（等价的判定式：`grep -rn "pickup\.\(js\|add\|ack\)" oamp/ --exclude-dir=node_modules` 为空；`docs/**` / `roles/**` 里的历史文字提及不计入）；`GET /api/pickup` 与 `POST /api/pickup/:call_id/ack` 两端点仍注册且行为可达
 - [ ] 必达（不声明身份）：以 `mode=background` 派发且**不传** `requester` ⇒ 终态后 `GET /api/pickup?principal=chat:<chat_id>` 能取到该调用；显式传 `requester` ⇒ 落在该显式身份上；两者同时存在 ⇒ 显式优先、同一 `call_id` 只出现一条（不双写、不合并）
 - [ ] 只写终态：`submitted` / `working` 阶段在收件箱与持久层均无条目；同一 `call_id` 至多一条（重复发布 / 对账重入不新增、不覆盖）
-- [ ] `reason` 落点：失败终态信封含 `reason` ∈ 五值闭集、键追加在既有 11 键之后；`state=completed` 信封**不带** `reason`；`/api/calls/<id>`、`/api/pickup` 条目内的 `envelope`、SSE `call_result` 帧三面同值同源
+- [ ] `reason` 落点：失败终态信封含 `reason` ∈ 五值闭集、键追加在**既有 10 键之后（末位）**且**不补齐任何键**（既有 10 键 = `call_id` / `agent` / `state` / `duration_ms` / `model` / `truncated` / `text` / `structured_output` / `error` / `exit_code`；按实测，非架构/prd 文中的「11 键」）；`state=completed` 信封**不带** `reason`；`/api/calls/<id>`、`/api/pickup` 条目内的 `envelope`、SSE `call_result` 帧三面同值同源
 - [ ] 取件契约不变：条目形状仍为 `{call_id, requester, agent, chat_id, terminal_at, acked, envelope}`（键集与键序不变，`acked` 恒 `false`）；`POST …/ack` 幂等（重复确认不报错、无副作用），确认后条目不再出现在未取件集合
 - [ ] 跨重启：终态后未 ack ⇒ 重启 web 进程后同一身份再取件仍能取到同一条结果，且信封与重启前一致（不再依赖 Router 任务表现算）
 - [ ] 池化分流与粘性：同角色两个在线实例 + 两个不同 `chat_id` 并发派发 ⇒ 落到不同实例；同一 `chat_id` 连续两轮 ⇒ 同一实例；带 `new_session` 声明 ⇒ 按最空闲重选并重绑
-- [ ] 空池与单实例：池内无在线实例 ⇒ 既有 404 `agent 不可用: <role>（无对应在线实例）`（错误码与文案逐字复用）；同角色只有一个在线实例 ⇒ 派发目标与迭代前一致、不额外排队
-- [ ] 既有面不回归：`new_session` 缺省不出现时请求形状与既有响应逐字不变；`GET /api/calls` 响应键集不变；`GET /api/agents` 的实例标识与既有五字段投影不变（不新增第二套标识）；`GET /api/agents` 的 `role` 列与池成员判定消费**同一** resolver（`roleOfPoolInstance(id, roleFromInstanceId)`，两处 `baseResolve` 实参均为 `roleFromInstanceId`）⇒ 同角色多实例（`pb-<role>-<n>`）的 `role` 列由迭代前的 `null` 变为角色名（A-06 补定的**已登记取值变化**；其余列与其余取值域不变）
+- [ ] **角色不可解析（回归面）**：`agent=<不存在的角色>`（如 `nosuch-role`）⇒ **404** 且文案逐字 = 既有 `agent 不可用: <role>（无对应在线实例）`（与迭代前同，本 PR 不改该分支）
+- [ ] **空池回落（不新造错误面）**：`agent=<可解析角色>` 但池内无在线实例 ⇒ 回落 `instanceIdForRole(role)`，响应与迭代前基线**逐字一致**（实测基线 = **HTTP 200 + `submitted`**——`sendTask` 吞掉投递异常，该失败分支不可达）；**不得**出现新的错误码 / 新文案 / 新状态；同角色只有一个在线实例 ⇒ 派发目标与迭代前一致、不额外排队
+- [ ] 既有面不回归：`new_session` 缺省不出现时请求形状与既有响应逐字不变；`GET /api/calls` 响应键集不变；`GET /api/agents` 的实例标识与既有五字段投影不变（不新增第二套标识）；`GET /api/agents` 的 `role` 列与池成员判定消费**同一** resolver（`roleOfPoolInstance(id, roleFromInstanceId)`，两处 `baseResolve` 实参均为 `roleFromInstanceId`）⇒ 同角色多实例（`pb-<role>-<n>`）的 `role` 列由迭代前的 `null` 变为角色名（A-06 补定的**已登记取值变化**；其余列与其余取值域不变）；另：本 PR 会更新 `POST /api/calls` 的**路由元数据 `desc`**（使项级可选参数 `new_session` 在 `/api/docs` 可见）⇒ `/api/docs` 中该路由的此行变化属**预期差异**，不是回归
 - [ ] 对账联动：`RECONCILE_TTL` 默认值 ≥ `config.taskNetMs`（约 4h30m 量级），长任务终态不因登记被清理而永不发布；`OAMP_WEB_RECONCILE_TTL_MS` 覆盖仍生效
 
 ## 参考资料

@@ -463,3 +463,19 @@
 - **解锁扫描：pr-005 已解锁**（依赖 pr-001/002/003/004 全部合并）⇒ 按"合并进迭代分支才算解锁"的硬约束，**从合并后的 tip `1b02689` 拉出** `pr-005` 的 worktree（`feat/0030-pr-005-web-inbox-and-pool-wiring`）——并复核确认该 worktree 的 `oamp/src/**` 已含全部上游产物（`reason.js` / `pool-routing.js` / `persist.js` + 四个计时文件 + `context-pool.js`）。顺序错了会让 pr-005 的子 agent 看不到依赖产物而自行造一套
 - 派发 `PlanP005`（pr-005 的 planner）：输入含 PR 文件 10 条验收标准 + `architecture.md` + **跨界契约冻结记录**（`cross-pr-contracts-2026-09-17.md`）+ **worktree 内已合并的上游真实代码**（要求按真实形态规划，不凭描述推断）
 - 触发依据：`clarifications/verify-20260917-161050-pr-004.md` 结论 PASS；`git merge` 输出；`git diff --name-only main HEAD -- oamp/` 复核（9 个文件）；`workflow-pb.md` §阶段 5 解锁条件
+
+### 2026-09-17 17:45:00 · 收到报告 · planner（pr-005）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-005-web-inbox-and-pool-wiring-tasks.md（**538 行**）；任务总数 **8**（T1 池内选择接线 / T2 principal 派生+无条件写 inbox / T3 取件两端点改读写 / T4 `reason` 追加 / T5 对账 TTL 联动 / T6 退役 `pickup.js` / T7 role 列同源 / T8 集成自证）；PR 10 条 AC 全覆盖，无孤儿任务、无无主 AC
+- 2. 依赖图：8 条边、无环；最长链 `T2 → T3 → T6 → T8`（4 节点）
+- 3. `[model_inferred]` 列表：MI-P1 / MI-P6~MI-P10（6 项）
+- 4. 循环依赖：无
+- 5. 疑问/越界：8 条**实测事实更正**（F-1~F-8，均附实跑证据）：**F-1** 信封实为 **10 键**（非文档所述 11）；**F-2**（重要）"空池 ⇒ 既有 404"**与实测不符**——实际是 **200 + `submitted`**（`sendTask` 吞错、handler 失败分支不可达），404 只出现在"角色不可解析"；**F-3** `RECONCILE` 默认值算式 = `taskNetMs + 30000ms`（与"约 4h30m"表述不一致）；**F-4** 取件面 Router 不可达时 502 → 200（预期改进）；**F-5** `POST /api/calls` Router 不可达基线 = 200 + submitted（故快照查询必须吞错回落）；**F-6** 池内命中 `pb-<role>-<n>` 时信封 `agent` 会变 `null`（与 role 列矛盾）；**F-7** `sdk/surface.js` 无 `--new-session` flag（硬编码白名单，`sdk/**` 零改动）⇒ 调用方途径 = 裸 HTTP 项级字段；**F-8** 退役 grep 口径应为**实现面**零命中
+- **判据可判定性前置证明（本迭代最强）**：planner 在 `/tmp/0030-pr-005/base/` 用 **真 Router + 真 web + 假节点**跑 **45 条 e2e 断言**：**19 PASS / 26 FAIL**，且 **FAIL 集合恰为 PR 应翻转的面**（必达/持久化/`reason`/池化/role 列），**PASS 集合恰为必须保持不变的既有面**；形状指纹脚本两次运行 diff 为空 ⇒ "既有面逐字不变"可用 diff 判定（期望差异恰 3 行块）；跨重启两阶段脚本在基线 FAIL、改造后须 PASS；AC10 用压缩 env 核对清理日志
+- 通道实况：本地 subagent，调用 `completed`（14m54s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 17:47:00 · 调度决策 · pr-005 六项 MI 裁决 + 三路并发（dev + 文本校正 + 真源校正）
+
+- **MI 裁决**：**MI-P1 采纳**（10 键实况，`reason` 落末位、不补齐）；**MI-P6 采纳**（`new_session` 只认 `=== true`，不新增 400 分支）；**MI-P7 采纳并扩大**（`web.js` 的 role 反推含 `:444-446` 与 `:673` **统一与池成员判定同源**消费 `roleOfPoolInstance(id, roleFromInstanceId)`——否则出现"`role` 列=dev 但信封 `agent`=null"的自相矛盾）；**MI-P8 采纳**（快照取数失败 ⇒ 视作空池回落，保 200 基线、不新造 502）；**MI-P9 采纳并扩大一次**（本 PR **更新 `POST /api/calls` 的路由元数据 `desc`** 使 `new_session` 在 `/api/docs` 可见；该行变化属**预期差异**）；**MI-P10 采纳**（自派发告警基准改为本次实际选中目标）
+- **真源校正（F-2/F-3/F-1）三路并发**：① `PrPlan` 改 pr-005 的 AC8（拆为"角色不可解析 ⇒ 404 逐字"+"空池 ⇒ 200 逐字、不新造错误面"）、AC1（退役 grep 改**实现面**口径）、AC4（10 键）并按需同步 pr-008；② `ArchSpec` 改 `architecture.md` §4 A-06 空池行为（404 → **200 + submitted** 实况）、§4 A-03/§3.x 的"11 键"→10 键、§4 A-05 第 6 条 TTL 算式口径（去近似值、取不变式 `缺省 TTL ≥ config.taskNetMs`）+ 两条如实补记（grep 口径、SDK 无 flag）；③ `DevP005`（gpt）开工，全部裁决与实测口径随简报冻结
+- 触发依据：`PlanP005` 报告第 3/5 项与 `/tmp/0030-pr-005/base/` 的 45 条断言实跑结果；`workflow-pb.md` §阶段回退"技术方案/实现路径问题 ⇒ 执行侧在当前阶段解决"；`prd/F01/F02/F03/F04/F06/F07` 相关验收项

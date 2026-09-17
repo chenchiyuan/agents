@@ -38,8 +38,8 @@
 - **硬上限**：5（`2 × 起始并发数 - 1`）
 - **当前有效上限**：**5**（`min(3 + 5×3, 5)` = 5，维持硬上限）
 - **累计槛位释放次数**：**5**（pr-001、pr-002、pr-003、pr-004、pr-007 成功合并）
-- **已派发总数（阶段 5 内部）**：**18**（planner ×6 + dev ×5 + verifier ×5 + …；不含 Gate 两轮 `prs/` 验证与两条载体探针）
-- **当前在飞**：1（`PlanP005`）；**空闲槛位 4 个**（pr-006/pr-008 待 pr-005 合并，无可派发项）
+- **已派发总数（阶段 5 内部）**：**19**（planner ×6 + dev ×6 + verifier ×5；另加 pr-planner/architect 的多次定向收口；不含 Gate 两轮 `prs/` 验证与两条载体探针）
+- **当前在飞**：1（`DevP005`，pr-005 实现）+ 2 条文档校正（`PrPlan` / `ArchSpec`）；**空闲槛位 4 个**（pr-006/pr-008 待 pr-005 合并，无可派发项）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -53,7 +53,7 @@
 | pr-002-pool-routing-module.md | （无） | ✅ | (已清理) | ✅ `4bcfbc3` | 已释放（槛位释放 2） |
 | pr-003-inbox-table-persistence.md | （无） | ✅ | (已清理) | ✅ `9fc962a` | 已释放（槛位释放 3） |
 | pr-004-idle-net-turn-timers.md | （无） | ✅ | (已清理) | ✅ `1b02689` | 已释放（槛位释放 5） |
-| pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004✅ | ⏸ | feat/0030-pr-005-web-inbox-and-pool-wiring | ⬜ | **占用**（planner 在途；依赖已全部满足） |
+| pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004✅ | ⏸ | feat/0030-pr-005-web-inbox-and-pool-wiring | ⬜ | **占用**（dev 在途 @ gpt；依赖已全部满足） |
 | pr-006-api-docs-sync.md | pr-004、pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
 | pr-007-model-routing-and-process-evidence.md | （无） | ✅ | (已清理) | ✅ `58e30cd` | 已释放（槛位释放 4） |
 | pr-008-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
