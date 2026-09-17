@@ -550,3 +550,20 @@
 - 收口内容（`architecture.md` 3 节 3 行 + 1 条记录）：§3.1 步骤 2 示例改 camelCase 六字段并注明**冻结契约 + 序列化义务**；步骤 3 注明 `listInbox(principal)` 按 `terminal_at` 升序、行字段为 DB 列名、`envelope` 为已序列化 JSON（读侧 `JSON.parse`）；步骤 4 `deleteInbox(callId)` 用 camelCase + 幂等语义注；§5 的 `persist.js` 变更行同步；§10 新增第 13 条记录来源
 - 复核：`grep -n "insertInbox"` 余 4 处**均为 camelCase 形态**；`insertInbox({call_id` / `deleteInbox(call_id)` **零命中**（无 snake_case 示例残留）；§4 A-01 原文即 `ORDER BY terminal_at ASC`、语义一致故未动
 - 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:20:00 · 收到报告 · planner（pr-006）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-006-api-docs-sync-tasks.md；任务总数 **9**（T1~T9：API.md `reason` 字段面 / 参数表 / README / env 表 / 跨重启与 `acked` / llms.txt 重生成 / `hub doctor` R1 与三处条数 / skill 判定 / 全量复跑与封闭性）
+- 2. 依赖图：8 条边、无环；最长链 `T1 → T7 → T9`（3 节点）
+- 3. `[model_inferred]`：MI-P6-1（README 范围 = 单句 + env 表三行）/ MI-P6-2（§4.4 `call_result` 行保留键集列举 + 追注失败侧末位 `reason`）/ MI-P6-3（`skill/hub.md` 补一句跨重启、保留"仅判定"为可接受形态）—— 主 agent **全部采纳**
+- 4. 循环依赖：无
+- 5. 疑问/越界：**F-1** `API.md` 有 4 组**重复章节号**（`3.11/3.12/3.13/3.18` 各两次）⇒ 裸编号会指错节；连带事实：`POST /api/calls` 参数表在 **§3.14**（`:649`），而 `architecture.md` §4 A-07 与 `prd/F07` 写的「§3.9」指向 `GET /api/stream`（**:520**）⇒ 引用滞后；**F-2** `doctor` R1 **只比 method+path、不比 `params`** ⇒ 字段/参数同步不进机械锁，只能靠人工判据；**F-3** `hub doctor` 在 `pass:false` 时**退出码仍为 0** ⇒ 判据必须读 JSON；**F-4** `llms.txt` 正文行不含字段名 ⇒ 本 PR 的正确期望是**零 diff**（先由生成器重生成再比）。另声明界线：未改任何代码/PR 文件/上游产物、未执行 git 写、未占默认端口（隔离取证用非默认端口 17931 + `/tmp` socket/db，跑后已 stop）
+- **判据可判定性前置证明（实跑）**：自建 `doccheck.mjs`（C1~C9、29 条断言）对改造前树 = **11 PASS / 18 FAIL**（FAIL 集合恰为待改 18 项），对模拟目标形态 = **29 PASS / 0 FAIL** 且不变面始终 PASS；**隔离起真 Router + 真 web 跑真机械锁** `hub.js doctor` ⇒ `pass:true`（R1×29 全 ok），**反例门**：向 §3 清单插一行 `GET /api/nope` ⇒ `pass:false`、唯一失败项 `R1 GET /api/nope / 登记缺失`，复原后回全 PASS；三处条数一致（`routes[]` = 29 ∧ `API.md` §3 命中 = 29 ∧ `llms.txt` 头部 29）；生成器输出 `接口 29 条，3493 字节` 与仓库 `llms.txt` **diff 为空**
+- 通道实况：本地 subagent，调用 `completed`（7m14s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:22:00 · 调度决策 · pr-006 三项 MI 裁决 + dev 派发 + F-1 真源修复
+
+- **MI-P6-1/2/3 全部采纳**（README = 单句 + env 表三行；`call_result` 行保留键集列举 + 追注；`skill/hub.md` 最小补充），随 dev 简报冻结
+- 派发 `DevP006`（gpt）：唯一写入面 = 四份文档；`llms.txt` **必须由生成器重生成**、判据读 `hub doctor` 的 **JSON**（不看退出码）、R1 不比 params 故字段同步靠自建判据
+- **F-1 真源修复**派回 `architect`（`architecture.md` 的「§3.9 参数表」→ §3.14；并按"编号 + method/path"联合锚点表述，因 `API.md` 编号不唯一）；若同一引用落在 `prd/F07` 的架构维度段则同批更正，否则只回报
+- 触发依据：`PlanP006` 报告第 3/5 项与 `/tmp/0030-pr-006/` 的 doccheck + 真 doctor 实跑结果
