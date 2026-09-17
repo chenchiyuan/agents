@@ -434,7 +434,7 @@ git -C $W diff main HEAD -- oamp/src/web.js | grep -E "^[+-].*transport\." ; ech
 mkdir -p /tmp/0030-pr-008
 git -C $W show main:oamp/src/web.js > /tmp/0030-pr-008/web.main.js
 # 统一抽取式（main 用 `return {`、HEAD 用 `const envelope = {`，故锚在函数体 + 4 空格缩进的键行）
-keys() { awk '/^function composeCallEnvelope/,/^}$/' "$1" | grep -oE "^    [a-z_]+" | tr -d ' ' | paste -sd,; }
+keys() { awk '/^function composeCallEnvelope/,/^}$/' "$1" | grep -oE "^    [a-z_]+" | tr -d ' ' | paste -sd, -; } # 已更正：见 §7 末「记录更正」
 keys $W/oamp/src/web.js    # 期望 call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code
 diff <(keys $W/oamp/src/web.js) <(keys /tmp/0030-pr-008/web.main.js) && echo KEYS-IDENTICAL
 grep -n "envelope.reason = reasonOf" $W/oamp/src/web.js
@@ -450,7 +450,7 @@ pickupParams '/api/pickup' $W/oamp/src/web.js
 diff <(pickupParams '/api/pickup' $W/oamp/src/web.js) <(pickupParams '/api/pickup' /tmp/0030-pr-008/web.main.js) && echo PICKUP-PARAMS-IDENTICAL
 diff <(pickupParams '/api/pickup/:call_id/ack' $W/oamp/src/web.js) <(pickupParams '/api/pickup/:call_id/ack' /tmp/0030-pr-008/web.main.js) && echo ACK-PARAMS-IDENTICAL
 # 响应键序（HEAD 显式映射）
-sed -n '/const result = rows.map/,/}));/p' $W/oamp/src/web.js | grep -oE "^          [a-z_]+" | tr -d ' ' | paste -sd,
+sed -n '/const result = rows.map/,/}));/p' $W/oamp/src/web.js | grep -oE "^          [a-z_]+" | tr -d ' ' | paste -sd, - # 已更正：见 §7 末「记录更正」
 # main 侧等价形态 = 6 键 entry 白名单 + envelope
 git -C $W show main:oamp/src/pickup.js | grep -A8 "entries.set(callId"
 # 确认语义
@@ -512,7 +512,7 @@ diff <(sed -n '/path: .\/api\/calls\/:call_id\/transcript.,/,/^    },$/p' $W/oam
 ### 4.12 R12 · UDS 方法集合 + 绑定范围（→ T6 判据 1①/3④；F19/F20）
 ```bash
 grep -cE "^      case '" $W/oamp/src/router.js                       # 期望 9
-grep -oE "^      case '[a-z._]+'" $W/oamp/src/router.js | paste -sd' ' # 9 个方法名
+grep -oE "^      case '[a-z._]+'" $W/oamp/src/router.js | paste -sd' ' - # 已更正：见 §7 末「记录更正」
 # 绑定范围：带 model 键的角色集合（main 与 HEAD 同为 dev,verifier）
 node -p "Object.entries(require('$W/cluster.json').roles).filter(([,v])=>v&&v.model).map(([k])=>k).join(',')"
 git -C $W show main:cluster.json | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(Object.entries(j.roles).filter(([,v])=>v&&v.model).map(([k])=>k).join(','))})"
@@ -673,7 +673,37 @@ index 632bc04..9ef5e01 100644
 ```
 逐行确认：唯一变化是 `paste -sd,` → `paste -sd, -`，其余内容未动。
 
-顺带扫描命令：在 evidence 文档与本 §7 搜索无操作数管道消费者及常见 BSD/GNU 命令参数差异写法。命中仅 evidence 第 235 行（`grep -cE` 的正则含反斜杠-s 空白简写）；tasks §7 无命令命中。对该可疑 BSD `grep` 写法执行与 evidence 第 235 行相同的计数命令，stdout `29`，exit 0；按要求仅报告，不改。
+顺带扫描命令：在 evidence 文档与本 §7 搜索无操作数管道消费者及常见 BSD/GNU 命令参数差异写法。源命令命中仅 evidence 第 235 行（`grep -cE` 的正则含反斜杠-s 空白简写）；tasks §7 无源命令命中。tasks §7 第 668 行仅是本次修复前后 `git diff` 的原样记录，不是第二处源命令，且第 669 行已记录修正版。对该可疑 BSD `grep` 写法执行与 evidence 第 235 行相同的计数命令，stdout `29`，exit 0；按要求仅报告，不改。
 提交命令：`git -C "$W" add docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md && git -C "$W" commit -m "docs: make C05 paste input explicit"`，exit 0，commit=`3c63846f209461caf80f34a5bd6a982176b77e66`。
 
 提交后核验命令：`git -C "$W" status --porcelain`；`git -C "$W" diff HEAD`；`git -C "$W" diff --stat HEAD`（均 exit 0）。三者均无输出，worktree clean；提交内容 `git show --format= --no-ext-diff -U0 HEAD -- docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md` 仍仅显示第 218 行 `paste -sd,` → `paste -sd, -` 一处变化。
+
+### ⑫ 记录更正（C05，2026-09-17）
+
+透明度说明：原记录中的 `paste -sd,` / `paste -sd' '` 无操作数，在脚本/子进程/agent 工具调用形态下会报 `usage: paste [-s] [-d delimiters] file ...` 且输出空；已按交付物 `evidence/g01-existing-surface.md` 第 218 行的同一修正（加 ` -`）同步为可移植形态，语义与结论不变（两侧键序与计数均与修正前记录一致）。
+
+三处前/后原文行：
+
+- R5/C05（原）：`keys() { awk '/^function composeCallEnvelope/,/^}$/' "$1" | grep -oE "^    [a-z_]+" | tr -d ' ' | paste -sd,; }`
+- R5/C05（更正）：`keys() { awk '/^function composeCallEnvelope/,/^}$/' "$1" | grep -oE "^    [a-z_]+" | tr -d ' ' | paste -sd, -; }`
+- R6（原）：`sed -n '/const result = rows.map/,/}));/p' $W/oamp/src/web.js | grep -oE "^          [a-z_]+" | tr -d ' ' | paste -sd,`
+- R6（更正）：`sed -n '/const result = rows.map/,/}));/p' $W/oamp/src/web.js | grep -oE "^          [a-z_]+" | tr -d ' ' | paste -sd, -`
+- R12（原）：`grep -oE "^      case '[a-z._]+'" $W/oamp/src/router.js | paste -sd' '`
+- R12（更正）：`grep -oE "^      case '[a-z._]+'" $W/oamp/src/router.js | paste -sd' ' -`
+
+非交互形态实测：将三处旧/新命令各放入一次性 `/tmp/0030-pr-008-paste-verify.sh`（首行 `exec </dev/null`），用 `bash /tmp/0030-pr-008-paste-verify.sh` 执行；未落仓脚本。
+
+```text
+R5 old: rc=1, stderr=usage: paste [-s] [-d delimiters] file ..., stdout=<>
+R5 new: rc=0, stdout=call_id,agent,state,duration_ms,model,truncated,text,structured_output,error,exit_code
+R6 old: rc=1, stderr=usage: paste [-s] [-d delimiters] file ..., stdout=<>
+R6 new: rc=0, stdout=call_id,requester,agent,chat_id,terminal_at,acked,envelope
+R12 old: rc=1, stderr=usage: paste [-s] [-d delimiters] file ..., stdout=<>
+R12 new: rc=0, stdout=case 'agent.register' case 'agent.heartbeat' case 'agent.deregister' case 'message.send' case 'message.ack' case 'router.status' case 'router.task_get' case 'router.task_cancel' case 'router.task_list'
+```
+
+R12 更正后输出中的方法名（去除命令匹配所保留的 `case '` / 引号）为 9 个、空格分隔：`agent.register agent.heartbeat agent.deregister message.send message.ack router.status router.task_get router.task_cancel router.task_list`。
+
+结论不变取证：R5 两侧 `diff` 返回 rc=0 且输出 `KEYS-IDENTICAL`；R12 `grep -cE "^      case '"` = `9`；四处静态路由计数均为 `29`，隔离 Web 的 `/api/docs` 运行时 `routes.length=29`，即四处静态 + 一处运行时仍为 `29`。
+
+改动面取证：`git -C /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade diff --stat` 仅出现本 tasks 文件；逐行核对仅三处命令各增加显式 ` -`，以及本节记录更正注记，其他既有文字未改。未新增仓库文件，未提交。
