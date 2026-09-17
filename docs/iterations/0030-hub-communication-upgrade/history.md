@@ -106,3 +106,25 @@
 - 触发依据：`tools/check-pr-gates.py docs/iterations/0030-hub-communication-upgrade` 输出「七项全过，满足阶段 4 推进条件」；`prs/*.md` 逐份抽读（pr-004 / pr-005 / pr-007 / pr-009 全文，pr-001/002/003/006 核 文件范围+验收标准+depends_on）；用户 2026-09-17 指令「产出完方案之后再通知我」
 - **Gate 未闭合项（如实登记）**：Gate 的验证内容含「派发阶段 6 独立验证，产物路径 = `prs/`，结论必须为 pass」——该验证须以 `verifier` 角色派发，而 verifier 的模型载体正是 **L1-01 待裁决项**（D-34/F08 验收 2 要求 verifier 跑在 grok 上）⇒ 该验证排在用户裁决 L1-01 之后立即执行，未在本次呈交前完成
 - 呈交内容（四项，逐项对应 `workflow-pb.md` §方案确认门"不能只呈现其中部分"）：产品维度（`prd.md` + `prd/*.md`）/ 架构维度（`architecture.md`）/ PR 拆分摘要（PR 数、依赖图、关键路径；无 `split-suggestion.md`）/ 待裁决项（L1-01、MI-1~MI-12、疑问 B、疑问 C）
+
+### 2026-09-17 13:55:00 · 调度决策 · Gate确认（方案确认门通过 + 用户裁决落定）
+
+- 决策内容：用户确认完整方案并指示"请使用 subagents 推进直到交付"。据此落定四项裁决：① 方案确认门**通过**；② **L1-01 采纳呈交推荐 = 候选 B（用户级载体）**——`~/.omp/agent/agents/{dev,verifier}.md`（frontmatter `model: "@dev"` / `"@verifier"`）+ `~/.omp/agent/config.yml` 的 `modelRoles.dev` / `modelRoles.verifier`（值集中一处）；③ 疑问 B（`RECONCILE_TTL` 与 `taskNetMs` 联动）**照准**，`pr-005 → pr-004` 依赖边保留；④ 疑问 C 四项知会 + MI-1~MI-12 **全部照准/采纳**（无例外提出）；⑤ 执行通道延续 D-33 本地 subagent
+- 触发依据：用户 2026-09-17 原话「没问题，请使用 subagents 推进直到交付」；呈交时已把三候选（A 项目级 / **B 用户级（推荐）** / C 一次性进程）与推荐明示，用户以"没问题"照准
+- 附带动作：阶段 3 因 L1-01 确认而**三条件全满足，补标 ✅**（原 `⏸` 偏差登记闭合）
+
+### 2026-09-17 13:57:00 · 调度决策 · L1-01 载体落地（候选 B）
+
+- 决策内容：落地用户级载体并实测——`omp config set` 不支持自定义 `modelRoles.<role>`（报 `Unknown setting`）⇒ 改为直接编辑 `~/.omp/agent/config.yml` 的 `modelRoles` 段（新增 `dev: openai/gpt-5.6-luna` / `verifier: powerby/grok-4.6`，含注释说明消费者与适用范围）；新建 `~/.omp/agent/agents/dev.md` 与 `~/.omp/agent/agents/verifier.md`（frontmatter `model: "@dev"` / `"@verifier"`，body 为最小载体说明：角色定义由 brief 全文注入）
+- 触发依据：用户对 L1-01 的照准；两条候选载体实测（`omp config set modelRoles.dev …` 失败退出码 1）；零仓库写入（不触 `data/scm-protocol.md` §规则 F）
+
+### 2026-09-17 13:58:00 · 调度决策 · 载体生效实测（F08 判据）
+
+- 决策内容：以 `agent: "dev"` 与 `agent: "verifier"` 各派发一次探针，判据 = 子 agent 自报模型（子 agent 系统提示中的模型名，事实 F-11）；结果：dev → `openai/gpt-5.6-luna`、verifier → `powerby/grok-4.6`，**两者均命中 D-34 绑定清单** ⇒ 载体 B 生效，F08 验收 1/2 的机制面成立
+- 触发依据：两条探针回报（`CarrierProbeDev` / `CarrierProbeVerifier`）；`architecture.md` §4 A-08 候选 B 的技术评估
+
+### 2026-09-17 14:00:00 · 派发 · verifier（PrsVerifier）
+
+- 阶段：阶段 6（独立验证）—— 阶段 4→5 门口触发的定向验证
+- 任务：不接收执行过程上下文，独立评判 `prs/` 目录产物的质量
+- 渠道：本地 subagent，`agent=verifier`（实报模型待回报，预期 `powerby/grok-4.6`）
