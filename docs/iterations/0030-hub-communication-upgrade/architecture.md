@@ -296,6 +296,7 @@ flowchart TB
 - **计时落点**：轮次计时原语（3 个协议客户端的 turn timer，即既有绝对上限的同一实现处）改为 `idle` + `net` 双计时；**门挂起冻结**语义保留（两计时同冻结）。
 - **两条执行形态的统一实现位置**：执行侧轮次计时原语**一处**；`mode:block` 与 `mode:background` 在 web 侧只差"是否挂起 HTTP 响应"，执行路径相同 ⇒ 天然同源（验收 7 的 `mode:block` 项由此覆盖）。
 - **计时起点**（MI-8）：`net` 自轮次开始起算；`idle` 自"轮次开始 **或** 最近一次进展事件"起算 ⇒ "开始到首个进展信号之间"同样受空闲阈值约束（与 MI-8 落卡一致）。
+- **阈值透传通道（必要改动，实测依据）**：默认执行器（daemon）路径的选项通道是 `context-pool.js` 的 `ContextSession.prompt` —— 形参表（`:137`）、队列项（`:144`）、`client.prompt` 实参（`:170-174`）**全是显式键集** ⇒ 未列入的键被**静默丢弃**。实测（阶段 5，/tmp 参照实现）：不改该文件时，daemon 路径的阈值变 `null` ⇒ 任务 ≈2.5s 即判死（报文 `轮次安全网超时（累计 nullms）`）；若客户端补 null 防御，则退化为"该路径无计时器" ⇒ **F05 验收 2/3/6 在默认执行器路径不成立**。⇒ `context-pool.js` 的**两键透传**（`idleMs` / `netMs` 沿既有通道逐段透传：形参 → 队列项 → `client.prompt` 实参）是本卡**必要改动**；该文件受保护的语义（`(chat_id, agent_id)` 键语义、同键 FIFO 串行、LRU / 释放路径）**零改动**（见 §5、§6 的唯一例外）。
 - **阈值配置面位置**：`src/config.js`（既有唯一配置面）的 `loadConfig()` —— `taskIdleMs`（默认 `600000`）/ `taskNetMs`（默认 `14400000`），env `OAMP_TASK_IDLE_MS` / `OAMP_TASK_NET_MS`；校验沿用 `readPositiveInt`（非法值启动即报错，不静默回落）。
 - **判据取代既有上限的全部生效位置**（验收 7 的可核对清单，逐条已实测）：
 
@@ -404,12 +405,13 @@ flowchart TB
 | `oamp/src/web.js` | ① `/api/calls`：目标由池内选择（`pickInstance`）决定 + 项级 `new_session` + `call.principal` 派生；② `composeCallEnvelope`：失败侧追加 `reason`；③ `publishCallResult`：无条件写 `inbox`（`call.principal`）；④ `GET /api/pickup`：改读 `db.listInbox`（不再逐条 `task_get`）；⑤ `POST /api/pickup/:call_id/ack`：改 `db.deleteInbox`；⑥ `RECONCILE_TTL_DEFAULT_MS` 默认值与 `taskNetMs` 联动；⑦ deps 注入 `pickInstance` | A-01~A-09 |
 | `oamp/src/agent.js` | LLM 两路（`runDaemonTask` / `runOmpTask`）改传 `{idleMs, netMs}`；移除 `DEFAULT_OMP_TIMEOUT_MS` 默认档；`MAX_TIMEOUT_MS` 保留 | A-05 |
 | `oamp/src/acp-client.js` · `rpc-client.js` · `oneshot-client.js` | turn timer 改 `idle` + `net` 双计时（门挂起冻结保留） | A-05 |
+| `oamp/src/context-pool.js` | **仅两键透传**：`idleMs` / `netMs` 沿既有选项通道逐段透传（`ContextSession.prompt` 形参 → 队列项 → `client.prompt` 实参）；**`(chat_id, agent_id)` 键语义、同键 FIFO 串行、LRU 与释放路径零改动**（A-05 的实测依据：该通道是显式键集，未列入的键被静默丢弃） | A-05 |
 | `oamp/src/config.js` | 新增 `taskIdleMs` / `taskNetMs`（env `OAMP_TASK_IDLE_MS` / `OAMP_TASK_NET_MS`） | A-05 |
 | `oamp/API.md` · `oamp/README.md` · `oamp/llms.txt`（生成物） · `oamp/skill/hub.md` | 文档面同步：`reason` 字段、`new_session` 参数、超时口径、取件跨重启语义、`acked` 恒定值的说明 | 全部 |
 
 **退役（1 个文件）**：`oamp/src/pickup.js`（调用点全部迁移；无 re-export、无兼容层）。
 
-**明确不改（零改动）**：`src/router.js`（含 UDS 方法集合与错误契约）、`src/registry.js`、`src/context-pool.js`、`src/role-binding.js`、`src/principals.js`、`src/inbox.js`、`src/transport.js`、`src/cluster-config.js`、`oamp/web/**`（控制台前端）、`oamp/sdk/**`、`oamp/scripts/**`、`cluster.json`、`roles/**`、`oamp/package.json`（零新依赖）。
+**明确不改（零改动）**：`src/router.js`（含 UDS 方法集合与错误契约）、`src/registry.js`、`src/role-binding.js`、`src/principals.js`、`src/inbox.js`、`src/transport.js`、`src/cluster-config.js`、`oamp/web/**`（控制台前端）、`oamp/sdk/**`、`oamp/scripts/**`、`cluster.json`、`roles/**`、`oamp/package.json`（零新依赖）。（`src/context-pool.js` 原在本清单，现按 A-05 的实测依据移入上表 —— **仅两键透传**，键语义/串行/LRU 零改动。）
 
 **文档面机械锁提示**：本迭代**不新增 HTTP 路由**（既有 **29 条**不变，与迭代前同值；口径见 §1.1），故 `hub doctor` R1 不会因缺行而失败；但 `API.md` 的**参数表**（§3.9 的 `new_session`）与 `reason` 字段说明属人工同步项，阶段 5 需显式核对（`llms.txt` 由脚本重生成）。
 

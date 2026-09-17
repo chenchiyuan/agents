@@ -302,3 +302,19 @@
   ③ **修正主 agent 自己的产物**：`status.md` 头部依赖图行原写「`pr-008（无依赖）→ pr-007`」属返工前旧图，与三处相斥 ⇒ 已按 PR 文件 `depends_on` 重写并留更正记录；`tools/check-model-dispatch-protocol.sh` 必然失败一事登记为跨迭代候选（本迭代不改该工具）
   ④ 派发 `DevP007`（`agent=dev` → gpt），把上述裁决随简报冻结；明确其唯一写入面 = PR 文件声明的四个 docs 路径 + 自己的 tasks 文件证据段
 - 触发依据：`PlanP007` 报告第 3/5 项；主 agent 对 `roles/**` 命中分布的复核（谓词层 0 / 递归层 7 命中 3 文件，全在 `roles/verifier/data/`）；`workflow-pb.md` §阶段 4/5 的 `model_inferred` 不触发暂停规则
+
+### 2026-09-17 15:38:00 · 收到报告 · planner（pr-004）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-004-idle-net-turn-timers-tasks.md（480 行）；任务总数 **6 + 1 前置裁决项**（T1 config 双键与 env / T2 rpc-client 双计时 / T3 acp-client / T4 oneshot-client / T5 agent.js 删默认档+接线 / T6 集成取证；**T0 = 主 agent 裁决项**）
+- 2. 依赖图摘要：`{T0,T1,T2,T3,T4} → T5 → T6`（T1~T4 相互无依赖）；6 条边、无环；最长链 `T1→T5→T6`（3 节点）
+- 3. `[model_inferred]` 列表：MI-P1~MI-P5（触发可区分的最小承载形态 / 三值皆缺不武装计时器 / 报文数字取触发阈值实参 / acp 工具事件是否重置 idle / `err.timeoutMs` 作为内部字段）；**主 agent 全部采纳**，随 dev 简报冻结
+- 4. 上报的循环依赖：无
+- 5. 疑问/越界：**T0（阻塞 T5，不阻塞 T1~T4）**——`context-pool.js` 文件范围缺口；另 MI-P1~MI-P5 待确认；out-of-scope 四项逐条确认（web.js 的 TTL 联动归 pr-005 / 文档面归 pr-006 / 客户端 30 分钟预算不改 / shell 与显式 `timeout_ms` 语义保留）
+- **判据可判定性前置证明（本批最强）**：planner 在 `/tmp/pr004-reh`（改后副本 + fake oneshot/rpc/acp 桩）与 `/tmp/pr004-reh2`（**未改 `context-pool.js` 的缺口复现**）实跑，得 8 条实测事实：压缩阈值全链路生效（`OAMP_TASK_IDLE_MS=1500` ⇒ one-shot 判死 1.61s、daemon 3.63s）/ 三客户端在 `timeoutMs:null` 下均 **1~3ms 内即时判死**（`session/prompt 超时（nullms）` 等）/ **阈值被丢弃时 daemon 报文 = `轮次安全网超时（累计 nullms）`**（T0 的硬证据）/ 门挂起冻结可判定（idle=1200、net=3000、挂起 4000ms ⇒ 正常结算 4.00s）/ 两触发报文可区分 / 端到端六场景 + 配置面五组非法值全部抛错
+- 通道实况：本地 subagent，调用 `completed`（11m14s），自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 15:40:00 · 调度决策 · T0 裁决（候选 A）+ 三路并发收口
+
+- 决策内容：**T0 = 候选 A**（主 agent 定案）——把 `oamp/src/context-pool.js` **纳入 pr-004 文件范围**，只做 `idleMs` / `netMs` **两键透传**（形参表 `:137` / 队列项 `:144` / `client.prompt` 实参 `:170-174`），受保护语义（键语义 / 同键 FIFO 串行 / LRU / 释放路径）零改动。理由：最小改动、保持 A-05 的**单一接线落点**（`agent.js` 传阈值）；候选 B（三客户端各自读 config）把接线点从一处变四处、与 PR 明文「`agent.js` 改传」不符、且引入配置读取漂移面；候选 C（resident spec 构造期注入）改动面无额外收益
+- 三路并发收口：① `pr-planner` 改 `pr-004` 文件范围+验收标准、`pr-008` 的零改动面列举（`context-pool.js` 移出、加"唯一例外 = 两键透传"）、复核两两不重叠；② `architect` 同步 `architecture.md` §4 A-05 / §5（从「明确不改」移出）/ §6（G01 例外注）/ §1.3 / §10；③ `DevP004`（gpt）开工，T0=A 与 MI-P1~MI-P5 随简报冻结（T1~T4 与 T0 无关，可先做，不必等文本落地）
+- 触发依据：`PlanP004` 的 T0 升级（附 `/tmp/pr004-reh2` 复现证据与三条候选）；`workflow-pb.md` §阶段回退"文件范围/接线落点属技术方案问题 ⇒ 执行侧在当前阶段解决，不搭置、不改需求结论"

@@ -406,3 +406,59 @@ git -C "$WT" diff 9f071b8 HEAD -- oamp/src/web.js oamp/src/role-binding.js   # �
 5. **未发现 architecture 内部矛盾**：§3.4 第 1~3 条与 §4 A-06 / A-07 在选择口径、粘性键、失效口径、空池口径上逐条同值（次序键 `(queued, busy, inflight, instance_id)`、键 `(chat_id, role)`、无 TTL、"绑定失效 ⇒ 重选重绑不报错"、"空池 ⇒ `null` ⇒ 回落 `instanceIdForRole`"），无需选边。
 6. **上游信息充分性**：5 条 AC 均能在 `architecture.md`（§3.4 / §4 A-06·A-07 / §5 / §8）与 `prd/{F06,F07}` 找到可追溯依据；需要推导的 5 项口径已列 §6 等主 agent 确认；除第 3 条观察外无信息缺口。
 7. **PR 文件七字段零改动**：本任务列表未修改 `prs/pr-002-pool-routing-module.md` 的任何字段；本文件亦未写入 `architecture.md` / `prd/**` / `status.md` / `history.md` / `deferred-demand-changes.md`（第 3 条观察仅在本文件上报，未搭置到 `deferred-demand-changes.md`——该文件的追加在本迭代归属 pr-007）。
+ 
+---
+
+## 执行证据（dev 回填）
+
+追加实现：按主 agent 2026-09-17 契约追加 `roleOfPoolInstance(instanceId, baseResolve)` 具名导出；工厂内部成员解析复用该函数。以下为 PR worktree 内一次性脚本原始 stdout；`node` 退出码为 `0`。
+
+### `/tmp/0030-pr-002/verify.out`
+
+```text
+PASS AC1 模块导出面含 createPoolRouting 与 roleOfPoolInstance
+PASS AC1 工厂返回面恰 4 方法（选择 / 粘性读 / 在飞读 / 在飞减）
+PASS AC2 offline / connected===false / 异角色 均不入池 ⇒ 选中 pb-dev
+PASS AC2 空池 ⇒ null
+PASS AC2 全被过滤 ⇒ null
+PASS AC2 快照缺失 ⇒ null 且不抛
+PASS AC2 空池不留粘性、不留在飞
+PASS AC2 非池成员不被选中（此处池 = {pb-dev-2}）
+PASS AC3 queued 小者胜
+PASS AC3 queued 优先于 busy
+PASS AC3 queued 相同时 busy=false 优先
+PASS AC3 全并列 ⇒ instance_id 升序（与快照内顺序无关）
+PASS AC3 同输入同输出（两个干净实例）
+PASS AC5 两条并发、快照相同 ⇒ 分落不同实例
+PASS AC5 选中即 +1
+PASS AC5 release 即 −1
+PASS AC5 成对调用后净值为 0（无泄漏）
+PASS AC5 未计数实例 release ⇒ no-op、不出现负数
+PASS AC5 release 真的减了计数（释放后回到最空闲 pb-dev）
+PASS AC4 首次选择建立绑定
+PASS AC4 二次选择命中既有绑定（不按负载重选）
+PASS AC4 异 chat ⇒ 按最空闲
+PASS AC4 键含 role：同 chat 异角色互不干扰
+PASS AC4 noReuse ⇒ 忽略绑定、按最空闲重选并重绑
+PASS AC4 重绑生效：下一次无声明即粘新实例
+PASS AC4 绑定实例不在池 ⇒ 重选重绑、不抛错
+PASS AC4 绑定实例离线 ⇒ 重绑到池内实例
+PASS AC4 池为空 ⇒ 绑定被丢弃、返回 null
+PASS AC2 真实解析器：pb-dev 与 pb-dev-2 均归入 dev 池，tie-break 选 pb-dev
+PASS AC2 单实例：二次选择同目标
+PASS AC2 真实解析器下池为空 ⇒ null
+RESULT: PASS
+退出码: 0
+```
+
+### `/tmp/0030-pr-002/resolver-boundary.out`（追加契约边界 5 条）
+
+```text
+PASS resolver exact pb-dev ⇒ dev
+PASS resolver suffix pb-dev-2 ⇒ dev
+PASS resolver suffix pb-dev-1 and exact pb-dev preserve distinct identities
+PASS resolver invalid suffix pb-dev-0 / pb-dev-x / pb-dev- ⇒ null
+PASS resolver non-string input ⇒ null without throw
+RESULT: PASS
+退出码: 0
+```

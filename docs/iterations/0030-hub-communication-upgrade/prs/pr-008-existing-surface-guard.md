@@ -2,7 +2,7 @@
 
 ## 上下文摘要
 
-G01 是保证项卡（不引入新能力），它的可独立验收载体 = **一份逐条对照的零回归证据文档**。本 PR **只写这一份文档、零运行时代码改动**：其验收所指向的代码面在本迭代本身就是零改动（`transport.js` / `router.js` / `registry.js` / `context-pool.js` / `role-binding.js` / `principals.js` / `inbox.js` / `cluster-config.js` / `cluster.json` / `sdk/**` / `web/**` / `roles/**` —— 它们是**比对基准**，只被读取与核验，故不进入"文件范围"字段）。判据全部可取：事件类集合比对、键集断言、路由条数、`git diff` 零改动核验、`hub doctor` R1 双向比对。
+G01 是保证项卡（不引入新能力），它的可独立验收载体 = **一份逐条对照的零回归证据文档**。本 PR **只写这一份文档、零运行时代码改动**：其验收所指向的代码面在本迭代本身就是零改动（`transport.js` / `router.js` / `registry.js` / `role-binding.js` / `principals.js` / `inbox.js` / `cluster-config.js` / `cluster.json` / `sdk/**` / `web/**` / `roles/**` —— 它们是**比对基准**，只被读取与核验，故不进入"文件范围"字段）；**唯一例外 = `oamp/src/context-pool.js` 的两键透传**（`idleMs` / `netMs` 沿既有选项通道透传，见 pr-004；`(chat_id, agent_id)` 键语义 / 同键 FIFO 串行 / LRU 与释放路径零改动 ⇒ A-06"池化不改 `ContextPool` 键语义"的声明依然成立）。判据全部可取：事件类集合比对、键集断言、路由条数、`git diff` 零改动核验、`hub doctor` R1 双向比对。
 
 ## 涉及功能点
 
@@ -16,7 +16,7 @@ G01 是保证项卡（不引入新能力），它的可独立验收载体 = **�
 
 - [ ] `evidence/g01-existing-surface.md` 对 G01 验收 1~12 **逐条**给出判据与可核验证据（变更面 diff / 迭代前后事件类集合比对 / 响应键集断言 / 路由条数 / `git diff --stat` 零改动面核验），12 条结论全为"不回归"；任一条不成立 ⇒ 本 PR 不通过
 - [ ] 逐条的可核验形态示例（文档须至少覆盖这些事实）：① SSE 事件类集合与语义逐字不变（4 条推送面、事件类不增不减不改名；失败终态 `call_result` 帧仅 payload 多一个 `reason` 键）；② `state` 仍四值、取消仍落 `failed`；③ 失败态信封保留 `error` 原键位与原值（含既有文案），不新增 `detail` 键；④ 取件两端点参数名（`principal` / `epoch`）、响应键集与键序、确认语义不变；⑤ Router 任务表仍纯内存（`inbox` 只承载收件箱）；⑥ 无产物字段与产物核实；⑦ UDS 路径与 worktree 隔离协议零改动；⑧ hub 不启停/不伸缩实例、无无状态均衡；⑨ `transcript` 截断与惰性启动竞态未修；⑩ 无新增必填参数、既有响应字段集与取值域不变（**唯一例外，A-06 补定已登记**：`GET /api/agents` 的 `role` 列对 `pb-<role>-<n>` 由迭代前的 `null` 变为角色名——该 id 形态迭代前不可用，且与池成员判定同源）；⑪ 只绑 `dev` / `verifier`、模型值不入 `roles/**`、`cluster.json` 零改动；⑫ 无 `demand.md` 之外的新增功能点
-- [ ] 零改动面可核验为零改动：`oamp/cluster.json`、`roles/**`、`oamp/src/router.js`、`oamp/src/registry.js`、`oamp/src/context-pool.js`、`oamp/src/role-binding.js`、`oamp/src/transport.js` 在本迭代的 diff 中**零改动**；`oamp/package.json` 的 `dependencies` 仍为 `{}`
+- [ ] 零改动面可核验为零改动：`oamp/cluster.json`、`roles/**`、`oamp/src/router.js`、`oamp/src/registry.js`、`oamp/src/role-binding.js`、`oamp/src/transport.js` 在本迭代的 diff 中**零改动**；`oamp/package.json` 的 `dependencies` 仍为 `{}`。**唯一例外 = `oamp/src/context-pool.js`**：其 diff 只应出现 `idleMs` / `netMs` 两键透传（`prompt` 形参表 / 队列项 / `client.prompt` 实参），键语义、同键 FIFO 串行、LRU 与释放路径出现任何改动即本 PR 不通过
 - [ ] 既有 HTTP 路由不增不减：`GET /api/docs` 的 `routes` 条数**与迭代前同值**（本迭代前实测 = **29**；复核命令 `awk '/^export function createApiRoutes/,/^export function projectRoutes/' oamp/src/web.js | grep -cE "^      method: '"`、`grep -cE "^- (GET|POST) /api/" oamp/llms.txt`、`oamp/llms.txt` 头部 `## 接口（29 条）` 三处同值），且 `hub doctor` 的 R1 双向比对通过
 
 ## 参考资料
