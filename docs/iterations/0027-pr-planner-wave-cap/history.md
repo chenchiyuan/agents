@@ -17,3 +17,16 @@
 - [派发] 2026-09-15: 触发Gate阶段4→5入口，派发 verifier 角色独立验证 prs/ 目录；deferred-demand-changes.md 不存在；PR数量=1无并发分支，"并发调度真实执行证据"三项核查不适用
 - [收到报告] 2026-09-15: verifier 独立验证阶段4产物，结论PASS（5 pass/0 fail/2 partial）；2处partial均因"PR文件自身文本未显式复述判定依据/pr-planner原始报告未落盘"，不构成fail；2条偏差记录+3条下一迭代候选已记录，不阻塞交付
 - [调度决策] 2026-09-15: Gate阶段4→5入口验证通过（PASS），推进条件满足，进入阶段5（PR实现）；初始化并发配置区块
+- [调度决策] 2026-09-15: 创建PR worktree（.pb-agents/worktrees/0027-pr-001-critical-path-constraint-and-gate-migration，分支feat/0027-pr-001-critical-path-constraint-and-gate-migration，base=iteration/0027-pr-planner-wave-cap@887673e），阶段1-4产物已提交至迭代分支并同步至PR worktree
+- [派发] 2026-09-15: 派发 planner 角色（roles/planner/planner.md），产出 pr-001 内部任务列表
+- [收到报告] 2026-09-15: planner 角色产出 pr-001-tasks.md（写入PR worktree），8个任务T1~T8覆盖全部验收标准；关键路径T1→T2→T4长度3；T6→T7独立子链；T5/T8独立；依赖图无环；无model_inferred（注：本次planner派发经历2次未产出文件的失败尝试，第3次全新agent重试成功，前两次result为空疑似执行超时未完成而非报错）
+- [派发] 2026-09-15: 派发 dev 角色（roles/dev/dev.md），基于pr-001-tasks.md实现该PR
+- [收到报告] 2026-09-15: dev 角色完成pr-001全部8个任务（T1~T8），19条验收标准全部PASS；改动roles/pr-planner/pr-planner.md（0.2.0→0.3.0）、新建roles/pr-planner/data/pr-planner-changelog.md、新建docs/iterations/0027-pr-planner-wave-cap/prs/split-suggestion.md、修改roles/workflow-pb/workflow-pb.md（0.13.0→0.14.0）、修改roles/workflow-pb/data/formats.md；无越界；主agent核实确认：pr-planner-changelog.md在main上已存在（commit 87485f3，晚于本迭代分支基线ea8943e，不在祖先链上），dev基于PR worktree分支基线正确新建并保留main上的v0.2.0内容+新增v0.3.0条目，此为分支分叉产生的正常情况，留给收口合并时处理，不影响本PR验收
+- [调度决策] 2026-09-15: 主agent核实代码改动质量（关键路径章节/合并受阻子节/split-suggestion.md/方案确认门章节），与架构方案和任务图高度一致，派发阶段6独立验证（该PR的实现验收）
+- [收到报告] 2026-09-15: verifier 验收 pr-001 实现，结论PASS（20/20 pass/0 fail/0 partial/0 blocked）；3条偏差记录（验收标准计数19→实际20/split-suggestion.md"四个章节"笔误应为三个/formats.md版本追踪注释过期未同步workflow-pb v0.14.0）均不阻塞交付；报告路径 roles/verifier/data/verify-pr001-20260915-230936.md
+- [调度决策] 2026-09-15: pr-001验收PASS，准备merge进迭代分支iteration/0027-pr-planner-wave-cap
+- [调度决策] 2026-09-15: pr-001已合并进迭代分支（merge commit a059c0b，无冲突）；重新扫描依赖图，无其他待解锁PR（本迭代只有1个PR）；阶段5全部完成；触发阶段6独立验证（最终产物，必须触发）
+- [派发] 2026-09-15: 派发 verifier 角色对本迭代最终产物做独立验证（含deferred-demand-changes.md检查、并发调度真实执行证据核查——因本迭代仅1个PR无并发分支，该项不适用）
+- [调度决策] 2026-09-16: 阶段6独立验证（最终产物）连续3次因API层错误中断（证书验证失败1次、响应解码错误2次），均非任务逻辑问题；用户人工核实pr-001实现和迭代产物后，明确指示直接标记阶段6完成（跳过verifier子agent自动化验证，改为用户人工核验替代）——这是用户在本会话中的明确决策，非主agent自行判定
+- [调度决策] 2026-09-16: 迭代收口，开始执行三步合并（checkout main → merge --no-ff iteration/0027-pr-planner-wave-cap → branch -d）
+- [调度决策] 2026-09-16: 收口合并时发现main分支被另一进程并发推进两次提交（18453fb已合并0027但冲突解决方式非商定方案；fb7b8dc合并了完全不相关的0028迭代）；主agent未执行过git commit，工作区内的冲突修复编辑仍完整存在且无残留冲突标记；用户确认先暂停所有git写操作，等确认该进程完全停止后再继续

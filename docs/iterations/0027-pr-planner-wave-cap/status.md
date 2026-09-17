@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.12.0
 **迭代**: 0027-pr-planner-wave-cap
-**当前阶段**: 阶段 5（PR 实现）
+**当前阶段**: 迭代收口
 **迭代分支**: iteration/0027-pr-planner-wave-cap
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0027-pr-planner-wave-cap
 **状态**: 进行中
@@ -18,8 +18,8 @@
 | 2 | 功能规格 | ✅ | ⬜ | `prd.md` + 4 张功能卡（F01~F04）；2 项 model_inferred（F03同步范围/F04自检执行方式）均 user_confirmed |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md` v0.1.0；L1决策清单：无；F01~F04全部有技术路径；prd/*.md 3处[架构待填]已补全 |
 | 4 | PR 规划 | ✅ | ⬜ | `prs/pr-001-critical-path-constraint-and-gate-migration.md`：F01~F04 全部收敛为单一 PR（并发可行性检查判定合并），依赖图单节点无环 |
-| 5 | PR 实现 | ⏸ | ⬜ | pr-001 派发中 |
-| 6 | 独立验证 | ✅（阶段4） | ✅ | 阶段4验证PASS（5pass/0fail/2partial）；`roles/verifier/data/verify-0027-stage4-20260915-210742.md` |
+| 5 | PR 实现 | ✅ | ⬜ | pr-001全链完成（planner→dev→verifier PASS 20/20）；已合并`a059c0b` |
+| 6 | 独立验证 | ✅ | ✅（用户人工核验） | 阶段4验证PASS（`verify-0027-stage4-*.md`）；pr-001验证PASS（`verify-pr001-*.md`）；最终产物独立验证因API层错误连续3次中断，用户已人工核实后明确指示标记完成，非verifier自动化验证结论 |
 
 ## 并发配置（阶段 5）
 
@@ -33,7 +33,7 @@
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-critical-path-constraint-and-gate-migration.md | （无） | ⬜ | 待创建 | ⬜ | 待派发 |
+| pr-001-critical-path-constraint-and-gate-migration.md | （无） | ✅ | feat/0027-pr-001-… | ✅ `a059c0b` | 已释放 |
 
 ## 待确认项
 
