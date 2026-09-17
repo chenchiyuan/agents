@@ -8,7 +8,7 @@
 
 在途行补写协议：行终态确定后，由派发方就地补写该行的自报模型与终态；这是本表唯一允许的就地更新动作。尚未回报的行保持 `未回报` 且终态为 `⏸ 在途`。
 
-本表覆盖至 `2026-09-17 16:07` 的派发；每次派发各占一行，刷新后的状态台账已拆开合并派发。
+本表覆盖至 `2026-09-17 16:07` 的派发；每次派发各占一行，刷新后的状态台账已拆开合并派发。 **在途行补写（2026-09-17 阶段 6 终验后）**：依本表自述的「在途行补写协议」，其三条在途行的对象均已完成，已就地补写自报模型与终态；**16:07 之后的派发不在本表范围**（滚动面 = `status.md` §派发台账，两者不重复记同一行）。
 
 | 时点 | 角色 | 用途 | 通道 | 子 agent 自报模型 | 终态 |
 |---|---|---|---|---|---|
@@ -32,10 +32,10 @@
 | 14:59 | planner | 阶段 5 · pr-007 内部任务 | 本地 subagent（宿主 task 派发） | `deepseek/deepseek-v4-flash` | ✅ 完成 |
 | 15:07 | architect | prd/F06 收口 · 卡片判据修正 | 本地 subagent（宿主 task 派发） | `deepseek/deepseek-v4-flash` | ✅ 完成 |
 | 15:15 | pr-planner | PR 文件判据与 A-06 补定对齐 | 本地 subagent（宿主 task 派发） | `deepseek/deepseek-v4-flash` | ✅ 完成 |
-| 15:27 | dev | 阶段 5 · pr-007 产物落地＋自证（本次派发） | 本地 subagent（宿主 task 派发） | `openai/gpt-5.6-luna` | ⏸ 在途 |
-| 15:40 | dev | 阶段 5 · pr-004 实现＋自证（含 T0 透传） | 本地 subagent（宿主 task 派发） | 未回报 | ⏸ 在途 |
+| 15:27 | dev | 阶段 5 · pr-007 产物落地＋自证（本次派发） | 本地 subagent（宿主 task 派发） | `openai/gpt-5.6-luna` | ✅ 完成（合并 `58e30cd`） |
+| 15:40 | dev | 阶段 5 · pr-004 实现＋自证（含 T0 透传） | 本地 subagent（宿主 task 派发） | `openai/gpt-5.6-luna` | ✅ 完成（合并 `1b02689`） |
 | 15:46 | pr-planner | pr-004/pr-008 文件范围与验收修订 | 本地 subagent（宿主 task 派发） | `deepseek/deepseek-v4-flash` | ✅ 完成 |
 | 15:49 | architect | context-pool 同步 · §4 A-05 / §5 / §6 / §10 | 本地 subagent（宿主 task 派发） | `deepseek/deepseek-v4-flash` | ✅ 完成 |
 | 15:50 | verifier | 阶段 5 · pr-002 独立验收 | 本地 subagent（宿主 task 派发） | `powerby/grok-4.6` | ✅ 完成 |
 | 15:57 | pr-planner | 欠账收口 · pr-002 tasks 文件口径同步 | 本地 subagent（宿主 task 派发） | `deepseek/deepseek-v4-flash` | ✅ 完成 |
-| 16:07 | verifier | 阶段 5 · pr-003 独立验收 | 本地 subagent（宿主 task 派发） | 未回报 | ⏸ 在途 |
+| 16:07 | verifier | 阶段 5 · pr-003 独立验收 | 本地 subagent（宿主 task 派发） | `powerby/grok-4.6` | ✅ 完成 |
