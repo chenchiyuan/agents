@@ -55,7 +55,7 @@
 | pr-007-model-routing-and-process-evidence.md | （无） | ⏸ | feat/0030-pr-007-model-routing-and-process-evidence | ⬜ | **占用**（planner 在途） |
 | pr-008-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
 
-> 在飞 4 个（≤ 当前有效上限 5）。已合并 1/8。**欠账（阶段 5 收尾统一处理）**：① `architecture.md` §4 A-04 表第 10/11 行展示微调（verifier 偏差）→ architect；② 已合并 PR 的验收复选框勾选（verifier 偏差）→ pr-planner。
+> 在飞 4 个（≤ 当前有效上限 5）。已合并 1/8。**欠账（阶段 5 收尾统一处理）**：① `architecture.md` §4 A-04 表第 10/11 行展示微调（verifier 偏差）→ architect；② ~~已合并 PR 的验收复选框勾选~~ **已完成**（`pr-planner` 2026-09-17 15:20）；③ `prs/pr-002-pool-routing-module-tasks.md:73` 的旧判据口径（唯一残留；**故意压后**，等 dev 回填证据完成后再修，避免同文件并发写）；④ ~~`pr-008` 的 G01 零回归判据缺例外括注~~ **已完成**（同批补上）。
 
 > **PR 集合已按验证反馈返工**：9 → 8 个（`pr-007` = 旧 007+008 合并，覆盖 F08+F09；原 009 重编号为 `pr-008`，覆盖 G01）。**已解锁集** = {pr-001, pr-002, pr-003, pr-004, pr-007}（5 个无依赖）；首轮按起始并发 3 派发前 3 个。
 

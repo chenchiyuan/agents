@@ -2,7 +2,7 @@
 
 ## 上下文摘要
 
-`oamp/src/web.js` 是仓库里的多面接线点，本迭代六处改动落在同一文件，**按代码耦合只能整文件同批提交**：① `/api/calls` 目标由 `pickInstance`（池内选择）决定 + 项级可选 `new_session` + `call.principal` 派生（`显式 requester ?? 'chat:' + chatId`）；② `composeCallEnvelope` 失败侧在既有 11 键**之后**追加 `reason`；③ `publishCallResult` 由"仅显式 `requester`"改为**无条件**写 `db.insertInbox`；④/⑤ `GET /api/pickup` 改读 `db.listInbox`（不再逐条 `router.task_get`）、ack 改 `db.deleteInbox`；⑥ `RECONCILE_TTL_DEFAULT_MS` 默认值与 `config.taskNetMs` 联动（不联动即破 F01 必达：登记被清后长任务终态在 `handleDeliver` 查不到 `entry` 被丢弃）；同时退役 `oamp/src/pickup.js`——**退役与三个消费点在同一 PR**，否则中间态不可构建。
+`oamp/src/web.js` 是仓库里的多面接线点，本迭代六处改动落在同一文件，**按代码耦合只能整文件同批提交**：① `/api/calls` 目标由 `pickInstance`（池内选择）决定 + 项级可选 `new_session` + `call.principal` 派生（`显式 requester ?? 'chat:' + chatId`）——池成员判定与 `GET /api/agents` 的 `role` 列**同源消费** pr-002 的 `roleOfPoolInstance(id, roleFromInstanceId)`；② `composeCallEnvelope` 失败侧在既有 11 键**之后**追加 `reason`；③ `publishCallResult` 由"仅显式 `requester`"改为**无条件**写 `db.insertInbox`；④/⑤ `GET /api/pickup` 改读 `db.listInbox`（不再逐条 `router.task_get`）、ack 改 `db.deleteInbox`；⑥ `RECONCILE_TTL_DEFAULT_MS` 默认值与 `config.taskNetMs` 联动（不联动即破 F01 必达：登记被清后长任务终态在 `handleDeliver` 查不到 `entry` 被丢弃）；同时退役 `oamp/src/pickup.js`——**退役与三个消费点在同一 PR**，否则中间态不可构建。
 
 **已知代价（可审查性，无法通过拆 PR 消除）**：单文件同时承载 F01~F07 七张卡的接线，审查者需同时装载七张卡的心智模型才能审完这一 PR；受"同一文件不可被两个 PR 声明"的文件范围互斥约束，该代价只能如实登记，**不因此改动本 PR 的文件范围与验收标准**。
 
@@ -31,7 +31,7 @@
 - [ ] 跨重启：终态后未 ack ⇒ 重启 web 进程后同一身份再取件仍能取到同一条结果，且信封与重启前一致（不再依赖 Router 任务表现算）
 - [ ] 池化分流与粘性：同角色两个在线实例 + 两个不同 `chat_id` 并发派发 ⇒ 落到不同实例；同一 `chat_id` 连续两轮 ⇒ 同一实例；带 `new_session` 声明 ⇒ 按最空闲重选并重绑
 - [ ] 空池与单实例：池内无在线实例 ⇒ 既有 404 `agent 不可用: <role>（无对应在线实例）`（错误码与文案逐字复用）；同角色只有一个在线实例 ⇒ 派发目标与迭代前一致、不额外排队
-- [ ] 既有面不回归：`new_session` 缺省不出现时请求形状与既有响应逐字不变；`GET /api/calls` 响应键集不变；`GET /api/agents` 的实例标识与既有五字段投影不变（不新增第二套标识）
+- [ ] 既有面不回归：`new_session` 缺省不出现时请求形状与既有响应逐字不变；`GET /api/calls` 响应键集不变；`GET /api/agents` 的实例标识与既有五字段投影不变（不新增第二套标识）；`GET /api/agents` 的 `role` 列与池成员判定消费**同一** resolver（`roleOfPoolInstance(id, roleFromInstanceId)`，两处 `baseResolve` 实参均为 `roleFromInstanceId`）⇒ 同角色多实例（`pb-<role>-<n>`）的 `role` 列由迭代前的 `null` 变为角色名（A-06 补定的**已登记取值变化**；其余列与其余取值域不变）
 - [ ] 对账联动：`RECONCILE_TTL` 默认值 ≥ `config.taskNetMs`（约 4h30m 量级），长任务终态不因登记被清理而永不发布；`OAMP_WEB_RECONCILE_TTL_MS` 覆盖仍生效
 
 ## 参考资料

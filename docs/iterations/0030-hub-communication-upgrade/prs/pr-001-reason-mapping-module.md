@@ -14,10 +14,10 @@
 
 ## 验收标准
 
-- [ ] `oamp/src/reason.js` 存在，导出唯一函数 `reasonOf(state, error)`；无其它导出、无对其它 `src/**` 模块的 import
-- [ ] `state !== 'failed'` ⇒ 返回 `null`；`state === 'failed'` ⇒ 返回值 ∈ {`agent_error`, `cancelled_by_client`, `infra_error`, `timeout`, `rejected`} 且**恒非 null**（含 `error` 为 `null` / 缺失 / 非字符串 / 空串的情形）——"全函数"由构造保证，不依赖对自由文本的穷举
-- [ ] 已知形态逐条命中：`cancelled` → `cancelled_by_client`；`rejected_by_agent` / `structured_output_invalid` / `permission_denied` / `model_unavailable` / `context_busy` → `rejected`；`timeout` / `timeout_after_<N>ms`（任意 N） → `timeout`；`context_crashed` / `spawn_failed:` 前缀 / `spawn_error:` 前缀 / `dispatch_failed` → `infra_error`；任意未匹配自由文本（如 `一次性执行失败`、`err.message` 透传串） → `agent_error`
-- [ ] 参数化串按**前缀**口径归类、不解析参数（`timeout_after_` 开头的 N 不参与归类；`spawn_failed:` / `spawn_error:` 冒号后任意文本含空串），无关键字启发式分支
+- [x] `oamp/src/reason.js` 存在，导出唯一函数 `reasonOf(state, error)`；无其它导出、无对其它 `src/**` 模块的 import
+- [x] `state !== 'failed'` ⇒ 返回 `null`；`state === 'failed'` ⇒ 返回值 ∈ {`agent_error`, `cancelled_by_client`, `infra_error`, `timeout`, `rejected`} 且**恒非 null**（含 `error` 为 `null` / 缺失 / 非字符串 / 空串的情形）——"全函数"由构造保证，不依赖对自由文本的穷举
+- [x] 已知形态逐条命中：`cancelled` → `cancelled_by_client`；`rejected_by_agent` / `structured_output_invalid` / `permission_denied` / `model_unavailable` / `context_busy` → `rejected`；`timeout` / `timeout_after_<N>ms`（任意 N） → `timeout`；`context_crashed` / `spawn_failed:` 前缀 / `spawn_error:` 前缀 / `dispatch_failed` → `infra_error`；任意未匹配自由文本（如 `一次性执行失败`、`err.message` 透传串） → `agent_error`
+- [x] 参数化串按**前缀**口径归类、不解析参数（`timeout_after_` 开头的 N 不参与归类；`spawn_failed:` / `spawn_error:` 冒号后任意文本含空串），无关键字启发式分支
 
 ## 参考资料
 
