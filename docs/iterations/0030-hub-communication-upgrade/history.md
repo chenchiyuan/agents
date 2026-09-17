@@ -711,3 +711,23 @@
 - 其余独立核：§11 命令族逐条复跑与文档记载比对（不一致项注明"文档错 / 环境差"）；`doctor` JSON（不看退出码）R1 29 项 0 失败；三条更正确认（不含 `oamp/cluster.json` / `roles/**` 分层 / 退役判据非字面 `grep pickup`）；5 条预期取值变化登记是否如实；路由 29；T9 两层守卫；红线违规检查
 - 另明确告知两处**已知陈旧字面**（`roles` 计数 9→11、T9 守卫 11→14），并要求 verifier **不得自行改数**，只核"文档记的是否是它自己基点的实测值且声明了不冻结"
 - 触发依据：`DevP008` 完成回报（`8b200cf`）+ 主 agent 现场复核（单文件 A / clean / 266 行 13 段）
+
+### 2026-09-17 22:05:00 · 收到报告 · verifier（pr-008 验收，含 T10 反证）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-205039-pr-008.md（+ `roles/verifier/data/` 副本）
+- 结论：**pass**、**non-blocking**；**T10 四条判据 4/4 pass**、**AC1~AC4 4/4 pass**
+- **反证（本迭代首次：证明判据有辨别力）——三处人为破坏全部被捕获，且给了成对读数**：(a) `transport.js` 加一行注释 ⇒ `cmp 0 → 1`（PASS→FAIL）；(b) `context-pool.js` LRU 分支改一行（`>=` vs `>`）⇒ 归一化 `DIFF_EXIT 0 → 1`；(c) `web.js` 的 `CALL_EVENTS` 改一处事件名（`call_result_x`）⇒ 常量 `DIFF_EXIT 0 → 1`
+- 机械锁：`doctor {pass:true, items:66, R1:29, R1_fail:0, routes_length:29}`（隔离端口 17808）；红线违规检查四项全 false（未动 `src`/未新增路由/未落仓脚本或测试/**未写 PR worktree**）
+- 差异 3 条：**C05 = 真实缺陷**（见下条）；C01（文档记 HEAD `4748e78`、实为 `8b200cf` —— 后者即证据提交自身、`oamp` 面未变）与 C08（文档端口 17788 vs 验方环境 17808）属**环境/ref 差**，非缺陷
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（11m29s）
+
+### 2026-09-17 22:10:00 · 调度决策 · C05 缺陷定性（stdin 形态）+ 合并前收口派遣
+
+- 缺陷：证据文档 §11 的 `keys()` 用 `paste -sd,`（无显式操作数）。verifier 报其在 Darwin 上恒空
+- 主 agent **独立定性**（不采信单方读数、也不轻易归为环境差）：把该行**逐字节**写成脚本，用 `bash`/`zsh`/`sh` 三种 shell 跑 ⇒ 全部 `rc=1` + `usage: paste [-s] [-d delimiters] file ...` + **空输出**；实测矩阵（stdin 形态 × 写法）：
+  - harness 直接 bash（stdin 正常）⇒ `paste -sd,` **通过**（`a,b,c`）
+  - 脚本文件 / 子进程（`stdin=DEVNULL` / `PIPE` / 继承）⇒ `paste -sd,` **rc=1 空输出**；`paste -sd, -` **三种形态全通**
+  - ⇒ 触发条件是**stdin 非交互继承**，而这恰是**文档的目标使用场景**（agent 工具调用 / 脚本重跑）⇒ 判为**真实复现性缺陷**（"命令写错 ⇒ 恒空 ⇒ 假通过"类，tasks §5.3-1 明写要防），非环境差
+- 顺带初筛同文件其它 GNU-ism：`grep -cE '^\|\s*...'`（含 `\s`）一处可疑，**本机 BSD grep 实测正常（=29）** ⇒ 不改；`sed -i`/`date -d`/`readlink -f`/`stat -c`/`grep -P`/`sort -V`/`xargs -r` **零命中**
+- 裁决：**合并前收口**（改一行 `paste -sd,` → `paste -sd, -`），派 `DevP008Fix`（原地 dev，`agent=dev`，保持 gpt 归属）；要求修后**在非交互形态**（`/tmp` 一次性脚本 + `bash`/`sh`）给出**成对读数**（修前 rc=1 空 / 修后 rc=0 十键），并复跑 `KEYS-IDENTICAL`、确认 diff 只有那一个 token、文档仍 266 行；改后按协议做**增量定向复核**
+- 触发依据：`verify-20260917-205039-pr-008.md` 的 C05；主 agent 的 stdin 形态实测矩阵（可复现命令见 history 与 tasks §7）
