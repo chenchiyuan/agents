@@ -574,3 +574,35 @@
 - **prd 面**：同一引用在 `prd/F07:32`、位于**架构维度段**（非产品维度五段）⇒ 按授权同批更正为 `§3.14` + 引用纪律括注；该卡仍 5 个 `##` 段、其余四段逐字未动
 - 复核：`grep -n "3\.9" architecture.md` 余 2 处**均与 `POST /api/calls` 参数表无关**（第 343 行该注自身、第 535 行 §10-14 记录）；`grep -rn "3\.9" prd/` 余 1 处（`prd/F07:32` 同一说明括注）；`architecture.md:312` 的 `API.md §2.4` 引用正确且唯一故未改
 - 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:45:00 · 收到报告 · architect（§9 登记取件面取值变化 + §6 逐行扫描）
+
+- 来源：pr-006 planner 的登记核验 + pr-005 tasks §0.3 A9（实跑基线 502）
+- 收口内容（`architecture.md` 3 行）：**§9 新增第 14 条**——取件面在 Router 不可达时的响应码变化：基线 = 有未取件条目时逐条 `task_get` 抛错 ⇒ **502 `UPSTREAM_UNAVAILABLE`**；改后 = 读本地 `inbox` ⇒ **200 + DB 条目**；性质 = **预期改进**、**字段类型与既有取值域不变**（200 响应体形状与正常时逐字相同，变的只是**触发条件**）、**路由正常时两态无差异**；**§6 第 4 行**末尾追加指向 §9-14；**§10 新增第 15 条**记录来源
+- **§6 十二行扫描结论**：除第 4 行外**无其它遗漏**——其余候选均已在别处登记（失败侧 `call_result` payload 多 `reason` → §9-9；多实例派发目标与 `/api/agents` 的 `role` 列 `null`→角色名 → §9-10 + §4 A-06；对账软 TTL 默认值变化 → §4 A-05 第 6 条 / §7 L2-05）；第 2/3/5/6/7/9/11/12 行确无取值或触发条件变化
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 19:50:00 · 收到报告 · planner（pr-008）
+
+- 1. `tasks.md` 路径：docs/iterations/0030-hub-communication-upgrade/prs/pr-008-existing-surface-guard-tasks.md（**623 行**）；任务总数 **9 个 dev 任务（T1~T9）+ 1 个独立核验任务（T10，verifier 面）**；AC1→T9+T2/T4/T8；AC2→T4/T5/T6/T7；AC3→T2+T3；AC4→T8；无孤儿任务、无无主 AC；每条判据带追溯行
+- 2. 依赖图：无环；`T1 → {T2..T8} → T9 → T10`，最长链 4 节点（T1→T4→T9→T10）；写入仲裁 = `evidence/g01-existing-surface.md` **只由 T9 装配**，T2~T8 证据回填 tasks §7 ⇒ 该批可无损并发
+- 3. `[model_inferred]` 5 条（见下条调度决策逐条裁决）
+- 4. 循环依赖：无
+- 5. 疑问/越界 + **9 条事实更正**（隔离副本 `/tmp/g01probe-*` 实跑），其中三条是**上游文档缺陷**：**①** PR AC3 的 `oamp/cluster.json` **不存在**（真实文件在仓库根，489 B）⇒ 该行会**永远空转"通过"**；**②** `roles/**` 递归面非零改动（9 个 A 全在 `roles/*/data/**`，设计内过程产物）⇒ 按字面核会**假报失败**；**③** `architecture.md` §5 的 `pickup` 退役判据（裸 `grep -rn pickup oamp/src oamp/sdk oamp/bin oamp/scripts`）实测**命中 8 处**（`/api/pickup` 路由名 + `sdk/surface.js` 的 `pickup list`/`pickup ack` CLI 名，均为 G01 要求保留的面）⇒ 会**假报"退役失败"**；其余：`hub doctor` 不接受 `--port`（走 env `OAMP_WEB_PORT`）且须 Router 在线、git pathspec 裸 `*` 跨 `/`（`roles/*/*.md` 实测 9 行、必须加 `:(glob)`；`ls-tree` 不支持 `:(glob)`）、PR AC4 的"三处同值"实为 **5 处**（4 静态 + 1 运行时）、`web.js:539` 的"11 键"注释是**既有滞后**（main 同写 11、实际 10 键）、绑定范围须用"带 `model` 键的角色集合"（`main`/`HEAD` 同为 `dev,verifier`）、`RECONCILE_TTL` 算式与 `entry.agentId=target` 属 §5 明文改动非回归
+- **判据可判定性前置证明（实跑）**：基线 `main = 706e3d0…` = merge-base、diff vs HEAD = 11 个 `oamp/src/**`（10 M + `pickup.js` D）；零改动面各组 diff 全 0 且**存在性计数非 0**（`sdk=7`/`web=11`/`scripts=1`/定义面=22）、正对照 `web.js=1` ⇒ 非空洞；`context-pool.js` diff `--stat` = 1 file/4+/2−、`-U0` 行集恰 6 行且全落白名单，**归一化剔除两键透传后与 main 逐字相同**（该判据本身即"键语义/FIFO/LRU 零改动"的证明）；事件面 `CALL_EVENTS`/`FILTERED_EVENT_KINDS` 常量行 diff 空、`transport\.` 差异行 = 0；信封两侧键序抽取**全等**（10 键）、`reason` 追加行仅在 `state==='failed'` 分支末位；取件两端点参数行两侧 diff 空；**五处路由计数全 = 29**；`hub doctor` 隔离塔：Router 缺 ⇒ `UPSTREAM_UNAVAILABLE`/exit 3、`--port` ⇒ `USAGE`/exit 2、Router+web 齐备 ⇒ **exit 0、items 66、R1 29 项 0 失败**
+- 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`（9m12s）
+
+### 2026-09-17 19:55:00 · 调度决策 · pr-008 MI 裁决 + 上游文档三处更正 + DevP008 暂缓
+
+- **MI-P8-01 采纳（并回派 architect）**：§5 退役判据改用**模块级**口径（`pickup.js` 文件不存在 + 模式限定 `pickup\.js`/`pickup\.add`/`pickup\.ack` 零命中；路由名与 CLI 名中的 `pickup` 属保留面）——该口径即 pr-005 已执行并通过独立验收的口径
+- **MI-P8-02 采纳（并回派 architect）**：§5 `roles/**` 从"整片零改动"改**分层口径**（定义面 `roles/*/*.md` + `roles/_template/**` 零改动；`roles/*/data/**` 为设计内过程产物区）。权威依据 = `scm-protocol.md:157` + `roles/_template/role-structure-reference.md`
+- **MI-P8-03 采纳（PR 文件更正回派 pr-planner）**：AC3 的 `oamp/cluster.json` → 仓库根 `cluster.json` + **补负向断言**防"永远空转通过"；同批把 `roles/**` 改分层口径、AC4"三处同值"改"四处静态 + 一处运行时"
+- **MI-P8-04 采纳**：`hub doctor` R1 **保留真跑**（隔离塔已证可行：exit 0 / items 66 / R1 29 项 0 失败），不降级为静态复算
+- **MI-P8-05 采纳**：T10 的"无 Router 仅 web"200 活体读数**只作已登记取值变化②的证据**，不参与回归判定
+- **DevP008 暂缓派发**（本决策的推理）：pr-008 的 T1 要枚举"相对 `main` 的 diff 全集"，而 `pr-006` 的文档面改动（`API.md`/`README.md`/`llms.txt`/`skill/hub.md`）**尚未合并** ⇒ 此刻跑出的 diff 全集不含这四项，属结构性遗漏（阶段 6 会当"遗漏功能点"打回）。⇒ **等 `pr-006` 合并后从最终 tip 派发 `DevP008`**，使其证据覆盖迭代最终 diff
+- 触发依据：`PlanP008` 报告第 3 项（5 条 MI）与第 5 项（9 条事实更正 + 隔离实跑读数）
+
+### 2026-09-17 19:58:00 · 派发 · pr-planner（pr-008 PR 文件事实更正）
+
+- 派发 `PrPlanFix`：唯一可写文件 = `prs/pr-008-existing-surface-guard.md`（PR 文件是 pr-planner 产出物，按协议只有它能改）；三项更正见上条；不提交（主 agent 统一提交）；顺带核其它 PR 文件是否有同一 `oamp/cluster.json` 错误（只报告不改）
+- 依据：`PlanP008` 的事实更正 ①②⑥ + 本会话对 `scm-protocol.md:157` 与 `roles/_template/role-structure-reference.md` 的权威口径核验
