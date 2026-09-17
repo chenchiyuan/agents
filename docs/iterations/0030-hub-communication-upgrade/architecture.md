@@ -323,7 +323,7 @@ flowchart TB
   - **约定的必要性（代码实测）**：hub 侧**无法**从协议面得知实例的角色 —— `agent.register` 载荷只有 `instance_id`（`agent.js:841` `client.register(instanceId)`），`registry.snapshot()` 的节点字段 = `instance_id / session_id / state / last_heartbeat / connected`（**无 role**，`registry.js:156-169`）。既有反向映射 `roleFromInstanceId` 只认 `^pb-(.+)$` 且要求 `<root>/roles/<role>/<role>.md` 存在 ⇒ `pb-dev` → `dev`，而 `pb-dev-2` 会去解析角色 `dev-2`（角色文件不存在）⇒ 返回 `null`。⇒ 若池成员判据只认精确公式，**同角色在线池上限恒为 1**，F06 验收 1 与效果#5 在端到端面**不可构造**。
   - **约定**：实例 id 形如 `pb-<role>` **或** `pb-<role>-<n>`（`n` = 正整数）即计入该 role 的池。**解析顺序**：① 先按既有精确公式（若 `roles/dev-2/dev-2.md` 真实存在，则 `pb-dev-2` **就是**角色 `dev-2` 的实例 —— 精确优先、向后兼容）；② 未命中再剥离尾段 `-<n>`，用**同一**角色文件存在性判据解析 `<role>`。⇒ 无歧义、无第二套角色真源；`pb-dev-1` 与 `pb-dev` 视为两个独立实例（不做别名等价）。
   - **用户侧启动方式**：`oamp agent start pb-<role>-<n> --role <role>`（**`--role` 必带**）：agent 侧的角色绑定 = `explicitRole || roleFromInstanceId(instanceId)`（`agent.js:677`），不带则 `pb-dev-2` 在 agent 侧同样绑不上角色（角色文件预检与 `--tools` 缺省档都会退化）；`--role` 的既有校验（无分隔符、非 `.`/`..`、角色文件必须存在否则退出 2）**全部保留**。
-  - **落点与同源要求**：`roleOfPoolInstance` 由**新增模块** `src/pool-routing.js` 导出（`role-binding.js` 的既有两公式**零改动** ⇒ §5「明确不改」清单与 §1.3 / §6 的声明逐字成立）；**池成员判定与 `GET /api/agents` 的 `role` 列必须消费同一函数**（`web.js:673` 现用 `roleFromInstanceId` ⇒ 不同步会出现"能进池但 role 列显示 `null`"的自相矛盾，直接损害验收 5 的可观测性）。
+  - **落点与同源要求**：`roleOfPoolInstance(instanceId, baseResolve)` 由**新增模块** `src/pool-routing.js` **具名导出**（**冻结签名**：纯函数、不抛错、不 import `role-binding.js`——`baseResolve` 由调用方以参数传入，既有两公式因此**零改动** ⇒ §5「明确不改」清单与 §1.3 / §6 的声明逐字成立）；**池成员判定与 `GET /api/agents` 的 `role` 列必须消费同一函数**（`web.js:673` 现用 `roleFromInstanceId` ⇒ 不同步会出现"能进池但 role 列显示 `null`"的自相矛盾，直接损害验收 5 的可观测性），两处的 `baseResolve` 实参均为 `roleFromInstanceId`。
   - **作用域（不做扩散）**：**仅**手动启动的实例走该约定；`cluster.json` 管理的实例恒为 `pb-<role>`（`cluster-config.js` 的 `instanceIdForRole` 零改动）⇒ 与 D-30 / D-32（hub 不管生命周期、固定配置）一致。协议面**不加 role 字段**（备选"`agent.register` 自报 role + `snapshot()` 追加 role 字段"要改 `agent.js` / `router.js` / `registry.js` / `/api/agents` 投影四处并扩协议载荷，收益仅是省掉一条命名约定 ⇒ 不采纳，见 §9-10）。
 - **负载读数来源**：`router.task_list`（既有方法）+ `deriveAgentWork`（**既有函数**，服务 `GET /api/agents` 与 `agent_state` 帧）⇒ "最空闲"不需要新度量。
 - **选择口径**：次序键 `(queued, busy, inflight, instance_id)` 取字典序最小（`queued`/`busy` 来自任务表；`inflight` = 本进程"已选中未落表"的预留计数；`instance_id` 升序做确定性 tie-break）。
@@ -394,7 +394,7 @@ flowchart TB
 
 **新增（2 个文件）**
 1. `oamp/src/reason.js` —— 源串→`reason` 枚举的唯一映射（A-03 / A-04）。
-2. `oamp/src/pool-routing.js` —— 池内选择 + 粘性表 + 在飞预留计数 + **多实例感知的角色解析 `roleOfPoolInstance`**（A-06 含补定 / A-07）。
+2. `oamp/src/pool-routing.js` —— 池内选择 + 粘性表 + 在飞预留计数 + **多实例感知的角色解析**：具名导出 `roleOfPoolInstance(instanceId, baseResolve)`（冻结签名：纯函数、不抛错，`baseResolve` 参数化 ⇒ 不 import `role-binding.js`）（A-06 含补定 / A-07）。
 
 **修改（既有文件）**
 

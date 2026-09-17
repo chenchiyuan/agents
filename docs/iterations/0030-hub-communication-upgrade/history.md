@@ -273,3 +273,13 @@
 
 - 决策内容：① **授权** architect 修正 `prd/F06-role-instance-pooling.md` 的「架构维度」段（第 30 行判据行 + 第 35 行"唯一池成员恒为 `pb-<role>`"措辞），边界 = 只改该段、产品维度五段逐字不动；② **冻结 resolver 签名**（主 agent 定，避免 pr-005 各写一版）：`roleOfPoolInstance(instanceId, baseResolve)`，三段语义（精确优先 → 剥 `-<n>` 正整数后缀复用同一 resolver → null），`baseResolve` 为**参数**（零 import 约束不破）；③ **在飞 dev 纠偏**：pr-002 的 dev 简报原冻结「导出仅 `createPoolRouting`」，与补定后的落点不一致 ⇒ 立即向 `DevP002` 注入追加契约（新增该具名导出 + 工厂内部复用 + 5 条边界断言 + 证据回填），不推倒重来
 - 触发依据：`architect` 收口报告；`architecture.md` §4 A-06 补定块（"`roleOfPoolInstance` 由新增模块 `src/pool-routing.js` 导出"）与 §5 第 397 行；`workflow-pb.md` §阶段 5"同一轮内决定跨任务契约并在派发简报里写死"
+
+### 2026-09-17 15:14:00 · 收到报告 · architect（prd/F06 + 签名对齐）
+
+- 收口内容：`prd/F06-role-instance-pooling.md` **仅「架构维度」段两行**（第 30 行判据改为 `roleOfPoolInstance(instance_id) === role` 并写明冻结签名；第 35 行"唯一池成员恒为 `pb-<role>`"按事实收紧为"池内只有 1 个成员时选择结果恒为该成员…多实例形态不构成既有行为回归"）；产品维度五段（来源/用户价值/验收标准/边界/model_inferred）**逐字未动**。`architecture.md` 两处对齐冻结签名（§4 A-06「落点与同源要求」行 + §5 `pool-routing.js` 职责行）
+- 遗留：`prs/pr-002-pool-routing-module.md:5` 仍写旧判据（`prs/**` 不在 architect 授权面）
+
+### 2026-09-17 15:15:00 · 调度决策 · PR 文件口径对齐（判据来源修正）
+
+- 决策内容：`prs/**` 是 verifier 的判据来源，旧判据留在 PR 文件里会导出**假失败**（verifier 按旧口径判实现"越界导出第二个函数"）⇒ 立即派 `pr-planner` 做文本口径对齐：① `pr-002` 上下文摘要第 5 行判据改 `roleOfPoolInstance` + 点明双导出；② `pr-002` 验收标准第 1 条扩为"工厂 + 具名导出 `roleOfPoolInstance`"并补 5 条边界可独立判据；③ `pr-005` 同步池成员/目标解析口径；④ 顺带勾选已合并 pr-001 的四条验收复选框（先前登记的欠账）；**⑤ 明令不动 `pr-002-*-tasks.md`**——dev 正在其末尾回填执行证据，两边同写会互相覆盖，该文件口径修正排到 dev 回报后单独安排
+- 触发依据：`grep -rn "roleFromInstanceId" prs/` 命中清单（pr-002 第 5/18 行属**判据口径**，其余为既有事实引用）；`architecture.md` §4 A-06 补定；`workflow-pb.md` §阶段 4→5"未通过项回到执行角色补充"
