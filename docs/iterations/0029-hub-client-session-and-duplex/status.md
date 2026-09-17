@@ -2,11 +2,11 @@
 
 **工作流**: workflow-pb v0.13.0
 **迭代**: 0029-hub-client-session-and-duplex
-**当前阶段**: 独立验证（阶段 6）· 迭代级验证已派发
+**当前阶段**: 完成（阶段 6 迭代级验证 PASS ⇒ 已收口合 main `cd64ea6`）
 **阶段 2 结果**: 产物完整（`prd.md` 30089 B + 20 卡）；**prd 调用终态 failed（error=timeout，30 分钟上限）**，报告未回——按 D-14（产物为权威）以产物推进
-**迭代分支**: iteration/0029-hub-client-session-and-duplex
+**迭代分支**: iteration/0029-hub-client-session-and-duplex（**已合并** `cd64ea6`）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0029-hub-client-session-and-duplex
-**状态**: 等待确认（方案确认门）
+**状态**: **已完成**
 **history**: 开启
 **方案确认门**: enabled
 **一句话目标**: 把"连接到 hub"做成一等入口（客户端会话），让 hub 与 hub 纳管的 agents **像 subagent 一样好用**（一次派发、无需盯守、结果到手），并保证**重启可恢复**
