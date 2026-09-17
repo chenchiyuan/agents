@@ -11,7 +11,6 @@ import { spawnAgent } from './launcher.js';
 const PROFILE = 'omp:rpc';
 const PROTOCOL_VERSION = 2; // v2 帧面（ready.supportedProtocolVersions 含 2，实测 M-1 / M-5）
 const HANDSHAKE_TIMEOUT_MS = 10000; // 握手上限（体例同 acp-client 的 REQUEST_TIMEOUT_MS）
-const DEFAULT_TURN_TIMEOUT_MS = 1800000; // 轮次默认上限（同既有 agent.js DEFAULT_OMP_TIMEOUT_MS）
 const CANCEL_GRACE_MS = 2000; // §4.2 L2-8 明文沿用既有值（acp-client 同名常量）
 const KILL_GRACE_MS = 500; // SIGTERM → SIGKILL 宽限（同上）
 const CLOSE_GRACE_MS = 500; // 关 stdin 后的短宽限（同 KILL_GRACE_MS 量级）
@@ -196,24 +195,52 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
   }
 
   function clearTurnTimer(active) {
-    if (!active.timer) return;
-    clearTimeout(active.timer);
-    active.timer = null;
+    for (const key of ['timer', 'idleTimer', 'netTimer']) {
+      if (active[key]) clearTimeout(active[key]);
+      active[key] = null;
+    }
   }
 
-  function armTurnTimer(active, timeoutMs) {
-    active.remainingMs = timeoutMs;
-    active.deadline = Date.now() + timeoutMs;
-    active.timer = setTimeout(() => onTurnTimeout(active), timeoutMs);
+  function armTurnTimer(active) {
+    clearTurnTimer(active);
+    if (Number.isInteger(active.timeoutMs) && active.timeoutMs > 0) {
+      active.deadline = Date.now() + active.timeoutMs;
+      active.remainingMs = active.timeoutMs;
+      active.timer = setTimeout(() => onTurnTimeout(active, 'timeout', active.timeoutMs), active.timeoutMs);
+      return;
+    }
+    const now = Date.now();
+    if (Number.isInteger(active.netMs) && active.netMs > 0) {
+      active.netDeadline = now + active.netMs;
+      active.netRemainingMs = active.netMs;
+      active.netTimer = setTimeout(() => onTurnTimeout(active, 'net', active.netMs), active.netMs);
+    }
+    if (Number.isInteger(active.idleMs) && active.idleMs > 0) {
+      active.idleDeadline = now + active.idleMs;
+      active.idleRemainingMs = active.idleMs;
+      active.idleTimer = setTimeout(() => onTurnTimeout(active, 'idle', active.idleMs), active.idleMs);
+    }
+  }
+
+  function resetIdleTimer(active) {
+    if (active.paused || (Number.isInteger(active.timeoutMs) && active.timeoutMs > 0) || !(Number.isInteger(active.idleMs) && active.idleMs > 0)) return;
+    if (active.idleTimer) clearTimeout(active.idleTimer);
+    active.idleDeadline = Date.now() + active.idleMs;
+    active.idleRemainingMs = active.idleMs;
+    active.idleTimer = setTimeout(() => onTurnTimeout(active, 'idle', active.idleMs), active.idleMs);
   }
 
   /** 门挂起：冻结本轮的剩余计时（§4.2 L2-9——门等待不计入轮次超时）。 */
   function freezeTurnTimer() {
     pauseDepth += 1;
     const active = turn;
-    if (!active || !active.timer) return;
-    active.remainingMs = Math.max(0, active.deadline - Date.now());
+    if (!active || active.paused) return;
+    const now = Date.now();
+    if (active.timer) active.remainingMs = Math.max(0, active.deadline - now);
+    if (active.idleTimer) active.idleRemainingMs = Math.max(0, active.idleDeadline - now);
+    if (active.netTimer) active.netRemainingMs = Math.max(0, active.netDeadline - now);
     clearTurnTimer(active);
+    active.paused = true;
   }
 
   function thawTurnTimer() {
@@ -221,9 +248,21 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
     pauseDepth -= 1;
     if (pauseDepth > 0) return;
     const active = turn;
-    if (!active || active.timer) return;
-    active.deadline = Date.now() + active.remainingMs;
-    active.timer = setTimeout(() => onTurnTimeout(active), active.remainingMs);
+    if (!active || !active.paused) return;
+    active.paused = false;
+    if (Number.isInteger(active.timeoutMs) && active.timeoutMs > 0) {
+      active.deadline = Date.now() + active.remainingMs;
+      active.timer = setTimeout(() => onTurnTimeout(active, 'timeout', active.timeoutMs), active.remainingMs);
+      return;
+    }
+    if (active.netRemainingMs > 0) {
+      active.netDeadline = Date.now() + active.netRemainingMs;
+      active.netTimer = setTimeout(() => onTurnTimeout(active, 'net', active.netMs), active.netRemainingMs);
+    }
+    if (active.idleRemainingMs > 0) {
+      active.idleDeadline = Date.now() + active.idleRemainingMs;
+      active.idleTimer = setTimeout(() => onTurnTimeout(active, 'idle', active.idleMs), active.idleRemainingMs);
+    }
   }
 
   function settleTurn(active, result) {
@@ -241,18 +280,24 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
   }
 
   /** 轮次超时（L2-8 / M-2）：rpc 无协议级超时 ⇒ ① abort（幂等）→ ② 等终态宽限 → ③ kill。 */
-  async function onTurnTimeout(active) {
+  async function onTurnTimeout(active, kind, ms) {
+    if (turn !== active) return;
     if (!abortSent) {
       abortSent = true;
       trySend({ type: 'abort' });
     }
     await delay(CANCEL_GRACE_MS);
     kill();
-    failTurn(active, new ProtocolError('timeout', `轮次超时（${active.timeoutMs}ms）`));
+    const message =
+      kind === 'idle' ? `轮次空闲超时（空闲 ${ms}ms）` : kind === 'net' ? `轮次安全网超时（累计 ${ms}ms）` : `轮次超时（${ms}ms）`;
+    const err = new ProtocolError('timeout', message);
+    err.timeoutMs = ms;
+    failTurn(active, err);
   }
 
   /** 增量出口：只投给在飞轮次（无收件人则丢弃，不累积、不崩）。 */
   function emitDelta(active, payload) {
+    resetIdleTimer(active);
     if (typeof active.onDelta !== 'function') return;
     active.onDelta(payload);
   }
@@ -578,10 +623,10 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
    * 本实现无轮次级模型切换命令（§5.4 未列）⇒ `opts.model` 不参与本轮；返回的 `model` 恒为进程 argv 落定的
    * 模型（未传即 null，不造值）。
    * @param {string} text
-   * @param {{model?: string|null, timeoutMs?: number, onDelta?: function|null}} [opts]
+   * @param {{model?: string|null, timeoutMs?: number|null, idleMs?: number|null, netMs?: number|null, onDelta?: function|null}} [opts]
    * @returns {Promise<{text:string, model:string|null, stop_reason:*, usage:*, pid:number|null}>}
    */
-  function prompt(text, { timeoutMs = DEFAULT_TURN_TIMEOUT_MS, onDelta = null } = {}) {
+  function prompt(text, { timeoutMs = null, idleMs = null, netMs = null, onDelta = null } = {}) {
     if (closed) return Promise.reject(new ProtocolError('context_crashed', '会话已关闭'));
     if (dead) return Promise.reject(new ProtocolError('context_crashed', '子进程已退出'));
     if (turn) return Promise.reject(new ProtocolError('context_busy', '上一轮尚未结算（1 进程 = 1 在飞轮次）'));
@@ -593,13 +638,22 @@ export async function createRpcSession({ resident = {}, logger = null, hooks = n
         onDelta,
         accepted: false,
         timeoutMs,
+        idleMs,
+        netMs,
         remainingMs: timeoutMs,
+        idleRemainingMs: idleMs,
+        netRemainingMs: netMs,
         deadline: 0,
+        idleDeadline: 0,
+        netDeadline: 0,
         timer: null,
+        idleTimer: null,
+        netTimer: null,
+        paused: false,
       };
       turn = active;
-      abortSent = false; // 新一轮：abort 的幂等作用域随之重置
-      armTurnTimer(active, timeoutMs);
+      abortSent = false;
+      armTurnTimer(active);
       try {
         send({ id: (nextId += 1), type: 'prompt', message: text });
       } catch (err) {

@@ -316,7 +316,7 @@ export class AcpClient {
    * @param {function|null} [opts.onDelta] 增量回调（逐块、原样、不聚合；本实现只产 `kind:'chunk'`）
    * @returns {Promise<{text:string, model:string|null, stop_reason:*, usage:*, pid:number}>}
    */
-  async prompt(text, { model = null, timeoutMs = 1800000, onDelta = null } = {}) {
+  async prompt(text, { model = null, timeoutMs = null, idleMs = null, netMs = null, onDelta = null } = {}) {
     if (this.dead) throw new ProtocolError('context_crashed', '子进程已退出');
     if (!this.sessionId) throw new ProtocolError('context_crashed', 'session 未建立');
     const target = model || this.modelArg || this.currentModel;
@@ -332,6 +332,7 @@ export class AcpClient {
       const content = update.content;
       if (!content || content.type !== 'text' || typeof content.text !== 'string') return;
       acc += content.text;
+      this._pending.get(this._turnRequestId)?.resetIdle();
       if (onDelta) onDelta({ kind: 'chunk', text: content.text });
     };
     try {
@@ -342,6 +343,8 @@ export class AcpClient {
           { sessionId: this.sessionId, prompt: [{ type: 'text', text }] },
           {
             timeoutMs,
+            idleMs,
+            netMs,
             // §6.5 prompt 超时：① session/cancel → ② 等 ≤2s 收 stopReason → ③ 仍未收尾则 kill 进程
             onTimeout: async () => {
               this.cancel();
@@ -422,35 +425,36 @@ export class AcpClient {
   }
 
   /** 发一行 JSON-RPC 请求；超时（可选 onTimeout 收尾）或以 errorCode 回绝。 */
-  _request(method, params, { timeoutMs = REQUEST_TIMEOUT_MS, onTimeout = null, errorCode = 'context_crashed' } = {}) {
+  _request(method, params, { timeoutMs = REQUEST_TIMEOUT_MS, idleMs = null, netMs = null, onTimeout = null, errorCode = 'context_crashed' } = {}) {
     if (this.dead) return Promise.reject(new ProtocolError('context_crashed', '子进程已退出'));
     return new Promise((resolve, reject) => {
       const id = ++this._nextId;
-      if (method === 'session/prompt') this._turnRequestId = id; // L1-1：轮次计时 = 本计时器（可冻结/恢复）
-      const expire = () => {
+      const isTurn = method === 'session/prompt';
+      if (isTurn) this._turnRequestId = id;
+      const explicit = Number.isInteger(timeoutMs) && timeoutMs > 0;
+      const idle = !explicit && Number.isInteger(idleMs) && idleMs > 0;
+      const net = !explicit && Number.isInteger(netMs) && netMs > 0;
+      const entry = { resolve, reject, timer: null, idleTimer: null, netTimer: null, errorCode, timeoutMs, idleMs, netMs, remainingMs: explicit ? timeoutMs : null, idleRemainingMs: idle ? idleMs : null, netRemainingMs: net ? netMs : null, startedAt: 0, idleStartedAt: 0, paused: false };
+      const clearTimers = () => { for (const key of ['timer', 'idleTimer', 'netTimer']) { if (entry[key]) clearTimeout(entry[key]); entry[key] = null; } };
+      const expire = (kind, ms) => {
         if (!this._pending.has(id)) return;
-        this._pending.delete(id);
-        reject(new ProtocolError('timeout', `${method} 超时（${timeoutMs}ms）`));
+        this._pending.delete(id); clearTimers();
+        const message = kind === 'idle' ? `${method} 空闲超时（空闲 ${ms}ms）` : kind === 'net' ? `${method} 安全网超时（累计 ${ms}ms）` : `${method} 超时（${ms}ms）`;
+        const err = new ProtocolError('timeout', message); err.timeoutMs = ms; reject(err);
         if (onTimeout) Promise.resolve(onTimeout()).catch(() => {});
       };
-      const entry = { resolve, reject, timer: null, errorCode, remainingMs: timeoutMs, startedAt: 0, paused: false, expire };
       const arm = () => {
-        entry.startedAt = Date.now();
-        entry.timer = setTimeout(expire, entry.remainingMs);
-        entry.timer.unref?.();
+        const now = Date.now();
+        if (explicit || net) entry.startedAt = now;
+        if (explicit) { entry.timer = setTimeout(() => expire('timeout', timeoutMs), timeoutMs); entry.timer.unref?.(); }
+        if (net) { entry.netTimer = setTimeout(() => expire('net', netMs), netMs); entry.netTimer.unref?.(); }
+        if (idle) { entry.idleStartedAt = now; entry.idleTimer = setTimeout(() => expire('idle', idleMs), idleMs); entry.idleTimer.unref?.(); }
       };
-      arm();
-      this._pending.set(id, entry);
-      try {
-        this._write({ jsonrpc: '2.0', id, method, params });
-      } catch (err) {
-        clearTimeout(entry.timer);
-        this._pending.delete(id);
-        reject(err instanceof ProtocolError ? err : new ProtocolError('context_crashed', String(err && err.message ? err.message : err)));
-      }
+      entry.resetIdle = () => { if (!idle || entry.paused || !this._pending.has(id)) return; if (entry.idleTimer) clearTimeout(entry.idleTimer); entry.idleRemainingMs = idleMs; entry.idleStartedAt = Date.now(); entry.idleTimer = setTimeout(() => expire('idle', idleMs), idleMs); entry.idleTimer.unref?.(); };
+      entry.clearTimers = clearTimers; entry.expire = expire; arm(); this._pending.set(id, entry);
+      try { this._write({ jsonrpc: '2.0', id, method, params }); } catch (err) { clearTimers(); this._pending.delete(id); reject(err instanceof ProtocolError ? err : new ProtocolError('context_crashed', String(err && err.message ? err.message : err))); }
     });
   }
-
   _write(message) {
     if (!this.child || this.dead || !this.child.stdin || this.child.stdin.destroyed) {
       throw new ProtocolError('context_crashed', 'ACP stdin 不可写');
@@ -488,7 +492,7 @@ export class AcpClient {
       const entry = this._pending.get(message.id);
       if (!entry) return;
       this._pending.delete(message.id);
-      clearTimeout(entry.timer);
+      entry.clearTimers();
       if (message.error) {
         const detail = message.error.message || JSON.stringify(message.error);
         entry.reject(new ProtocolError(entry.errorCode, `ACP error: ${detail}`));
@@ -512,6 +516,7 @@ export class AcpClient {
     if (!update || params.sessionId !== this.sessionId) return;
     const kind = update.sessionUpdate;
     if (kind !== 'tool_call' && kind !== 'tool_call_update') return;
+    this._pending.get(this._turnRequestId)?.resetIdle();
     const id = update.toolCallId;
     if (typeof id !== 'string' || id === '') return;
     const prev = this._inFlightTools.get(id) || null;
@@ -755,31 +760,26 @@ export class AcpClient {
 
   /** L1-1：冻结轮次计时（只作用于 `session/prompt` 的计时器 `_request` 所建）；同一轮内可重叠挂起，按深度恢复。 */
   _pauseTurnTimer() {
-    const entry = this._pending.get(this._turnRequestId);
-    if (!entry) return;
-    if (entry.paused) {
-      // 已冻结（重叠挂起）：「计时器未建立」与「已暂停」是两态——重叠只递增深度，绝不重建计时器
-      this._pausedTurns += 1;
-      return;
-    }
-    entry.remainingMs = Math.max(0, entry.remainingMs - (Date.now() - entry.startedAt));
-    clearTimeout(entry.timer);
-    entry.timer = null;
-    entry.paused = true;
     this._pausedTurns += 1;
+    const entry = this._pending.get(this._turnRequestId);
+    if (!entry || entry.paused) return;
+    const now = Date.now();
+    if (entry.timer) entry.remainingMs = Math.max(0, entry.remainingMs - (now - entry.startedAt));
+    if (entry.idleTimer) entry.idleRemainingMs = Math.max(0, entry.idleRemainingMs - (now - entry.idleStartedAt));
+    if (entry.netTimer) entry.netRemainingMs = Math.max(0, entry.netRemainingMs - (now - entry.startedAt));
+    entry.clearTimers(); entry.paused = true;
   }
 
-  /** L1-1：裁决到达后按**剩余时间**恢复计时（仅最后一个未结算等待递减到 0 时恢复；未冻结则空操作）。 */
   _resumeTurnTimer() {
     if (this._pausedTurns === 0) return;
     this._pausedTurns -= 1;
     if (this._pausedTurns > 0) return;
     const entry = this._pending.get(this._turnRequestId);
-    if (!entry || !entry.paused) return; // 跨轮残留的恢复不得给未冻结的轮次装上计时器
-    entry.paused = false;
-    entry.startedAt = Date.now();
-    entry.timer = setTimeout(entry.expire, entry.remainingMs);
-    entry.timer.unref?.();
+    if (!entry || !entry.paused) return;
+    entry.paused = false; entry.startedAt = Date.now();
+    if (entry.timeoutMs > 0) { entry.timer = setTimeout(() => entry.expire('timeout', entry.remainingMs), entry.remainingMs); entry.timer.unref?.(); return; }
+    if (entry.netMs > 0) { entry.netTimer = setTimeout(() => entry.expire('net', entry.netRemainingMs), entry.netRemainingMs); entry.netTimer.unref?.(); }
+    if (entry.idleMs > 0) { entry.idleStartedAt = Date.now(); entry.idleTimer = setTimeout(() => entry.expire('idle', entry.idleRemainingMs), entry.idleRemainingMs); entry.idleTimer.unref?.(); }
   }
 
   /** §4.5/AR-11：一次 permission 请求恰一行审计事件，走永不节流的 event()。字段集合恒定（缺省为 null）。 */

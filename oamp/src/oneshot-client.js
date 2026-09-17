@@ -14,7 +14,6 @@ import { spawnAgent } from './launcher.js';
 const PROFILE = 'omp:oneshot';
 const MAX_STREAM_LINES = 200; // 既有 agent.js 同值（逐字承接：行数上限）
 const KILL_GRACE_MS = 500; // 既有一次性路径 SIGTERM → SIGKILL 宽限
-const DEFAULT_TIMEOUT_MS = 1800000; // 既有 agent.js DEFAULT_OMP_TIMEOUT_MS 同值
 
 // 能力位（§5.7 的 oneshot 列逐字）：`streaming` 降级（仅进程 stdout 行流，无结构化 delta 面），其余 'no'。
 const ONESHOT_CAPABILITY_VALUES = {
@@ -104,103 +103,50 @@ export function createOneshotSession({ resident = {} } = {}) {
    * @param {{model?: string|null, timeoutMs?: number, onDelta?: function|null}} [opts]
    * @returns {Promise<{text:string, model:string|null, stop_reason:null, usage:null, pid:number|null}>}
    */
-  function prompt(text, { model = null, timeoutMs = DEFAULT_TIMEOUT_MS, onDelta = null } = {}) {
+  function prompt(text, { model = null, timeoutMs = null, idleMs = null, netMs = null, onDelta = null } = {}) {
     if (closed) return Promise.reject(new ProtocolError('context_crashed', '会话已关闭'));
-    if (typeof text !== 'string') {
-      return Promise.reject(new ProtocolError('context_crashed', '一次性执行需要提示词文本（非字符串）'));
-    }
-    const turnModel = readOptionalText(model) ?? readOptionalText(spec.model); // 本轮请求模型 > 常驻解析值
+    if (typeof text !== 'string') return Promise.reject(new ProtocolError('context_crashed', '一次性执行需要提示词文本（非字符串）'));
+    const turnModel = readOptionalText(model) ?? readOptionalText(spec.model);
     return new Promise((resolve, reject) => {
       let child;
-      try {
-        child = spawnAgent(PROFILE, {
-          model: turnModel,
-          roleFile,
-          tools: { mode: toolsOn ? 'allow' : 'off' },
-          approval,
-          prompt: text,
-          stdin: 'ignore', // 既有一次性形态：stdin 不接线
-        });
-      } catch (err) {
-        reject(new ProtocolError('context_crashed', `spawn 失败: ${messageOf(err)}`));
-        return;
-      }
+      try { child = spawnAgent(PROFILE, { model: turnModel, roleFile, tools: { mode: toolsOn ? 'allow' : 'off' }, approval, prompt: text, stdin: 'ignore' }); }
+      catch (err) { reject(new ProtocolError('context_crashed', `spawn 失败: ${messageOf(err)}`)); return; }
       current = child;
-
       let settled = false;
       let timedOut = false;
+      let timeoutKind = null;
+      let timeoutValue = null;
       let timer = null;
-      let reported = 0; // 行数上限的计数（stdout / stderr 共用，既有语义）
+      let idleTimer = null;
+      let netTimer = null;
+      let reported = 0;
       let truncated = false;
       const stdoutLines = [];
-
-      const finish = (err, result) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        current = null; // 无跨轮状态：本轮句柄即刻释放
-        if (err) reject(err);
-        else resolve(result);
+      const clearTimers = () => { if (timer) clearTimeout(timer); if (idleTimer) clearTimeout(idleTimer); if (netTimer) clearTimeout(netTimer); timer = idleTimer = netTimer = null; };
+      const kill = () => { try { child.kill('SIGTERM'); } catch {} setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, KILL_GRACE_MS); };
+      const triggerTimeout = (kind, ms) => { if (timedOut) return; timedOut = true; timeoutKind = kind; timeoutValue = ms; kill(); };
+      const resetIdleTimer = () => {
+        if (timedOut || (Number.isInteger(timeoutMs) && timeoutMs > 0) || !(Number.isInteger(idleMs) && idleMs > 0)) return;
+        if (idleTimer) clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => triggerTimeout('idle', idleMs), idleMs);
       };
-
-      // 计时器一律 ref：轮次 Promise（超时结算）与 kill 保证不得依赖其它句柄存活（与 L2 的 rpc 实现同口径）
-      timer = setTimeout(() => {
-        timedOut = true;
-        try {
-          child.kill('SIGTERM');
-        } catch {
-          /* 已退出 */
-        }
-        setTimeout(() => {
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            /* 已退出 */
-          }
-        }, KILL_GRACE_MS);
-      }, timeoutMs);
-
-      /** 行流回收：去 ANSI → 空行跳过 → 200 行上限（超限恰一次截断事件）→ 增量上报（逐行原样）。 */
+      if (Number.isInteger(timeoutMs) && timeoutMs > 0) timer = setTimeout(() => triggerTimeout('timeout', timeoutMs), timeoutMs);
+      else { if (Number.isInteger(netMs) && netMs > 0) netTimer = setTimeout(() => triggerTimeout('net', netMs), netMs); resetIdleTimer(); }
+      const finish = (err, result) => { if (settled) return; settled = true; clearTimers(); current = null; if (err) reject(err); else resolve(result); };
       const emitLine = (stream) => (rawLine) => {
-        const line = stripAnsi(rawLine);
-        if (line === '') return;
-        if (reported >= MAX_STREAM_LINES) {
-          if (!truncated) {
-            truncated = true;
-            if (typeof onDelta === 'function') {
-              onDelta({ event: 'truncated', note: `明细行数超上限（${MAX_STREAM_LINES}），后续行不再逐条上报` });
-            }
-          }
-          return;
-        }
-        reported += 1;
-        if (stream === 'stdout') stdoutLines.push(line);
-        if (typeof onDelta === 'function') onDelta({ kind: 'chunk', text: line, stream });
+        const line = stripAnsi(rawLine); if (line === '') return;
+        if (reported >= MAX_STREAM_LINES) { if (!truncated) { truncated = true; resetIdleTimer(); onDelta?.({ event: 'truncated', note: `明细行数超上限（${MAX_STREAM_LINES}），后续行不再逐条上报` }); } return; }
+        reported += 1; if (stream === 'stdout') stdoutLines.push(line); resetIdleTimer(); onDelta?.({ kind: 'chunk', text: line, stream });
       };
-      makeLineReader(child.stdout, emitLine('stdout'));
-      makeLineReader(child.stderr, emitLine('stderr'));
-
+      makeLineReader(child.stdout, emitLine('stdout')); makeLineReader(child.stderr, emitLine('stderr'));
       child.on('error', (err) => finish(new ProtocolError('context_crashed', `spawn 错误: ${messageOf(err)}`)));
       child.on('close', (code, signal) => {
-        if (timedOut) {
-          finish(new ProtocolError('timeout', `一次性执行超时（${timeoutMs}ms）`));
-          return;
-        }
-        if (code !== 0) {
-          finish(new ProtocolError('context_crashed', `子进程退出 code=${code === null ? signal || 'killed' : code}`));
-          return;
-        }
-        finish(null, {
-          text: stdoutLines.join('\n'), // 本轮 stdout 行流累积（stderr 不计入答案）
-          model: turnModel, // 本轮请求模型（未给即 null，不造值）
-          stop_reason: null, // 一次性路径无终态帧 ⇒ 不造值（MI-3）
-          usage: null, // 同上
-          pid: child.pid ?? null, // 本轮子进程
-        });
+        if (timedOut) { const ms = timeoutValue; const label = timeoutKind === 'idle' ? `一次性执行空闲超时（空闲 ${ms}ms）` : timeoutKind === 'net' ? `一次性执行安全网超时（累计 ${ms}ms）` : `一次性执行超时（${ms}ms）`; const err = new ProtocolError('timeout', label); err.timeoutMs = ms; finish(err); return; }
+        if (code !== 0) { finish(new ProtocolError('context_crashed', `子进程退出 code=${code === null ? signal || 'killed' : code}`)); return; }
+        finish(null, { text: stdoutLines.join('\n'), model: turnModel, stop_reason: null, usage: null, pid: child.pid ?? null });
       });
     });
   }
-
   /** 取消本轮在飞子进程（SIGTERM → KILL_GRACE_MS → SIGKILL）；当前无在飞进程即空操作。 */
   function cancel() {
     const child = current;
