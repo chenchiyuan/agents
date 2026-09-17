@@ -838,9 +838,11 @@ grep -nE '30min|30 分钟|1800' "$PRWT/oamp/API.md" "$PRWT/oamp/README.md" "$PRW
 原始输出（均为按要求保留、无矛盾的既有口径）：
 
 ```text
-API.md:164: CLI 侧 30 分钟的等待预算……不是等待的语义上限
-README.md:70: timeout_ms（默认 30000，上限 1800000）
-README.md:224: 显式 timeout_ms … 绝对上限（上限 1800s）
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-006-api-docs-sync/oamp/API.md:164:4. **客户端等待预算是「放弃等待的预算」**：例如 CLI 侧 30 分钟的等待预算，是调用方**愿意等多久**的上限，**不是等待的语义上限**——它不等于「超过 30 分钟就算失败」，也不改变任何调用的状态。
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-006-api-docs-sync/oamp/README.md:70:任务 JSON 字段：`command`（必填）/ `args`（字符串数组）/ `timeout_ms`（默认 30000，上限 1800000）/
+/Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0030-hub-communication-upgrade/.pb-agents/worktrees/0030-pr-006-api-docs-sync/oamp/README.md:224:- omp 轮次超时（**缺省档**）：**空闲 10 分钟**（自轮次开始或最近一次进展事件起算）与**安全网 4 小时**（自轮次开始起算）先到者判死，判死后经既有失败路径产出 `state: "failed"` + `reason: "timeout"`（两种触发只在人类可读文本里区分）；阈值可调（`OAMP_TASK_IDLE_MS` / `OAMP_TASK_NET_MS`）。**显式** `timeout_ms` 语义不变：仍为该轮**绝对上限**（上限 1800s）。omp 可执行路径可用 `OAMP_OMP_BIN` 覆盖（测试注入 fake omp 用）。
 ```
+
+该命令按要求核查了 `API.md`、`README.md`、`skill/hub.md`；除上述三处外无命中。三处分别是客户端等待预算、shell 命令硬上限、显式 `timeout_ms` 绝对上限，均与对账 TTL/缺省超时口径不矛盾，故只报告不修。
 
 未发现除本次修正目标外、与超时口径/对账 TTL 矛盾的数字；上述三处均属明确的等待预算或显式命令/调用上限，按要求只报告不修。
