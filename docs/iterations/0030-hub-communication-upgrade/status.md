@@ -39,7 +39,7 @@
 - **当前有效上限**：**5**（`min(3 + 6×3, 5)` = 5，维持硬上限）
 - **累计槛位释放次数**：**6**（pr-001、pr-002、pr-003、pr-004、pr-005、pr-007 成功合并）
 - **已派发总数（阶段 5 内部）**：**22**（planner ×6 + dev ×6 + verifier ×6（含 pr-005 补充验收）+ pr-planner/architect 的多次定向收口；不含 Gate 两轮 `prs/` 验证与两条载体探针）
-- **当前在飞**：3（`DevP006` 实现 + `VerP005` pr-005 补充验收 + `PrPlanFix` pr-008 PR 文件更正）；**空闲槛位 2 个**（`pr-008` 的 dev 有意暂缓——等 pr-006 合并后取最终 diff 全集）
+- **当前在飞**：1（`DevP006Fix` pr-006 验收后收口）；**空闲槛位 4 个**（`pr-008` 的 dev 有意暂缓——等 pr-006 合并后取最终 diff 全集，否则 diff 全集缺文档四项）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -54,7 +54,7 @@
 | pr-003-inbox-table-persistence.md | （无） | ✅ | (已清理) | ✅ `9fc962a` | 已释放（槛位释放 3） |
 | pr-004-idle-net-turn-timers.md | （无） | ✅ | (已清理) | ✅ `1b02689` | 已释放（槛位释放 5） |
 | pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004✅ | ✅ | (已清理) | ✅ `9a4f424` | 已释放（槛位释放 6） |
-| pr-006-api-docs-sync.md | pr-004✅、pr-005✅ | ⏸ | feat/0030-pr-006-api-docs-sync | ⬜ | **占用**（dev 在途 @ gpt；planner 交 9 任务、3 MI 全采纳） |
+| pr-006-api-docs-sync.md | pr-004✅、pr-005✅ | ⏸ | feat/0030-pr-006-api-docs-sync | ⬜ | **占用**（dev `5277713` 已完成；verifier **PASS 5/5**；**验收后收口在途**（两处文档自相矛盾）） |
 | pr-007-model-routing-and-process-evidence.md | （无） | ✅ | (已清理) | ✅ `58e30cd` | 已释放（槛位释放 4） |
 | pr-008-existing-surface-guard.md | pr-005✅ | ⏸ | feat/0030-pr-008-existing-surface-guard | ⬜ | **占用**（planner 已交 9+1 任务；**dev 暂缓**：待 pr-006 合并后取最终 diff 全集） |
 

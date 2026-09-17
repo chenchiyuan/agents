@@ -630,3 +630,18 @@
 - 产出物：PR worktree 提交 `5277713`（相对 `9a4f424`：`M oamp/API.md` / `M oamp/README.md` / `M oamp/skill/hub.md`）；判据 = 该 PR 文件 **5 条验收标准逐字** + `architecture.md` §5「文档面同步」与「文档面机械锁提示」+ §4 A-05 + §9-6/§9-8 + 四张功能卡相关验收项
 - 独立取证要求：不得采信执行方证据（**不读**其 `/tmp/0030-pr-006/`、**不读** tasks 文件 §7 回填段作为证据）；自建隔离环境（`/tmp/verify-p006/` 副本 + 真 Router + 真 web + 自建假节点，非默认端口，**不得占用默认 7788 / 主集群 socket**）；五项必须独立复现——① 字段/参数与实现一致（`reason` 五值/末位/仅失败侧；`new_session` 项级可选布尔与重绑语义；超时缺省空闲 10min + 安全网 4h 且显式 `timeout_ms` 仍为绝对上限；取件写入时机/跨重启/`acked` 恒 false）② `llms.txt` 逐字节（并判定"未改"是预期而非遗漏）③ 三/五处计数全为 29（**锚点纪律**：`API.md` 有 4 组重复章节号，须用「编号 + `METHOD /path`」联合定位）④ 真机械锁读 **JSON**（不看退出码）+ **反例门** ⑤ README 三个 env 默认值可在 `config.js`/`web.js` 找到对应；另核 `skill/hub.md` 字面"不冲突"是否成立 + 红线违规检查（执行方是否动了 `oamp/src/**`/`sdk/**`/`scripts/**`）
 - 触发依据：`DevP006` 完成回报 + 主 agent 现场复核（提交 `5277713` / 迭代工作区仅 tasks 回填）
+
+### 2026-09-17 20:40:00 · 收到报告 · verifier（pr-006 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-184753-pr-006.md（+ `roles/verifier/data/verify-20260917-184753-0030-pr-006.md`）
+- 结论：**pass**（AC1~AC5 **逐条 pass**）；隔离塔 `/tmp/verify-p006`（真 Router + web + 假节点，端口 **17916**，跑后已 stop），未采信执行方证据（不读其 `/tmp/0030-pr-006/` 与 tasks §7）
+- 五条判定：AC1 `reason` 五值闭集/仅失败末位、`new_session` 项级可选、取件终态一次写入 + 跨重启 + `acked` 恒 false **全链路复现一致**；AC2 README 已删"omp 默认 1800s 绝对上限"、改为空闲 10min/安全网 4h + 显式 `timeout_ms` 仍为绝对上限；AC3 `llms.txt` **未改**且与副本重跑 `gen-llms-txt` **逐字节相等**（零 diff = **预期**而非遗漏）、五处计数全 29；AC4 `skill/hub.md` 等待仍指 `API.md` 唯一真源且不复述字段；AC5 四项字段/参数与实现对应、`doctor pass:true`、**反例门**唯一失败项指向插入的不存在路径
+- 红线违规检查：**pass**（仅改三份文档、未动 `oamp/src`/`sdk`/`scripts`、`llms.txt` 未改为预期）
+- 差异 3 条（**均标 blocks_merge=false**）：① `API.md` §3.19 第 901 行 `reason` 类型列写 `string | null`，与同行"成功与受理态不带该键"及实现（失败侧恒 string）相斥；② `README.md` 第 187 行对账段仍写"软 TTL **30min**"，与同文件第 96 行 env 表的 `taskNetMs + 30000`（缺省 14430000）自相矛盾；③ `web.js:1386` 的 400 文案无 `new_session?` —— **pr-005 遗留、不在本 PR 范围**（已在下一迭代候选登记）
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（9m59s）
+
+### 2026-09-17 20:42:00 · 调度决策 · pr-006 验收后收口（差异①②在合并前修，差异③留档）
+
+- 裁决：差异 ①② **虽不阻塞合并，但都落在本 PR 自己的文件面内、且是同文件自相矛盾** ⇒ 决定**合并前收口**（留到下迭代会让本迭代的文档面带着已知自相矛盾交付，且修成本极低）；差异 ③ 涉及 `web.js`（已随 pr-005 合并、不在任何未合并 PR 文件范围内）⇒ 维持"记入下一迭代候选"，本迭代不修
+- 派发 `DevP006Fix`（原地 dev，`agent=dev`，保持 gpt 归属）：只改 `API.md:901` 的类型列（`string | null` → `string`）与 `README.md:187` 的 TTL 口径（→ 与第 96 行 env 表同口径）；要求重跑自建 doccheck（29/0）、五处计数 29、`llms.txt` 逐字节一致（**不新增 diff**）、`doctor pass:true` + 反例门、改动面仅两文件，并回填 tasks §7；另要求顺带 grep 报告**其它**残留的旧口径数字（只报告不改）
+- 触发依据：`verify-20260917-184753-pr-006.md` 差异清单 ①②（blocks_merge=false 但属本 PR 文件面）+ 主 agent 对两处原文的逐行复核（`API.md:901` / `README.md:96` vs `:187`）
