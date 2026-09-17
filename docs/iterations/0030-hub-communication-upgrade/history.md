@@ -515,3 +515,18 @@
 - ② `deferred-demand-changes.md` **仅末尾追加**一条（`git diff --numstat` 复核 = **9 增 0 删**；既有内容含 pr-007 那节一字未动）：标题 `## 2026-09-17 · 阶段 3 / 阶段 5 复核（architect，见 architecture.md §9-2 / §9-13 / §10-12）`，三要素成条 —— 问题（「派发失败」不是终态 ⇒ F01 必达在该分支的既有空洞）/ 机制（`sendTask` 两次重试后不抛出 ⇒ handler catch 不可达、`dispatch_failed` 只在对话面 out、基线塔实跑读数）/ 为什么是需求层（唯一修法是让"派发失败"成为终态，属需求层结论变更）/ 本迭代如何处理（不改吞错语义、空池按基线对齐、§9-13 属既有缺陷不在范围）/ 下一迭代候选 2 条
 - 主 agent 核验（读文件不采信自述）：`git diff` 逐文件抽查确认 prd 改动落在「架构维度」段、单行替换；`deferred` 仅追加；prd 零残留
 - 通道实况：本地 subagent，自报模型 `deepseek/deepseek-v4-flash`
+
+### 2026-09-17 18:40:00 · 收到报告 · dev（pr-005）
+
+- 1. 改了什么文件：**仅** `<PR worktree>/oamp/src/web.js`（M）+ `oamp/src/pickup.js`（**D**），提交 **`ba31e6a`**；任务证据已回填迭代区 tasks 文件 §7（主 agent 复核：文件 538 → 546 行，§7「执行证据（dev 回填）」段在位，PR worktree clean）
+- 2. 自证结果：`node --check` 通过、`git diff --check` 通过；实现面 `pickup.js`/旧 TTL 常量搜索零命中；`createApiRoutes` 路由数 **29** 且 `/api/docs` 的 `tasks` 描述含 `new_session`；一次性桩脚本通过（目标 `pb-dev-2`、`noReuse`、`release`、`pickup`、`reason`、`ack`）；隔离 HTTP：Router 不可达时 `POST /api/calls` = **200 + submitted**、`GET /api/pickup` = **200**（F-4/F-5 的预期改进面）；`reasonOf` 五值映射通过、失败信封 `reason` 末位追加、成功侧不带；**TTL 隔离实测**：`OAMP_TASK_NET_MS=1000` 时清理日志为 **31s**；**隔离 web 重启实测**：未 ack 条目与 `reason` 跨重启保留
+- 3. 疑问/待办：无
+- 4. 违反边界之事：无（未跑全量测试/格式化/lint）
+- 通道实况：本地 subagent，`agent=dev`，自报模型 **`openai/gpt-5.6-luna`**（F08 验收 1 第 7 例取证）
+
+### 2026-09-17 18:42:00 · 派发 · verifier（pr-005 验收，本迭代最关键一次）
+
+- 阶段：阶段 5 · pr-005 独立验收（端到端）
+- 通道：本地 subagent，`agent=verifier`（预期 grok）
+- 产出物：PR worktree 提交 `ba31e6a` 的 diff（`web.js` M + `pickup.js` D）；判据 = **修订后** PR 文件 **11 条验收标准**（AC8 已拆两条）+ 架构 §3.1~§3.4/§4 A-01/A-02/A-03/A-06/A-07 + 跨界契约记录
+- 独立取证要求：不得采信执行方证据；**自建隔离环境**（`/tmp/verify-p005/` 副本 + 真 Router + 真 web + 自建假节点），自跑必达三态/只写终态/`reason` 末位与三面同源/取件形状与 ack 幂等/**跨重启**/池化分流与粘性/**空池 200 逐字 vs 角色不可解析 404 逐字**/**形状指纹逐行列出差异并判定是否仅限预期两处**/TTL 压缩动态/路由条数 29；每结论标注取证层次；**不得占用默认端口/socket**
