@@ -36,9 +36,10 @@
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5（`2 × 起始并发数 - 1`）
-- **当前有效上限**：**5**（`min(3 + 2×3, 5)` = 5，维持硬上限；第二次释放后仍触顶）
-- **累计槛位释放次数**：**2**（pr-001、pr-002 成功合并）
-- **已派发总数（阶段 5 内部）**：**12**（planner ×5 + dev ×5 + verifier ×2；不含 Gate 两轮 `prs/` 验证与两条载体探针）
+- **当前有效上限**：**5**（`min(3 + 3×3, 5)` = 5，维持硬上限）
+- **累计槛位释放次数**：**3**（pr-001、pr-002、pr-003 成功合并）
+- **已派发总数（阶段 5 内部）**：**15**（planner ×5 + dev ×5 + verifier ×3；不含 Gate 两轮 `prs/` 验证与两条载体探针）
+- **当前在飞**：2（`DevP004`、`DevP007`）；**空闲槛位 3 个，因无已解锁 PR 而保持空置**（pr-005 仅缺 pr-004；pr-006/pr-008 待 pr-005）
 
 ## PR 实现子状态（阶段 5 展开）
 
@@ -50,9 +51,9 @@
 |---|---|---|---|---|---|
 | pr-001-reason-mapping-module.md | （无） | ✅ | (已清理) | ✅ `f81d5c6` | 已释放（槛位释放 1） |
 | pr-002-pool-routing-module.md | （无） | ✅ | (已清理) | ✅ `4bcfbc3` | 已释放（槛位释放 2） |
-| pr-003-inbox-table-persistence.md | （无） | ⏸ | feat/0030-pr-003-inbox-table-persistence | ⬜ | **占用**（dev 在途 @ gpt） |
+| pr-003-inbox-table-persistence.md | （无） | ✅ | (已清理) | ✅ `9fc962a` | 已释放（槛位释放 3） |
 | pr-004-idle-net-turn-timers.md | （无） | ⏸ | feat/0030-pr-004-idle-net-turn-timers | ⬜ | **占用**（planner 在途） |
-| pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002、pr-003、pr-004 | ⬜ | | ⬜ | 排队(依赖未满足：001 已满足，002/003/004 未合并) |
+| pr-005-web-inbox-and-pool-wiring.md | pr-001✅、pr-002✅、pr-003✅、pr-004 | ⬜ | | ⬜ | 排队(依赖未满足：**仅缺 pr-004**) |
 | pr-006-api-docs-sync.md | pr-004、pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
 | pr-007-model-routing-and-process-evidence.md | （无） | ⏸ | feat/0030-pr-007-model-routing-and-process-evidence | ⬜ | **占用**（planner 在途） |
 | pr-008-existing-surface-guard.md | pr-005 | ⬜ | | ⬜ | 排队(依赖未满足) |
@@ -91,7 +92,7 @@
 | 15:49 | architect（context-pool 同步） | §4 A-05 / §5 / §6 / §10 同步 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~9m | ✅ |
 | 15:50 | **verifier（pr-002）** | 阶段 5 · pr-002 独立验收 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | 6m30s | ✅ PASS（0/0/2 偏差） |
 | 15:57 | pr-planner（欠账收口） | pr-002 tasks 文件口径同步（22 处） | 本地 subagent | `deepseek/deepseek-v4-flash` | ~5m | ✅ |
-| 16:07 | **verifier（pr-003）** | 阶段 5 · pr-003 独立验收 | 本地 subagent（**agent=verifier**） | 待回报 | — | 在途 |
+| 16:07 | **verifier（pr-003）** | 阶段 5 · pr-003 独立验收 | 本地 subagent（**agent=verifier**） | `powerby/grok-4.6` | 4m5s | ✅ PASS（0/0/2 偏差） |
 
 **模型归属汇总（F08 验收 1~3 的取证面）**：`dev` 派发 ×4（探针 1 + pr-001/002/003 各 1）全部自报 **`openai/gpt-5.6-luna`**；`verifier` 派发 ×5（探针 1 + Gate 2 + pr-001/002 各 1）全部自报 **`powerby/grok-4.6`**；其余角色（prd / architect / pr-planner / planner）全部自报 **`deepseek/deepseek-v4-flash`**（= 当刻全局默认）。
 

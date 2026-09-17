@@ -381,3 +381,17 @@
 - 决策内容：把阶段 5 期间逐条冻结的跨 PR 接口固化为一份权威记录 `docs/iterations/0030-hub-communication-upgrade/clarifications/cross-pr-contracts-2026-09-17.md`（6 节：`reasonOf` / `createPoolRouting` / `roleOfPoolInstance` / `persist` 的 inbox 三方法 / 环境阈值键与 `context-pool` 透传 / pr-005 需提供给下游的接缝）。每条注明**提供方 PR + 已合并提交 + 冻结形态 + 消费方要求**，并在提供方未合并时明标"待合并"
 - 动因：pr-005 是本迭代的汇聚点（`web.js` 六处接线 + `pickup.js` 退役，依赖 4 个上游 PR），其 planner/dev/verifier 都要消费同一组形态；分散在四份 tasks 文件与四份 PR 文件里的口径容易被各写一版（本轮已出现两处同型风险：`roleOfPoolInstance` 的签名与 `persist` 的入参体例）。本记录同时作为阶段 6 验证的核对面
 - 触发依据：`workflow-pb.md` §阶段 5"决定跨任务契约并在派发简报里写死"；已合并提交 `f81d5c6` / `4bcfbc3` 与在飞提交 `33005c0` 的实测形态；`architecture.md` §4 A-01/A-03/A-04/A-06/A-07/A-08/A-09
+
+### 2026-09-17 16:20:00 · 收到报告 · verifier（pr-003 验收）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-153745-pr-003.md（+ `roles/verifier/data/`）
+- 结论：**PASS**（fail 0 / partial 0 / 偏差 2）
+- 偏差记录 2 条：① `insertInbox` 把 `envelope` **原样**写入 TEXT 列、模块内**不做** `JSON.stringify` ⇒ **接线 PR（pr-005）必须传已序列化字符串**（否则落库为 `[object Object]`）；② `persist.js:2` 文件头注释"消费方接线见 pr-003/pr-004"已过期（既有注释、本提交未改），后续顺手改
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**
+
+### 2026-09-17 16:21:00 · 调度决策 · pr-003 合并 + 偏差①写入跨界契约
+
+- 决策内容：pr-003 **合并进迭代分支**（`git merge --no-ff feat/0030-pr-003-inbox-table-persistence` ⇒ `9fc962a`，1 file / 40 lines）；现场清理（`worktree remove` + `branch -d`）；偏差①**立即写入跨界契约记录**（`clarifications/cross-pr-contracts-2026-09-17.md` §4 消费方要求，并把该节状态改为 ✅ 已合并）——它是 pr-005 的传参义务，不写死会在接线时才暴露（`[object Object]` 落库属"能跑但错"的典型）
+- 解锁扫描：**无新增已解锁 PR**（pr-005 现**仅缺 pr-004**；pr-006/pr-008 待 pr-005）⇒ 空闲的 3 个槛位保持空置
+- 计数更正（主 agent 自身错误）：`status.md` 派发台账的**数据行 = 27**（非 commit message `cefc958` 里写的"28 行"——后者误把表头计入）；由 `DevP007` 提出后经主 agent 复核确认并更正，已同步告知该 dev 不要"快照 +1"
+- 触发依据：`clarifications/verify-20260917-153745-pr-003.md` 结论 PASS 与偏差记录①；依赖图重扫；`DevP007` 的取数核对消息与主 agent 的逐行复核

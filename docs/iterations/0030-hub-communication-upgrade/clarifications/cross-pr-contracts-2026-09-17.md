@@ -39,7 +39,7 @@
 | 约束 | `baseResolve` 是**参数**（不 import `role-binding.js`）；纯函数、不抛错 |
 | **消费方（pr-005）要求** | 池成员判定与 `GET /api/agents` 的 `role` 列**必须消费同一函数**（两处 `baseResolve` 实参均为 `roleFromInstanceId`）；`pb-<role>-<n>` 的 role 列由 `null` → 角色名属 **A-06 补定已登记的取值变化**，其余列与取值域不变 |
 
-## 4. `persist.openDb(dbPath)` 的 inbox 三方法 —— 提供方 pr-003（提交 `33005c0`，**待合并**）
+## 4. `persist.openDb(dbPath)` 的 inbox 三方法 —— 提供方 pr-003 ✅（合并 `9fc962a`，文件 `oamp/src/persist.js`）
 
 | 项 | 冻结形态 |
 |---|---|
@@ -48,7 +48,7 @@
 | 删除 | `deleteInbox(callId)` ⇒ 就地 `DELETE`，返回 **boolean**；对不存在/已删的 `call_id` 影响 0 行且**不抛错**（幂等） |
 | 表结构 | `inbox(call_id TEXT PRIMARY KEY, principal TEXT NOT NULL, agent TEXT, chat_id TEXT, terminal_at INTEGER NOT NULL, envelope TEXT NOT NULL)` + `idx_inbox_principal(principal, terminal_at)` |
 | 语义 | `envelope` 存**整份终态信封 JSON**（重启前后逐字节一致）；只在**终态发布那一刻写一次**（非终态无记录）；ack = 删行（不保留 `acked` 列）；**未取件不设 TTL**；无归档/导出/`VACUUM` 类维护动作 |
-| **消费方（pr-005）要求** | 唯一写入点 = `publishCallResult`（改为**无条件**写入，身份取 `call.principal`）；`GET /api/pickup` 改读 `listInbox`（不再逐条 `task_get`）；`POST /api/pickup/:call_id/ack` 改调 `deleteInbox`；取件响应形状**逐字不变**（键集/键序不变，`acked` 恒 `false`） |
+| **消费方（pr-005）要求** | 唯一写入点 = `publishCallResult`（改为**无条件**写入，身份取 `call.principal`）；`GET /api/pickup` 改读 `listInbox`（不再逐条 `task_get`）；`POST /api/pickup/:call_id/ack` 改调 `deleteInbox`；取件响应形状**逐字不变**（键集/键序不变，`acked` 恒 `false`）。**`envelope` 实参必须是已序列化的 JSON 字符串**——`insertInbox` 把传入值**原样**写入 TEXT 列，模块内**不做** `JSON.stringify`（实测偏差记录：pr-003 验收偏差 ①），故 pr-005 需自行 `JSON.stringify(composeCallEnvelope(...))`，否则落库的是 `[object Object]` |
 
 ## 5. 环境阈值键与透传 —— 提供方 pr-004（**在飞**）
 
