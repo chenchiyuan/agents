@@ -27,7 +27,13 @@
 
 ## 架构维度
 
-**[架构待填] A-01**：权威写入路径的落点与"必然写入"的实现位置（既有唯一终态发布点如何接入、取件条目字段与索引形态、按身份过滤的实现路径）。
+**A-01（已填定，全文见 `architecture.md` §4 A-01）**
+
+- **接入点 = 既有唯一终态发布点** `publishCallResult`（`src/web.js:2215`）：写入条件由 `call.requester !== null` 改为**无条件**（身份取 `call.principal`，见 A-02）；**不新增发布点、不新增第二终态源**。
+- **取件条目字段** = `{call_id, principal, agent, chat_id, terminal_at, envelope}`（`envelope` = 该发布点产出的终态信封；`INSERT OR IGNORE` 幂等、不覆盖首条 ⇒ 验收 4「每条终态恰一条」由主键保证）。
+- **索引与按身份过滤** = 表 `inbox(call_id PK, principal, agent, chat_id, terminal_at, envelope)` + 索引 `inbox(principal, terminal_at)`；读取 = `SELECT … WHERE principal = ? ORDER BY terminal_at ASC` ⇒ 取件面**不再逐条查 Router**（N 次 UDS 往返归零、且重启后可读）。
+- **与既有调用面一致（验收 5）**：信封由**同一函数** `composeCallEnvelope` 在唯一写点产出并落库，取件面与 `GET /api/calls/<id>` 读同一份事实（终态后不可变）。
+- 存储与清理形态见 A-09（F03 卡）；身份取值与派生见 A-02（F02 卡）。
 
 ## model_inferred
 

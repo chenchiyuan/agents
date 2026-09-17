@@ -27,7 +27,27 @@
 
 ## 架构维度
 
-**[架构待填] A-08**：模型别名与模型值的集中存放载体、别名解析链、生效验证的取证方式；含 D-35 原载体不可实现时的替代形态选择（候选 A/B/C 见搭置记录）。
+**A-08（已给出技术评估与推荐；形态选择 **待用户裁决**，架构侧不选定。全文见 `architecture.md` §4 A-08）**
+
+**链路事实（评估依据，harness 文档面复核 + 实测）**：① 宿主 `task` 派发的模型解析优先级 = `task.agentModelOverrides[agentName]` → agent 文件 frontmatter `model` → 父会话生效模型/默认，别名经 `modelRoles` 展开；**`task` wire schema 不暴露模型字段**（逐次派发指定模型这条路径不存在）。② agent 发现根（优先级）= ①**最近的项目 `.omp/agents`（按会话 cwd 定位）** ②**用户 `~/.omp/agent/agents`** ③扩展包 `<root>/agents` ④Claude 插件根 ⑤bundled；项目级覆盖用户级。③ `modelRoles` 在配置面（用户级 `~/.omp/agent/config.yml` **已存在**且已有 `modelRoles.default`）。④ 本会话 cwd = **仓库主工作区**（≠ 迭代工作区）⇒ 项目级载体必然写入仓库主工作区，触 `data/scm-protocol.md` **规则 F**（闭集例外仅"工作区创建"与"收口三步"），且该目录**未被 `.gitignore` 忽略**。⑤ 验收判据 = 子 agent **自报模型**（F-11）+ 派发通道必须是**本地 subagent**（F09 验收 1）。
+
+**结论：让 `dev`/`verifier` 落在指定模型上，只能靠"子 agent 身份本身"**（按角色名找到一份带 `model` 的 agent 定义，派发时 `tasks[].agent = 'dev' | 'verifier'`）⇒ 别名解析链 = `agent` 名字 → agent 定义 → `model`（可为 `"@dev"` 别名）→ `modelRoles` 展开为具体模型串；**其余角色不新增绑定、用默认 agent** ⇒ 自动"等于当刻生效模型"（验收 3）。
+
+**三候选技术评估**：
+
+| 候选 | 形态 | 评估 | 代价/风险 |
+|---|---|---|---|
+| **A** | `<仓库主工作区>/.omp/agents/{dev,verifier}.md` + `<仓库主工作区>/.omp/config.yml` 的 `modelRoles` | 最贴合 D-35 **字面**（项目级两件套）；发现优先级最高，同形态探针**已实测生效** | **触规则 F**（唯一硬冲突，需用户显式豁免）；未忽略 ⇒ 主工作区 git status 出现未跟踪文件；随仓库分发 |
+| **B** | `~/.omp/agent/agents/{dev,verifier}.md` + `~/.omp/agent/config.yml` 增 `modelRoles.dev` / `modelRoles.verifier` | harness **原生"角色别名 + 集中存放"标准形态**（文档正例即此形状）；用户级配置已存在（增量改键）；**不触规则 F**、不动仓库任何文件 | 载体不入版本控制（可追溯性落在 `demand.md` / 架构文档 / 台账）；影响该用户所有项目会话；用户级发现**未经本会话实测**（落地前须跑一次极低成本探针） |
+| **C** | 执行器改 `omp -p --no-session --model X` 一次性进程 | 完全合规（不写非工作区路径） | **与 D-33 / F09 验收 1 正面冲突**（"全部角色派发走本地 subagent"）；**破坏 F08 验收 1~4 的判据**（无"子 agent 自报模型"这一取证面）；`demand.md` 已否决该路径。**不推荐** |
+
+**推荐（待用户裁决，非本角色决定）**：**B** —— 在"不触规则 F、不改仓库、形态是 harness 原生正例"三点上最优；若用户坚持 D-35 字面路径，则 **A** 需以显式豁免规则 F 为前提（建议同时把 `.omp/` 加入 `.gitignore` 以消除主工作区污染面）。**C 不推荐**。另有一条**评估中发现、未列入原候选清单**的第四条路径（发现根 ③ 扩展包根：把 agent 定义放在迭代工作区内、经用户级 `extensions:` 指向它，机制可行且不写主工作区）——仅呈交事实供裁决参考，同样**待用户裁决**。
+
+**`model` 引用写法建议**：`model: "@dev"` + `modelRoles.dev: openai/gpt-5.6-luna`（**别名 + 值集中一处**，即 D-35 明文意图）；`modelRoles` 值可带 `:high` 形态的 thinking 后缀（D-34 给的串不带后缀）。
+
+**疑问 5（模型绑定两处真源）的技术评估（不作架构判断收口）**：`cluster.json` 的 `roles.dev.model` / `roles.verifier.model` 是 **oamp 集群通道**（`oamp cluster up` 拉起 `pb-<role>` 节点时的角色级模型档）的绑定；A-08 的新载体是 **harness 本地 subagent 通道**的绑定 ⇒ **两条通道各自的绑定面，不是同一份绑定对象的两个副本**。D-33 已把本迭代通道定为本地 subagent ⇒ `cluster.json` 的绑定在本迭代派发路径上**不被读取**，"一处失效但保留"**不产生漂移风险**。建议：① 保持不做#8（`cluster.json` 零改动 ✅）；② **不引入任何同步/生成机制**（跨"oamp 包配置"与"harness 用户配置"两层强行单一真源需生成器或校验器，违反奥卡姆与 YAGNI）；③ 在文档面显式标注两条通道各自的适用范围，消除"看起来是重复真源"的误读。
+
+**生效验证的取证方式**：每条派发在迭代台账留一行「角色 / 用途 / 通道 / 子 agent 自报模型 / 终态」（与 F09 验收 2 同一张表）；`dev` 行的自报模型应等于 `openai/gpt-5.6-luna`、`verifier` 行等于 `powerby/grok-4.6`、其余行**等于当刻生效模型**（不写死模型名字符串 ⇒ 与 MI-12 的口径一致）。
 
 ## model_inferred
 

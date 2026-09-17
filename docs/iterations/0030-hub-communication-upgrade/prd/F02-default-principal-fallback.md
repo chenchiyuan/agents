@@ -25,7 +25,12 @@
 
 ## 架构维度
 
-**[架构待填] A-02**：缺省身份的派生点与其在调用链上的承载、取件面按缺省身份过滤的实现路径、与显式 `requester` 分支的合流位置。
+**A-02（已填定，全文见 `architecture.md` §4 A-02）**
+
+- **派生点（唯一）** = `/api/calls` handler 的逐项装配处：`principal = 显式 requester ?? 'chat:' + chatId`（既有代码已把空串归一为 `null` ⇒ MI-3 天然成立）；结果写进 `call.principal`（由 `call.requester` **改名**，仍是进程内单字段）。
+- **承载与传递路径** = `call.principal` → `entry.call` → `publishCallResult` → `inbox.principal` 列；**不进** UDS 信封、**不进** Router 任务表。
+- **合流位置** = 该三目本身：显式优先、不合并、不双写（MI-1），无第二分支；`warnings` 的出现条件仍只看出否**显式**给出身份 ⇒ 验收 5「不传身份时响应面逐字一致」由构造满足。
+- **取件面过滤实现** = `WHERE principal = ?`（SQL 单条件）；`chat:<chat_id>` 形态满足既有 `validPrincipalId`（实测 46 字符 ≤64、全可打印 ASCII）⇒ 取件端点参数校验**零新增分支**；缺省身份**不写入** `principals` 表（它是纯过滤键，登记面只服务显式声明与自派发判定）。
 
 ## model_inferred
 

@@ -28,7 +28,39 @@
 
 ## 架构维度
 
-**[架构待填] A-03**（`reason`/`detail` 在终态信封与持久化信封列中的键位与序列化形态、映射表的落点）、**A-04**（全仓引用点收口的实现位置与参数化字符串的解析口径）。
+**A-03（已填定，全文见 `architecture.md` §4 A-03）**
+
+- **映射公式落点** = 新增叶子模块 `src/reason.js`（零依赖、唯一公式 `reasonOf(state, error)`，体例同 `role-binding.js` 的"公式只此一处"）；`state !== 'failed'` 时返回 `null`。
+- **信封落点** = `composeCallEnvelope`（既有唯一信封构造点）在 `state === 'failed'` 时**追加** `reason` 键：追加在既有 11 键**之后**（既有键名与键序零改动）；非失败态**不带该键**（MI-4）；取值必须 ∈ 五值闭集（兜底归 `agent_error` ⇒ 失败侧恒有值，不出现空值或枚举外值）。
+- **持久化落点** = `inbox.envelope` 列内的 JSON（**不单列一列**：`reason` 无独立查询需求，且必须与信封其余字段同源同字节）。
+- **序列化形态** = 字符串字面量；`timeout` 不分子层级（D-29）；`call.terminal` 不动（仍为 `{state, error}`）。
+- **唯一消费点** ⇒ 信封面五个读点（`/api/calls` 响应、`/api/calls/<id>`、`/api/calls/wait`、`/api/pickup`、SSE `call_result`）**全部同源**。
+
+**A-04（已填定，全文见 `architecture.md` §4 A-04；含 prd 疑问 1 / MI-5 的裁决）**
+
+- **既有失败产生点零改动**（验收 5 / G01 验收 3 要求 `error` 键位、拼写、取值形态**含既有文案**不变，且边界明文"不做既有错误文案的统一/重写"）⇒ 归类全部落在消费侧唯一映射函数内，匹配规则 = ① 精确 → ② 前缀 → ③ 兜底：
+
+| 源串（产生点） | 枚举 |
+|---|---|
+| `cancelled`（`router.task_cancel` / web 取消收口） | `cancelled_by_client` |
+| `rejected_by_agent`（Router：`task.request` 被 ack rejected） | `rejected` |
+| `structured_output_invalid`（`composeCallEnvelope` strict 覆写） | `rejected` |
+| `permission_denied`（ACP / RPC 审批门） | `rejected` |
+| `model_unavailable`（`set_config_option` 被拒） | `rejected` |
+| `context_busy`（`ContextPool` 同键队列满 / already processing） | `rejected` |
+| `timeout`（轮次超时失败码） | `timeout` |
+| `timeout_after_<N>ms`（shell / one-shot 到期） | `timeout` |
+| `context_crashed`（会话/初始化/子进程/握手/stdin/键释放/排队轮次） | `infra_error` |
+| `spawn_failed: <msg>` / `spawn_error: <msg>`（shell spawn 失败） | `infra_error` |
+| `dispatch_failed`（**仅对话面 `out` 记录，不进终态信封**；防御性归属） | `infra_error` |
+| 自由文本 `err.message`（`executor:'omp'` 非超时失败**直接透传**） | **兜底** |
+| 缺失 / `null` / 非字符串 / `task_failed`（`out` 记录兜底串） | `agent_error`（兜底） |
+
+- **`agent_error` 的来源归属（裁决）**：它是**兜底类**，现状**无专属源串**——① `state=failed` 且 `error` 缺失/非字符串（"报了失败没报原因"）；② 未匹配任何已知形态的自由文本。决策文档映射表把它列为"有源串的枚举值"是**表述缺陷**，非遗漏。两条来源均可被构造、可被观测 ⇒ 验收 2 情形② 成立。
+- **代价（如实登记）**：`context_crashed` 一族混装"会话崩溃"与"`rpc prompt` 命令级失败"，本迭代整体归 `infra_error` ⇒ 消费侧归类是**近似**；精确化须在产生点分码（新轮次级 `ProtocolError` 码 + 扩展 `context-pool._failSession` 的轮次级集合，否则轮次失败会被误当会话崩溃而拆会话），属跨迭代项（`architecture.md` §9-1）。
+- **参数化串解析口径（裁决）**：**前缀匹配、不解析参数**——`timeout_after_`…`ms` ⇒ `timeout`；`spawn_failed:` / `spawn_error:` 前缀 ⇒ `infra_error`（`:` 后任意文本）；**不做关键字启发式**（HB-10 结论：纯文本启发式不足以判定）。
+- **全函数性（验收 4）**：三段式**构造性**保证（"第 12 行自由文本来源"的存在使纯枚举比对在数学上不可能完备 ⇒ 兜底是必要结构而非补丁；本项是对 MI-5 结论的补强）。
+- **分类更正（供主 agent 知会）**：`dispatch_failed` **不在终态信封域**（`/api/calls` 投递失败时删除调用登记、不产生终态信封，调用方得到的是 HTTP 错误码 + 一条对话 `out`）⇒ MI-5 的"13 种"是字符串扫描口径，架构层收窄为"进入信封的 11 种形态 + 1 个开放文本来源 + 显式兜底"。
 
 ## model_inferred
 

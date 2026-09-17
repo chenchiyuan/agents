@@ -25,7 +25,16 @@
 
 ## 架构维度
 
-**[架构待填] A-06**：角色实例池成员（在线实例集合）的判定来源、池内选择算法的实现口径与调用点（既有角色→实例映射规则的替换落点）。
+**A-06（已填定，全文见 `architecture.md` §4 A-06）**
+
+- **池成员判定来源** = `router.status` 的 `nodes`（**既有只读方法**，任意连接可查，零新增协议面）：`roleFromInstanceId(instance_id) === role` **且** `state === 'online'` **且** `connected === true`。要求 `connected` 的理由：`message.send` 对 `connId === null` 的节点直接回 `AGENT_OFFLINE`（实测 `router.js:100`）⇒ 未连通节点进池只是浪费一次选择；`roleFromInstanceId` 复用既有唯一反向映射（不复制公式）。
+- **负载来源** = `router.task_list`（**既有方法**）+ `deriveAgentWork`（**既有函数**，已服务 `GET /api/agents` 与 `agent_state` 帧）⇒ "最空闲"不需要新度量。
+- **选择口径与调用点** = 新叶子模块 `src/pool-routing.js` 提供 `choose()`：次序键 `(queued, busy, inflight, instance_id)` 取字典序最小（`instance_id` 升序做**确定性** tie-break）；在 `startWeb` 内接线为 `pickInstance(role, {chatId, noReuse, snapshot})` 并注入 `createApiRoutes` 的 deps（体例 = 既有 `sendTask` / `scheduleReconcile`）；**替换落点 = `/api/calls` handler 的 `const agentId = instanceIdForRole(role)`（唯一调用点）**。`role-binding.instanceIdForRole` 保留（空池回落、`/api/messages`、自派发判定仍用）。
+- **`inflight` 在飞预留计数**：选中即 `+1`、`sendTask` settle 即 `-1`；作用 = 让"两条并发不同 `chat_id` 的派发分落不同实例"（验收 1）**确定性成立**（否则两条派发可能在"读负载 → 落任务表"窗口内同时选中负载相同的实例）。
+- **空池行为（MI-9）** = 回落 `instanceIdForRole(role)`，交既有 Router 投递路径给出**既有**结论（`AGENT_OFFLINE` → 404 `agent 不可用: <role>（无对应在线实例）`，错误码与文案逐字复用）；不静默排队、不新造错误面、不自动拉起实例。
+- **单实例不回归（验收 2）**：唯一池成员恒为 `pb-<role>` ⇒ 选择结果与迭代前同一目标、同一路径。
+- **成本**：每个 `/api/calls` 请求 **2 次** UDS 只读查询（无论 1 项还是 N 项，快照只取一次）。
+- **不做**：不新增协议方法（`router.status` + `router.task_list` 已足；新增 `pool_pick` 只为省一次往返却扩协议面，YAGNI）；不做实例健康探测/生命周期管理（G01 验收 8）；**不改变 `ContextPool` 键语义**（池化改的是"落哪个实例"，不是"同一实例内怎么排队"）。
 
 ## model_inferred
 

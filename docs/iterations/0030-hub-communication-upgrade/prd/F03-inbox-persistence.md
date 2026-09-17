@@ -24,7 +24,20 @@ hub 重启一次不再等于"没取的结果就没了"——"必达"不再挂在
 
 ## 架构维度
 
-**[架构待填] A-01**（持久层落地形态：表结构、索引、写入时机的实现落点）、**A-09**（存储层清理策略：ack 后条目去留与增长抑制；上游决策文档显式留给本阶段，本阶段判定为实现层决策）。
+**A-01（已填定，全文见 `architecture.md` §4 A-01）**
+
+- **表结构与索引** = `src/persist.js` 的 `SCHEMA` 内增量 DDL（`IF NOT EXISTS` 幂等，沿用既有"无迁移机制"口径）：
+  `inbox(call_id TEXT PRIMARY KEY, principal TEXT NOT NULL, agent TEXT, chat_id TEXT, terminal_at INTEGER NOT NULL, envelope TEXT NOT NULL)` + `idx_inbox_principal(principal, terminal_at)`。
+- **写入时机** = 终态发布那一刻**恰一次**（`INSERT OR IGNORE`；`submitted`/`working` 在持久层**无记录** ⇒ 验收 3）；读取 = `db.listInbox(principal)`，**不再**逐条 `queryOnce(router.task_get)`。
+- **为什么存整份终态信封**（而非"只存指针、读时现算"）：重启后 Router 任务表与 `callSchemas`（含 `output_schema`）均已消失 ⇒ 正文与 `structured_output` 不可复算（实测：现状 `task === null` 时取件条目 `envelope` 为 `null`）。只有存"唯一写点产出的那一份"，才能让验收 1（跨重启可查）与验收 5（重启前后内容一致）同时成立，且不引入独立状态语义。
+- **写入点** = 既有唯一终态发布点 `publishCallResult`（对账兜底走同一发布点 ⇒ 无第二真源）。
+
+**A-09（已填定，全文见 `architecture.md` §4 A-09；上游决策文档 §六 指派项的架构层裁决）**
+
+- **ack 后条目去留 = 就地删除**：`DELETE FROM inbox WHERE call_id = ?`（幂等：影响 0 行同样返回 `{call_id, acked:true}`）。**不保留 `acked` 列**——现状取件列表本就只含未取件条目、响应里的 `acked` 恒为 `false`（实测 `listByRequester` 过滤 + `pickup.ack` 置位），保留标记**不产生任何可观测信息**，而卡片边界已明文排除历史台账/导出面 ⇒ 保留行是纯负债；删除同时天然满足验收 2（重启前后都不出现在未取件集合）。
+- **增长抑制 = 三条结构性约束、零定时器**：① `call_id` 主键 + 只在终态写一次 ⇒ 每条调用至多一行；② ack 即删除 ⇒ 已消费侧归零；③ **未取件侧不设 TTL**（未取件集合正是"必达"承诺的载体，任何 TTL 都会让未取的结果自己消失，与效果#1/#2 直接对立；与 0029 A-06 的结论同源同理由）。
+- **不做**：不设 TTL/淘汰/归档/导出/游标，不引入 `VACUUM` 一类维护动作，不做跨重启的其它内存投影恢复。
+- **副作用（如实登记）**：取件响应的 `acked` 字段成为常量 `false`（列出的条目必然是未取件条目）；响应键位与类型**逐字不变**（G01 验收 4），语义在文档面写明。
 
 ## model_inferred
 
