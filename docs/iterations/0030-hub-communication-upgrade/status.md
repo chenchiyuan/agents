@@ -93,8 +93,25 @@
 | 15:50 | **verifier（pr-002）** | 阶段 5 · pr-002 独立验收 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | 6m30s | ✅ PASS（0/0/2 偏差） |
 | 15:57 | pr-planner（欠账收口） | pr-002 tasks 文件口径同步（22 处） | 本地 subagent | `deepseek/deepseek-v4-flash` | ~5m | ✅ |
 | 16:07 | **verifier（pr-003）** | 阶段 5 · pr-003 独立验收 | 本地 subagent（**agent=verifier**） | `powerby/grok-4.6` | 4m5s | ✅ PASS（0/0/2 偏差） |
+| 16:36 | **verifier（pr-007）** | 阶段 5 · pr-007 独立验收 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | ~24m | ✅ PASS（0/0/2 partial） |
+| 16:46 | **verifier（pr-004）** | 阶段 5 · pr-004 独立验收 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | ~34m | ✅ PASS（0/0/4 偏差） |
+| 17:22 | planner（pr-005） | 阶段 5 · pr-005 内部任务拆解 | 本地 subagent | `deepseek/deepseek-v4-flash` | 14m54s | ✅（6 项 MI） |
+| 17:47 | **dev（pr-005）** | 阶段 5 · pr-005 实现＋自证 | 本地 subagent（**agent=dev**） | **`openai/gpt-5.6-luna`** | ~53m | ✅（F08 第 7 例） |
+| 17:47 | pr-planner（实测口径校正） | pr-005/pr-008 PR 文件判据校正 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~13m | ✅ |
+| 17:47 | architect（实测口径更正） | §4 A-05/A-06、§3.4、§9、§10 同步 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~28m | ✅ |
+| 18:02 | pr-planner（pr-001 计数残留） | tasks 文件计数口径收口 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~10m | ✅ |
+| 18:16 | architect（prd 三处更正） | prd 架构维度段 3 处 + 搭置条目 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~9m | ✅（跨迭代搭置 2 条） |
+| 18:42 | **verifier（pr-005）** | 阶段 5 · pr-005 端到端独立验收 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | ~13m | ✅ PASS（0/0/3 偏差） |
+| 18:58 | architect（insertInbox 契约对齐） | §3.1/§5/§10 契约示例对齐 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~7m | ✅ |
+| 19:12 | planner（pr-006） | 阶段 5 · pr-006 内部任务拆解 | 本地 subagent | `deepseek/deepseek-v4-flash` | 7m14s | ✅（9 任务 / 3 MI） |
+| 19:22 | **dev（pr-006）** | 阶段 5 · pr-006 文档面同步＋自证 | 本地 subagent（**agent=dev**） | 待回报 | — | 在途 |
+| 19:25 | architect（API.md 引用失真） | §4 A-07/§5/§10 章节引用更正 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~5m | ✅ |
+| 19:32 | architect（§9 登记 + §5 措辞） | §9-14 取值变化登记 + §5 两处措辞分层 | 本地 subagent | `deepseek/deepseek-v4-flash` | ~15m | ✅ |
+| 19:41 | planner（pr-008） | 阶段 5 · pr-008 内部任务拆解 | 本地 subagent | `deepseek/deepseek-v4-flash` | 9m12s | ✅（9+1 任务 / 5 MI） |
+| 19:47 | **verifier（pr-005 补充）** | 补充验收：Router 不可达时取件面响应 | 本地 subagent（**agent=verifier**） | **`powerby/grok-4.6`** | ~20m | ✅ PASS（0/0/0） |
+| 19:58 | pr-planner（pr-008 PR 文件） | AC3/AC4 事实更正 | 本地 subagent | `deepseek/deepseek-v4-flash` | 待回报 | 在途 |
 
-**模型归属汇总（F08 验收 1~3 的取证面）**：`dev` 派发 ×4（探针 1 + pr-001/002/003 各 1）全部自报 **`openai/gpt-5.6-luna`**；`verifier` 派发 ×5（探针 1 + Gate 2 + pr-001/002 各 1）全部自报 **`powerby/grok-4.6`**；其余角色（prd / architect / pr-planner / planner）全部自报 **`deepseek/deepseek-v4-flash`**（= 当刻全局默认）。
+**模型归属汇总（F08 验收 1~3 的取证面）**：`dev` 派发（含载体探针 1）**收到报告 5 次、全部自报 `openai/gpt-5.6-luna`**（pr-006 在途未计）；`verifier` 派发（含探针 + Gate 两轮 + 各 PR 验收 + pr-005 补充）**收到报告 8 次、全部自报 `powerby/grok-4.6`**；其余角色（prd / architect / pr-planner / planner）全部自报 `deepseek/deepseek-v4-flash`（= 当刻全局默认）。
 
 ## 待确认项
 
