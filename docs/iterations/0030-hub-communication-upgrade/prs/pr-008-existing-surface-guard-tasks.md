@@ -673,7 +673,7 @@ index 632bc04..9ef5e01 100644
 ```
 逐行确认：唯一变化是 `paste -sd,` → `paste -sd, -`，其余内容未动。
 
-顺带扫描命令：在 evidence 文档与本 §7 搜索无操作数管道消费者、`sed -i`、`date -d`、`readlink -f`、`stat -c`、`grep -P` 等。命中仅 evidence 第 235 行 `grep -cE '^\|\s*[0-9]+\s*\|\s*...`；tasks §7 无命中。对该可疑 BSD `grep` 写法执行与 evidence 第 235 行相同的计数命令，stdout `29`，exit 0；按要求仅报告，不改。
+顺带扫描命令：在 evidence 文档与本 §7 搜索无操作数管道消费者及常见 BSD/GNU 命令参数差异写法。命中仅 evidence 第 235 行（`grep -cE` 的正则含反斜杠-s 空白简写）；tasks §7 无命令命中。对该可疑 BSD `grep` 写法执行与 evidence 第 235 行相同的计数命令，stdout `29`，exit 0；按要求仅报告，不改。
 提交命令：`git -C "$W" add docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md && git -C "$W" commit -m "docs: make C05 paste input explicit"`，exit 0，commit=`3c63846f209461caf80f34a5bd6a982176b77e66`。
 
 提交后核验命令：`git -C "$W" status --porcelain`；`git -C "$W" diff HEAD`；`git -C "$W" diff --stat HEAD`（均 exit 0）。三者均无输出，worktree clean；提交内容 `git show --format= --no-ext-diff -U0 HEAD -- docs/iterations/0030-hub-communication-upgrade/evidence/g01-existing-surface.md` 仍仅显示第 218 行 `paste -sd,` → `paste -sd, -` 一处变化。
