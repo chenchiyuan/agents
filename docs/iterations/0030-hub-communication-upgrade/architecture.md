@@ -340,7 +340,7 @@ flowchart TB
   - 为什么键在 web 而不在 Router：`chat_id` 只存在于 web 侧（Router 任务条目**不携带 `chat_id`** ⇒ 无法在 Router 侧做会话粘性）；且粘性决策必须发生在"选目标 → `message.send`"之前，正是 web 的位置。
   - 与既有 `(chat_id, agent_id)` 上下文键的关系：`ContextPool` 的 `agent_id` 实参 = 实例 id（`agent.js` 传 `ctx.instanceId`）⇒ 粘性键 + 选中实例**恰好重构出**该键空间中的一项；粘性表不改写、不替代它（F06 验收 4 / F07 验收 4）。
 - **"最空闲"度量口径**：见 A-06（`(queued, busy, inflight, instance_id)`）。
-- **"不需要延续"声明的承载形态**（MI-10）：`POST /api/calls` 的**项级可选布尔字段 `new_session`**（与既有项内字段 `output_schema`/`schema_mode`/`mode`/`model` 同层；缺省不出现 ⇒ 既有请求形状零变化，G01 验收 10）。语义 = 本次派发忽略既有绑定、按最空闲重选并**重绑**（下一轮若无该声明，则粘到本次选中的实例 ⇒ "新会话从这里开始"）。`API.md` §3.9 的参数表与之同步。**调用方可达性（实测口径）**：`oamp/sdk/surface.js` 的 `calls create` flag 白名单是硬编码的（`--chat-id / --agent / --task / --tasks / --context / --output-schema / --schema-mode / --mode / --model / --wait`），**没有** `--new-session`（也没有 `--requester`）⇒ 本迭代该字段的调用方途径 = **裸 HTTP 项级字段**；`oamp/sdk/**` 本迭代零改动（CLI flag 可达性属另一迭代）。
+- **"不需要延续"声明的承载形态**（MI-10）：`POST /api/calls` 的**项级可选布尔字段 `new_session`**（与既有项内字段 `output_schema`/`schema_mode`/`mode`/`model` 同层；缺省不出现 ⇒ 既有请求形状零变化，G01 验收 10）。语义 = 本次派发忽略既有绑定、按最空闲重选并**重绑**（下一轮若无该声明，则粘到本次选中的实例 ⇒ "新会话从这里开始"）。`API.md` **§3.14（`POST /api/calls`）** 的参数表与之同步（**引用纪律**：该文件 §3.x 有 4 组重复编号 —— `3.11` / `3.12` / `3.13` / `3.18` 各出现两次 ⇒ 一律用"**编号 + `METHOD /path`**"联合定位，裸编号会指错节；§3.9 实为 `GET /api/stream`，`:520`）。**调用方可达性（实测口径）**：`oamp/sdk/surface.js` 的 `calls create` flag 白名单是硬编码的（`--chat-id / --agent / --task / --tasks / --context / --output-schema / --schema-mode / --mode / --model / --wait`），**没有** `--new-session`（也没有 `--requester`）⇒ 本迭代该字段的调用方途径 = **裸 HTTP 项级字段**；`oamp/sdk/**` 本迭代零改动（CLI flag 可达性属另一迭代）。
 - **生命周期与增长**：进程内、**无 TTL、无淘汰定时器**；每次选择时顺带丢弃"绑定实例已不在池"的条目（零定时器）。条目上界 = 有派发历史的 `(chat_id, role)` 对，与既有 `principals` 表同阶（同寿命口径）。
 - **失效口径**（MI-11）：绑定实例不在池 ⇒ 回落最空闲并重绑，**不报错**（代价：跨轮上下文可能断，D-30 的必然结果）。
 - **可观测性**（验收 5）：见 §3.4 第 6 条（既有 `instance_id` + 既有五字段投影 + 转录 `from`），不新增标识。
@@ -413,7 +413,7 @@ flowchart TB
 
 **明确不改（零改动）**：`src/router.js`（含 UDS 方法集合与错误契约）、`src/registry.js`、`src/role-binding.js`、`src/principals.js`、`src/inbox.js`、`src/transport.js`、`src/cluster-config.js`、`oamp/web/**`（控制台前端）、`oamp/sdk/**`、`oamp/scripts/**`、`cluster.json`、`roles/**`、`oamp/package.json`（零新依赖）。（`src/context-pool.js` 原在本清单，现按 A-05 的实测依据移入上表 —— **仅两键透传**，键语义/串行/LRU 零改动。）
 
-**文档面机械锁提示**：本迭代**不新增 HTTP 路由**（既有 **29 条**不变，与迭代前同值；口径见 §1.1），故 `hub doctor` R1 不会因缺行而失败；但 `API.md` 的**参数表**（§3.9 的 `new_session`）与 `reason` 字段说明属人工同步项，阶段 5 需显式核对（`llms.txt` 由脚本重生成）。
+**文档面机械锁提示**：本迭代**不新增 HTTP 路由**（既有 **29 条**不变，与迭代前同值；口径见 §1.1），故 `hub doctor` R1 不会因缺行而失败；但 `API.md` 的**参数表**（**§3.14 `POST /api/calls`** 的 `new_session`，按"编号 + `METHOD /path`"联合定位见 §4 A-07 的引用纪律注）与 `reason` 字段说明属人工同步项，阶段 5 需显式核对（`llms.txt` 由脚本重生成）。
 
 ---
 
@@ -532,6 +532,7 @@ flowchart TB
 11. **A-05 阈值透传通道的补定（`context-pool.js` 纳入改动面，2026-09-17）**：来源 = **阶段 5 planner 实测复现 + 主 agent 裁决（候选 A：把该文件纳入 pr-004 文件范围做两键透传）**。实测依据：默认执行器（daemon）路径的选项通道是 `ContextSession.prompt` 的**显式键集**（形参 `:137` / 队列项 `:144` / `client.prompt` 实参 `:170-174`）⇒ 未列入的键被静默丢弃；不改该文件时 daemon 路径阈值变 `null`，任务 ≈2.5s 判死（报文 `轮次安全网超时（累计 nullms）`），或客户端补 null 防御后退化为"该路径无计时器" ⇒ F05 验收 2/3/6 在默认执行器路径不成立。已补定：`context-pool.js` **仅两键透传**（`idleMs` / `netMs`），其键语义 / 同键 FIFO 串行 / LRU 与释放路径**零改动**；§1.3 硬约束与 §6 声明不受影响（本节 §6 已补"唯一例外"注），全文见 §4 A-05 与 §5 变更面表。
 12. **三处实跑事实更正 + 两处补记（2026-09-17）**：来源 = **pr-005 planner 在 /tmp 搭"真 Router + 真 web + 假节点"基线塔实跑**（非推断）。① §4 A-06 空池行为原写"回落 ⇒ 404 `agent 不可用`"⇒ 更正为"与基线逐字一致（HTTP 200 + 受理态 `submitted`；投递失败在 `sendTask` 内被吞），404 仅限**角色不可解析**"，MI-9 意图不变；② 终态信封计数 **11 键 → 10 键**（§1.1 与 §4 A-03；`web.js:539` 的模块注释写"11 键"为既有注释滞后，**未改代码**）；③ §4 A-05 第 6 条与 §7 L2-05 的对账 TTL 由"≈4h30m"改为**算式 + 不变式**（`缺省 TTL ≥ config.taskNetMs`；算式 = `taskNetMs + RECONCILE_SLOW_DEFAULT_MS` = 4h + 30s），去掉歧义近似值。另补记：④ `pickup.js` 退役判据 = **实现面零命中**（`docs/**`、`roles/**` 的历史文字提及不算失败项），见 §5 退役行；⑤ `new_session` **无 CLI flag**（`oamp/sdk/surface.js` 的 `calls create` flag 白名单硬编码、`sdk/**` 本迭代零改动）⇒ 其调用方途径 = **裸 HTTP 项级字段**（与既有 `requester` 同情形），见 §4 A-07。
 13. **收件箱方法契约的文档对齐（2026-09-17）**：来源 = **pr-005 独立验收偏差记录第 1 条**（`clarifications/verify-20260917-171058-pr-005.md`）—— 实现按**冻结契约**走 camelCase 六字段（`insertInbox({callId, principal, agent, chatId, terminalAt, envelope})`，`web.js:2246-2253`）且 `envelope` 已预序列化，而本文件 §3.1 的数据流示例原写 snake_case ⇒ 已对齐：§3.1 步骤 2 改为 camelCase 六字段并注明**序列化义务**（`persist.js` 把入参原样写入 TEXT 列、模块内不做 `JSON.stringify`），步骤 3 注明 `listInbox(principal)` 按 `terminal_at` 升序返回行、行字段为 DB 列名、读侧 `JSON.parse`，步骤 4 注明 `deleteInbox(callId)` 幂等且条目不存在时不抛错；§5 的 `persist.js` 行同步该契约要点。
+14. **`API.md` 章节引用的失真更正 + 引用纪律（2026-09-17）**：来源 = **pr-006 planner 的 /tmp 实跑核查**。事实：`API.md` 的 §3.x 有 **4 组重复编号**（`3.11`/`3.12`/`3.13`/`3.18` 各两次）⇒ **裸编号会指错节**；`POST /api/calls` 的参数表实际在 **§3.14（`:649`）**，而本文件 §4 A-07 与 `prd/F07` 原写"§3.9"（§3.9 实为 `GET /api/stream?chat_id=<id>`，`:520`）——属引用滞后。已更正并立**引用纪律**：凡引用该文件章节号，一律用"**编号 + `METHOD /path`**"联合定位（§4 A-07 的注为此纪律的声明点，§5 文档面提示引用该注）；§1.x / §2.x 编号经核**无重复**（如 `§2.4 等待语义` 唯一），故仅 §3.x 需要联合锚点。
 
 ---
 

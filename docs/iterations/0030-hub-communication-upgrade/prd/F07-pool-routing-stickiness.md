@@ -29,7 +29,7 @@
 
 - **路由表的键与生命周期** = `src/pool-routing.js` 内的进程内 `Map`，键 = **`(chat_id, role)`**，值 = `instance_id`。键在 web 而非 Router 的理由：`chat_id` 只存在于 web 侧（Router 任务条目**不携带 `chat_id`** ⇒ 无法在 Router 侧做会话粘性），且决策必须发生在"选目标 → `message.send`"之前。生命周期 = 进程内、**无 TTL、无淘汰定时器**（每次选择时顺带丢弃"绑定实例已不在池"的条目）；条目上界 = 有派发历史的 `(chat_id, role)` 对，与既有 `principals` 表同阶。
 - **"最空闲"的度量口径** = 见 A-06：次序键 `(queued, busy, inflight, instance_id)` 取字典序最小（`queued`/`busy` 来自 `router.task_list` + 既有 `deriveAgentWork`；`inflight` = 本进程在飞预留计数；`instance_id` 升序保证**确定性**、可复现）。
-- **"不需要延续"声明的承载形态（MI-10）** = `POST /api/calls` 的**项级可选布尔字段 `new_session`**（与既有项内字段 `output_schema` / `schema_mode` / `mode` / `model` 同层；缺省不出现 ⇒ 既有请求形状零变化，G01 验收 10）。语义 = 本次派发忽略既有绑定、按最空闲重选并**重绑**（下一轮若无该声明则粘到本次选中的实例 ⇒ "新会话从这里开始"）。`API.md` §3.9 参数表随之同步。
+- **"不需要延续"声明的承载形态（MI-10）** = `POST /api/calls` 的**项级可选布尔字段 `new_session`**（与既有项内字段 `output_schema` / `schema_mode` / `mode` / `model` 同层；缺省不出现 ⇒ 既有请求形状零变化，G01 验收 10）。语义 = 本次派发忽略既有绑定、按最空闲重选并**重绑**（下一轮若无该声明则粘到本次选中的实例 ⇒ "新会话从这里开始"）。`API.md` **§3.14（`POST /api/calls`）** 参数表随之同步（引用纪律：该文件 §3.x 有 4 组重复编号 ⇒ 以"编号 + `METHOD /path`"联合定位；裸 §3.9 实为 `GET /api/stream`）。
 - **与既有 `(chat_id, agent_id)` 上下文键的关系**：`ContextPool` 的 `agent_id` 实参 = 实例 id（`agent.js` 传 `ctx.instanceId`）⇒ 粘性键 + 选中实例**恰好重构出**该键空间中的一项；粘性表只回答"落到哪个实例"，**不替代、不改写** `ContextPool` 的键语义与同键串行语义（F06 验收 4 / 本卡验收 4）。
 - **失效口径（MI-11）** = 绑定实例不在池 ⇒ 直接按最空闲重选并重绑，**不报错**（同一会话不因实例更替报错；代价 = 跨轮上下文可能断，D-30 的必然结果）。
 - **可观测性（验收 5）** = 复用**既有实例标识面**：`GET /api/agents` 行的 `instance_id` + 既有五字段投影（`busy` / `current_call_id` / `queued` / `since`，0029 已建），以及转录条目的 `from`（= 上报实例 id）⇒ 无需读内部状态、不新增第二套标识。
