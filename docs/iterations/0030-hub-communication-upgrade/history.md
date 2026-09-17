@@ -794,3 +794,19 @@
 - 独立取证要求：效果 1~5 **自建隔离塔端到端复跑**（`/tmp` 副本 + 真 Router + 真 web + 假节点，非默认端口，跑后 stop），**不采信任何 PR 验收报告与 tasks §7**；G01 至少抽查 3 条（事件类集合 / 信封键序 / 路由 29）并独立取证；E 组三项必须给**自己复跑**的 git 输出
 - 产出：`clarifications/verify-<ts>-iteration.md` + `roles/verifier/data/` 副本；回报要求单列「搭置条数」供向用户呈报
 - 触发依据：阶段 5 完成（8/8 合并、现场零遗留）；`workflow-pb.md` §验证目标（搭置报告强制呈现 / PR 粒度框架 / 依赖正确性 / 并发真实执行证据）；`progress.md` §2 确认 7 条依赖边在合并图层面全部满足（**代码级仍待本阶段核**）
+
+### 2026-09-17 23:35:00 · 收到报告 · verifier（阶段 6 迭代级终验）
+
+- 报告路径：docs/iterations/0030-hub-communication-upgrade/clarifications/verify-20260917-220603-iteration.md（+ `roles/verifier/data/` 副本；报告已把 `deferred-demand-changes.md` **原文量顶呈现**）
+- 结论：**PASS**（六组判据 A~F 全部通过；G01 抽查通过）；**搭置条数 = 5**（供向用户呈报）
+- 逐组：**A** 效果 1~6 **全 pass**（效果 6 标注"非 git 可核实、边界已文档化"）；**B** 搭置报告**原文摘录 + 置顶**、5 条、**未做二次判断**（符合"只透传"要求）；**C** 8 个 PR 粒度逐条 pass（pr-005 登记"可审查性成本"但未判 fail）；**D** 依赖正确性**代码级** 7 条边全 pass、无环、文件范围无重叠、F01~F09+G01 全覆盖；**E** 并发三项全 pass（E1 `53c27a0` @ 15:53:31 ∈ pr-007 窗口 [15:43:08, 15:59:37)；E2 并发配置区块 `9f071b8` 初始化 vs `2023e88`/`2483408` 更新；E3 爬升公式 N=0→3 / N=1→5 / N=8→5）；**F** `2483408` 更正后 status 与 8 次合并一致、8+8 份 PR/tasks 文件齐全
+- G01 抽查：事件类集合一致、信封键序一致（失败侧 `reason` 末位）、路由 29、`doctor pass=true`、Router 不可达时取件 200
+- 差异 5 条（**均非阻塞**）：① `RECONCILE_TTL_DEFAULT_MS` 符号改为 `taskNetMs + 30s` 算式（属 §5 明文改动）；② `dispatch-ledger.md` 停在 16:07 且有在途行（**已处置**：依其自述的在途行补写协议回填 3 行 + 声明 16:07 后滚动面 = `status.md` 台账）；③ `agent_error` 有算式覆盖但无 daemon 端到端实例（`context_crashed` 落 `infra_error`，属 §9-1 已登记局限）；④ 效果 4 用压缩 `idle=1500ms` 而非墙上 30 分钟（判据可判定性要求，已在报告标注）；⑤ HEAD `809f259` = `a291343` + 两笔记账提交、`oamp` 面逐字相同（⇒ 终验结论对最终态成立）
+- 红线违规检查：未改产品文件、未写主工作区、未占默认端口/socket、隔离塔已停；证据根 `/tmp/0030-ver-iter{,2,3}`
+- 通道实况：本地 subagent，`agent=verifier`，自报模型 **`powerby/grok-4.6`**（25m5s）
+
+### 2026-09-17 23:40:00 · 调度决策 · 阶段 6 PASS ⇒ 启动收口（迭代分支合入 main）
+
+- 依据：`verify-20260917-220603-iteration.md` 结论 PASS；`workflow-pb.md` §迭代分支合并进 main（三步 + 第 3 步前置游离动作）
+- 处置：① 迭代工作区 `checkout --detach`（前置动作）→ ② 仓库主工作区 `checkout main` + `merge --no-ff iteration/0030-hub-communication-upgrade`（message 格式按规范）→ ③ `branch -d`；合并后把 `status.md` 的 `**迭代分支**` 字段改为"（已合并）"
+- 附加处置（终验差异 ②）：**已按 `dispatch-ledger.md` 自述的在途行补写协议回填三行**（dev pr-007/pr-004 = `openai/gpt-5.6-luna`、verifier pr-003 = `powerby/grok-4.6`），并声明 16:07 之后的滚动面为 `status.md` §派发台账；未改该文件的自述范围与其它内容
