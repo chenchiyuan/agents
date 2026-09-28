@@ -2,7 +2,7 @@
 
 **工作流**: workflow-pb v0.13.1
 **迭代**: 0031-demand-convergence-redesign
-**当前阶段**: 功能规格（阶段 2）
+**当前阶段**: 技术架构（阶段 3）
 **迭代分支**: iteration/0031-demand-convergence-redesign
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0031-demand-convergence-redesign
 **状态**: 进行中
@@ -15,8 +15,8 @@
 | # | 阶段 | 完成 | 已验证 | 备注 |
 |---|---|---|---|---|
 | 1 | 需求收敛 | ✅ | ⬜ | `demand.md` v1.0.0；D-1~D-15 全部 user_confirmed；用户 2026-09-28 确认整份文档 |
-| 2 | 功能规格 | ⏸ | ⬜ | 派发 prd |
-| 3 | 技术架构 | ⬜ | ⬜ | |
+| 2 | 功能规格 | ✅ | ⬜ | 15 卡（F01~F13/G01/U01）；MI-1~MI-13 用户确认；架构待填 A-01~A-07 |
+| 3 | 技术架构 | ⏸ | ⬜ | 派发 architect（architecture.md 兼作 §11.4 优化方案） |
 | 4 | PR 规划 | ⬜ | ⬜ | |
 | 5 | PR 实现 | ⬜ | ⬜ | |
 | 6 | 独立验证 | — | — | 按需触发 |
