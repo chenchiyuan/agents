@@ -18,22 +18,22 @@
 | 2 | 功能规格 | ✅ | ⬜ | 15 卡（F01~F13/G01/U01）；MI-1~MI-13 用户确认；架构待填 A-01~A-07 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md`（兼作 §11.4 优化方案）；A-01~A-07 填定；L1-1~L1-4 用户确认全选 A |
 | 4 | PR 规划 | ✅ | ✅ | 单 PR `pr-001-demand-v1-rewrite-and-sync`（41 条验收）；check-pr-gates [7] 经用户豁免、[2] U01 为提示项 |
-| 5 | PR 实现 | ⏸ | ⬜ | 逐 PR 状态见下 |
+| 5 | PR 实现 | ✅ | ⬜ | 1/1 合并进迭代分支（`3ba69fb`）；pr-001 独立验收 41/41 PASS |
 | 6 | 独立验证 | — | — | Gate：`verify-20260928-155755.md`（PASS/4 partial）→ 返工 → `verify-20260928-161043-rework.md`（PASS/1 partial）→ N1/N2 修订闭环 |
 
 ## 并发配置（阶段 5）
 
 - **起始并发数**：3（默认值）
 - **硬上限**：5
-- **当前有效上限**：3
-- **累计槛位释放次数**：0
+- **当前有效上限**：5（min(3+1×3, 5)）
+- **累计槛位释放次数**：1
 - **已派发总数**：1
 
 ## PR 实现子状态（阶段 5 展开）
 
 | PR 文件 | depends_on | 状态 | worktree 分支 | 已合并 | 槛位状态 |
 |---|---|---|---|---|---|
-| pr-001-demand-v1-rewrite-and-sync.md | （无） | ⏸ | feat/0031-pr-001-demand-v1-rewrite | ⬜ | 占用 |
+| pr-001-demand-v1-rewrite-and-sync.md | （无） | ✅ | feat/0031-pr-001-demand-v1-rewrite(已清理 worktree) | ✅ | 已释放 |
 
 ## 待确认项
 
