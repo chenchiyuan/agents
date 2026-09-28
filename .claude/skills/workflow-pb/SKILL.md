@@ -1,7 +1,7 @@
 ---
 name: workflow-pb
 description: |
-  启动并驱动 pb 产品研发工作流（v0.13.1）。主 agent 调度协议：按 6 阶段序列推进、
+  启动并驱动 pb 产品研发工作流（v0.14.1）。主 agent 调度协议：按 6 阶段序列推进、
   逐阶段核查推进条件、阶段3→4之间的方案确认门（默认开启，可关闭）、阶段 5 依赖解锁式并发
   PR 派发（含并发槛位算法）、维护 status.md 进度视图。
   阶段 1（需求收敛）由主 agent 直接内联执行（不派发子 agent）；阶段 2~6 派发执行角色时
@@ -30,9 +30,9 @@ role:
 
 # workflow-pb
 
-**版本**: 1.15.1（对应规范 workflow-pb v0.13.1）
-**完整规范**: `{角色定义根}/workflow-pb/workflow-pb.md`（流程契约主体）+ `{角色定义根}/workflow-pb/data/scm-protocol.md`（提交管理协议）+ `{角色定义根}/workflow-pb/data/formats.md`（数据格式规范）——角色来源见「§ 角色文件来源与部署」
-**变更历史**: 见 `memory.md` 索引；最新条目 `data/skill-optimization-v1.15.1.md`
+**版本**: 1.15.2（对应规范 workflow-pb v0.14.1）
+**完整规范**: `{角色定义根}/workflow-pb/workflow-pb.md`（流程契约主体）+ `{角色定义根}/workflow-pb/data/scm-protocol.md`（提交管理协议）+ `{角色定义根}/workflow-pb/data/formats.md`（数据格式规范）+ `{角色定义根}/test-keeper/data/testing-protocol.md`（测试三级分级协议）——角色来源见「§ 角色文件来源与部署」
+**变更历史**: 见 `memory.md` 索引；最新条目 `data/skill-optimization-v1.15.2.md`
 
 ---
 
@@ -60,7 +60,7 @@ role:
 
 ## Purpose
 
-接收迭代 ID，按 workflow-pb v0.13.1 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
+接收迭代 ID，按 workflow-pb v0.14.1 规范调度 6 个阶段，守住每个阶段的出口定义，维护 `status.md` 进度视图，直到所有 PR 合并完成。
 
 ## Success criteria
 
@@ -106,6 +106,7 @@ role:
 - 阶段 5：读依赖图、管理 worktree 创建、并发派发、merge
 - 若 `history` 开启，逐条维护 `history.md`
 - 隔离边界（覆盖 / 不覆盖）与非 git 共享资源见 `scm-protocol.md` §隔离边界声明（只引用，不重复定义）
+- 阶段5后/阶段6前可选派发 `test-keeper`（L2冒烟/L3回归，见 `{角色定义根}/test-keeper/data/testing-protocol.md`）——非强制推进条件
 
 **不做什么**：
 - 不执行需求 / 设计 / 架构 / 实现工作
@@ -113,6 +114,7 @@ role:
 - 不代替用户做 L1 决策或确认 `model_inferred` 项
 - 不把"执行角色自称完成"等同于"推进条件满足"
 - 不用 `progress-observer` 报告替代阶段 6 独立验证
+- 不用 `test-keeper` 报告替代阶段 6 独立验证——两者职责不同（`test-keeper` 判断套件是否存在/可运行/符合协议，`verifier` 判断产物质量是否达标）；不派发 `test-keeper` 参与阶段5派发循环（PR 内 L1 用例仍由 `dev` 自己写）
 - 不跳过阶段 1；不代替执行角色判断"这是需求问题还是技术方案问题"、不代写 `deferred-demand-changes.md`——判断和记录都是执行角色自己的事，主 agent 只调度和验证
 - 不在宿主无法提供真实阻塞式人机交互通道时，替用户把 `model_inferred` 项自问自答成 `user_confirmed`——这是「§ 对外协议」人机交互契约的具体化，宁可停止推进也不能代答
 
@@ -122,6 +124,7 @@ role:
 
 1. **`batch` 字段不是调度依据**——`depends_on` 的合并状态才是。永远以合并状态解锁，不以 `batch` 数字做栅栏同步
 2. **`progress-observer` ≠ 阶段 6 独立验证**——前者判断"git 状态与 status.md 是否一致"，后者判断"产物质量是否达标"，不能互相替代
+2b. **`test-keeper` 不参与阶段5派发循环，两个触发点都是可选**——阶段5后可选L2冒烟、阶段6前可选L3回归，均非新的强制推进条件；分级规则/判断方式/语言栈反射/软性墙钟预算权威定义只在 `{角色定义根}/test-keeper/data/testing-protocol.md`，本文件不复制
 3. **PR-B worktree 必须从已含 PR-A 代码的迭代分支拉出**——否则 PR-B 的 agent 根本看不到 PR-A 的产物；技术约束，不可绕过
 4. **每次 PR merge 后必须重新扫描完整依赖图**——不能假设"其他 PR 都还没完成"，可能有 PR 在这次 merge 后刚好解锁
 5. **推进条件核查 = 读文件内容**——不是检查文件是否存在，是逐项确认内容满足条件（如 demand.md 两段均非空）

@@ -22,10 +22,10 @@ role:
 
 # workflow-pb
 
-**版本**: 0.14.0
+**版本**: 0.14.1
 **创建日期**: 2026-09-02
 **变更历史**: 见 `data/workflow-pb-changelog.md`
-**配套文件**: `data/scm-protocol.md`（提交管理与工作区隔离协议）、`data/formats.md`（PR/status.md/history.md 数据格式规范）——两者与本文件共同构成完整规范，权威定义各只存在一处
+**配套文件**: `data/scm-protocol.md`（提交管理与工作区隔离协议）、`data/formats.md`（PR/status.md/history.md 数据格式规范）、`roles/test-keeper/data/testing-protocol.md`（测试三级分级协议）——三者与本文件共同构成完整规范，权威定义各只存在一处
 
 ---
 
@@ -213,6 +213,15 @@ PR worktree 分支：{分支名}
 - 报告中的"发现的不一致"和"并发度分析"（尤其是"可并发但闲置"的 PR）是主 agent 优先处理的信号——闲置 PR 应立即补派发，不一致状态应先核实 `status.md` 记录错误还是真实的执行异常
 - `progress-observer` 只报告事实，不做严重性判断或调度建议；是否重新派发、是否修正 `status.md`，由主 agent 决定
 - 不用 `progress-observer` 的报告替代阶段 6 独立验证——两者职责不同：`progress-observer` 判断"状态是否一致"，独立验证判断"产物质量是否达标"
+
+### 测试三级分级：test-keeper 可选触发（索引，权威判断逻辑见 `roles/test-keeper/data/testing-protocol.md`）
+
+`test-keeper` 角色不参与阶段5（PR实现）的派发循环——PR 内 L1 必测用例仍由 `dev` 角色自己写（简报明确要求时，对齐 `roles/dev/dev.md:107` 现有例外条款），本文件不改变这一现有边界。`test-keeper` 是阶段5之外的角色，两个**可选**触发点（不是新的强制推进条件，不影响阶段5/阶段6现有推进条件的判定）：
+
+1. **阶段5后可选触发 L2 冒烟**：某个或全部 PR 合并完成后，主 agent 可选调用 `test-keeper` 跑一次项目冒烟测试。
+2. **阶段6前可选触发 L3 回归**：独立验证（阶段6）触发之前，主 agent 可选调用 `test-keeper` 跑一次全局回归测试，作为验证素材之一——`test-keeper` 的报告不替代 `verifier` 的独立验证结论，两者职责不同（`test-keeper` 判断"套件是否存在、是否可运行、是否符合协议"，`verifier` 判断"产物质量是否达标"）。
+
+分级规则、沉淀判据、语言栈反射规则、软性墙钟预算阈值的具体条款，权威定义只在 `roles/test-keeper/data/testing-protocol.md`，本文件不复制。
 
 ### 阶段回退
 

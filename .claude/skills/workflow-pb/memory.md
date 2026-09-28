@@ -2,6 +2,7 @@
 
 > 每行对应 `data/` 下的一条原始凭证。
 
+- [v1.15.2 优化记录](data/skill-optimization-v1.15.2.md) — 新建角色 `test-keeper`（测试三级分级协议维护者），同步规范新增的可选触发点索引（阶段5后可选L2冒烟、阶段6前可选L3回归，均非强制推进条件）；顺带更正 front matter/Purpose 两处此前已滞后的版本引用（v0.13.1→v0.14.1）
 - [v1.15.1 优化记录](data/skill-optimization-v1.15.1.md) — 阶段推进核查新增机械辅助：`tools/check-pr-gates.py` 复核阶段 4 七项结构性检查（Gate 阶段 4→5 补一行说明，工具是辅助不替代判断）；同步登记反向结论——`验收证据` 段纯文本机械核查不可作门禁（误报率高），证据格式只能靠 `tasks` 冻结模板
 - [v1.15.0 优化记录](data/skill-optimization-v1.15.0.md) — 同步规范 workflow-pb v0.13.0 的文件拆分（提交管理协议拆到 `data/scm-protocol.md`，数据格式规范拆到 `data/formats.md`），SKILL.md 内所有指向已迁移章节的"规范 §XX"引用改为指向具体拆分后的文件；纯路径同步，不涉及流程语义变化
 - [v1.14.0 优化记录](data/skill-optimization-v1.14.0.md) — 阶段 1（需求收敛）改为主 agent 内联执行，不再派发 demand 子 agent（根因：子 agent 隔着主 agent 与用户对话，转达损耗+反馈延迟，用户反馈"泛泛而谈"）；「派发即隔离执行」不变量为阶段 1 声明显式例外，阶段 2~6 不受影响；「全文注入 brief」机制对阶段 1 天然失效（无 brief 载体）；CRITICAL / Step 1~4 / §阶段执行卡片 / §Brief 构建规则 / §用户决策点表 / Safety 逐处同步；`demand.md` 同步升级 v0.4.0
