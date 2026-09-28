@@ -18,12 +18,12 @@ QA 判定方式：读文件头版本号；diff changelog，确认只新增 v1.0.
 
 ## 边界（不包含）
 
-- 不更新其它角色的 changelog（workflow-pb / prd 是否写 changelog 见 `[架构待填]` A-04）。
+- 不更新其它角色的 changelog（workflow-pb / prd 是否写 changelog 见 `architecture.md` §6）。
 - 不修改 `roles/demand/data/` 下其它文件。
 
 ## 架构维度
 
-`[架构待填]` A-04：workflow-pb 与 prd 两个文件是否随本次修改同步升版本号与写各自 changelog（demand.md 未要求，属于项目惯例判断）。
+**A-04（已填定，详见 `architecture.md` §6；L1-4 用户已确认选 A）**：推荐方案 A——workflow-pb、prd 不升版本、不写各自 changelog；demand-changelog v1.0.0 条目在"具体改动"下单列"联动修改"小节，逐条记下 workflow-pb :52 / :228、SKILL.md :130、prd.md 各处。description 新文见 §3.4。
 
 ## model_inferred（已由 D-18 全部采纳，来源改为 user_confirmed）
 

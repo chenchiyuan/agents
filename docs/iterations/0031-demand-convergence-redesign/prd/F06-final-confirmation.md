@@ -24,8 +24,8 @@ QA 判定方式：通读新版 demand.md，检索 1~5 明文；核对 1 与 F05 
 
 ## 架构维度
 
-`[架构待填]` A-01：落位与措辞。
-`[架构待填]` A-03：`ai_decided` 条目在"整份确认"后的来源标记如何表达（见下方 model_inferred）。
+**A-01（已填定，详见 `architecture.md` §3.2 / §3.3）**：首部 CRITICAL C3（整份明确确认 + 头部状态行记录原话与日期 + 用户未回应或宿主无法等待时停止，含后果）；Workflow 中独立 `### Gate：终稿整份确认`（四要素），位于「6. 修复」与「7. 交付」之间；Safety 有尾部验证形式。
+**A-03（已填定，详见 `architecture.md` §5；L1-1 用户已确认选 A）**：Gate 通过后，执行方向条目改记 `user_confirmed`；其余 `ai_decided` 条目保留原标记，由整份确认覆盖（MI-4）。
 
 ## model_inferred（已由 D-18 全部采纳，来源改为 user_confirmed）
 

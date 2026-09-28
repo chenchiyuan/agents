@@ -28,13 +28,13 @@ QA 判定方式：
 
 - 只核查 `roles/demand/demand.md`；workflow-pb.md、prd.md 本次只做最小同步（F10、F11），不纳入 §12 核查。
 - 不修改 `docs/skill-design-protocol.md` 与 `principles/meta/agent-design-protocol.md`。
-- 不引入 scripts/、references/、评估套件等新文件来"满足"checklist；相关项可按理由判"不适用"（判定见 `[架构待填]` A-07）。
-- 本卡不决定哪几条规则升为 CRITICAL（见 `[架构待填]` A-01）。
+- 不引入 scripts/、references/、评估套件等新文件来"满足"checklist；相关项可按理由判"不适用"（判定见 `architecture.md` §9）。
+- 本卡不决定哪几条规则升为 CRITICAL（见 `architecture.md` §3）。
 
 ## 架构维度
 
-`[架构待填]` A-01：CRITICAL / MUST / NEVER 的具体选取与落位；Gate 在 Workflow 中的位置。
-`[架构待填]` A-07：§12 各项对单文件角色定义的适用性判定（尤其 #6 scripts/、#7 references/、#9 评估闭环、#13 OPTIMIZATION_PROPOSAL、#17 上下文管理、#18 Agent-Gate、#19 产出物大小）；核查记录的存放位置。
+**A-01（已填定，详见 `architecture.md` §3.1 / §3.2 / §3.3）**：CRITICAL 恰 3 条 = 衡量标准 1 的三条硬约束（C1 问题准入 + 归属 / C2 依赖先于被依赖 / C3 终稿确认），各带后果，Safety 有逐条的尾部验证形式；每节约束词预算见 §3.1 预算列（`##` 与 `###` 两级都 ≤2）；Gate 为 Workflow 中独立 `###` 节，位于「6. 修复」与「7. 交付」之间。
+**A-07（已填定，详见 `architecture.md` §9）**：预判——#6 / #8 / #9 / #18 不适用，#7 前半不适用，#12 为 D-16 保留项，其余通过（每项理由见 §9 表）。核查记录存放于 `docs/iterations/0031-demand-convergence-redesign/demand-skill-checklist.md`（阶段 5 产出，含约束词按节计数表）。
 
 ## model_inferred
 

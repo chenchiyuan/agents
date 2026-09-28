@@ -24,8 +24,11 @@ QA 判定方式：读 workflow-pb.md 阶段定义表阶段 1 行与「阶段回�
 
 ## 架构维度
 
-`[架构待填]` A-04：是否随本次修改升 workflow-pb 版本号 / 写 changelog。
-`[架构待填]` A-05：阶段 1 行"输出"列的具体措辞。
+**A-04（已填定，详见 `architecture.md` §6；L1-4 用户已确认选 A）**：推荐不升 workflow-pb 版本、不写其 changelog（联动修改记在 demand-changelog）。
+**A-05（已填定，详见 `architecture.md` §7）**：
+- 输出列：`` `demand.md`（两段：澄清依据 + 需求结论；第二段为五项：需求/目标/边界/衡量标准/执行方向） ``
+- 推进条件列：`五项齐全；用户明确确认整份 demand.md（确认记录见其头部状态行）`
+- :228 括号：`（需求/目标/边界/衡量标准/执行方向）`
 
 ## model_inferred（已由 D-18 全部采纳，来源改为 user_confirmed）
 
