@@ -2,10 +2,10 @@
 
 **工作流**: workflow-pb v0.13.1
 **迭代**: 0031-demand-convergence-redesign
-**当前阶段**: 全部 6 阶段 ✅（阶段 6 迭代级终验 PASS，待用户确认合入 main）
-**迭代分支**: iteration/0031-demand-convergence-redesign
+**当前阶段**: 全部 6 阶段 ✅ 完成（阶段 6 终验 PASS · 迭代分支已合入 main）
+**迭代分支**: iteration/0031-demand-convergence-redesign（已合并）
 **工作区地址**: /Users/chenchiyuan/projects/agents/.pb-agents/worktrees/0031-demand-convergence-redesign
-**状态**: 等待确认（合入 main）
+**状态**: **已交付**——用户 2026-09-28 原话「good，请整理并提交代码」确认合入 main
 **history**: 关闭
 **方案确认门**: enabled —— **已通过**（用户 2026-09-28 原话「同意。这次的修改范围不大，我建议一个pr完成就行」）
 **一句话目标**: 把 demand 从"发散提问、逐条拍板"改为"围绕五项（需求/目标/边界/衡量标准/执行方向）反射式逐圈框定"，AI 写、AI 推荐，用户修正方向并最终确认
