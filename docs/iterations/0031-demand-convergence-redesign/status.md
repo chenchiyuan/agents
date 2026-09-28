@@ -17,7 +17,7 @@
 | 1 | 需求收敛 | ✅ | ⬜ | `demand.md` v1.0.0；D-1~D-15 全部 user_confirmed；用户 2026-09-28 确认整份文档 |
 | 2 | 功能规格 | ✅ | ⬜ | 15 卡（F01~F13/G01/U01）；MI-1~MI-13 用户确认；架构待填 A-01~A-07 |
 | 3 | 技术架构 | ✅ | ⬜ | `architecture.md`（兼作 §11.4 优化方案）；A-01~A-07 填定；L1-1~L1-4 用户确认全选 A |
-| 4 | PR 规划 | ⏸ | ⬜ | 派发 pr-planner；用户建议单 PR |
+| 4 | PR 规划 | ✅ | ⏸ | 单 PR `pr-001-demand-v1-rewrite-and-sync`（37 条验收）；check-pr-gates [7] 并发可行性经用户豁免、[2] U01 为提示项；Gate 阶段 6 验证中 |
 | 5 | PR 实现 | ⬜ | ⬜ | |
 | 6 | 独立验证 | — | — | 按需触发 |
 
@@ -36,7 +36,9 @@
 | L1-4 版本/changelog | A：workflow-pb / prd 不升版，联动修改记入 demand-changelog |
 | 方案确认门 | 通过 |
 | PR 粒度 | 用户建议单 PR 完成 |
+| check-pr-gates [7] | 用户原话「可以豁免」：单 PR 无并发伙伴属结构性必然，不为过工具硬拆 |
 
 ## 遗留（不在本次范围）
 
+- `tools/check-pr-gates.py` 在单 PR 时 [7] 必判失败，应跳过；[2] 不识别 U 类卡，另开 issue
 - prd.md:28 指向的 `data/prd-changelog.md` 不存在（architect Q-A1），另开 issue
