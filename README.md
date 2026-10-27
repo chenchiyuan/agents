@@ -6,6 +6,13 @@
 
 ---
 
+## 基础技能
+
+默认沟通使用 **80% ASD-STE100 Pragmatic Mode**，编码遵循 **Karpathy Guidelines**。
+执行规则见 `AGENTS.md`。上游来源、Multica 安装记录和绑定范围见 [基础技能](docs/foundation-skills.md)。
+
+---
+
 ## 核心设计
 
 框架建立在四条方法论之上，所有角色、协议、skill 都追溯到这四条：
