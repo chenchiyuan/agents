@@ -100,7 +100,7 @@ oamp task send dev-1 '{"command":"node","args":["-e","setTimeout(()=>{},60000)"]
 | `OAMP_TMUX_BIN` | cluster | `tmux` | tmux 可执行文件路径（测试注入用） |
 | `OAMP_CLUSTER_WAIT_MS` | cluster | `20000` | `cluster up` 就绪等待上限（毫秒）；`0` = 不等（测试用） |
 
-数值类 env 一律要求正整数，非法值启动即报错退出（快速失败）。
+数值类 env 的取值与非法值处理见上表；不同参数的规则有所不同。
 
 ## 协议速览
 
@@ -169,13 +169,13 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
   | `GET /api/events` | 全局 SSE：agent 上线 / 下线事件（`agent_online` / `agent_offline`）；无参数、不依赖对话 |
   | `GET /api/projects` | 项目列表（含 `chat_count` = 该项目的对话数、`last_activity_at` = 最近一次对话更新时间，无对话为 `null`）；无参数、无分页 |
   | `POST /api/projects` | `{repo_url, name?}`：创建项目（最小输入 = 仓库地址，`trim` 后非空即合法、不校验形态 / 可达性）；`name` 缺省按地址派生；重复地址 → 409 `CONFLICT` |
-  | `GET /api/docs` | 接口元数据（文档页 / 调试台 / AI 索引文件的数据源；请求时从路由登记投影，13 条） |
+  | `GET /api/docs` | 接口元数据（文档页 / 调试台 / AI 索引文件的数据源；请求时从路由登记投影） |
 
   错误契约：全部 4xx/5xx 响应体为 `{ error, code }`——`error` 为人类可读字符串、`code` 为封闭枚举且与状态码一一映射
   （`INVALID_PARAM`=400 / `NOT_FOUND`=404 / `CONFLICT`=409 / `PAYLOAD_TOO_LARGE`=413 / `UPSTREAM_UNAVAILABLE`=502）。
-  完整接口清单、事件清单与可直接粘贴执行的示例见 **[API.md](API.md)**（13 条 API + 6 类事件）。
+  完整接口清单、事件清单与可直接粘贴执行的示例见 **[API.md](API.md)**。
 
-- **SSE 事件（共六类）**：`message`（已落盘的输入/输出）/ `task_update`（流式增量，仅运行时、不入库）/ `chat_state`（状态变化）/
+- **对话与拓扑 SSE 事件**：`message`（已落盘的输入/输出）/ `task_update`（流式增量，仅运行时、不入库）/ `chat_state`（状态变化）/
   `notice`（上下文释放·重置提示）；另有两类**全局事件** `agent_online` / `agent_offline`（仅 `GET /api/events` 的订阅者可见）。
   断线由浏览器自动重连，重连或刷新时以 `GET /api/chats/<id>` 全量补齐（断线期间增量不补发）；全局订阅同款不补发。
 - **对话状态**：`working` → `completed`（成功）/ `failed`（失败轮或派发失败）；关闭后为 `closed`。
@@ -202,7 +202,7 @@ Web 服务以 `web` 身份常驻连接 Router（心跳保活）；浏览器不�
 - 同一对话的轮次**串行**（单次在飞，FIFO 排队上限 8，超出以 `context_busy` 失败）；不同对话可并发；
   常驻进程总数上限 `context.max` / `OAMP_CTX_MAX`（默认 8），超出按 **LRU 淘汰**最久未用者并推送 `notice{context_reset}` 提示。
 - **关闭对话即释放上下文**：web 向该对话涉及的各 agent 发 `context_release`，agent 结束该对话的常驻进程，在飞轮次按失败收尾；
-  关闭后只读、拒绝新输入（409）、**不提供重开**。
+  关闭后只读、拒绝新输入（409）；归档后可通过激活恢复对话。
 - **归档即释放上下文**：归档复用同一 `context_release` 链路，对每个被归档的对话逐个通知其涉及的各 agent（best-effort，agent 离线忽略）。
   **激活不恢复上下文**：归档时释放的常驻上下文不会回来，界面在该对话头部以「此后不再记得此前内容」显式提示，直到它产生新的回答后自动消失。
 - agent 进程重启会丢失全部常驻上下文（后续轮次以新的 `context_id` 重建）；**web 重启不影响**上下文（它活在 agent 进程内），历史照旧可查。
